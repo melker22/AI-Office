@@ -42,6 +42,16 @@ QFont fontFor(const Document &doc, const Block &b, const TextRun &r, qreal zoom)
         size = qMax(12.0, 24.0 - (b.level - 1) * 4);
         bold = true;
     }
+    if (!r.charStyle.isEmpty()) {
+        if (const StyleDef *cs = styleNamed(doc, r.charStyle)) {
+            family = cs->font;
+            size = cs->sizePt;
+            if (cs->bold)
+                bold = true;
+            if (cs->italic)
+                italic = true;
+        }
+    }
     if (!r.font.isEmpty())
         family = r.font;
     if (r.sizePt > 0)
@@ -56,6 +66,8 @@ QFont fontFor(const Document &doc, const Block &b, const TextRun &r, qreal zoom)
     f.setItalic(italic);
     f.setUnderline(r.underline);
     f.setStrikeOut(r.strike);
+    if (r.smallCaps)
+        f.setCapitalization(QFont::SmallCaps);
     if (r.superscript || r.subscript) {
         f.setPointSizeF(qMax(6.0, f.pointSizeF() * 0.7));
         if (r.superscript)
@@ -226,6 +238,8 @@ qreal measureNestedHeight(const Document &doc, const Block &b, const TableCell &
 
 QString listMarker(const Block &b, int number)
 {
+    if (b.listKind == QLatin1String("checkbox") || b.listKind == QLatin1String("task"))
+        return b.checked ? QStringLiteral("☑  ") : QStringLiteral("☐  ");
     if (b.listKind == QLatin1String("decimal"))
         return QString::number(number) + QStringLiteral(".  ");
     return QStringLiteral("•  ");
@@ -569,7 +583,8 @@ void paintPage(QPainter *p, const Document &doc, const DocumentLayout &lay, int 
                const QString &selId, int selStart, int selEnd, int selRow, int selCol, bool caretOn,
                int caretOff)
 {
-    p->fillRect(0, 0, lay.paperW, lay.paperH, QColor(QStringLiteral("#FDFBF7")));
+    p->fillRect(0, 0, lay.paperW, lay.paperH,
+                QColor(doc.page.background.isEmpty() ? QStringLiteral("#FDFBF7") : doc.page.background));
     p->fillRect(0, 0, lay.paperW, 3, QColor(QStringLiteral("#B5651D")));
     if (doc.page.borderPt > 0) {
         QPen bp(QColor(doc.page.borderColor.isEmpty() ? QStringLiteral("#B5651D") : doc.page.borderColor),
@@ -772,8 +787,13 @@ void paintPage(QPainter *p, const Document &doc, const DocumentLayout &lay, int 
                 cf.setVerticalAlignment(QTextCharFormat::AlignSubScript);
             if (!r.color.isEmpty())
                 cf.setForeground(QColor(r.color));
-            else if (!r.link.isEmpty())
+            else if (!r.charStyle.isEmpty()) {
+                if (const StyleDef *cs = styleNamed(doc, r.charStyle); cs && !cs->color.isEmpty())
+                    cf.setForeground(QColor(cs->color));
+            } else if (!r.link.isEmpty())
                 cf.setForeground(QColor(QStringLiteral("#B5651D")));
+            if (!r.highlight.isEmpty())
+                cf.setBackground(QColor(r.highlight));
             if (!r.link.isEmpty())
                 cf.setFontUnderline(true);
             fr.format = cf;

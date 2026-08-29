@@ -460,28 +460,7 @@ QJsonObject Session::deleteRange(const QJsonObject &args)
 
 static void applyRunFormat(TextRun &r, const QJsonObject &args)
 {
-    if (args.contains(QStringLiteral("bold")))
-        r.bold = args.value(QStringLiteral("bold")).toBool();
-    if (args.contains(QStringLiteral("italic")))
-        r.italic = args.value(QStringLiteral("italic")).toBool();
-    if (args.contains(QStringLiteral("underline")))
-        r.underline = args.value(QStringLiteral("underline")).toBool();
-    if (args.contains(QStringLiteral("font")))
-        r.font = args.value(QStringLiteral("font")).toString();
-    if (args.contains(QStringLiteral("size_pt")))
-        r.sizePt = args.value(QStringLiteral("size_pt")).toDouble();
-    if (args.contains(QStringLiteral("color")))
-        r.color = args.value(QStringLiteral("color")).toString();
-    if (args.contains(QStringLiteral("highlight")))
-        r.highlight = args.value(QStringLiteral("highlight")).toString();
-    if (args.contains(QStringLiteral("strike")))
-        r.strike = args.value(QStringLiteral("strike")).toBool();
-    if (args.contains(QStringLiteral("superscript")))
-        r.superscript = args.value(QStringLiteral("superscript")).toBool();
-    if (args.contains(QStringLiteral("subscript")))
-        r.subscript = args.value(QStringLiteral("subscript")).toBool();
-    if (args.contains(QStringLiteral("link")))
-        r.link = args.value(QStringLiteral("link")).toString();
+    applyFormatToRun(r, args);
 }
 
 QJsonObject Session::applyCharacterFormat(const QJsonObject &args)
@@ -662,6 +641,8 @@ QJsonObject Session::setPageLayout(const QJsonObject &args)
         doc_.page.borderPt = args.value(QStringLiteral("border_pt")).toDouble();
     if (args.contains(QStringLiteral("border_color")))
         doc_.page.borderColor = args.value(QStringLiteral("border_color")).toString();
+    if (args.contains(QStringLiteral("background")))
+        doc_.page.background = args.value(QStringLiteral("background")).toString();
     markChanged();
     return ok();
 }
@@ -729,9 +710,11 @@ QJsonObject Session::insertImage(const QJsonObject &args)
 QJsonObject Session::insertList(const QJsonObject &args)
 {
     const QString kindRaw = args.value(QStringLiteral("kind")).toString(QStringLiteral("bullet"));
-    const QString kind = (kindRaw == QLatin1String("number") || kindRaw == QLatin1String("decimal"))
-        ? QStringLiteral("decimal")
-        : QStringLiteral("bullet");
+    QString kind = QStringLiteral("bullet");
+    if (kindRaw == QLatin1String("number") || kindRaw == QLatin1String("decimal"))
+        kind = QStringLiteral("decimal");
+    else if (kindRaw == QLatin1String("checkbox") || kindRaw == QLatin1String("task"))
+        kind = QStringLiteral("checkbox");
     QJsonArray blocks;
     for (const auto &it : args.value(QStringLiteral("items")).toArray()) {
         Block b;
@@ -739,7 +722,12 @@ QJsonObject Session::insertList(const QJsonObject &args)
         b.listKind = kind;
         b.level = 1;
         TextRun r;
-        r.text = it.toString();
+        if (it.isObject()) {
+            r.text = it.toObject().value(QStringLiteral("text")).toString();
+            b.checked = it.toObject().value(QStringLiteral("checked")).toBool();
+        } else {
+            r.text = it.toString();
+        }
         b.runs.push_back(r);
         blocks.append(b.toJson());
     }
@@ -1620,8 +1608,16 @@ QJsonObject Session::documentFromTemplate(const QJsonObject &args)
         defaults = QJsonObject{{QStringLiteral("locador"), QStringLiteral("[nome]")},
                                {QStringLiteral("locatario"), QStringLiteral("[nome]")},
                                {QStringLiteral("clausula"), QStringLiteral("Objeto do contrato.")}};
+    } else if (kind == QLatin1String("envelope") || kind == QLatin1String("envelope-dl")) {
+        title = QStringLiteral("Envelope");
+        md = QStringLiteral("{{remetente}}\n\n\n{{destinatario}}\n{{morada}}\n{{codigo}} {{cidade}}");
+        defaults = QJsonObject{{QStringLiteral("remetente"), QStringLiteral("Remetente")},
+                               {QStringLiteral("destinatario"), QStringLiteral("Destinatário")},
+                               {QStringLiteral("morada"), QStringLiteral("Morada")},
+                               {QStringLiteral("codigo"), QStringLiteral("0000-000")},
+                               {QStringLiteral("cidade"), QStringLiteral("Cidade")}};
     } else {
-        return fail(QStringLiteral("template must be carta, ata, or contrato"));
+        return fail(QStringLiteral("template must be carta, ata, contrato, or envelope"));
     }
     if (dirty_ && !args.value(QStringLiteral("force")).toBool())
         return fail(QStringLiteral("document is unsaved; pass force=true to discard"));
@@ -1643,6 +1639,14 @@ QJsonObject Session::documentFromTemplate(const QJsonObject &args)
         p.type = QStringLiteral("paragraph");
         doc_.assignId(p);
         doc_.body.push_back(p);
+    }
+    if (kind == QLatin1String("envelope") || kind == QLatin1String("envelope-dl")) {
+        doc_.page.size = QStringLiteral("DL");
+        doc_.page.orientation = QStringLiteral("landscape");
+        doc_.page.marginsMm[0] = 12;
+        doc_.page.marginsMm[1] = 12;
+        doc_.page.marginsMm[2] = 12;
+        doc_.page.marginsMm[3] = 12;
     }
     sel_ = {};
     if (!doc_.body.isEmpty()) {
@@ -2145,6 +2149,117 @@ QJsonObject Session::mailMerge(const QJsonObject &args)
     return r;
 }
 
+QJsonObject Session::clearFormat(const QJsonObject &args)
+{
+    const auto idx = indexesFor(idList(args));
+    if (idx.isEmpty())
+        return fail(QStringLiteral("no matching ids"));
+    pushUndo();
+    const int start = args.value(QStringLiteral("start")).toInt(-1);
+    const int end = args.value(QStringLiteral("end")).toInt(-1);
+    for (int i : idx) {
+        auto &b = doc_.body[i];
+        if (start >= 0 && end > start && b.type != QLatin1String("table")) {
+            QVector<TextRun> mid = splitRuns(b.runs, start, end);
+            for (auto &r : mid)
+                clearRunFormat(r);
+            b.runs = splitRuns(b.runs, 0, start) + mid + splitRuns(b.runs, end, b.plainText().size());
+            if (b.runs.isEmpty())
+                b.runs.push_back(TextRun{});
+        } else {
+            for (auto &r : b.runs)
+                clearRunFormat(r);
+            if (b.type == QLatin1String("table")) {
+                for (auto &row : b.table)
+                    for (auto &cell : row)
+                        for (auto &r : cell.runs)
+                            clearRunFormat(r);
+            }
+        }
+    }
+    markChanged();
+    return ok();
+}
+
+QJsonObject Session::toggleCheck(const QJsonObject &args)
+{
+    const auto idx = indexesFor(idList(args));
+    if (idx.isEmpty())
+        return fail(QStringLiteral("no matching ids"));
+    pushUndo();
+    for (int i : idx) {
+        auto &b = doc_.body[i];
+        if (b.type != QLatin1String("list-item"))
+            continue;
+        if (args.contains(QStringLiteral("checked")))
+            b.checked = args.value(QStringLiteral("checked")).toBool();
+        else
+            b.checked = !b.checked;
+        if (b.listKind.isEmpty() || b.listKind == QLatin1String("bullet"))
+            b.listKind = QStringLiteral("checkbox");
+    }
+    markChanged();
+    return ok();
+}
+
+QJsonObject Session::insertSpecial(const QJsonObject &args)
+{
+    const QString kind = args.value(QStringLiteral("kind")).toString();
+    QString ch;
+    if (kind == QLatin1String("nbsp") || kind == QLatin1String("nbspace") || kind == QLatin1String("nonbreaking_space"))
+        ch = QChar(0x00A0);
+    else if (kind == QLatin1String("shy") || kind == QLatin1String("soft_hyphen"))
+        ch = QChar(0x00AD);
+    else if (kind == QLatin1String("emdash"))
+        ch = QChar(0x2014);
+    else if (kind == QLatin1String("endash"))
+        ch = QChar(0x2013);
+    else if (kind == QLatin1String("ellipsis"))
+        ch = QChar(0x2026);
+    else if (kind == QLatin1String("copyright"))
+        ch = QChar(0x00A9);
+    else if (kind == QLatin1String("euro"))
+        ch = QChar(0x20AC);
+    else if (!args.value(QStringLiteral("text")).toString().isEmpty())
+        ch = args.value(QStringLiteral("text")).toString();
+    if (ch.isEmpty())
+        return fail(QStringLiteral("kind must be nbsp, shy, emdash, endash, ellipsis, copyright, euro, or pass text"));
+    QJsonObject a = args;
+    a[QStringLiteral("text")] = ch;
+    return insertAtCaret(a);
+}
+
+QJsonObject Session::paintFormat(const QJsonObject &args)
+{
+    const QString fromId = args.value(QStringLiteral("from_id")).toString();
+    const Block *src = doc_.findBlock(fromId);
+    if (!src || src->runs.isEmpty())
+        return fail(QStringLiteral("from_id not found"));
+    int at = args.value(QStringLiteral("from_offset")).toInt(0);
+    const QString plain = src->plainText();
+    at = qBound(0, at, qMax(0, plain.size() - 1));
+    TextRun sample;
+    int pos = 0;
+    for (const auto &r : src->runs) {
+        if (at < pos + r.text.size() || pos + r.text.size() >= plain.size()) {
+            sample = r;
+            break;
+        }
+        pos += r.text.size();
+    }
+    QJsonObject fmt = runFormatJson(sample);
+    fmt[QStringLiteral("ids")] = args.value(QStringLiteral("ids"));
+    if (args.contains(QStringLiteral("id")))
+        fmt[QStringLiteral("id")] = args.value(QStringLiteral("id"));
+    if (args.contains(QStringLiteral("start")))
+        fmt[QStringLiteral("start")] = args.value(QStringLiteral("start"));
+    if (args.contains(QStringLiteral("end")))
+        fmt[QStringLiteral("end")] = args.value(QStringLiteral("end"));
+    if (idList(fmt).isEmpty())
+        return fail(QStringLiteral("ids or id is required"));
+    return applyCharacterFormat(fmt);
+}
+
 QJsonObject Session::validate(const QJsonObject &)
 {
     QJsonArray errors;
@@ -2437,6 +2552,14 @@ QJsonObject Session::call(const QString &tool, const QJsonObject &args)
         return nestTable(args);
     if (tool == QLatin1String("mail_merge"))
         return mailMerge(args);
+    if (tool == QLatin1String("clear_format") || tool == QLatin1String("clear_character_format"))
+        return clearFormat(args);
+    if (tool == QLatin1String("toggle_check"))
+        return toggleCheck(args);
+    if (tool == QLatin1String("insert_special"))
+        return insertSpecial(args);
+    if (tool == QLatin1String("paint_format"))
+        return paintFormat(args);
     if (tool == QLatin1String("insert_line_break")) {
         QJsonObject a = args;
         a[QStringLiteral("text")] = QString(QChar::LineFeed);

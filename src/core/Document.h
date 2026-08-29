@@ -21,6 +21,10 @@ struct TextRun {
     double sizePt = 0;
     QString color;
     QString highlight;
+    bool smallCaps = false;
+    QString caps; // upper | lower | title
+    bool hidden = false;
+    QString charStyle;
     QString link;
     QString field;    // page_number | page_count | date | title | author | xref
     QString fieldArg; // xref target id
@@ -115,6 +119,7 @@ struct Block {
     QString caption;
     QString wrap;
     QString anchor;
+    bool checked = false;
 
     QJsonObject toJson() const;
     static Block fromJson(const QJsonObject &o);
@@ -148,6 +153,7 @@ struct PageLayout {
     bool columnSeparator = false;
     QString borderColor;
     double borderPt = 0;
+    QString background;
 
     QJsonObject toJson() const;
     static PageLayout fromJson(const QJsonObject &o);
@@ -206,6 +212,9 @@ QString runDisplayText(const Document &doc, const TextRun &r, int page = 1, int 
 StyleDef defaultStyle(const QString &name);
 QVector<TextRun> splitRuns(const QVector<TextRun> &runs, int start, int end);
 QVector<TextRun> spliceRuns(QVector<TextRun> runs, int start, int end, const TextRun &insert);
+void applyFormatToRun(TextRun &r, const QJsonObject &fmt);
+void clearRunFormat(TextRun &r);
+QJsonObject runFormatJson(const TextRun &r);
 void applyFormatToRange(QVector<TextRun> &runs, int start, int end, const QJsonObject &fmt);
 
 } // namespace aioffice

@@ -23,6 +23,14 @@ QJsonObject TextRun::toJson() const
         o[QStringLiteral("color")] = color;
     if (!highlight.isEmpty())
         o[QStringLiteral("highlight")] = highlight;
+    if (smallCaps)
+        o[QStringLiteral("small_caps")] = true;
+    if (!caps.isEmpty())
+        o[QStringLiteral("caps")] = caps;
+    if (hidden)
+        o[QStringLiteral("hidden")] = true;
+    if (!charStyle.isEmpty())
+        o[QStringLiteral("char_style")] = charStyle;
     if (!link.isEmpty())
         o[QStringLiteral("link")] = link;
     if (strike)
@@ -51,6 +59,10 @@ TextRun TextRun::fromJson(const QJsonObject &o)
     r.sizePt = o.value(QStringLiteral("size_pt")).toDouble();
     r.color = o.value(QStringLiteral("color")).toString();
     r.highlight = o.value(QStringLiteral("highlight")).toString();
+    r.smallCaps = o.value(QStringLiteral("small_caps")).toBool();
+    r.caps = o.value(QStringLiteral("caps")).toString();
+    r.hidden = o.value(QStringLiteral("hidden")).toBool();
+    r.charStyle = o.value(QStringLiteral("char_style")).toString();
     r.link = o.value(QStringLiteral("link")).toString();
     r.strike = o.value(QStringLiteral("strike")).toBool();
     r.superscript = o.value(QStringLiteral("superscript")).toBool();
@@ -331,6 +343,8 @@ QJsonObject Block::toJson() const
         o[QStringLiteral("border_pt")] = borderPt;
     if (!borderColor.isEmpty())
         o[QStringLiteral("border_color")] = borderColor;
+    if (checked)
+        o[QStringLiteral("checked")] = true;
     return o;
 }
 
@@ -404,6 +418,7 @@ Block Block::fromJson(const QJsonObject &o)
     b.caption = o.value(QStringLiteral("caption")).toString();
     b.wrap = o.value(QStringLiteral("wrap")).toString();
     b.anchor = o.value(QStringLiteral("anchor")).toString();
+    b.checked = o.value(QStringLiteral("checked")).toBool();
     return b;
 }
 
@@ -492,6 +507,8 @@ QJsonObject PageLayout::toJson() const
         o[QStringLiteral("border_pt")] = borderPt;
     if (!borderColor.isEmpty())
         o[QStringLiteral("border_color")] = borderColor;
+    if (!background.isEmpty())
+        o[QStringLiteral("background")] = background;
     return o;
 }
 
@@ -510,6 +527,7 @@ PageLayout PageLayout::fromJson(const QJsonObject &o)
     p.columnSeparator = o.value(QStringLiteral("column_separator")).toBool();
     p.borderPt = o.value(QStringLiteral("border_pt")).toDouble();
     p.borderColor = o.value(QStringLiteral("border_color")).toString();
+    p.background = o.value(QStringLiteral("background")).toString();
     return p;
 }
 
@@ -534,6 +552,15 @@ void PageLayout::pageSizeMm(double &w, double &h) const
     } else if (s == QLatin1String("a6")) {
         w = 105;
         h = 148;
+    } else if (s == QLatin1String("dl") || s == QLatin1String("envelope") || s == QLatin1String("envelope-dl")) {
+        w = 110;
+        h = 220;
+    } else if (s == QLatin1String("c5")) {
+        w = 162;
+        h = 229;
+    } else if (s == QLatin1String("c6")) {
+        w = 114;
+        h = 162;
     } else {
         w = 210;
         h = 297;
@@ -792,39 +819,60 @@ int Document::wordCount() const
 
 QString runDisplayText(const Document &doc, const TextRun &r, int page, int pages)
 {
+    if (r.hidden)
+        return {};
+    QString t;
     if (r.field == QLatin1String("page_number"))
-        return QString::number(qMax(1, page));
-    if (r.field == QLatin1String("page_count"))
-        return QString::number(qMax(1, pages));
-    if (r.field == QLatin1String("date"))
-        return QDate::currentDate().toString(QStringLiteral("dd/MM/yyyy"));
-    if (r.field == QLatin1String("title"))
-        return doc.title;
-    if (r.field == QLatin1String("author"))
-        return doc.author.isEmpty() ? QStringLiteral("—") : doc.author;
-    if (r.field == QLatin1String("filename") || r.field == QLatin1String("file_name"))
-        return doc.fileName.isEmpty() ? doc.title : doc.fileName;
-    if (r.field == QLatin1String("word_count"))
-        return QString::number(doc.wordCount());
-    if (r.field == QLatin1String("custom"))
-        return r.fieldArg.isEmpty() ? r.text : r.fieldArg;
-    if (r.field == QLatin1String("merge") || r.field == QLatin1String("mail_merge")) {
+        t = QString::number(qMax(1, page));
+    else if (r.field == QLatin1String("page_count"))
+        t = QString::number(qMax(1, pages));
+    else if (r.field == QLatin1String("date"))
+        t = QDate::currentDate().toString(QStringLiteral("dd/MM/yyyy"));
+    else if (r.field == QLatin1String("title"))
+        t = doc.title;
+    else if (r.field == QLatin1String("author"))
+        t = doc.author.isEmpty() ? QStringLiteral("—") : doc.author;
+    else if (r.field == QLatin1String("filename") || r.field == QLatin1String("file_name"))
+        t = doc.fileName.isEmpty() ? doc.title : doc.fileName;
+    else if (r.field == QLatin1String("word_count"))
+        t = QString::number(doc.wordCount());
+    else if (r.field == QLatin1String("custom"))
+        t = r.fieldArg.isEmpty() ? r.text : r.fieldArg;
+    else if (r.field == QLatin1String("merge") || r.field == QLatin1String("mail_merge")) {
         const QString key = r.fieldArg.isEmpty() ? r.text : r.fieldArg;
-        return key.isEmpty() ? QStringLiteral("«merge»") : QStringLiteral("«%1»").arg(key);
-    }
-    if (r.field == QLatin1String("xref")) {
-        const Block *t = doc.findBlock(r.fieldArg);
-        if (t)
-            return t->plainText().left(48);
-        for (const auto &bm : doc.bookmarks) {
-            if (bm.id == r.fieldArg || bm.name == r.fieldArg) {
-                const Block *b = doc.findBlock(bm.blockId);
-                return b ? b->plainText().left(48) : bm.name;
+        t = key.isEmpty() ? QStringLiteral("«merge»") : QStringLiteral("«%1»").arg(key);
+    } else if (r.field == QLatin1String("xref")) {
+        const Block *tgt = doc.findBlock(r.fieldArg);
+        if (tgt)
+            t = tgt->plainText().left(48);
+        else {
+            for (const auto &bm : doc.bookmarks) {
+                if (bm.id == r.fieldArg || bm.name == r.fieldArg) {
+                    const Block *b = doc.findBlock(bm.blockId);
+                    t = b ? b->plainText().left(48) : bm.name;
+                    break;
+                }
             }
+            if (t.isEmpty())
+                t = r.fieldArg;
         }
-        return r.fieldArg;
+    } else {
+        t = r.text;
     }
-    return r.text;
+    if (r.caps == QLatin1String("upper"))
+        return t.toUpper();
+    if (r.caps == QLatin1String("lower"))
+        return t.toLower();
+    if (r.caps == QLatin1String("title")) {
+        QString out;
+        bool nextUp = true;
+        for (const QChar ch : t) {
+            out += nextUp ? ch.toUpper() : ch.toLower();
+            nextUp = ch.isSpace() || ch == QLatin1Char('-');
+        }
+        return out;
+    }
+    return t;
 }
 
 static QString runsPlain(const QVector<TextRun> &runs)
@@ -870,6 +918,80 @@ QVector<TextRun> spliceRuns(QVector<TextRun> runs, int start, int end, const Tex
     return out;
 }
 
+void applyFormatToRun(TextRun &r, const QJsonObject &fmt)
+{
+    if (fmt.contains(QStringLiteral("bold")))
+        r.bold = fmt.value(QStringLiteral("bold")).toBool();
+    if (fmt.contains(QStringLiteral("italic")))
+        r.italic = fmt.value(QStringLiteral("italic")).toBool();
+    if (fmt.contains(QStringLiteral("underline")))
+        r.underline = fmt.value(QStringLiteral("underline")).toBool();
+    if (fmt.contains(QStringLiteral("font")))
+        r.font = fmt.value(QStringLiteral("font")).toString();
+    if (fmt.contains(QStringLiteral("size_pt")))
+        r.sizePt = fmt.value(QStringLiteral("size_pt")).toDouble();
+    if (fmt.contains(QStringLiteral("color")))
+        r.color = fmt.value(QStringLiteral("color")).toString();
+    if (fmt.contains(QStringLiteral("highlight")))
+        r.highlight = fmt.value(QStringLiteral("highlight")).toString();
+    if (fmt.contains(QStringLiteral("strike")))
+        r.strike = fmt.value(QStringLiteral("strike")).toBool();
+    if (fmt.contains(QStringLiteral("superscript")))
+        r.superscript = fmt.value(QStringLiteral("superscript")).toBool();
+    if (fmt.contains(QStringLiteral("subscript")))
+        r.subscript = fmt.value(QStringLiteral("subscript")).toBool();
+    if (fmt.contains(QStringLiteral("link")))
+        r.link = fmt.value(QStringLiteral("link")).toString();
+    if (fmt.contains(QStringLiteral("small_caps")))
+        r.smallCaps = fmt.value(QStringLiteral("small_caps")).toBool();
+    if (fmt.contains(QStringLiteral("caps")))
+        r.caps = fmt.value(QStringLiteral("caps")).toString();
+    if (fmt.contains(QStringLiteral("hidden")))
+        r.hidden = fmt.value(QStringLiteral("hidden")).toBool();
+    if (fmt.contains(QStringLiteral("char_style")))
+        r.charStyle = fmt.value(QStringLiteral("char_style")).toString();
+}
+
+void clearRunFormat(TextRun &r)
+{
+    r.bold = false;
+    r.italic = false;
+    r.underline = false;
+    r.strike = false;
+    r.superscript = false;
+    r.subscript = false;
+    r.font.clear();
+    r.sizePt = 0;
+    r.color.clear();
+    r.highlight.clear();
+    r.smallCaps = false;
+    r.caps.clear();
+    r.hidden = false;
+    r.charStyle.clear();
+    r.link.clear();
+}
+
+QJsonObject runFormatJson(const TextRun &r)
+{
+    QJsonObject o;
+    o[QStringLiteral("bold")] = r.bold;
+    o[QStringLiteral("italic")] = r.italic;
+    o[QStringLiteral("underline")] = r.underline;
+    o[QStringLiteral("strike")] = r.strike;
+    o[QStringLiteral("superscript")] = r.superscript;
+    o[QStringLiteral("subscript")] = r.subscript;
+    o[QStringLiteral("font")] = r.font;
+    o[QStringLiteral("size_pt")] = r.sizePt;
+    o[QStringLiteral("color")] = r.color;
+    o[QStringLiteral("highlight")] = r.highlight;
+    o[QStringLiteral("small_caps")] = r.smallCaps;
+    o[QStringLiteral("caps")] = r.caps;
+    o[QStringLiteral("hidden")] = r.hidden;
+    o[QStringLiteral("char_style")] = r.charStyle;
+    o[QStringLiteral("link")] = r.link;
+    return o;
+}
+
 void applyFormatToRange(QVector<TextRun> &runs, int start, int end, const QJsonObject &fmt)
 {
     const QString plain = runsPlain(runs);
@@ -877,35 +999,11 @@ void applyFormatToRange(QVector<TextRun> &runs, int start, int end, const QJsonO
     const int e = qBound(s, end, plain.size());
     if (s == e && fmt.isEmpty())
         return;
-    auto apply = [&](TextRun &r) {
-        if (fmt.contains(QStringLiteral("bold")))
-            r.bold = fmt.value(QStringLiteral("bold")).toBool();
-        if (fmt.contains(QStringLiteral("italic")))
-            r.italic = fmt.value(QStringLiteral("italic")).toBool();
-        if (fmt.contains(QStringLiteral("underline")))
-            r.underline = fmt.value(QStringLiteral("underline")).toBool();
-        if (fmt.contains(QStringLiteral("font")))
-            r.font = fmt.value(QStringLiteral("font")).toString();
-        if (fmt.contains(QStringLiteral("size_pt")))
-            r.sizePt = fmt.value(QStringLiteral("size_pt")).toDouble();
-        if (fmt.contains(QStringLiteral("color")))
-            r.color = fmt.value(QStringLiteral("color")).toString();
-        if (fmt.contains(QStringLiteral("highlight")))
-            r.highlight = fmt.value(QStringLiteral("highlight")).toString();
-        if (fmt.contains(QStringLiteral("strike")))
-            r.strike = fmt.value(QStringLiteral("strike")).toBool();
-        if (fmt.contains(QStringLiteral("superscript")))
-            r.superscript = fmt.value(QStringLiteral("superscript")).toBool();
-        if (fmt.contains(QStringLiteral("subscript")))
-            r.subscript = fmt.value(QStringLiteral("subscript")).toBool();
-        if (fmt.contains(QStringLiteral("link")))
-            r.link = fmt.value(QStringLiteral("link")).toString();
-    };
     QVector<TextRun> before = splitRuns(runs, 0, s);
     QVector<TextRun> mid = splitRuns(runs, s, e);
     QVector<TextRun> after = splitRuns(runs, e, plain.size());
     for (auto &r : mid)
-        apply(r);
+        applyFormatToRun(r, fmt);
     runs = before + mid + after;
     if (runs.isEmpty())
         runs.push_back(TextRun{});

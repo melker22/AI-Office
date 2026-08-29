@@ -138,8 +138,8 @@ Args: `{ "ids": ["p1"] }`
 
 ### `apply_character_format`
 
-Args: `{ "ids": ["p1"], "start"?: int, "end"?: int, "bold"?: bool, "italic"?: bool, "underline"?: bool, "strike"?: bool, "superscript"?: bool, "subscript"?: bool, "font"?: string, "size_pt"?: number, "color"?: string, "highlight"?: string, "link"?: string }`  
-With `start`/`end`, applies to that range of the block’s plain text. Otherwise all runs.
+Args: `{ "ids": ["p1"], "start"?: int, "end"?: int, "bold"?: bool, "italic"?: bool, "underline"?: bool, "strike"?: bool, "superscript"?: bool, "subscript"?: bool, "font"?: string, "size_pt"?: number, "color"?: string, "highlight"?: string, "link"?: string, "small_caps"?: bool, "caps"?: "upper"|"lower"|"title", "hidden"?: bool, "char_style"?: string }`  
+With `start`/`end`, applies to that range of the block’s plain text. Otherwise all runs. `highlight` is painted in `page_preview`. `hidden` omits the run from preview. `char_style` names a `create_style` with `kind=character`.
 
 ### `apply_paragraph_format`
 
@@ -153,11 +153,11 @@ Args: `{ "ids": ["p1"], "style": "Heading 1" }`
 
 ### `create_style`
 
-Args: `{ "name": string, "font"?: string, "size_pt"?: number, "bold"?: bool, "italic"?: bool, "color"?: string, "align"?: string, "space_before_pt"?: number, "space_after_pt"?: number }`
+Args: `{ "name": string, "font"?: string, "size_pt"?: number, "bold"?: bool, "italic"?: bool, "color"?: string, "align"?: string, "space_before_pt"?: number, "space_after_pt"?: number, "kind"?: "paragraph"|"character" }`
 
 ### `set_page_layout`
 
-Args: `{ "size"?: "A4"|"Letter"|"Legal"|"A3"|"A5"|"A6"|"Tabloid", "orientation"?: "portrait"|"landscape", "margins_mm"?: [t, r, b, l], "columns"?: 1|2|3, "hyphenate"?: bool, "gutter_mm"?: number, "column_gap_mm"?: number, "column_separator"?: bool, "border_pt"?: number, "border_color"?: string }`
+Args: `{ "size"?: "A4"|"Letter"|"Legal"|"A3"|"A5"|"A6"|"Tabloid"|"DL"|"C5"|"C6", "orientation"?: "portrait"|"landscape", "margins_mm"?: [t, r, b, l], "columns"?: 1|2|3, "hyphenate"?: bool, "gutter_mm"?: number, "column_gap_mm"?: number, "column_separator"?: bool, "border_pt"?: number, "border_color"?: string, "background"?: string }`
 
 ### `insert_table`
 
@@ -172,7 +172,8 @@ Reads the file into `image_b64`.
 
 ### `insert_list`
 
-Args: `{ "after_id": "end", "kind": "bullet"|"decimal"|"number", "items": ["a", "b"] }`
+Args: `{ "after_id": "end", "kind": "bullet"|"decimal"|"number"|"checkbox", "items": ["a", "b"] }`  
+`checkbox` items may be `{ "text": "…", "checked": true }`. `toggle_check { id }` flips the box.
 
 ### `insert_break`
 
@@ -218,7 +219,7 @@ Ids `added` / `removed` / `changed` / `moved` vs the document at last **save**, 
 
 ### `import_markdown` / `document_from_template`
 
-Markdown → blocks. Inline: `**bold**`, `*italic*`, `[text](url)`. Nested lists by indent. Templates: `carta` | `ata` | `contrato` (`template` or `name`). If the session is dirty, pass `force=true`. Optional `fields` replaces `{{placeholders}}` (cidade, data, nome, …). Title is human (`Carta`, not `carta`). Path is cleared.
+Markdown → blocks. Inline: `**bold**`, `*italic*`, `[text](url)`. Nested lists by indent. Templates: `carta` | `ata` | `contrato` | `envelope` (`template` or `name`). Envelope uses paper **DL** landscape. If the session is dirty, pass `force=true`. Optional `fields` replaces `{{placeholders}}` (cidade, data, nome, …). Title is human (`Carta`, not `carta`). Path is cleared.
 
 ### `link_set` / `bookmark_add` / `insert_crossref`
 
@@ -259,6 +260,13 @@ Mapa `{from: to}` no JSON do documento (sem GUI). O caret aplica a lista + defau
 
 Args: `{ "records": [ {"nome": "Ana"}, {"nome": "Bia"} ] }`  
 Clona o corpo por registo, substitui `{{chave}}` e campos `merge`, e insere quebra de página entre cópias. IDs novos. Undo restaura o modelo.
+
+### `clear_format` / `paint_format` / `insert_special` / `toggle_check`
+
+`clear_format {ids, start?, end?}` tira formato de carácter (mantém texto).  
+`paint_format {from_id, ids, start?, end?}` copia o formato do run em `from_id`.  
+`insert_special {kind: nbsp|shy|emdash|endash|ellipsis|copyright|euro}` no caret.  
+`toggle_check {id, checked?}` em itens `checkbox`.
 
 ### `set_image` / `insert_caption`
 

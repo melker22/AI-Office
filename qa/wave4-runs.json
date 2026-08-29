@@ -1,0 +1,18 @@
+[
+  {"tool": "document_new", "args": {"title": "Wave4", "force": true}},
+  {"tool": "set_page_layout", "args": {"background": "#FBF0E6"}},
+  {"tool": "insert_at_caret", "args": {"id": "p1", "offset": 0, "text": "Aveiro destaque oculto"}},
+  {"tool": "apply_character_format", "args": {"id": "p1", "font": "Liberation Serif", "size_pt": 16, "color": "#B5651D"}},
+  {"tool": "apply_character_format", "args": {"id": "p1", "start": 7, "end": 15, "highlight": "#FFF59D"}},
+  {"tool": "apply_character_format", "args": {"id": "p1", "start": 16, "end": 22, "hidden": true}},
+  {"tool": "create_style", "args": {"name": "Emphasis", "kind": "character", "italic": true, "color": "#6B6258"}},
+  {"tool": "apply_character_format", "args": {"id": "p1", "start": 0, "end": 6, "char_style": "Emphasis", "small_caps": true}},
+  {"tool": "insert_list", "args": {"after_id": "p1", "kind": "checkbox", "items": [{"text": "fazer", "checked": false}, {"text": "feito", "checked": true}]}},
+  {"tool": "toggle_check", "args": {"id": "l1", "checked": true}},
+  {"tool": "insert_special", "args": {"id": "p1", "offset": 6, "kind": "nbsp"}},
+  {"tool": "paint_format", "args": {"from_id": "p1", "from_offset": 7, "id": "l2"}},
+  {"tool": "page_preview", "args": {"from": 1, "to": 1, "zoom": 1}},
+  {"tool": "clear_format", "args": {"id": "l2"}},
+  {"tool": "document_from_template", "args": {"template": "envelope", "force": true}},
+  {"tool": "validate", "args": {}}
+]
