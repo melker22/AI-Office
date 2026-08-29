@@ -17,7 +17,12 @@ QStringList dictStems()
     QStringList stems;
     const QString dicpath = qEnvironmentVariable("DICPATH");
     if (!dicpath.isEmpty()) {
-        stems << dicpath + QStringLiteral("/pt_BR") << dicpath + QStringLiteral("/en_US");
+        for (const auto &dir : dicpath.split(QLatin1Char(':'))) {
+            if (dir.isEmpty())
+                continue;
+            stems << dir + QStringLiteral("/pt_BR") << dir + QStringLiteral("/en_US")
+                  << dir + QStringLiteral("/pt_PT");
+        }
     }
     const QStringList bases = {
         QStringLiteral("/run/current-system/sw/share/hunspell"),

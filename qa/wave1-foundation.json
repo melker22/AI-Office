@@ -1,0 +1,12 @@
+[
+  {"tool": "document_open", "args": {"path": "PLACEHOLDER"}},
+  {"tool": "checkpoint", "args": {}},
+  {"tool": "batch", "args": {"calls": [
+    {"tool": "apply_character_format", "args": {"id": "h1", "bold": true}},
+    {"tool": "validate", "args": {}}
+  ]}},
+  {"tool": "validate", "args": {}},
+  {"tool": "page_preview", "args": {"from": 1, "to": 1, "zoom": 1}},
+  {"tool": "document_get_outline", "args": {}},
+  {"tool": "restore", "args": {}}
+]

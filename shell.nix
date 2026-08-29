@@ -21,5 +21,6 @@ pkgs.mkShell {
   ];
   shellHook = ''
     echo "AI Office dev shell — cmake --preset linux && cmake --build --preset linux"
+    export DICPATH="${pkgs.hunspellDicts.pt_BR}/share/hunspell:${pkgs.hunspellDicts.en_US}/share/hunspell''${DICPATH:+:}$DICPATH"
   '';
 }

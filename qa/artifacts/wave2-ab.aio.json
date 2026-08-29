@@ -1,0 +1,76 @@
+{
+  "schema": 1,
+  "meta": {
+    "title": "Wave2 round-trip",
+    "author": "Melker",
+    "page": {
+      "size": "A4",
+      "orientation": "portrait",
+      "margins_mm": [25, 20, 25, 20],
+      "columns": 2,
+      "column_separator": true
+    },
+    "track_changes": true
+  },
+  "styles": [
+    {"name": "Normal", "font": "Liberation Serif", "size_pt": 12, "bold": false, "italic": false, "color": "#1A1F24", "space_before_pt": 0, "space_after_pt": 8},
+    {"name": "Heading 1", "font": "Liberation Serif", "size_pt": 22, "bold": true, "italic": false, "color": "#1A1F24", "space_before_pt": 16, "space_after_pt": 8}
+  ],
+  "body": [
+    {
+      "id": "h1",
+      "type": "heading",
+      "level": 1,
+      "style": "Heading 1",
+      "runs": [{"text": "Capítulo um", "bold": true, "italic": false, "underline": false}]
+    },
+    {
+      "id": "p1",
+      "type": "paragraph",
+      "style": "Normal",
+      "indent_left_mm": 10,
+      "keep_with_next": true,
+      "runs": [
+        {"text": "Ver página ", "bold": false, "italic": false, "underline": false},
+        {"text": "", "bold": false, "italic": false, "underline": false, "field": "page_number"},
+        {"text": " de ", "bold": false, "italic": false, "underline": false},
+        {"text": "", "bold": false, "italic": false, "underline": false, "field": "page_count"},
+        {"text": " e nota", "bold": false, "italic": false, "underline": false, "note_id": "fn1", "superscript": true},
+        {"text": ".", "bold": false, "italic": false, "underline": false, "highlight": "#FFF59D"}
+      ]
+    },
+    {
+      "id": "fn1",
+      "type": "footnote",
+      "runs": [{"text": "Nota de rodapé A+B.", "bold": false, "italic": false, "underline": false}]
+    },
+    {
+      "id": "en1",
+      "type": "endnote",
+      "runs": [{"text": "Nota de fim.", "bold": false, "italic": false, "underline": false}]
+    },
+    {
+      "id": "toc1",
+      "type": "toc",
+      "runs": [{"text": "Capítulo um", "bold": false, "italic": false, "underline": false}],
+      "toc_targets": ["h1"]
+    },
+    {
+      "id": "br1",
+      "type": "break",
+      "break_kind": "column"
+    },
+    {
+      "id": "p2",
+      "type": "paragraph",
+      "style": "Normal",
+      "runs": [{"text": "Coluna dois.", "bold": false, "italic": false, "underline": false, "strike": true}]
+    }
+  ],
+  "bookmarks": [
+    {"id": "bm1", "name": "cap1", "block_id": "h1", "offset": 0}
+  ],
+  "revisions": [
+    {"id": "rev1", "author": "IA", "kind": "insert", "block_id": "p2", "start": 0, "end": 12, "text": "Coluna dois.", "timestamp": 1}
+  ]
+}

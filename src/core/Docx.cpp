@@ -4,7 +4,11 @@
 #include "core/Zip.h"
 
 #include <QFile>
+#include <QJsonArray>
+#include <QJsonDocument>
+#include <QJsonObject>
 #include <QMap>
+#include <QSet>
 #include <QXmlStreamReader>
 #include <cmath>
 
@@ -22,7 +26,7 @@ QString wAlign(const QString &a)
     return QStringLiteral("left");
 }
 
-QString runsToWml(const QVector<TextRun> &runs)
+QString runsToWml(const QVector<TextRun> &runs, const Document &doc, QMap<QString, int> &fnIds, QMap<QString, int> &enIds)
 {
     QString xml;
     for (const auto &r : runs) {
@@ -48,17 +52,65 @@ QString runsToWml(const QVector<TextRun> &runs)
             c.remove(QLatin1Char('#'));
             rPr += QStringLiteral("<w:color w:val=\"%1\"/>").arg(c);
         }
-        QString t = xmlEscape(r.text);
-        const QString space = r.text.startsWith(QLatin1Char(' ')) || r.text.endsWith(QLatin1Char(' '))
-            ? QStringLiteral(" xml:space=\"preserve\"")
-            : QString();
-        QString runXml = QStringLiteral("<w:r>");
-        if (!rPr.isEmpty())
-            runXml += QStringLiteral("<w:rPr>%1</w:rPr>").arg(rPr);
-        runXml += QStringLiteral("<w:t%1>%2</w:t></w:r>").arg(space, t);
-        if (!r.link.isEmpty())
-            runXml = QStringLiteral("<w:hyperlink w:anchor=\"%1\">%2</w:hyperlink>").arg(xmlEscape(r.link), runXml);
-        xml += runXml;
+        if (!r.highlight.isEmpty()) {
+            rPr += QLatin1String("<w:highlight w:val=\"yellow\"/>");
+        }
+        if (!r.field.isEmpty()) {
+            QString instr = r.field;
+            if (r.field == QLatin1String("page_number"))
+                instr = QStringLiteral(" PAGE ");
+            else if (r.field == QLatin1String("page_count"))
+                instr = QStringLiteral(" NUMPAGES ");
+            else if (r.field == QLatin1String("date"))
+                instr = QStringLiteral(" DATE ");
+            else if (r.field == QLatin1String("title"))
+                instr = QStringLiteral(" TITLE ");
+            else if (r.field == QLatin1String("author"))
+                instr = QStringLiteral(" AUTHOR ");
+            else if (r.field == QLatin1String("filename") || r.field == QLatin1String("file_name"))
+                instr = QStringLiteral(" FILENAME ");
+            else if (r.field == QLatin1String("word_count"))
+                instr = QStringLiteral(" NUMWORDS ");
+            else if (r.field == QLatin1String("xref"))
+                instr = QStringLiteral(" REF %1 ").arg(r.fieldArg);
+            const QString vis = xmlEscape(runDisplayText(doc, r));
+            xml += QStringLiteral("<w:fldSimple w:instr=\"%1\"><w:r><w:t>%2</w:t></w:r></w:fldSimple>")
+                       .arg(xmlEscape(instr), vis);
+        } else {
+            QString t = xmlEscape(r.text);
+            const QString space = r.text.startsWith(QLatin1Char(' ')) || r.text.endsWith(QLatin1Char(' '))
+                ? QStringLiteral(" xml:space=\"preserve\"")
+                : QString();
+            QString runXml = QStringLiteral("<w:r>");
+            if (!rPr.isEmpty())
+                runXml += QStringLiteral("<w:rPr>%1</w:rPr>").arg(rPr);
+            runXml += QStringLiteral("<w:t%1>%2</w:t></w:r>").arg(space, t);
+            if (!r.link.isEmpty())
+                runXml = QStringLiteral("<w:hyperlink w:anchor=\"%1\">%2</w:hyperlink>").arg(xmlEscape(r.link), runXml);
+            xml += runXml;
+        }
+        if (!r.noteId.isEmpty()) {
+            const Block *nb = doc.findBlock(r.noteId);
+            if (nb && nb->type == QLatin1String("footnote")) {
+                int id = fnIds.value(r.noteId, 0);
+                if (id == 0) {
+                    id = fnIds.size() + 1;
+                    fnIds[r.noteId] = id;
+                }
+                xml += QStringLiteral(
+                    "<w:r><w:rPr><w:vertAlign w:val=\"superscript\"/></w:rPr><w:footnoteReference w:id=\"%1\"/></w:r>")
+                           .arg(id);
+            } else if (nb && nb->type == QLatin1String("endnote")) {
+                int id = enIds.value(r.noteId, 0);
+                if (id == 0) {
+                    id = enIds.size() + 1;
+                    enIds[r.noteId] = id;
+                }
+                xml += QStringLiteral(
+                    "<w:r><w:rPr><w:vertAlign w:val=\"superscript\"/></w:rPr><w:endnoteReference w:id=\"%1\"/></w:r>")
+                           .arg(id);
+            }
+        }
     }
     return xml;
 }
@@ -112,20 +164,41 @@ bool saveDocx(const Document &doc, const QString &path, QString *error)
     QString extraTypes;
     int imgN = 0;
     int relN = 2;
+    QMap<QString, int> fnIds;
+    QMap<QString, int> enIds;
     for (const auto &b : doc.body) {
+        if (b.type == QLatin1String("footnote") || b.type == QLatin1String("endnote"))
+            continue;
         if (b.type == QLatin1String("table")) {
             body += QLatin1String("<w:tbl><w:tblPr><w:tblW w:w=\"0\" w:type=\"auto\"/></w:tblPr>");
             for (const auto &row : b.table) {
                 body += QLatin1String("<w:tr>");
                 for (const auto &cell : row)
-                    body += QStringLiteral("<w:tc><w:p>%1</w:p></w:tc>").arg(runsToWml(cell.runs));
+                    body += QStringLiteral("<w:tc><w:p>%1</w:p></w:tc>").arg(runsToWml(cell.runs, doc, fnIds, enIds));
                 body += QLatin1String("</w:tr>");
             }
             body += QLatin1String("</w:tbl>");
             continue;
         }
         if (b.type == QLatin1String("break")) {
-            body += QLatin1String("<w:p><w:r><w:br w:type=\"page\"/></w:r></w:p>");
+            const QString br = b.breakKind == QLatin1String("column")
+                ? QStringLiteral("<w:br w:type=\"column\"/>")
+                : QStringLiteral("<w:br w:type=\"page\"/>");
+            body += QStringLiteral("<w:p><w:r>%1</w:r></w:p>").arg(br);
+            continue;
+        }
+        if (b.type == QLatin1String("toc")) {
+            QString items;
+            for (const auto &tid : b.tocTargets) {
+                const Block *t = doc.findBlock(tid);
+                items += QStringLiteral("<w:p><w:pPr><w:pStyle w:val=\"TOC1\"/></w:pPr><w:r><w:t>%1</w:t></w:r></w:p>")
+                             .arg(xmlEscape(t ? t->plainText() : QString()));
+            }
+            if (items.isEmpty())
+                items = QStringLiteral("<w:p><w:r><w:t>%1</w:t></w:r></w:p>").arg(xmlEscape(b.plainText()));
+            body += QStringLiteral("<w:sdt><w:sdtPr><w:docPartObj><w:docPartGallery w:val=\"Table of Contents\"/>"
+                                   "</w:docPartObj></w:sdtPr><w:sdtContent>%1</w:sdtContent></w:sdt>")
+                        .arg(items);
             continue;
         }
         if (b.type == QLatin1String("image")) {
@@ -161,17 +234,37 @@ bool saveDocx(const Document &doc, const QString &path, QString *error)
                         .arg(rid);
             continue;
         }
-        body += QStringLiteral("<w:p>%1%2</w:p>").arg(pPr(b), runsToWml(b.runs));
+        body += QStringLiteral("<w:p>%1%2</w:p>").arg(pPr(b), runsToWml(b.runs, doc, fnIds, enIds));
     }
+    QSet<QString> referencedNotes;
+    for (const auto &b : doc.body) {
+        for (const auto &r : b.runs)
+            if (!r.noteId.isEmpty())
+                referencedNotes.insert(r.noteId);
+    }
+    for (const auto &b : doc.body) {
+        if ((b.type == QLatin1String("footnote") || b.type == QLatin1String("endnote"))
+            && !referencedNotes.contains(b.id)) {
+            TextRun fake;
+            fake.noteId = b.id;
+            body += QStringLiteral("<w:p>%1</w:p>").arg(runsToWml({fake}, doc, fnIds, enIds));
+        }
+    }
+    QString colsSect;
+    if (doc.page.columns > 1)
+        colsSect = QStringLiteral("<w:cols w:num=\"%1\" w:sep=\"%2\"/>")
+                       .arg(doc.page.columns)
+                       .arg(doc.page.columnSeparator ? 1 : 0);
     body += QStringLiteral("<w:sectPr><w:pgSz w:w=\"%1\" w:h=\"%2\"%3/>"
-                           "<w:pgMar w:top=\"%4\" w:right=\"%5\" w:bottom=\"%6\" w:left=\"%7\"/></w:sectPr>")
+                           "<w:pgMar w:top=\"%4\" w:right=\"%5\" w:bottom=\"%6\" w:left=\"%7\"/>%8</w:sectPr>")
                 .arg(pgW)
                 .arg(pgH)
                 .arg(orient)
                 .arg(mt)
                 .arg(mr)
                 .arg(mb)
-                .arg(ml);
+                .arg(ml)
+                .arg(colsSect);
 
     const QString documentXml = QStringLiteral(
         "<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?>"
@@ -221,6 +314,25 @@ bool saveDocx(const Document &doc, const QString &path, QString *error)
         "Target=\"docProps/core.xml\"/>"
         "</Relationships>");
 
+    if (!fnIds.isEmpty()) {
+        extraRels += QLatin1String(
+            "<Relationship Id=\"rIdFn\" Type=\"http://schemas.openxmlformats.org/officeDocument/2006/relationships/footnotes\" "
+            "Target=\"footnotes.xml\"/>");
+        extraTypes += QLatin1String(
+            "<Override PartName=\"/word/footnotes.xml\" "
+            "ContentType=\"application/vnd.openxmlformats-officedocument.wordprocessingml.footnotes+xml\"/>");
+    }
+    if (!enIds.isEmpty()) {
+        extraRels += QLatin1String(
+            "<Relationship Id=\"rIdEn\" Type=\"http://schemas.openxmlformats.org/officeDocument/2006/relationships/endnotes\" "
+            "Target=\"endnotes.xml\"/>");
+        extraTypes += QLatin1String(
+            "<Override PartName=\"/word/endnotes.xml\" "
+            "ContentType=\"application/vnd.openxmlformats-officedocument.wordprocessingml.endnotes+xml\"/>");
+    }
+    extraTypes += QLatin1String(
+        "<Override PartName=\"/word/aioffice.json\" ContentType=\"application/json\"/>");
+
     const QString docRels = QStringLiteral(
         "<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?>"
         "<Relationships xmlns=\"http://schemas.openxmlformats.org/package/2006/relationships\">"
@@ -253,6 +365,37 @@ bool saveDocx(const Document &doc, const QString &path, QString *error)
         "<dc:title>%1</dc:title></cp:coreProperties>")
                              .arg(xmlEscape(doc.title));
 
+    QJsonObject extra;
+    extra[QStringLiteral("schema")] = 1;
+    extra[QStringLiteral("track_changes")] = doc.trackChanges;
+    QJsonArray bmA;
+    for (const auto &bm : doc.bookmarks)
+        bmA.append(bm.toJson());
+    extra[QStringLiteral("bookmarks")] = bmA;
+    QJsonArray rvA;
+    for (const auto &rv : doc.revisions)
+        rvA.append(rv.toJson());
+    extra[QStringLiteral("revisions")] = rvA;
+
+    auto notePart = [&](const QMap<QString, int> &ids, const QString &tag) {
+        QString xml = QStringLiteral(
+            "<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?>"
+            "<w:%1 xmlns:w=\"http://schemas.openxmlformats.org/wordprocessingml/2006/main\">").arg(tag);
+        QMap<int, QString> byId;
+        for (auto it = ids.begin(); it != ids.end(); ++it)
+            byId.insert(it.value(), it.key());
+        const QString item = tag.endsWith(QLatin1Char('s')) ? tag.chopped(1) : tag;
+        for (auto it = byId.begin(); it != byId.end(); ++it) {
+            const Block *nb = doc.findBlock(it.value());
+            xml += QStringLiteral("<w:%1 w:id=\"%2\"><w:p><w:r><w:t>%3</w:t></w:r></w:p></w:%1>")
+                       .arg(item)
+                       .arg(it.key())
+                       .arg(xmlEscape(nb ? nb->plainText() : QString()));
+        }
+        xml += QStringLiteral("</w:%1>").arg(tag);
+        return xml;
+    };
+
     QVector<ZipEntry> entries;
     entries.push_back({QStringLiteral("[Content_Types].xml"), contentTypes.toUtf8(), false});
     entries.push_back({QStringLiteral("_rels/.rels"), rels.toUtf8(), false});
@@ -260,6 +403,11 @@ bool saveDocx(const Document &doc, const QString &path, QString *error)
     entries.push_back({QStringLiteral("word/document.xml"), documentXml.toUtf8(), false});
     entries.push_back({QStringLiteral("word/styles.xml"), styles.toUtf8(), false});
     entries.push_back({QStringLiteral("word/numbering.xml"), numbering.toUtf8(), false});
+    entries.push_back({QStringLiteral("word/aioffice.json"), QJsonDocument(extra).toJson(QJsonDocument::Compact), false});
+    if (!fnIds.isEmpty())
+        entries.push_back({QStringLiteral("word/footnotes.xml"), notePart(fnIds, QStringLiteral("footnotes")).toUtf8(), false});
+    if (!enIds.isEmpty())
+        entries.push_back({QStringLiteral("word/endnotes.xml"), notePart(enIds, QStringLiteral("endnotes")).toUtf8(), false});
     entries.push_back({QStringLiteral("docProps/core.xml"), core.toUtf8(), false});
     for (const auto &m : media)
         entries.push_back(m);
@@ -287,6 +435,40 @@ bool loadDocx(const QByteArray &zipData, Document &doc, QString *error)
     }
     doc = Document::blank();
     doc.body.clear();
+    const auto extraBytes = Zip::file(entries, QStringLiteral("word/aioffice.json"));
+    if (!extraBytes.isEmpty()) {
+        const auto extra = QJsonDocument::fromJson(extraBytes).object();
+        doc.trackChanges = extra.value(QStringLiteral("track_changes")).toBool();
+        for (const auto &b : extra.value(QStringLiteral("bookmarks")).toArray())
+            doc.bookmarks.push_back(Bookmark::fromJson(b.toObject()));
+        for (const auto &r : extra.value(QStringLiteral("revisions")).toArray())
+            doc.revisions.push_back(Revision::fromJson(r.toObject()));
+    }
+    QMap<int, QString> footnoteText;
+    QMap<int, QString> endnoteText;
+    auto loadNotes = [&](const QString &part, QMap<int, QString> *out) {
+        const auto bytes = Zip::file(entries, part);
+        if (bytes.isEmpty())
+            return;
+        QXmlStreamReader nx(bytes);
+        int cur = -1;
+        QString acc;
+        while (!nx.atEnd()) {
+            nx.readNext();
+            if (nx.isStartElement() && (nx.name() == QLatin1String("footnote") || nx.name() == QLatin1String("endnote"))) {
+                cur = nx.attributes().value(QStringLiteral("w:id")).toInt();
+                acc.clear();
+            } else if (nx.isStartElement() && nx.name() == QLatin1String("t"))
+                acc += nx.readElementText();
+            else if (nx.isEndElement() && (nx.name() == QLatin1String("footnote") || nx.name() == QLatin1String("endnote"))) {
+                if (cur >= 0)
+                    out->insert(cur, acc.trimmed());
+                cur = -1;
+            }
+        }
+    };
+    loadNotes(QStringLiteral("word/footnotes.xml"), &footnoteText);
+    loadNotes(QStringLiteral("word/endnotes.xml"), &endnoteText);
 
     QMap<QString, QString> rels;
     const QByteArray relBytes = Zip::file(entries, QStringLiteral("word/_rels/document.xml.rels"));
@@ -331,6 +513,11 @@ bool loadDocx(const QByteArray &zipData, Document &doc, QString *error)
                 doc.page.marginsMm[2] = tw("w:bottom");
                 doc.page.marginsMm[3] = tw("w:left");
             }
+        } else if (sectScan.name() == QLatin1String("cols")) {
+            const int n = sectScan.attributes().value(QStringLiteral("w:num")).toInt();
+            if (n > 0)
+                doc.page.columns = qBound(1, n, 3);
+            doc.page.columnSeparator = sectScan.attributes().value(QStringLiteral("w:sep")).toString() == QLatin1String("1");
         }
     }
 
@@ -379,6 +566,9 @@ bool loadDocx(const QByteArray &zipData, Document &doc, QString *error)
             b.type = QStringLiteral("heading");
             b.level = 1;
             b.style = QStringLiteral("Title");
+        } else if (pStyle.startsWith(QLatin1String("TOC"))) {
+            b.type = QStringLiteral("toc");
+            b.style = QStringLiteral("Normal");
         } else {
             b.type = QStringLiteral("paragraph");
             b.style = pStyle.isEmpty() ? QStringLiteral("Normal") : pStyle;
@@ -445,18 +635,66 @@ bool loadDocx(const QByteArray &zipData, Document &doc, QString *error)
                 const auto v = xml.attributes().value(QStringLiteral("w:val")).toString();
                 run.superscript = (v == QLatin1String("superscript"));
                 run.subscript = (v == QLatin1String("subscript"));
+            } else if (n == QLatin1String("highlight") && inR) {
+                run.highlight = QStringLiteral("#FFF59D");
             } else if (n == QLatin1String("t") && inR) {
                 run.text += xml.readElementText();
+            } else if (n == QLatin1String("fldSimple")) {
+                TextRun fr;
+                const QString instr = xml.attributes().value(QStringLiteral("w:instr")).toString().toUpper();
+                if (instr.contains(QLatin1String("PAGE")) && !instr.contains(QLatin1String("NUMPAGES")))
+                    fr.field = QStringLiteral("page_number");
+                else if (instr.contains(QLatin1String("NUMPAGES")))
+                    fr.field = QStringLiteral("page_count");
+                else if (instr.contains(QLatin1String("DATE")))
+                    fr.field = QStringLiteral("date");
+                else if (instr.contains(QLatin1String("TITLE")))
+                    fr.field = QStringLiteral("title");
+                else if (instr.contains(QLatin1String("AUTHOR")))
+                    fr.field = QStringLiteral("author");
+                else if (instr.contains(QLatin1String("FILENAME")))
+                    fr.field = QStringLiteral("filename");
+                else if (instr.contains(QLatin1String("NUMWORDS")))
+                    fr.field = QStringLiteral("word_count");
+                else if (instr.contains(QLatin1String("REF"))) {
+                    fr.field = QStringLiteral("xref");
+                    fr.fieldArg = instr.section(QLatin1Char(' '), 1, 1);
+                }
+                fr.text = xml.readElementText(QXmlStreamReader::IncludeChildElements);
+                runs.push_back(fr);
+            } else if (n == QLatin1String("footnoteReference")) {
+                const int id = xml.attributes().value(QStringLiteral("w:id")).toInt();
+                Block nb;
+                nb.type = QStringLiteral("footnote");
+                TextRun nr;
+                nr.text = footnoteText.value(id);
+                nb.runs.push_back(nr);
+                doc.assignId(nb);
+                run.noteId = nb.id;
+                run.superscript = true;
+                doc.body.push_back(nb);
+            } else if (n == QLatin1String("endnoteReference")) {
+                const int id = xml.attributes().value(QStringLiteral("w:id")).toInt();
+                Block nb;
+                nb.type = QStringLiteral("endnote");
+                TextRun nr;
+                nr.text = endnoteText.value(id);
+                nb.runs.push_back(nr);
+                doc.assignId(nb);
+                run.noteId = nb.id;
+                run.superscript = true;
+                doc.body.push_back(nb);
             } else if (n == QLatin1String("blip")) {
                 blipRid = xml.attributes().value(QStringLiteral("r:embed")).toString();
             } else if (n == QLatin1String("br")) {
-                if (xml.attributes().value(QStringLiteral("w:type")) == QLatin1String("page")) {
+                const auto ty = xml.attributes().value(QStringLiteral("w:type")).toString();
+                if (ty == QLatin1String("page") || ty == QLatin1String("column")) {
                     skipEmptyP = true;
                     if (inP)
                         flushP();
                     Block br;
                     br.type = QStringLiteral("break");
-                    br.breakKind = QStringLiteral("page");
+                    br.breakKind = ty;
                     doc.assignId(br);
                     doc.body.push_back(br);
                     inP = false;
@@ -466,7 +704,7 @@ bool loadDocx(const QByteArray &zipData, Document &doc, QString *error)
         } else if (xml.isEndElement()) {
             const auto n = xml.name();
             if (n == QLatin1String("r") && inR) {
-                if (!run.text.isEmpty() || run.bold || run.italic)
+                if (!run.text.isEmpty() || run.bold || run.italic || !run.noteId.isEmpty() || !run.field.isEmpty())
                     runs.push_back(run);
                 inR = false;
             } else if (n == QLatin1String("drawing") && !blipRid.isEmpty()) {

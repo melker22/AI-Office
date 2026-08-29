@@ -2,6 +2,7 @@
 
 #include <QDate>
 #include <QJsonArray>
+#include <QJsonDocument>
 #include <QRegularExpression>
 #include <algorithm>
 
@@ -212,6 +213,8 @@ QJsonObject Block::toJson() const
                 c[QStringLiteral("runs")] = runsToJson(cell.runs);
                 if (cell.colSpan > 1)
                     c[QStringLiteral("col_span")] = cell.colSpan;
+                if (cell.rowSpan > 1)
+                    c[QStringLiteral("row_span")] = cell.rowSpan;
                 cells.append(c);
             }
             rows.append(cells);
@@ -232,6 +235,14 @@ QJsonObject Block::toJson() const
             o[QStringLiteral("image_b64")] = QString::fromLatin1(imageBytes.toBase64());
         if (!imageMime.isEmpty())
             o[QStringLiteral("image_mime")] = imageMime;
+        if (!altText.isEmpty())
+            o[QStringLiteral("alt")] = altText;
+        if (!caption.isEmpty())
+            o[QStringLiteral("caption")] = caption;
+        if (!wrap.isEmpty())
+            o[QStringLiteral("wrap")] = wrap;
+        if (!anchor.isEmpty())
+            o[QStringLiteral("anchor")] = anchor;
     } else if (type != QLatin1String("break")) {
         o[QStringLiteral("runs")] = runsToJson(runs);
     }
@@ -247,6 +258,26 @@ QJsonObject Block::toJson() const
             ca.append(c.toJson());
         o[QStringLiteral("comments")] = ca;
     }
+    if (indentLeftMm != 0)
+        o[QStringLiteral("indent_left_mm")] = indentLeftMm;
+    if (indentRightMm != 0)
+        o[QStringLiteral("indent_right_mm")] = indentRightMm;
+    if (indentFirstMm != 0)
+        o[QStringLiteral("indent_first_mm")] = indentFirstMm;
+    if (spaceBeforePt >= 0)
+        o[QStringLiteral("space_before_pt")] = spaceBeforePt;
+    if (spaceAfterPt >= 0)
+        o[QStringLiteral("space_after_pt")] = spaceAfterPt;
+    if (lineHeight != 1.0)
+        o[QStringLiteral("line_height")] = lineHeight;
+    if (keepWithNext)
+        o[QStringLiteral("keep_with_next")] = true;
+    if (orphans > 0)
+        o[QStringLiteral("orphans")] = orphans;
+    if (widows > 0)
+        o[QStringLiteral("widows")] = widows;
+    if (dropCapLines > 0)
+        o[QStringLiteral("drop_cap_lines")] = dropCapLines;
     return o;
 }
 
@@ -278,6 +309,7 @@ Block Block::fromJson(const QJsonObject &o)
                     cell.runs.push_back(r);
                 }
                 cell.colSpan = qMax(1, cellV.toObject().value(QStringLiteral("col_span")).toInt(1));
+                cell.rowSpan = qMax(1, cellV.toObject().value(QStringLiteral("row_span")).toInt(1));
                 row.push_back(cell);
             }
             b.table.push_back(row);
@@ -296,6 +328,20 @@ Block Block::fromJson(const QJsonObject &o)
         b.comments.push_back(Comment::fromJson(c.toObject()));
     for (const auto &t : o.value(QStringLiteral("toc_targets")).toArray())
         b.tocTargets.push_back(t.toString());
+    b.indentLeftMm = o.value(QStringLiteral("indent_left_mm")).toDouble();
+    b.indentRightMm = o.value(QStringLiteral("indent_right_mm")).toDouble();
+    b.indentFirstMm = o.value(QStringLiteral("indent_first_mm")).toDouble();
+    b.spaceBeforePt = o.contains(QStringLiteral("space_before_pt")) ? o.value(QStringLiteral("space_before_pt")).toDouble() : -1;
+    b.spaceAfterPt = o.contains(QStringLiteral("space_after_pt")) ? o.value(QStringLiteral("space_after_pt")).toDouble() : -1;
+    b.lineHeight = o.value(QStringLiteral("line_height")).toDouble(1.0);
+    b.keepWithNext = o.value(QStringLiteral("keep_with_next")).toBool();
+    b.orphans = o.value(QStringLiteral("orphans")).toInt();
+    b.widows = o.value(QStringLiteral("widows")).toInt();
+    b.dropCapLines = o.value(QStringLiteral("drop_cap_lines")).toInt();
+    b.altText = o.value(QStringLiteral("alt")).toString();
+    b.caption = o.value(QStringLiteral("caption")).toString();
+    b.wrap = o.value(QStringLiteral("wrap")).toString();
+    b.anchor = o.value(QStringLiteral("anchor")).toString();
     return b;
 }
 
@@ -332,6 +378,8 @@ QJsonObject StyleDef::toJson() const
         o[QStringLiteral("align")] = align;
     o[QStringLiteral("space_before_pt")] = spaceBeforePt;
     o[QStringLiteral("space_after_pt")] = spaceAfterPt;
+    if (!kind.isEmpty() && kind != QLatin1String("paragraph"))
+        o[QStringLiteral("kind")] = kind;
     return o;
 }
 
@@ -347,6 +395,7 @@ StyleDef StyleDef::fromJson(const QJsonObject &o)
     s.align = o.value(QStringLiteral("align")).toString();
     s.spaceBeforePt = o.value(QStringLiteral("space_before_pt")).toDouble();
     s.spaceAfterPt = o.value(QStringLiteral("space_after_pt")).toDouble(8);
+    s.kind = o.value(QStringLiteral("kind")).toString();
     return s;
 }
 
@@ -365,6 +414,12 @@ QJsonObject PageLayout::toJson() const
         o[QStringLiteral("columns")] = columns;
     if (hyphenate)
         o[QStringLiteral("hyphenate")] = true;
+    if (gutterMm > 0)
+        o[QStringLiteral("gutter_mm")] = gutterMm;
+    if (columnGapMm != 5)
+        o[QStringLiteral("column_gap_mm")] = columnGapMm;
+    if (columnSeparator)
+        o[QStringLiteral("column_separator")] = true;
     return o;
 }
 
@@ -378,14 +433,33 @@ PageLayout PageLayout::fromJson(const QJsonObject &o)
         p.marginsMm[i] = m.at(i).toDouble(p.marginsMm[i]);
     p.columns = qBound(1, o.value(QStringLiteral("columns")).toInt(1), 3);
     p.hyphenate = o.value(QStringLiteral("hyphenate")).toBool();
+    p.gutterMm = o.value(QStringLiteral("gutter_mm")).toDouble();
+    p.columnGapMm = o.value(QStringLiteral("column_gap_mm")).toDouble(5);
+    p.columnSeparator = o.value(QStringLiteral("column_separator")).toBool();
     return p;
 }
 
 void PageLayout::pageSizeMm(double &w, double &h) const
 {
-    if (size.compare(QLatin1String("Letter"), Qt::CaseInsensitive) == 0) {
+    const QString s = size.toLower();
+    if (s == QLatin1String("letter")) {
         w = 215.9;
         h = 279.4;
+    } else if (s == QLatin1String("legal")) {
+        w = 215.9;
+        h = 355.6;
+    } else if (s == QLatin1String("tabloid")) {
+        w = 279.4;
+        h = 431.8;
+    } else if (s == QLatin1String("a3")) {
+        w = 297;
+        h = 420;
+    } else if (s == QLatin1String("a5")) {
+        w = 148;
+        h = 210;
+    } else if (s == QLatin1String("a6")) {
+        w = 105;
+        h = 148;
     } else {
         w = 210;
         h = 297;
@@ -465,6 +539,8 @@ QJsonObject Document::toJson() const
         meta[QStringLiteral("footer")] = footer.toJson();
     if (trackChanges)
         meta[QStringLiteral("track_changes")] = true;
+    if (!fileName.isEmpty())
+        meta[QStringLiteral("file_name")] = fileName;
     root[QStringLiteral("meta")] = meta;
     QJsonArray st;
     for (const auto &s : styles)
@@ -486,7 +562,47 @@ QJsonObject Document::toJson() const
             rv.append(r.toJson());
         root[QStringLiteral("revisions")] = rv;
     }
+    if (!autocorrect.isEmpty()) {
+        QJsonObject ac;
+        for (auto it = autocorrect.begin(); it != autocorrect.end(); ++it)
+            ac[it.key()] = it.value();
+        root[QStringLiteral("autocorrect")] = ac;
+    }
     return root;
+}
+
+namespace {
+
+QJsonValue sortJsonValue(const QJsonValue &v);
+
+QJsonObject sortJsonObject(const QJsonObject &o)
+{
+    QStringList keys = o.keys();
+    keys.sort();
+    QJsonObject out;
+    for (const QString &k : keys)
+        out.insert(k, sortJsonValue(o.value(k)));
+    return out;
+}
+
+QJsonValue sortJsonValue(const QJsonValue &v)
+{
+    if (v.isObject())
+        return sortJsonObject(v.toObject());
+    if (v.isArray()) {
+        QJsonArray a;
+        for (const auto &x : v.toArray())
+            a.append(sortJsonValue(x));
+        return a;
+    }
+    return v;
+}
+
+} // namespace
+
+QByteArray Document::toCanonicalJson() const
+{
+    return QJsonDocument(sortJsonObject(toJson())).toJson(QJsonDocument::Indented);
 }
 
 Document Document::fromJson(const QJsonObject &o)
@@ -499,6 +615,7 @@ Document Document::fromJson(const QJsonObject &o)
     d.header = HeaderFooter::fromJson(meta.value(QStringLiteral("header")).toObject());
     d.footer = HeaderFooter::fromJson(meta.value(QStringLiteral("footer")).toObject());
     d.trackChanges = meta.value(QStringLiteral("track_changes")).toBool();
+    d.fileName = meta.value(QStringLiteral("file_name")).toString();
     for (const auto &s : o.value(QStringLiteral("styles")).toArray())
         d.styles.push_back(StyleDef::fromJson(s.toObject()));
     if (d.styles.isEmpty()) {
@@ -519,6 +636,9 @@ Document Document::fromJson(const QJsonObject &o)
         d.bookmarks.push_back(Bookmark::fromJson(b.toObject()));
     for (const auto &r : o.value(QStringLiteral("revisions")).toArray())
         d.revisions.push_back(Revision::fromJson(r.toObject()));
+    const auto ac = o.value(QStringLiteral("autocorrect")).toObject();
+    for (auto it = ac.begin(); it != ac.end(); ++it)
+        d.autocorrect.insert(it.key(), it.value().toString());
     return d;
 }
 
@@ -608,6 +728,12 @@ QString runDisplayText(const Document &doc, const TextRun &r, int page, int page
         return doc.title;
     if (r.field == QLatin1String("author"))
         return doc.author.isEmpty() ? QStringLiteral("—") : doc.author;
+    if (r.field == QLatin1String("filename") || r.field == QLatin1String("file_name"))
+        return doc.fileName.isEmpty() ? doc.title : doc.fileName;
+    if (r.field == QLatin1String("word_count"))
+        return QString::number(doc.wordCount());
+    if (r.field == QLatin1String("custom"))
+        return r.fieldArg.isEmpty() ? r.text : r.fieldArg;
     if (r.field == QLatin1String("xref")) {
         const Block *t = doc.findBlock(r.fieldArg);
         if (t)

@@ -78,6 +78,21 @@ public:
     QJsonObject revisionList(const QJsonObject &args);
     QJsonObject revisionAccept(const QJsonObject &args);
     QJsonObject revisionReject(const QJsonObject &args);
+    QJsonObject revisionAcceptAll(const QJsonObject &args);
+    QJsonObject revisionRejectAll(const QJsonObject &args);
+    QJsonObject autocorrectGet(const QJsonObject &args);
+    QJsonObject autocorrectSet(const QJsonObject &args);
+    QJsonObject mergeCells(const QJsonObject &args);
+    QJsonObject splitCells(const QJsonObject &args);
+    QJsonObject tableSort(const QJsonObject &args);
+    QJsonObject setImage(const QJsonObject &args);
+    QJsonObject insertCaption(const QJsonObject &args);
+
+    QJsonObject validate(const QJsonObject &args);
+    QJsonObject batch(const QJsonObject &args);
+    QJsonObject checkpoint(const QJsonObject &args);
+    QJsonObject restoreCheckpoint(const QJsonObject &args);
+    QJsonObject insertMarkdown(const QJsonObject &args);
 
     QJsonObject call(const QString &tool, const QJsonObject &args);
 
@@ -104,6 +119,7 @@ private:
     QJsonObject fail(const QString &err) const;
     int insertIndex(const QString &afterId, QString *err) const;
     QVector<int> indexesFor(const QJsonArray &ids) const;
+    QJsonArray idList(const QJsonObject &args) const;
     bool saveTo(const QString &path, QString *error);
     bool loadFrom(const QString &path, QString *error);
     Block *tableBlock(const QString &id);
@@ -114,6 +130,12 @@ private:
     QString path_;
     bool dirty_ = false;
     bool live_ = false;
+    int undoSuppress_ = 0;
+    bool hasCheckpoint_ = false;
+    Document checkpointDoc_;
+    QString checkpointPath_;
+    bool checkpointDirty_ = false;
+    Selection checkpointSel_;
     QVector<Document> undo_;
     QVector<Document> redo_;
     Selection sel_;

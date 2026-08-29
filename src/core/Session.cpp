@@ -64,6 +64,8 @@ QJsonObject Session::fail(const QString &err) const
 
 void Session::pushUndo()
 {
+    if (undoSuppress_ > 0)
+        return;
     undo_.push_back(doc_);
     if (undo_.size() > 80)
         undo_.removeFirst();
@@ -123,6 +125,17 @@ int Session::insertIndex(const QString &afterId, QString *err) const
     return i + 1;
 }
 
+QJsonArray Session::idList(const QJsonObject &args) const
+{
+    QJsonArray ids = args.value(QStringLiteral("ids")).toArray();
+    if (ids.isEmpty()) {
+        const QString id = args.value(QStringLiteral("id")).toString();
+        if (!id.isEmpty())
+            ids.append(id);
+    }
+    return ids;
+}
+
 QVector<int> Session::indexesFor(const QJsonArray &ids) const
 {
     QVector<int> idx;
@@ -146,13 +159,22 @@ bool Session::saveTo(const QString &path, QString *error)
                 *error = QStringLiteral("Cannot write ") + path;
             return false;
         }
-        f.write(QJsonDocument(doc_.toJson()).toJson(QJsonDocument::Indented));
+        f.write(doc_.toCanonicalJson());
+        doc_.fileName = QFileInfo(path).fileName();
         return true;
     }
-    if (ext == QLatin1String("odt"))
-        return saveOdt(doc_, path, error);
-    if (ext == QLatin1String("docx"))
-        return saveDocx(doc_, path, error);
+    if (ext == QLatin1String("odt")) {
+        if (!saveOdt(doc_, path, error))
+            return false;
+        doc_.fileName = QFileInfo(path).fileName();
+        return true;
+    }
+    if (ext == QLatin1String("docx")) {
+        if (!saveDocx(doc_, path, error))
+            return false;
+        doc_.fileName = QFileInfo(path).fileName();
+        return true;
+    }
     if (ext == QLatin1String("doc")) {
         QTemporaryDir tmp;
         const QString odt = tmp.filePath(QStringLiteral("tmp.odt"));
@@ -162,6 +184,42 @@ bool Session::saveTo(const QString &path, QString *error)
     }
     if (ext == QLatin1String("pdf"))
         return exportPdf(QJsonObject{{QStringLiteral("path"), path}})[QStringLiteral("ok")].toBool();
+    if (ext == QLatin1String("md") || ext == QLatin1String("markdown") || ext == QLatin1String("txt")
+        || ext == QLatin1String("html") || ext == QLatin1String("htm")) {
+        QString out;
+        for (const auto &b : doc_.body) {
+            if (b.type == QLatin1String("footnote") || b.type == QLatin1String("endnote")
+                || b.type == QLatin1String("break"))
+                continue;
+            const QString plain = b.plainText();
+            if (ext == QLatin1String("html") || ext == QLatin1String("htm")) {
+                if (b.type == QLatin1String("heading"))
+                    out += QStringLiteral("<h%1>%2</h%1>\n").arg(qBound(1, b.level, 6)).arg(plain.toHtmlEscaped());
+                else if (b.type == QLatin1String("list-item"))
+                    out += QStringLiteral("<li>%1</li>\n").arg(plain.toHtmlEscaped());
+                else
+                    out += QStringLiteral("<p>%1</p>\n").arg(plain.toHtmlEscaped());
+            } else if (ext == QLatin1String("md") || ext == QLatin1String("markdown")) {
+                if (b.type == QLatin1String("heading"))
+                    out += QStringLiteral("%1 %2\n\n").arg(QString(qBound(1, b.level, 6), QLatin1Char('#')), plain);
+                else if (b.type == QLatin1String("list-item"))
+                    out += QStringLiteral("- %1\n").arg(plain);
+                else
+                    out += plain + QLatin1String("\n\n");
+            } else {
+                out += plain + QLatin1Char('\n');
+            }
+        }
+        QFile f(path);
+        if (!f.open(QIODevice::WriteOnly)) {
+            if (error)
+                *error = QStringLiteral("Cannot write ") + path;
+            return false;
+        }
+        f.write(out.toUtf8());
+        doc_.fileName = QFileInfo(path).fileName();
+        return true;
+    }
     if (error)
         *error = QStringLiteral("Unknown extension: ") + ext;
     return false;
@@ -184,12 +242,21 @@ bool Session::loadFrom(const QString &path, QString *error)
             return false;
         }
         doc_ = Document::fromJson(docj.object());
+        doc_.fileName = QFileInfo(path).fileName();
         return true;
     }
-    if (ext == QLatin1String("odt"))
-        return loadOdtFile(path, doc_, error);
-    if (ext == QLatin1String("docx"))
-        return loadDocxFile(path, doc_, error);
+    if (ext == QLatin1String("odt")) {
+        if (!loadOdtFile(path, doc_, error))
+            return false;
+        doc_.fileName = QFileInfo(path).fileName();
+        return true;
+    }
+    if (ext == QLatin1String("docx")) {
+        if (!loadDocxFile(path, doc_, error))
+            return false;
+        doc_.fileName = QFileInfo(path).fileName();
+        return true;
+    }
     if (ext == QLatin1String("doc") || ext == QLatin1String("rtf") || ext == QLatin1String("ott")) {
         QTemporaryDir tmp;
         const QString odt = tmp.filePath(QFileInfo(path).completeBaseName() + QStringLiteral(".odt"));
@@ -293,11 +360,18 @@ QJsonObject Session::getOutline(const QJsonObject &)
 {
     QJsonArray outline;
     for (const auto &b : doc_.body) {
-        if (b.type != QLatin1String("heading"))
+        const bool heading = b.type == QLatin1String("heading");
+        const bool structural = heading || b.type == QLatin1String("table") || b.type == QLatin1String("image")
+            || b.type == QLatin1String("footnote") || b.type == QLatin1String("endnote")
+            || b.type == QLatin1String("toc");
+        if (!structural)
             continue;
         QJsonObject n;
         n[QStringLiteral("id")] = b.id;
-        n[QStringLiteral("level")] = b.level;
+        n[QStringLiteral("kind")] = b.type;
+        n[QStringLiteral("type")] = b.type;
+        if (heading)
+            n[QStringLiteral("level")] = b.level;
         n[QStringLiteral("text")] = b.plainText();
         outline.append(n);
     }
@@ -340,7 +414,7 @@ QJsonObject Session::insertBlocks(const QJsonObject &args)
 
 QJsonObject Session::replaceRange(const QJsonObject &args)
 {
-    const auto idx = indexesFor(args.value(QStringLiteral("ids")).toArray());
+    const auto idx = indexesFor(idList(args));
     if (idx.isEmpty())
         return fail(QStringLiteral("no matching ids"));
     pushUndo();
@@ -362,7 +436,7 @@ QJsonObject Session::replaceRange(const QJsonObject &args)
 
 QJsonObject Session::deleteRange(const QJsonObject &args)
 {
-    auto idx = indexesFor(args.value(QStringLiteral("ids")).toArray());
+    auto idx = indexesFor(idList(args));
     if (idx.isEmpty())
         return fail(QStringLiteral("no matching ids"));
     pushUndo();
@@ -406,7 +480,7 @@ static void applyRunFormat(TextRun &r, const QJsonObject &args)
 
 QJsonObject Session::applyCharacterFormat(const QJsonObject &args)
 {
-    const auto idx = indexesFor(args.value(QStringLiteral("ids")).toArray());
+    const auto idx = indexesFor(idList(args));
     if (idx.isEmpty())
         return fail(QStringLiteral("no matching ids"));
     pushUndo();
@@ -429,13 +503,22 @@ QJsonObject Session::applyCharacterFormat(const QJsonObject &args)
                         applyRunFormat(r, args);
         }
     }
+    if (doc_.trackChanges) {
+        Revision rev;
+        rev.id = QStringLiteral("rev%1").arg(doc_.revisions.size() + 1);
+        rev.author = doc_.author.isEmpty() ? QStringLiteral("IA") : doc_.author;
+        rev.kind = QStringLiteral("format");
+        rev.blockId = doc_.body[idx.first()].id;
+        rev.timestamp = QDateTime::currentMSecsSinceEpoch();
+        doc_.revisions.push_back(rev);
+    }
     markChanged();
     return ok();
 }
 
 QJsonObject Session::applyParagraphFormat(const QJsonObject &args)
 {
-    const auto idx = indexesFor(args.value(QStringLiteral("ids")).toArray());
+    const auto idx = indexesFor(idList(args));
     if (idx.isEmpty())
         return fail(QStringLiteral("no matching ids"));
     pushUndo();
@@ -444,6 +527,26 @@ QJsonObject Session::applyParagraphFormat(const QJsonObject &args)
             doc_.body[i].align = args.value(QStringLiteral("align")).toString();
         if (args.contains(QStringLiteral("style")))
             doc_.body[i].style = args.value(QStringLiteral("style")).toString();
+        if (args.contains(QStringLiteral("indent_left_mm")))
+            doc_.body[i].indentLeftMm = args.value(QStringLiteral("indent_left_mm")).toDouble();
+        if (args.contains(QStringLiteral("indent_right_mm")))
+            doc_.body[i].indentRightMm = args.value(QStringLiteral("indent_right_mm")).toDouble();
+        if (args.contains(QStringLiteral("indent_first_mm")))
+            doc_.body[i].indentFirstMm = args.value(QStringLiteral("indent_first_mm")).toDouble();
+        if (args.contains(QStringLiteral("space_before_pt")))
+            doc_.body[i].spaceBeforePt = args.value(QStringLiteral("space_before_pt")).toDouble();
+        if (args.contains(QStringLiteral("space_after_pt")))
+            doc_.body[i].spaceAfterPt = args.value(QStringLiteral("space_after_pt")).toDouble();
+        if (args.contains(QStringLiteral("line_height")))
+            doc_.body[i].lineHeight = args.value(QStringLiteral("line_height")).toDouble();
+        if (args.contains(QStringLiteral("keep_with_next")))
+            doc_.body[i].keepWithNext = args.value(QStringLiteral("keep_with_next")).toBool();
+        if (args.contains(QStringLiteral("orphans")))
+            doc_.body[i].orphans = args.value(QStringLiteral("orphans")).toInt();
+        if (args.contains(QStringLiteral("widows")))
+            doc_.body[i].widows = args.value(QStringLiteral("widows")).toInt();
+        if (args.contains(QStringLiteral("drop_cap_lines")))
+            doc_.body[i].dropCapLines = args.value(QStringLiteral("drop_cap_lines")).toInt();
     }
     markChanged();
     return ok();
@@ -459,7 +562,7 @@ QJsonObject Session::applyStyle(const QJsonObject &args)
     auto r = applyParagraphFormat(para);
     if (!r.value(QStringLiteral("ok")).toBool())
         return r;
-    for (int i : indexesFor(args.value(QStringLiteral("ids")).toArray())) {
+    for (int i : indexesFor(idList(args))) {
         if (style.startsWith(QLatin1String("Heading"))) {
             bool okN = false;
             const int lv = style.section(QLatin1Char(' '), 1, 1).toInt(&okN);
@@ -500,6 +603,8 @@ QJsonObject Session::createStyle(const QJsonObject &args)
         s.spaceBeforePt = args.value(QStringLiteral("space_before_pt")).toDouble();
     if (args.contains(QStringLiteral("space_after_pt")))
         s.spaceAfterPt = args.value(QStringLiteral("space_after_pt")).toDouble();
+    if (args.contains(QStringLiteral("kind")))
+        s.kind = args.value(QStringLiteral("kind")).toString();
     bool replaced = false;
     for (auto &ex : doc_.styles) {
         if (ex.name == name) {
@@ -528,6 +633,12 @@ QJsonObject Session::setPageLayout(const QJsonObject &args)
         doc_.page.columns = qBound(1, args.value(QStringLiteral("columns")).toInt(1), 3);
     if (args.contains(QStringLiteral("hyphenate")))
         doc_.page.hyphenate = args.value(QStringLiteral("hyphenate")).toBool();
+    if (args.contains(QStringLiteral("gutter_mm")))
+        doc_.page.gutterMm = args.value(QStringLiteral("gutter_mm")).toDouble();
+    if (args.contains(QStringLiteral("column_gap_mm")))
+        doc_.page.columnGapMm = args.value(QStringLiteral("column_gap_mm")).toDouble();
+    if (args.contains(QStringLiteral("column_separator")))
+        doc_.page.columnSeparator = args.value(QStringLiteral("column_separator")).toBool();
     markChanged();
     return ok();
 }
@@ -724,6 +835,34 @@ QJsonObject Session::pagePreview(const QJsonObject &args)
 {
     const double zoom = args.value(QStringLiteral("zoom")).toDouble(1.15);
     const QJsonValue pageV = args.value(QStringLiteral("page"));
+    const bool hasFrom = args.contains(QStringLiteral("from"));
+    const bool hasTo = args.contains(QStringLiteral("to"));
+    if (hasFrom || hasTo) {
+        DocumentLayout lay;
+        lay.relayout(doc_, zoom);
+        int from = args.value(QStringLiteral("from")).toInt(1);
+        int to = args.value(QStringLiteral("to")).toInt(lay.pages);
+        if (from < 1)
+            from = 1;
+        if (to > lay.pages)
+            to = lay.pages;
+        if (to < from)
+            return fail(QStringLiteral("to must be >= from"));
+        QJsonArray pages;
+        for (int p = from; p <= to; ++p) {
+            const QByteArray png = renderPagePng(doc_, p, zoom);
+            QJsonObject o;
+            o[QStringLiteral("page")] = p;
+            o[QStringLiteral("png_base64")] = QString::fromLatin1(png.toBase64());
+            pages.append(o);
+        }
+        auto r = ok();
+        r[QStringLiteral("pages")] = lay.pages;
+        r[QStringLiteral("from")] = from;
+        r[QStringLiteral("to")] = to;
+        r[QStringLiteral("previews")] = pages;
+        return r;
+    }
     if (pageV.isString() && pageV.toString() == QLatin1String("all")) {
         DocumentLayout lay;
         lay.relayout(doc_, zoom);
@@ -1084,7 +1223,7 @@ bool Session::splitBlock(const QString &id, int offset)
 
 QJsonObject Session::moveBlocks(const QJsonObject &args)
 {
-    auto idx = indexesFor(args.value(QStringLiteral("ids")).toArray());
+    auto idx = indexesFor(idList(args));
     if (idx.isEmpty())
         return fail(QStringLiteral("no matching ids"));
     QString err;
@@ -1107,7 +1246,7 @@ QJsonObject Session::moveBlocks(const QJsonObject &args)
 
 QJsonObject Session::duplicateBlocks(const QJsonObject &args)
 {
-    auto idx = indexesFor(args.value(QStringLiteral("ids")).toArray());
+    auto idx = indexesFor(idList(args));
     if (idx.isEmpty())
         return fail(QStringLiteral("no matching ids"));
     QString err;
@@ -1131,18 +1270,25 @@ QJsonObject Session::duplicateBlocks(const QJsonObject &args)
 
 QJsonObject Session::commentAdd(const QJsonObject &args)
 {
-    Block *b = doc_.findBlock(args.value(QStringLiteral("id")).toString());
-    if (!b)
+    auto idx = indexesFor(idList(args));
+    if (idx.isEmpty())
         return fail(QStringLiteral("id not found"));
     pushUndo();
-    Comment c;
-    c.id = QStringLiteral("c") + QUuid::createUuid().toString(QUuid::Id128).left(8);
-    c.author = args.value(QStringLiteral("author")).toString(QStringLiteral("IA"));
-    c.text = args.value(QStringLiteral("text")).toString();
-    b->comments.push_back(c);
+    QJsonArray cids;
+    const QString text = args.value(QStringLiteral("text")).toString();
+    const QString author = args.value(QStringLiteral("author")).toString(QStringLiteral("IA"));
+    for (int i : idx) {
+        Comment c;
+        c.id = QStringLiteral("c") + QUuid::createUuid().toString(QUuid::Id128).left(8);
+        c.author = author;
+        c.text = text;
+        doc_.body[i].comments.push_back(c);
+        cids.append(c.id);
+    }
     markChanged();
     auto r = ok();
-    r[QStringLiteral("comment_id")] = c.id;
+    r[QStringLiteral("comment_id")] = cids.first().toString();
+    r[QStringLiteral("comment_ids")] = cids;
     return r;
 }
 
@@ -1532,9 +1678,11 @@ QJsonObject Session::insertField(const QJsonObject &args)
     const QString kind = args.value(QStringLiteral("kind")).toString();
     const QStringList okKinds = {QStringLiteral("page_number"), QStringLiteral("page_count"),
                                  QStringLiteral("date"), QStringLiteral("title"),
-                                 QStringLiteral("author"), QStringLiteral("xref")};
+                                 QStringLiteral("author"), QStringLiteral("xref"),
+                                 QStringLiteral("filename"), QStringLiteral("file_name"),
+                                 QStringLiteral("word_count"), QStringLiteral("custom")};
     if (!okKinds.contains(kind))
-        return fail(QStringLiteral("kind must be page_number, page_count, date, title, author, or xref"));
+        return fail(QStringLiteral("kind must be page_number, page_count, date, title, author, xref, filename, word_count, or custom"));
     QString id = args.value(QStringLiteral("id")).toString();
     int off = args.value(QStringLiteral("offset")).toInt(-1);
     if (id.isEmpty()) {
@@ -1736,6 +1884,300 @@ QJsonObject Session::revisionReject(const QJsonObject &args)
     return ok();
 }
 
+QJsonObject Session::revisionAcceptAll(const QJsonObject &)
+{
+    pushUndo();
+    doc_.revisions.clear();
+    markChanged();
+    return ok();
+}
+
+QJsonObject Session::revisionRejectAll(const QJsonObject &)
+{
+    pushUndo();
+    const auto revs = doc_.revisions;
+    for (const auto &found : revs) {
+        if (found.kind == QLatin1String("insert")) {
+            Block *b = doc_.findBlock(found.blockId);
+            if (b)
+                b->runs = spliceRuns(b->runs, found.start, found.end, TextRun{});
+        }
+    }
+    doc_.revisions.clear();
+    markChanged();
+    return ok();
+}
+
+QJsonObject Session::autocorrectGet(const QJsonObject &)
+{
+    QJsonObject map;
+    for (auto it = doc_.autocorrect.begin(); it != doc_.autocorrect.end(); ++it)
+        map[it.key()] = it.value();
+    auto r = ok();
+    r[QStringLiteral("replacements")] = map;
+    return r;
+}
+
+QJsonObject Session::autocorrectSet(const QJsonObject &args)
+{
+    const auto obj = args.value(QStringLiteral("replacements")).toObject();
+    pushUndo();
+    if (args.value(QStringLiteral("replace")).toBool())
+        doc_.autocorrect.clear();
+    for (auto it = obj.begin(); it != obj.end(); ++it)
+        doc_.autocorrect.insert(it.key(), it.value().toString());
+    markChanged();
+    return autocorrectGet({});
+}
+
+QJsonObject Session::mergeCells(const QJsonObject &args)
+{
+    Block *b = tableBlock(args.value(QStringLiteral("id")).toString());
+    if (!b)
+        return fail(QStringLiteral("table not found"));
+    const int row = args.value(QStringLiteral("row")).toInt();
+    const int col = args.value(QStringLiteral("col")).toInt();
+    if (row < 0 || row >= b->table.size() || col < 0 || col >= b->table[row].size())
+        return fail(QStringLiteral("cell out of range"));
+    pushUndo();
+    b->table[row][col].colSpan = qMax(1, args.value(QStringLiteral("col_span")).toInt(2));
+    b->table[row][col].rowSpan = qMax(1, args.value(QStringLiteral("row_span")).toInt(1));
+    markChanged();
+    return ok();
+}
+
+QJsonObject Session::splitCells(const QJsonObject &args)
+{
+    Block *b = tableBlock(args.value(QStringLiteral("id")).toString());
+    if (!b)
+        return fail(QStringLiteral("table not found"));
+    const int row = args.value(QStringLiteral("row")).toInt();
+    const int col = args.value(QStringLiteral("col")).toInt();
+    if (row < 0 || row >= b->table.size() || col < 0 || col >= b->table[row].size())
+        return fail(QStringLiteral("cell out of range"));
+    pushUndo();
+    b->table[row][col].colSpan = 1;
+    b->table[row][col].rowSpan = 1;
+    markChanged();
+    return ok();
+}
+
+QJsonObject Session::tableSort(const QJsonObject &args)
+{
+    Block *b = tableBlock(args.value(QStringLiteral("id")).toString());
+    if (!b)
+        return fail(QStringLiteral("table not found"));
+    const int col = args.value(QStringLiteral("col")).toInt(0);
+    const int start = b->headerRow ? 1 : 0;
+    if (b->table.size() <= start)
+        return ok();
+    pushUndo();
+    std::sort(b->table.begin() + start, b->table.end(), [col](const QVector<TableCell> &a, const QVector<TableCell> &c) {
+        auto cellText = [](const QVector<TableCell> &row, int col) {
+            if (col < 0 || col >= row.size())
+                return QString();
+            QString t;
+            for (const auto &r : row[col].runs)
+                t += r.text;
+            return t;
+        };
+        return cellText(a, col).localeAwareCompare(cellText(c, col)) < 0;
+    });
+    markChanged();
+    return ok();
+}
+
+QJsonObject Session::setImage(const QJsonObject &args)
+{
+    Block *b = doc_.findBlock(args.value(QStringLiteral("id")).toString());
+    if (!b || b->type != QLatin1String("image"))
+        return fail(QStringLiteral("image not found"));
+    pushUndo();
+    if (args.contains(QStringLiteral("width_mm")))
+        b->imageWidthMm = args.value(QStringLiteral("width_mm")).toInt();
+    if (args.contains(QStringLiteral("alt")))
+        b->altText = args.value(QStringLiteral("alt")).toString();
+    if (args.contains(QStringLiteral("caption")))
+        b->caption = args.value(QStringLiteral("caption")).toString();
+    if (args.contains(QStringLiteral("wrap")))
+        b->wrap = args.value(QStringLiteral("wrap")).toString();
+    if (args.contains(QStringLiteral("anchor")))
+        b->anchor = args.value(QStringLiteral("anchor")).toString();
+    markChanged();
+    return ok();
+}
+
+QJsonObject Session::insertCaption(const QJsonObject &args)
+{
+    Block *b = doc_.findBlock(args.value(QStringLiteral("id")).toString());
+    if (!b)
+        return fail(QStringLiteral("id not found"));
+    pushUndo();
+    b->caption = args.value(QStringLiteral("text")).toString();
+    markChanged();
+    return ok();
+}
+
+QJsonObject Session::validate(const QJsonObject &)
+{
+    QJsonArray errors;
+    QSet<QString> ids;
+    QSet<QString> noteIds;
+    const QStringList known{QStringLiteral("paragraph"), QStringLiteral("heading"),
+                            QStringLiteral("list-item"), QStringLiteral("table"), QStringLiteral("image"),
+                            QStringLiteral("break"),     QStringLiteral("footnote"), QStringLiteral("endnote"),
+                            QStringLiteral("toc")};
+    auto err = [&](const QString &code, const QString &id, const QString &msg) {
+        QJsonObject e;
+        e[QStringLiteral("code")] = code;
+        if (!id.isEmpty())
+            e[QStringLiteral("id")] = id;
+        e[QStringLiteral("message")] = msg;
+        errors.append(e);
+    };
+    if (doc_.body.isEmpty())
+        err(QStringLiteral("empty_body"), {}, QStringLiteral("document body is empty"));
+    for (const auto &b : doc_.body) {
+        if (b.id.isEmpty()) {
+            err(QStringLiteral("missing_id"), {}, QStringLiteral("block without id"));
+            continue;
+        }
+        if (ids.contains(b.id))
+            err(QStringLiteral("duplicate_id"), b.id, QStringLiteral("duplicate block id"));
+        ids.insert(b.id);
+        if (!known.contains(b.type))
+            err(QStringLiteral("unknown_type"), b.id, QStringLiteral("unknown block type: ") + b.type);
+        if (b.type == QLatin1String("footnote") || b.type == QLatin1String("endnote"))
+            noteIds.insert(b.id);
+    }
+    for (const auto &b : doc_.body) {
+        for (const auto &r : b.runs) {
+            if (!r.noteId.isEmpty() && !noteIds.contains(r.noteId) && !ids.contains(r.noteId))
+                err(QStringLiteral("broken_note_id"), b.id, QStringLiteral("note_id not found: ") + r.noteId);
+            if (r.field == QLatin1String("xref") && !r.fieldArg.isEmpty()) {
+                bool okRef = ids.contains(r.fieldArg);
+                if (!okRef) {
+                    for (const auto &bm : doc_.bookmarks) {
+                        if (bm.id == r.fieldArg || bm.name == r.fieldArg) {
+                            okRef = true;
+                            break;
+                        }
+                    }
+                }
+                if (!okRef)
+                    err(QStringLiteral("broken_xref"), b.id, QStringLiteral("xref target missing: ") + r.fieldArg);
+            }
+        }
+        if (b.type == QLatin1String("table")) {
+            for (const auto &row : b.table) {
+                for (const auto &cell : row) {
+                    for (const auto &r : cell.runs) {
+                        if (r.field == QLatin1String("xref") && !r.fieldArg.isEmpty() && !ids.contains(r.fieldArg))
+                            err(QStringLiteral("broken_xref"), b.id, QStringLiteral("xref target missing: ") + r.fieldArg);
+                    }
+                }
+            }
+        }
+    }
+    for (const auto &bm : doc_.bookmarks) {
+        if (!ids.contains(bm.blockId))
+            err(QStringLiteral("broken_bookmark"), bm.id, QStringLiteral("bookmark block missing: ") + bm.blockId);
+    }
+    auto r = ok();
+    r[QStringLiteral("valid")] = errors.isEmpty();
+    r[QStringLiteral("errors")] = errors;
+    r[QStringLiteral("blocks")] = ids.size();
+    return r;
+}
+
+QJsonObject Session::batch(const QJsonObject &args)
+{
+    if (undoSuppress_ > 0)
+        return fail(QStringLiteral("nested batch is not allowed"));
+    const QJsonArray calls = args.value(QStringLiteral("calls")).toArray();
+    if (calls.isEmpty())
+        return fail(QStringLiteral("calls is required"));
+    const Document snap = doc_;
+    const QString snapPath = path_;
+    const bool snapDirty = dirty_;
+    const Selection snapSel = sel_;
+    pushUndo();
+    ++undoSuppress_;
+    QJsonArray results;
+    bool failed = false;
+    QString err;
+    for (const auto &v : calls) {
+        const QJsonObject c = v.toObject();
+        const QString t = c.value(QStringLiteral("tool")).toString();
+        if (t.isEmpty()) {
+            failed = true;
+            err = QStringLiteral("each call needs tool");
+            break;
+        }
+        if (t == QLatin1String("batch") || t == QLatin1String("undo") || t == QLatin1String("redo")
+            || t == QLatin1String("checkpoint") || t == QLatin1String("restore")) {
+            failed = true;
+            err = QStringLiteral("tool not allowed inside batch: ") + t;
+            break;
+        }
+        const QJsonObject a = c.value(QStringLiteral("args")).toObject();
+        const auto one = call(t, a);
+        results.append(one);
+        if (!one.value(QStringLiteral("ok")).toBool()) {
+            failed = true;
+            err = one.value(QStringLiteral("error")).toString();
+            break;
+        }
+    }
+    --undoSuppress_;
+    if (failed) {
+        doc_ = snap;
+        path_ = snapPath;
+        dirty_ = snapDirty;
+        sel_ = snapSel;
+        if (!undo_.isEmpty())
+            undo_.pop_back();
+        auto r = fail(err.isEmpty() ? QStringLiteral("batch failed") : err);
+        r[QStringLiteral("results")] = results;
+        return r;
+    }
+    markChanged();
+    auto r = ok();
+    r[QStringLiteral("results")] = results;
+    r[QStringLiteral("count")] = results.size();
+    return r;
+}
+
+QJsonObject Session::checkpoint(const QJsonObject &)
+{
+    checkpointDoc_ = doc_;
+    checkpointPath_ = path_;
+    checkpointDirty_ = dirty_;
+    checkpointSel_ = sel_;
+    hasCheckpoint_ = true;
+    auto r = ok();
+    r[QStringLiteral("blocks")] = doc_.body.size();
+    return r;
+}
+
+QJsonObject Session::restoreCheckpoint(const QJsonObject &)
+{
+    if (!hasCheckpoint_)
+        return fail(QStringLiteral("no checkpoint"));
+    pushUndo();
+    doc_ = checkpointDoc_;
+    path_ = checkpointPath_;
+    dirty_ = checkpointDirty_;
+    sel_ = checkpointSel_;
+    markChanged();
+    return ok();
+}
+
+QJsonObject Session::insertMarkdown(const QJsonObject &args)
+{
+    return importMarkdown(args);
+}
+
 QJsonObject Session::call(const QString &tool, const QJsonObject &args)
 {
     if (tool == QLatin1String("document_new"))
@@ -1846,6 +2288,34 @@ QJsonObject Session::call(const QString &tool, const QJsonObject &args)
         return revisionAccept(args);
     if (tool == QLatin1String("revision_reject"))
         return revisionReject(args);
+    if (tool == QLatin1String("revision_accept_all"))
+        return revisionAcceptAll(args);
+    if (tool == QLatin1String("revision_reject_all"))
+        return revisionRejectAll(args);
+    if (tool == QLatin1String("autocorrect_get"))
+        return autocorrectGet(args);
+    if (tool == QLatin1String("autocorrect_set"))
+        return autocorrectSet(args);
+    if (tool == QLatin1String("merge_cells"))
+        return mergeCells(args);
+    if (tool == QLatin1String("split_cells"))
+        return splitCells(args);
+    if (tool == QLatin1String("table_sort"))
+        return tableSort(args);
+    if (tool == QLatin1String("set_image"))
+        return setImage(args);
+    if (tool == QLatin1String("insert_caption"))
+        return insertCaption(args);
+    if (tool == QLatin1String("validate") || tool == QLatin1String("document_validate"))
+        return validate(args);
+    if (tool == QLatin1String("batch"))
+        return batch(args);
+    if (tool == QLatin1String("checkpoint"))
+        return checkpoint(args);
+    if (tool == QLatin1String("restore") || tool == QLatin1String("restore_checkpoint"))
+        return restoreCheckpoint(args);
+    if (tool == QLatin1String("insert_markdown"))
+        return insertMarkdown(args);
     return fail(QStringLiteral("unknown tool: ") + tool);
 }
 
@@ -1897,7 +2367,7 @@ void Session::commitCaretInsert(const QString &text)
         sel_.focusOff = sel_.anchorOff = 0;
     }
     QString t = text;
-    static const QMap<QString, QString> autoMap = {
+    static const QMap<QString, QString> autoDefault = {
         {QStringLiteral("teh"), QStringLiteral("the")},
         {QStringLiteral("recieve"), QStringLiteral("receive")},
         {QStringLiteral("adn"), QStringLiteral("and")},
@@ -1916,9 +2386,10 @@ void Session::commitCaretInsert(const QString &text)
             while (i >= 0 && (plain[i].isLetter() || plain[i] == QLatin1Char(')')))
                 --i;
             const QString word = plain.mid(i + 1);
-            const auto it = autoMap.find(word.toLower());
-            if (it != autoMap.end() && !word.isEmpty()) {
-                QString repl = *it;
+            QString repl = doc_.autocorrect.value(word.toLower());
+            if (repl.isEmpty())
+                repl = autoDefault.value(word.toLower());
+            if (!repl.isEmpty() && !word.isEmpty()) {
                 if (word[0].isUpper())
                     repl[0] = repl[0].toUpper();
                 pushUndo();

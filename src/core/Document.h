@@ -3,6 +3,7 @@
 #include <QByteArray>
 #include <QDateTime>
 #include <QJsonObject>
+#include <QMap>
 #include <QString>
 #include <QVector>
 
@@ -56,6 +57,7 @@ struct Revision {
 struct TableCell {
     QVector<TextRun> runs;
     int colSpan = 1;
+    int rowSpan = 1;
 };
 
 struct Comment {
@@ -86,6 +88,20 @@ struct Block {
     QVector<double> colWidthsMm;
     QVector<Comment> comments;
     QStringList tocTargets;
+    double indentLeftMm = 0;
+    double indentRightMm = 0;
+    double indentFirstMm = 0;
+    double spaceBeforePt = -1;
+    double spaceAfterPt = -1;
+    double lineHeight = 1.0;
+    bool keepWithNext = false;
+    int orphans = 0;
+    int widows = 0;
+    int dropCapLines = 0;
+    QString altText;
+    QString caption;
+    QString wrap;
+    QString anchor;
 
     QJsonObject toJson() const;
     static Block fromJson(const QJsonObject &o);
@@ -102,6 +118,7 @@ struct StyleDef {
     QString align;
     double spaceBeforePt = 0;
     double spaceAfterPt = 8;
+    QString kind; // paragraph | character
 
     QJsonObject toJson() const;
     static StyleDef fromJson(const QJsonObject &o);
@@ -113,6 +130,9 @@ struct PageLayout {
     double marginsMm[4] = {25, 20, 25, 20};
     int columns = 1;
     bool hyphenate = false;
+    double gutterMm = 0;
+    double columnGapMm = 5;
+    bool columnSeparator = false;
 
     QJsonObject toJson() const;
     static PageLayout fromJson(const QJsonObject &o);
@@ -151,10 +171,13 @@ struct Document {
     QVector<Bookmark> bookmarks;
     QVector<Revision> revisions;
     bool trackChanges = false;
+    QString fileName;
+    QMap<QString, QString> autocorrect;
 
     static Document blank(const QString &title = QString());
     QJsonObject toJson() const;
     static Document fromJson(const QJsonObject &o);
+    QByteArray toCanonicalJson() const;
 
     int nextCounter(const QString &prefix) const;
     QString assignId(Block &b);

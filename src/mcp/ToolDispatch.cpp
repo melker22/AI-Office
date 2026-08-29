@@ -51,7 +51,7 @@ QJsonArray toolDefinitions()
                   QStringLiteral("Return the full semantic JSON (stable block ids, styles, page layout)."),
                   {}));
     a.append(tool(QStringLiteral("document_get_outline"),
-                  QStringLiteral("Return heading outline with ids."),
+                  QStringLiteral("Outline: headings plus tables, images, notes, toc. Each item has id, kind, text."),
                   {}));
     a.append(tool(QStringLiteral("insert_blocks"),
                   QStringLiteral("Insert semantic blocks after after_id (start|end|<id>). Omit block ids to auto-assign."),
@@ -59,17 +59,19 @@ QJsonArray toolDefinitions()
                               {QStringLiteral("blocks"), prop(QStringLiteral("array"))}},
                   QJsonArray{QStringLiteral("blocks")}));
     a.append(tool(QStringLiteral("replace_range"),
-                  QStringLiteral("Replace blocks whose ids are listed with new blocks."),
-                  QJsonObject{{QStringLiteral("ids"), prop(QStringLiteral("array"))},
+                  QStringLiteral("Replace blocks whose ids are listed with new blocks. ids[] or id."),
+                  QJsonObject{{QStringLiteral("ids"), prop(QStringLiteral("array"), QStringLiteral("Block ids; or pass id"))},
+                              {QStringLiteral("id"), prop(QStringLiteral("string"), QStringLiteral("Single block id (alias of ids with one entry)"))},
                               {QStringLiteral("blocks"), prop(QStringLiteral("array"))}},
-                  QJsonArray{QStringLiteral("ids"), QStringLiteral("blocks")}));
+                  QJsonArray{QStringLiteral("blocks")}));
     a.append(tool(QStringLiteral("delete_range"),
                   QStringLiteral("Delete blocks by id."),
-                  QJsonObject{{QStringLiteral("ids"), prop(QStringLiteral("array"))}},
-                  QJsonArray{QStringLiteral("ids")}));
+                  QJsonObject{{QStringLiteral("ids"), prop(QStringLiteral("array"), QStringLiteral("Block ids; or pass id"))},
+                              {QStringLiteral("id"), prop(QStringLiteral("string"), QStringLiteral("Single block id (alias of ids with one entry)"))}}));
     a.append(tool(QStringLiteral("apply_character_format"),
                   QStringLiteral("Apply bold/italic/underline/font/size/color. Optional start/end offsets on the block text."),
-                  QJsonObject{{QStringLiteral("ids"), prop(QStringLiteral("array"))},
+                  QJsonObject{{QStringLiteral("ids"), prop(QStringLiteral("array"), QStringLiteral("Block ids; or pass id"))},
+                              {QStringLiteral("id"), prop(QStringLiteral("string"), QStringLiteral("Single block id (alias of ids with one entry)"))},
                               {QStringLiteral("start"), prop(QStringLiteral("integer"))},
                               {QStringLiteral("end"), prop(QStringLiteral("integer"))},
                               {QStringLiteral("bold"), prop(QStringLiteral("boolean"))},
@@ -82,19 +84,29 @@ QJsonArray toolDefinitions()
                               {QStringLiteral("font"), prop(QStringLiteral("string"))},
                               {QStringLiteral("size_pt"), prop(QStringLiteral("number"))},
                               {QStringLiteral("color"), prop(QStringLiteral("string"))},
-                              {QStringLiteral("highlight"), prop(QStringLiteral("string"))}},
-                  QJsonArray{QStringLiteral("ids")}));
+                              {QStringLiteral("highlight"), prop(QStringLiteral("string"))}}));
     a.append(tool(QStringLiteral("apply_paragraph_format"),
-                  QStringLiteral("Set align (left|center|right|justify) and/or paragraph style name."),
-                  QJsonObject{{QStringLiteral("ids"), prop(QStringLiteral("array"))},
+                  QStringLiteral("Set align, style, indents, spacing, line_height, keep_with_next, orphans/widows, drop_cap."),
+                  QJsonObject{{QStringLiteral("ids"), prop(QStringLiteral("array"), QStringLiteral("Block ids; or pass id"))},
+                              {QStringLiteral("id"), prop(QStringLiteral("string"), QStringLiteral("Single block id (alias of ids with one entry)"))},
                               {QStringLiteral("align"), prop(QStringLiteral("string"))},
-                              {QStringLiteral("style"), prop(QStringLiteral("string"))}},
-                  QJsonArray{QStringLiteral("ids")}));
+                              {QStringLiteral("style"), prop(QStringLiteral("string"))},
+                              {QStringLiteral("indent_left_mm"), prop(QStringLiteral("number"))},
+                              {QStringLiteral("indent_right_mm"), prop(QStringLiteral("number"))},
+                              {QStringLiteral("indent_first_mm"), prop(QStringLiteral("number"))},
+                              {QStringLiteral("space_before_pt"), prop(QStringLiteral("number"))},
+                              {QStringLiteral("space_after_pt"), prop(QStringLiteral("number"))},
+                              {QStringLiteral("line_height"), prop(QStringLiteral("number"))},
+                              {QStringLiteral("keep_with_next"), prop(QStringLiteral("boolean"))},
+                              {QStringLiteral("orphans"), prop(QStringLiteral("integer"))},
+                              {QStringLiteral("widows"), prop(QStringLiteral("integer"))},
+                              {QStringLiteral("drop_cap_lines"), prop(QStringLiteral("integer"))}}));
     a.append(tool(QStringLiteral("apply_style"),
                   QStringLiteral("Apply a named style. Heading N also converts the block to a heading."),
-                  QJsonObject{{QStringLiteral("ids"), prop(QStringLiteral("array"))},
+                  QJsonObject{{QStringLiteral("ids"), prop(QStringLiteral("array"), QStringLiteral("Block ids; or pass id"))},
+                              {QStringLiteral("id"), prop(QStringLiteral("string"), QStringLiteral("Single block id (alias of ids with one entry)"))},
                               {QStringLiteral("style"), prop(QStringLiteral("string"))}},
-                  QJsonArray{QStringLiteral("ids"), QStringLiteral("style")}));
+                  QJsonArray{QStringLiteral("style")}));
     a.append(tool(QStringLiteral("create_style"),
                   QStringLiteral("Create or replace a named paragraph style."),
                   QJsonObject{{QStringLiteral("name"), prop(QStringLiteral("string"))},
@@ -105,15 +117,19 @@ QJsonArray toolDefinitions()
                               {QStringLiteral("color"), prop(QStringLiteral("string"))},
                               {QStringLiteral("align"), prop(QStringLiteral("string"))},
                               {QStringLiteral("space_before_pt"), prop(QStringLiteral("number"))},
-                              {QStringLiteral("space_after_pt"), prop(QStringLiteral("number"))}},
+                              {QStringLiteral("space_after_pt"), prop(QStringLiteral("number"))},
+                              {QStringLiteral("kind"), prop(QStringLiteral("string"), QStringLiteral("paragraph or character"))}},
                   QJsonArray{QStringLiteral("name")}));
     a.append(tool(QStringLiteral("set_page_layout"),
-                  QStringLiteral("Set paper size (A4|Letter), orientation, margins_mm, columns (1-3), hyphenate."),
+                  QStringLiteral("Set paper size (A4|Letter|Legal|A3|A5|A6|Tabloid), orientation, margins_mm, columns, hyphenate, gutter, column separator."),
                   QJsonObject{{QStringLiteral("size"), prop(QStringLiteral("string"))},
                               {QStringLiteral("orientation"), prop(QStringLiteral("string"))},
                               {QStringLiteral("margins_mm"), prop(QStringLiteral("array"))},
                               {QStringLiteral("columns"), prop(QStringLiteral("integer"))},
-                              {QStringLiteral("hyphenate"), prop(QStringLiteral("boolean"))}}));
+                              {QStringLiteral("hyphenate"), prop(QStringLiteral("boolean"))},
+                              {QStringLiteral("gutter_mm"), prop(QStringLiteral("number"))},
+                              {QStringLiteral("column_gap_mm"), prop(QStringLiteral("number"))},
+                              {QStringLiteral("column_separator"), prop(QStringLiteral("boolean"))}}));
     a.append(tool(QStringLiteral("insert_table"),
                   QStringLiteral("Insert a table after after_id. header_texts fill row 0 when header=true; cells fill data rows after the header."),
                   QJsonObject{{QStringLiteral("after_id"), prop(QStringLiteral("string"))},
@@ -136,7 +152,7 @@ QJsonArray toolDefinitions()
                               {QStringLiteral("items"), prop(QStringLiteral("array"))}},
                   QJsonArray{QStringLiteral("items")}));
     a.append(tool(QStringLiteral("insert_break"),
-                  QStringLiteral("Insert a page break."),
+                  QStringLiteral("Insert a page or column break (kind=page|column)."),
                   QJsonObject{{QStringLiteral("after_id"), prop(QStringLiteral("string"))},
                               {QStringLiteral("kind"), prop(QStringLiteral("string"))}}));
     a.append(tool(QStringLiteral("find_replace"),
@@ -149,8 +165,10 @@ QJsonArray toolDefinitions()
     a.append(tool(QStringLiteral("undo"), QStringLiteral("Undo the last semantic edit."), {}));
     a.append(tool(QStringLiteral("redo"), QStringLiteral("Redo."), {}));
     a.append(tool(QStringLiteral("page_preview"),
-                  QStringLiteral("PNG preview of a page (base64) so you can verify appearance."),
+                  QStringLiteral("PNG preview of a page (base64). page=n, page=all, or from/to inclusive range."),
                   QJsonObject{{QStringLiteral("page"), prop(QStringLiteral("integer"))},
+                              {QStringLiteral("from"), prop(QStringLiteral("integer"))},
+                              {QStringLiteral("to"), prop(QStringLiteral("integer"))},
                               {QStringLiteral("zoom"), prop(QStringLiteral("number"))}}));
     a.append(tool(QStringLiteral("integrate_help"),
                   QStringLiteral("How a user AI should attach to AI Office (no API keys). Includes title, words, outline."),
@@ -205,21 +223,22 @@ QJsonArray toolDefinitions()
                               {QStringLiteral("offset"), prop(QStringLiteral("integer"))}},
                   QJsonArray{QStringLiteral("text")}));
     a.append(tool(QStringLiteral("move_blocks"),
-                  QStringLiteral("Move blocks after after_id."),
-                  QJsonObject{{QStringLiteral("ids"), prop(QStringLiteral("array"))},
-                              {QStringLiteral("after_id"), prop(QStringLiteral("string"))}},
-                  QJsonArray{QStringLiteral("ids")}));
+                  QStringLiteral("Move blocks after after_id. ids[] or id."),
+                  QJsonObject{{QStringLiteral("ids"), prop(QStringLiteral("array"), QStringLiteral("Block ids; or pass id"))},
+                              {QStringLiteral("id"), prop(QStringLiteral("string"), QStringLiteral("Single block id (alias of ids with one entry)"))},
+                              {QStringLiteral("after_id"), prop(QStringLiteral("string"))}}));
     a.append(tool(QStringLiteral("duplicate_blocks"),
-                  QStringLiteral("Duplicate blocks after after_id."),
-                  QJsonObject{{QStringLiteral("ids"), prop(QStringLiteral("array"))},
-                              {QStringLiteral("after_id"), prop(QStringLiteral("string"))}},
-                  QJsonArray{QStringLiteral("ids")}));
+                  QStringLiteral("Duplicate blocks after after_id. ids[] or id."),
+                  QJsonObject{{QStringLiteral("ids"), prop(QStringLiteral("array"), QStringLiteral("Block ids; or pass id"))},
+                              {QStringLiteral("id"), prop(QStringLiteral("string"), QStringLiteral("Single block id (alias of ids with one entry)"))},
+                              {QStringLiteral("after_id"), prop(QStringLiteral("string"))}}));
     a.append(tool(QStringLiteral("comment_add"),
-                  QStringLiteral("Add a comment on a block."),
-                  QJsonObject{{QStringLiteral("id"), prop(QStringLiteral("string"))},
+                  QStringLiteral("Add a comment on a block. ids[] or id."),
+                  QJsonObject{{QStringLiteral("ids"), prop(QStringLiteral("array"))},
+                              {QStringLiteral("id"), prop(QStringLiteral("string"))},
                               {QStringLiteral("text"), prop(QStringLiteral("string"))},
                               {QStringLiteral("author"), prop(QStringLiteral("string"))}},
-                  QJsonArray{QStringLiteral("id"), QStringLiteral("text")}));
+                  QJsonArray{QStringLiteral("text")}));
     a.append(tool(QStringLiteral("comment_resolve"),
                   QStringLiteral("Mark a comment resolved."),
                   QJsonObject{{QStringLiteral("comment_id"), prop(QStringLiteral("string"))}},
@@ -268,7 +287,7 @@ QJsonArray toolDefinitions()
                   QJsonObject{{QStringLiteral("target"), prop(QStringLiteral("string"))}},
                   QJsonArray{QStringLiteral("target")}));
     a.append(tool(QStringLiteral("insert_field"),
-                  QStringLiteral("Insert a field: page_number, page_count, date, title, author, xref."),
+                  QStringLiteral("Insert a field: page_number, page_count, date, title, author, xref, filename, word_count, custom."),
                   QJsonObject{{QStringLiteral("kind"), prop(QStringLiteral("string"))},
                               {QStringLiteral("arg"), prop(QStringLiteral("string"))},
                               {QStringLiteral("id"), prop(QStringLiteral("string"))},
@@ -302,6 +321,71 @@ QJsonArray toolDefinitions()
                   QStringLiteral("Reject an insert revision (remove the inserted text)."),
                   QJsonObject{{QStringLiteral("id"), prop(QStringLiteral("string"))}},
                   QJsonArray{QStringLiteral("id")}));
+    a.append(tool(QStringLiteral("validate"),
+                  QStringLiteral("Validate unique ids, block types, note_id and xref/bookmark refs. Returns {valid, errors[]}."),
+                  {}));
+    a.append(tool(QStringLiteral("batch"),
+                  QStringLiteral("Run calls atomically: [{tool, args}, ...]. Rolls back the whole batch on first {ok:false}."),
+                  QJsonObject{{QStringLiteral("calls"), prop(QStringLiteral("array"))}},
+                  QJsonArray{QStringLiteral("calls")}));
+    a.append(tool(QStringLiteral("checkpoint"),
+                  QStringLiteral("Snapshot the session (distinct from caret undo). Pair with restore."),
+                  {}));
+    a.append(tool(QStringLiteral("restore"),
+                  QStringLiteral("Restore the last checkpoint."),
+                  {}));
+    a.append(tool(QStringLiteral("insert_markdown"),
+                  QStringLiteral("Alias of import_markdown: insert markdown after after_id as blocks with new ids."),
+                  QJsonObject{{QStringLiteral("markdown"), prop(QStringLiteral("string"))},
+                              {QStringLiteral("after_id"), prop(QStringLiteral("string"))}},
+                  QJsonArray{QStringLiteral("markdown")}));
+    a.append(tool(QStringLiteral("revision_accept_all"),
+                  QStringLiteral("Accept every tracked revision (drop marks, keep text)."),
+                  {}));
+    a.append(tool(QStringLiteral("revision_reject_all"),
+                  QStringLiteral("Reject every insert revision and drop all marks."),
+                  {}));
+    a.append(tool(QStringLiteral("autocorrect_get"),
+                  QStringLiteral("Return the document Autocorrect replacement map (MCP, no GUI)."),
+                  {}));
+    a.append(tool(QStringLiteral("autocorrect_set"),
+                  QStringLiteral("Merge replacements {from:to}. replace=true replaces the whole map."),
+                  QJsonObject{{QStringLiteral("replacements"), prop(QStringLiteral("object"))},
+                              {QStringLiteral("replace"), prop(QStringLiteral("boolean"))}},
+                  QJsonArray{QStringLiteral("replacements")}));
+    a.append(tool(QStringLiteral("merge_cells"),
+                  QStringLiteral("Set col_span/row_span on a table cell."),
+                  QJsonObject{{QStringLiteral("id"), prop(QStringLiteral("string"))},
+                              {QStringLiteral("row"), prop(QStringLiteral("integer"))},
+                              {QStringLiteral("col"), prop(QStringLiteral("integer"))},
+                              {QStringLiteral("col_span"), prop(QStringLiteral("integer"))},
+                              {QStringLiteral("row_span"), prop(QStringLiteral("integer"))}},
+                  QJsonArray{QStringLiteral("id"), QStringLiteral("row"), QStringLiteral("col")}));
+    a.append(tool(QStringLiteral("split_cells"),
+                  QStringLiteral("Reset a table cell span to 1x1."),
+                  QJsonObject{{QStringLiteral("id"), prop(QStringLiteral("string"))},
+                              {QStringLiteral("row"), prop(QStringLiteral("integer"))},
+                              {QStringLiteral("col"), prop(QStringLiteral("integer"))}},
+                  QJsonArray{QStringLiteral("id"), QStringLiteral("row"), QStringLiteral("col")}));
+    a.append(tool(QStringLiteral("table_sort"),
+                  QStringLiteral("Sort table data rows by column index (skips header row)."),
+                  QJsonObject{{QStringLiteral("id"), prop(QStringLiteral("string"))},
+                              {QStringLiteral("col"), prop(QStringLiteral("integer"))}},
+                  QJsonArray{QStringLiteral("id")}));
+    a.append(tool(QStringLiteral("set_image"),
+                  QStringLiteral("Set image width_mm, alt, caption, wrap, anchor."),
+                  QJsonObject{{QStringLiteral("id"), prop(QStringLiteral("string"))},
+                              {QStringLiteral("width_mm"), prop(QStringLiteral("integer"))},
+                              {QStringLiteral("alt"), prop(QStringLiteral("string"))},
+                              {QStringLiteral("caption"), prop(QStringLiteral("string"))},
+                              {QStringLiteral("wrap"), prop(QStringLiteral("string"))},
+                              {QStringLiteral("anchor"), prop(QStringLiteral("string"))}},
+                  QJsonArray{QStringLiteral("id")}));
+    a.append(tool(QStringLiteral("insert_caption"),
+                  QStringLiteral("Set caption text on an image or table block."),
+                  QJsonObject{{QStringLiteral("id"), prop(QStringLiteral("string"))},
+                              {QStringLiteral("text"), prop(QStringLiteral("string"))}},
+                  QJsonArray{QStringLiteral("id"), QStringLiteral("text")}));
     return a;
 }
 

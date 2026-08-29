@@ -6,6 +6,7 @@
 
 #include <QFile>
 #include <QFileInfo>
+#include <QJsonArray>
 #include <QJsonDocument>
 #include <QJsonObject>
 #include <cstdio>
@@ -38,7 +39,7 @@ QJsonObject parseArgsJson(const QString &s)
 QJsonObject dispatch(const QString &tool, const QJsonObject &args)
 {
     QString err;
-    if (ipcAvailable()) {
+    if (ipcAvailable() && qEnvironmentVariableIsEmpty("AIOFFICE_HEADLESS")) {
         auto r = ipcCall(tool, args, &err);
         if (err.isEmpty() || r.value(QStringLiteral("ok")).toBool())
             return r;
@@ -55,6 +56,7 @@ Usage:
   aioffice                 Launch the GUI
   aioffice mcp             MCP server on stdio (Cursor / Claude Code / Grok Build)
   aioffice call TOOL JSON  Call a semantic tool (live GUI if open, else headless)
+  aioffice play FILE.json  Run a JSON array of {tool, args} (atomic batch; not StarBasic)
   aioffice tools           List tool names
   aioffice new [file]      Blank document (optional save path)
   aioffice get [file]      Print semantic JSON
@@ -101,6 +103,58 @@ int runCli(const QStringList &args)
         const auto r = dispatch(args[2], a);
         printJson(r);
         return r.value(QStringLiteral("ok")).toBool() ? 0 : 1;
+    }
+    if (cmd == QLatin1String("play")) {
+        if (args.size() < 3) {
+            fprintf(stderr, "aioffice play FILE.json\n");
+            return 2;
+        }
+        QFile f(args[2]);
+        if (!f.open(QIODevice::ReadOnly)) {
+            fprintf(stderr, "cannot read %s\n", qPrintable(args[2]));
+            return 1;
+        }
+        const auto docj = QJsonDocument::fromJson(f.readAll());
+        QJsonArray calls;
+        if (docj.isArray())
+            calls = docj.array();
+        else if (docj.isObject())
+            calls = docj.object().value(QStringLiteral("calls")).toArray();
+        if (calls.isEmpty()) {
+            fprintf(stderr, "playbook needs a JSON array of {tool, args} or {calls:[...]}\n");
+            return 2;
+        }
+        const bool live = ipcAvailable() && qEnvironmentVariableIsEmpty("AIOFFICE_HEADLESS");
+        Session session;
+        QJsonArray results;
+        for (const auto &v : calls) {
+            const QJsonObject c = v.toObject();
+            const QString t = c.value(QStringLiteral("tool")).toString();
+            const QJsonObject a = c.value(QStringLiteral("args")).toObject();
+            QJsonObject r;
+            if (live) {
+                QString err;
+                r = ipcCall(t, a, &err);
+                if (!err.isEmpty() && !r.value(QStringLiteral("ok")).toBool())
+                    r = toolResultErr(err);
+            } else {
+                r = session.call(t, a);
+            }
+            results.append(r);
+            if (!r.value(QStringLiteral("ok")).toBool()) {
+                QJsonObject out;
+                out[QStringLiteral("ok")] = false;
+                out[QStringLiteral("error")] = r.value(QStringLiteral("error"));
+                out[QStringLiteral("results")] = results;
+                printJson(out);
+                return 1;
+            }
+        }
+        QJsonObject out;
+        out[QStringLiteral("ok")] = true;
+        out[QStringLiteral("results")] = results;
+        printJson(out);
+        return 0;
     }
     if (cmd == QLatin1String("new")) {
         QJsonObject a;

@@ -1,6 +1,6 @@
 # Semantic document + MCP/CLI contract
 
-All tools are available as MCP `tools/call` and as `aioffice call <name> '<json args>'`.
+All tools are available as MCP `tools/call` and as `aioffice call <name> '<json args>'`. Playbooks: `aioffice play script.json` (JSON array of `{tool, args}`, runs `batch`).
 
 The document is a JSON object with **stable block IDs**. Agents must address content by `id`, never by pixel or mouse.
 
@@ -110,7 +110,7 @@ Returns `{ "ok", "document": { ...full JSON... } }`.
 ### `document_get_outline`
 
 Args: `{}`  
-Returns `{ "ok", "outline": [ { "id", "level", "text" } ] }`.
+Returns `{ "ok", "outline": [ { "id", "kind", "type", "level"?, "text" } ] }`. Headings plus tables, images, footnotes, endnotes, toc.
 
 ### `insert_blocks`
 
@@ -221,8 +221,8 @@ Hiperlink na seleção (`url`). Marcador nomeado no bloco (`name`, `id` opcional
 
 ### `insert_field`
 
-Args: `{ "kind": "page_number"|"page_count"|"date"|"title"|"author"|"xref", "arg"?: string }`  
-Insere no caret. `xref` usa `arg` como alvo.
+Args: `{ "kind": "page_number"|"page_count"|"date"|"title"|"author"|"xref"|"filename"|"word_count"|"custom", "arg"?: string }`  
+Insere no caret. `xref`/`custom` usam `arg`.
 
 ### `insert_footnote` / `insert_endnote`
 
@@ -239,7 +239,19 @@ Hunspell se o binário foi compilado com a lib e existir dicionário (`DICPATH` 
 
 ### `track_changes` / `revision_list` / `revision_accept` / `revision_reject`
 
-`track_changes { on }` grava insert/delete. Aceitar remove a marca; rejeitar um `insert` desfaz o texto.
+`track_changes { on }` grava insert/delete/format. `revision_accept_all` / `revision_reject_all`. Aceitar remove a marca; rejeitar um `insert` desfaz o texto.
+
+### `autocorrect_get` / `autocorrect_set`
+
+Mapa `{from: to}` no JSON do documento (sem GUI). O caret aplica a lista + defaults (`teh`→`the`, …).
+
+### `merge_cells` / `split_cells` / `table_sort`
+
+`merge_cells {id, row, col, col_span?, row_span?}`. `table_sort {id, col}` ordena linhas de dados.
+
+### `set_image` / `insert_caption`
+
+Alt, caption, wrap, âncora, `width_mm` no bloco imagem (ou caption em tabela).
 
 ### `undo` / `redo`
 
@@ -247,8 +259,27 @@ Args: `{}`
 
 ### `page_preview`
 
-Args: `{ "page"?: 1, "zoom"?: 1.15 }` or `{ "page": "all", "zoom"?: 1.15 }`  
-Default zoom **1.15** (same as the GUI). `page:"all"` returns `{previews:[{page,png_base64}]}`.
+Args: `{ "page"?: 1, "zoom"?: 1.15 }` or `{ "page": "all", "zoom"?: 1.15 }` or `{ "from": 1, "to": 3, "zoom"?: 1.15 }`  
+Default zoom **1.15**. `from`/`to` are inclusive page numbers. `page:"all"` returns `{previews:[{page,png_base64}]}`.
+
+### `validate`
+
+Args: `{}`  
+Returns `{ ok, valid, errors: [{code,id?,message}], blocks }`. Checks unique ids, known block types, `note_id`, xref targets, bookmarks.
+
+### `batch`
+
+Args: `{ "calls": [ { "tool": "apply_style", "args": { ... } }, ... ] }`  
+Runs every call in order. First `{ok:false}` **rolls back** the whole batch (no nested `batch`/`undo`/`checkpoint`). One undo frame on success.
+
+### `checkpoint` / `restore`
+
+Args: `{}`  
+Snapshot / restore the session. Distinct from caret `undo`. `restore` fails with `{ok:false,error:"no checkpoint"}`.
+
+### `insert_markdown`
+
+Alias of `import_markdown`. Args: `{ "markdown": string, "after_id"?: "end" }`.
 
 ### `integrate_help`
 
