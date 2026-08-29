@@ -40,7 +40,7 @@
 
 **Next suggested step:** Empacotar Linux (PATH/Nix); Windows v1. Planilha e PPT = apps separados.
 
-**Commits:** (preenchido após o commit)
+**Commits:** `0582976` docs: relicense AI Office to GPL-3.0-or-later
 
 ---
 
