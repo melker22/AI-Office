@@ -48,6 +48,12 @@ Rectangle {
 
         IconBtn { glyph: "↑"; tip: "Anterior"; onClicked: app.findPrev() }
         IconBtn { glyph: "↓"; tip: "Próximo"; onClicked: app.findNext() }
+        IconBtn {
+            glyph: ".*"
+            tip: "Expressão regular"
+            active: app.findRegex
+            onClicked: app.findRegex = !app.findRegex
+        }
 
         Rectangle { width: 1; height: 24; color: Theme.hairlineStrong }
 

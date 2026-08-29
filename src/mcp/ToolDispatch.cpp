@@ -75,6 +75,10 @@ QJsonArray toolDefinitions()
                               {QStringLiteral("bold"), prop(QStringLiteral("boolean"))},
                               {QStringLiteral("italic"), prop(QStringLiteral("boolean"))},
                               {QStringLiteral("underline"), prop(QStringLiteral("boolean"))},
+                              {QStringLiteral("strike"), prop(QStringLiteral("boolean"))},
+                              {QStringLiteral("superscript"), prop(QStringLiteral("boolean"))},
+                              {QStringLiteral("subscript"), prop(QStringLiteral("boolean"))},
+                              {QStringLiteral("link"), prop(QStringLiteral("string"))},
                               {QStringLiteral("font"), prop(QStringLiteral("string"))},
                               {QStringLiteral("size_pt"), prop(QStringLiteral("number"))},
                               {QStringLiteral("color"), prop(QStringLiteral("string"))},
@@ -104,10 +108,12 @@ QJsonArray toolDefinitions()
                               {QStringLiteral("space_after_pt"), prop(QStringLiteral("number"))}},
                   QJsonArray{QStringLiteral("name")}));
     a.append(tool(QStringLiteral("set_page_layout"),
-                  QStringLiteral("Set paper size (A4|Letter), orientation, margins_mm [top,right,bottom,left]."),
+                  QStringLiteral("Set paper size (A4|Letter), orientation, margins_mm, columns (1-3), hyphenate."),
                   QJsonObject{{QStringLiteral("size"), prop(QStringLiteral("string"))},
                               {QStringLiteral("orientation"), prop(QStringLiteral("string"))},
-                              {QStringLiteral("margins_mm"), prop(QStringLiteral("array"))}}));
+                              {QStringLiteral("margins_mm"), prop(QStringLiteral("array"))},
+                              {QStringLiteral("columns"), prop(QStringLiteral("integer"))},
+                              {QStringLiteral("hyphenate"), prop(QStringLiteral("boolean"))}}));
     a.append(tool(QStringLiteral("insert_table"),
                   QStringLiteral("Insert a table after after_id. header_texts fill row 0 when header=true; cells fill data rows after the header."),
                   QJsonObject{{QStringLiteral("after_id"), prop(QStringLiteral("string"))},
@@ -134,10 +140,11 @@ QJsonArray toolDefinitions()
                   QJsonObject{{QStringLiteral("after_id"), prop(QStringLiteral("string"))},
                               {QStringLiteral("kind"), prop(QStringLiteral("string"))}}));
     a.append(tool(QStringLiteral("find_replace"),
-                  QStringLiteral("Find/replace plain text across the document."),
+                  QStringLiteral("Find/replace. regex=true uses QRegularExpression."),
                   QJsonObject{{QStringLiteral("find"), prop(QStringLiteral("string"))},
                               {QStringLiteral("replace"), prop(QStringLiteral("string"))},
-                              {QStringLiteral("all"), prop(QStringLiteral("boolean"))}},
+                              {QStringLiteral("all"), prop(QStringLiteral("boolean"))},
+                              {QStringLiteral("regex"), prop(QStringLiteral("boolean"))}},
                   QJsonArray{QStringLiteral("find")}));
     a.append(tool(QStringLiteral("undo"), QStringLiteral("Undo the last semantic edit."), {}));
     a.append(tool(QStringLiteral("redo"), QStringLiteral("Redo."), {}));
@@ -149,9 +156,10 @@ QJsonArray toolDefinitions()
                   QStringLiteral("How a user AI should attach to AI Office (no API keys). Includes title, words, outline."),
                   {}));
     a.append(tool(QStringLiteral("search"),
-                  QStringLiteral("Find text without replacing. Returns ids + start/end. forward=false for reverse."),
+                  QStringLiteral("Find text without replacing. regex=true for QRegularExpression."),
                   QJsonObject{{QStringLiteral("find"), prop(QStringLiteral("string"))},
-                              {QStringLiteral("forward"), prop(QStringLiteral("boolean"))}},
+                              {QStringLiteral("forward"), prop(QStringLiteral("boolean"))},
+                              {QStringLiteral("regex"), prop(QStringLiteral("boolean"))}},
                   QJsonArray{QStringLiteral("find")}));
     a.append(tool(QStringLiteral("set_cell"),
                   QStringLiteral("Set table cell text or runs."),
@@ -242,6 +250,58 @@ QJsonArray toolDefinitions()
                               {QStringLiteral("force"), prop(QStringLiteral("boolean"))},
                               {QStringLiteral("fields"), prop(QStringLiteral("object"))}},
                   QJsonArray{}));
+    a.append(tool(QStringLiteral("link_set"),
+                  QStringLiteral("Set hyperlink url on the selection or ids/start/end."),
+                  QJsonObject{{QStringLiteral("url"), prop(QStringLiteral("string"))},
+                              {QStringLiteral("ids"), prop(QStringLiteral("array"))},
+                              {QStringLiteral("start"), prop(QStringLiteral("integer"))},
+                              {QStringLiteral("end"), prop(QStringLiteral("integer"))}},
+                  QJsonArray{QStringLiteral("url")}));
+    a.append(tool(QStringLiteral("bookmark_add"),
+                  QStringLiteral("Add a named bookmark on a block id (default: caret)."),
+                  QJsonObject{{QStringLiteral("name"), prop(QStringLiteral("string"))},
+                              {QStringLiteral("id"), prop(QStringLiteral("string"))},
+                              {QStringLiteral("offset"), prop(QStringLiteral("integer"))}},
+                  QJsonArray{QStringLiteral("name")}));
+    a.append(tool(QStringLiteral("insert_crossref"),
+                  QStringLiteral("Insert a cross-reference field to a block or bookmark id."),
+                  QJsonObject{{QStringLiteral("target"), prop(QStringLiteral("string"))}},
+                  QJsonArray{QStringLiteral("target")}));
+    a.append(tool(QStringLiteral("insert_field"),
+                  QStringLiteral("Insert a field: page_number, page_count, date, title, author, xref."),
+                  QJsonObject{{QStringLiteral("kind"), prop(QStringLiteral("string"))},
+                              {QStringLiteral("arg"), prop(QStringLiteral("string"))},
+                              {QStringLiteral("id"), prop(QStringLiteral("string"))},
+                              {QStringLiteral("offset"), prop(QStringLiteral("integer"))}},
+                  QJsonArray{QStringLiteral("kind")}));
+    a.append(tool(QStringLiteral("insert_footnote"),
+                  QStringLiteral("Insert a footnote marker at the caret and a footnote block."),
+                  QJsonObject{{QStringLiteral("text"), prop(QStringLiteral("string"))},
+                              {QStringLiteral("id"), prop(QStringLiteral("string"))}}));
+    a.append(tool(QStringLiteral("insert_endnote"),
+                  QStringLiteral("Insert an endnote marker at the caret."),
+                  QJsonObject{{QStringLiteral("text"), prop(QStringLiteral("string"))},
+                              {QStringLiteral("id"), prop(QStringLiteral("string"))}}));
+    a.append(tool(QStringLiteral("toc_update"),
+                  QStringLiteral("Create or refresh a table of contents block from headings."),
+                  {}));
+    a.append(tool(QStringLiteral("spellcheck"),
+                  QStringLiteral("Hunspell check. Returns hits [{id,start,end,word,suggestions}]."),
+                  {}));
+    a.append(tool(QStringLiteral("track_changes"),
+                  QStringLiteral("Enable or disable change tracking. on=true|false."),
+                  QJsonObject{{QStringLiteral("on"), prop(QStringLiteral("boolean"))}}));
+    a.append(tool(QStringLiteral("revision_list"),
+                  QStringLiteral("List tracked revisions."),
+                  {}));
+    a.append(tool(QStringLiteral("revision_accept"),
+                  QStringLiteral("Accept a revision by id (drop the mark, keep text)."),
+                  QJsonObject{{QStringLiteral("id"), prop(QStringLiteral("string"))}},
+                  QJsonArray{QStringLiteral("id")}));
+    a.append(tool(QStringLiteral("revision_reject"),
+                  QStringLiteral("Reject an insert revision (remove the inserted text)."),
+                  QJsonObject{{QStringLiteral("id"), prop(QStringLiteral("string"))}},
+                  QJsonArray{QStringLiteral("id")}));
     return a;
 }
 

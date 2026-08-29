@@ -28,9 +28,9 @@ Cobre `#B5651D`, papel `#FBF7F0`/`#FDFBF7`, tinta `#2A2420`, dark `#D68A44`/`#1D
 | IA conectada | `AiIntegratePanel.qml` |
 | Abrir | `OpenPanel.qml` |
 | Salvar / exportar | `SaveSheet.qml` |
-| Página e estilos | `Sidebar.qml` |
+| Página e estilos | `Sidebar.qml` (colunas, hífen, hiperlink, campos, TOC, alterações) |
 | Tabela selecionada | `TableMiniBar.qml` |
-| Find / replace | `FindBar.qml` |
+| Find / replace | `FindBar.qml` (toggle regex `.*`) |
 | Componentes | `Theme.qml` + `Ui*` |
 
 Novos frames (2026-08-28, job `wIOu49yS2pyteKKuI9cH`) em [`docs/design/html/`](design/html/README.md):

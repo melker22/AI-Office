@@ -66,6 +66,19 @@ public:
     QJsonObject importMarkdown(const QJsonObject &args);
     QJsonObject documentFromTemplate(const QJsonObject &args);
 
+    QJsonObject linkSet(const QJsonObject &args);
+    QJsonObject bookmarkAdd(const QJsonObject &args);
+    QJsonObject insertCrossref(const QJsonObject &args);
+    QJsonObject insertField(const QJsonObject &args);
+    QJsonObject insertFootnote(const QJsonObject &args);
+    QJsonObject insertEndnote(const QJsonObject &args);
+    QJsonObject tocUpdate(const QJsonObject &args);
+    QJsonObject spellcheck(const QJsonObject &args);
+    QJsonObject trackChangesSet(const QJsonObject &args);
+    QJsonObject revisionList(const QJsonObject &args);
+    QJsonObject revisionAccept(const QJsonObject &args);
+    QJsonObject revisionReject(const QJsonObject &args);
+
     QJsonObject call(const QString &tool, const QJsonObject &args);
 
     bool toggleTableHeader();

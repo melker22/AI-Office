@@ -1,6 +1,7 @@
 #include "app/AppController.h"
 
 #include "core/Preview.h"
+#include "core/Spell.h"
 #include "lok/LokEngine.h"
 
 #include <QClipboard>
@@ -29,10 +30,17 @@ AppController::AppController(QObject *parent)
         emit selectionChanged();
         snapshotActive();
         rebuildTabsUi();
+        spellTimer_.start();
     });
     ipc_.start();
     aiFlashTimer_.setSingleShot(true);
     aiFlashTimer_.setInterval(1600);
+    spellTimer_.setSingleShot(true);
+    spellTimer_.setInterval(500);
+    connect(&spellTimer_, &QTimer::timeout, this, [this]() {
+        refreshSpell();
+        emit documentChanged();
+    });
     connect(&aiFlashTimer_, &QTimer::timeout, this, [this]() {
         aiEditedFlash_ = false;
         emit aiChanged();
@@ -54,6 +62,14 @@ AppController::AppController(QObject *parent)
         rebuildTabsUi();
     });
     refreshPages();
+}
+
+void AppController::refreshSpell()
+{
+    spellHits_.clear();
+    const auto hits = session_.spellcheck({})[QStringLiteral("hits")].toArray();
+    for (const auto &v : hits)
+        spellHits_.push_back(v.toObject().toVariantMap());
 }
 
 QString AppController::title() const
@@ -438,6 +454,146 @@ void AppController::applyUnderline()
     session_.applyCharacterFormat(args);
 }
 
+void AppController::applyStrike()
+{
+    auto args = formatArgs();
+    args[QStringLiteral("strike")] = true;
+    session_.applyCharacterFormat(args);
+}
+
+void AppController::applySuper()
+{
+    auto args = formatArgs();
+    args[QStringLiteral("superscript")] = true;
+    args[QStringLiteral("subscript")] = false;
+    session_.applyCharacterFormat(args);
+}
+
+void AppController::applySub()
+{
+    auto args = formatArgs();
+    args[QStringLiteral("subscript")] = true;
+    args[QStringLiteral("superscript")] = false;
+    session_.applyCharacterFormat(args);
+}
+
+void AppController::applyLink()
+{
+    session_.linkSet({{QStringLiteral("url"), linkUrl_}});
+}
+
+void AppController::insertField(const QString &kind)
+{
+    session_.insertField({{QStringLiteral("kind"), kind}});
+}
+
+void AppController::insertFootnote()
+{
+    session_.insertFootnote({{QStringLiteral("text"), QStringLiteral("Nota")}});
+}
+
+void AppController::insertEndnote()
+{
+    session_.insertEndnote({{QStringLiteral("text"), QStringLiteral("Nota final")}});
+}
+
+void AppController::updateToc()
+{
+    session_.tocUpdate({});
+}
+
+void AppController::addBookmark(const QString &name)
+{
+    if (name.isEmpty())
+        return;
+    session_.bookmarkAdd({{QStringLiteral("name"), name}});
+}
+
+void AppController::insertCrossref(const QString &target)
+{
+    session_.insertCrossref({{QStringLiteral("target"), target}});
+}
+
+void AppController::acceptRevision(const QString &id)
+{
+    session_.revisionAccept({{QStringLiteral("id"), id}});
+}
+
+void AppController::rejectRevision(const QString &id)
+{
+    session_.revisionReject({{QStringLiteral("id"), id}});
+}
+
+void AppController::runSpellcheck()
+{
+    refreshSpell();
+    emit documentChanged();
+    emit statusMessage(spellHits_.isEmpty() ? QStringLiteral("Ortografia ok")
+                                            : QStringLiteral("%1 palavras").arg(spellHits_.size()));
+}
+
+void AppController::setFindRegex(bool v)
+{
+    if (findRegex_ == v)
+        return;
+    findRegex_ = v;
+    emit findChanged();
+}
+
+void AppController::setLinkUrl(const QString &u)
+{
+    if (linkUrl_ == u)
+        return;
+    linkUrl_ = u;
+    emit linkChanged();
+}
+
+int AppController::pageColumns() const
+{
+    return session_.documentRef().page.columns;
+}
+
+void AppController::setPageColumns(int n)
+{
+    session_.setPageLayout({{QStringLiteral("columns"), qBound(1, n, 3)}});
+}
+
+bool AppController::hyphenate() const
+{
+    return session_.documentRef().page.hyphenate;
+}
+
+void AppController::setHyphenate(bool v)
+{
+    session_.setPageLayout({{QStringLiteral("hyphenate"), v}});
+}
+
+bool AppController::trackChanges() const
+{
+    return session_.documentRef().trackChanges;
+}
+
+void AppController::setTrackChanges(bool v)
+{
+    session_.trackChangesSet({{QStringLiteral("on"), v}});
+}
+
+QVariantList AppController::revisions() const
+{
+    QVariantList list;
+    for (const auto &r : session_.documentRef().revisions)
+        list.push_back(r.toJson().toVariantMap());
+    return list;
+}
+
+QVariantList AppController::bookmarks() const
+{
+    QVariantList list;
+    for (const auto &b : session_.documentRef().bookmarks)
+        list.push_back(b.toJson().toVariantMap());
+    return list;
+}
+
 void AppController::setAlign(const QString &align)
 {
     auto args = formatArgs();
@@ -546,7 +702,8 @@ void AppController::findReplace(bool all)
         return;
     handleResult(session_.findReplace({{QStringLiteral("find"), findText_},
                                        {QStringLiteral("replace"), replaceText_},
-                                       {QStringLiteral("all"), all}}),
+                                       {QStringLiteral("all"), all},
+                                       {QStringLiteral("regex"), findRegex_}}),
                  {});
 }
 
@@ -740,7 +897,9 @@ void AppController::jumpFind(bool forward)
 {
     if (findText_.isEmpty())
         return;
-    const auto r = session_.search({{QStringLiteral("find"), findText_}, {QStringLiteral("forward"), forward}});
+    const auto r = session_.search({{QStringLiteral("find"), findText_},
+                                    {QStringLiteral("forward"), forward},
+                                    {QStringLiteral("regex"), findRegex_}});
     const auto hits = r.value(QStringLiteral("hits")).toArray();
     if (hits.isEmpty()) {
         emit statusMessage(QStringLiteral("Nenhuma ocorrência"));

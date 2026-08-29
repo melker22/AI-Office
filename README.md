@@ -63,7 +63,7 @@ aioffice get /tmp/nota.odt
 
 Integração MCP: use [`scripts/aioffice`](scripts/aioffice) (wrapper para `build/linux/aioffice`) ou copie [`skills/mcp.json`](skills/mcp.json). Não dá para gravar no PATH global do NixOS daqui — no flake, aponte `command` para o wrapper.
 
-Skill para agentes: [`skills/SKILL.md`](skills/SKILL.md). Contrato: [`docs/mcp-tools.md`](docs/mcp-tools.md). Arquitetura: [`docs/architecture.md`](docs/architecture.md).
+Skill para agentes: [`skills/SKILL.md`](skills/SKILL.md). Contrato: [`docs/mcp-tools.md`](docs/mcp-tools.md). Arquitetura: [`docs/architecture.md`](docs/architecture.md). Ideias de Writer (não código): [`docs/ATTRIBUTION.md`](docs/ATTRIBUTION.md).
 
 ## Licença
 

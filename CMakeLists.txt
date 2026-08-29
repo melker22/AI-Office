@@ -14,6 +14,10 @@ endif()
 
 find_package(Qt6 6.5 REQUIRED COMPONENTS Core Gui Network Qml Quick QuickControls2)
 find_package(ZLIB REQUIRED)
+find_package(PkgConfig QUIET)
+if(PkgConfig_FOUND)
+    pkg_check_modules(HUNSPELL IMPORTED_TARGET hunspell)
+endif()
 
 qt_standard_project_setup(REQUIRES 6.5)
 
@@ -25,6 +29,7 @@ add_library(aioffice_core STATIC
     src/core/Zip.cpp
     src/core/Preview.cpp
     src/core/Xml.cpp
+    src/core/Spell.cpp
     src/lok/LokEngine.cpp
     src/mcp/ToolDispatch.cpp
     src/mcp/McpServer.cpp
@@ -40,6 +45,10 @@ target_link_libraries(aioffice_core PUBLIC
     Qt6::Network
     ZLIB::ZLIB
 )
+if(TARGET PkgConfig::HUNSPELL)
+    target_link_libraries(aioffice_core PUBLIC PkgConfig::HUNSPELL)
+    target_compile_definitions(aioffice_core PUBLIC AIOFFICE_HAS_HUNSPELL)
+endif()
 target_compile_definitions(aioffice_core PUBLIC
     AIOFFICE_VERSION="${PROJECT_VERSION}"
 )

@@ -42,14 +42,22 @@ QString emitSpan(SpanCounter &sc, const TextRun &r)
 {
     if (r.text.isEmpty())
         return {};
-    const bool fmt = r.bold || r.italic || r.underline || !r.font.isEmpty() || r.sizePt > 0
-        || !r.color.isEmpty();
-    if (!fmt)
-        return xmlEscape(r.text);
-    QString key = QStringLiteral("%1|%2|%3|%4|%5|%6")
+    const bool fmt = r.bold || r.italic || r.underline || r.strike || r.superscript || r.subscript
+        || !r.font.isEmpty() || r.sizePt > 0 || !r.color.isEmpty() || !r.link.isEmpty();
+    QString txt = r.text;
+    if (txt.isEmpty() && !r.field.isEmpty())
+        txt = r.field;
+    if (txt.isEmpty() && !fmt)
+        return {};
+    if (!fmt && r.link.isEmpty())
+        return xmlEscape(txt);
+    QString key = QStringLiteral("%1|%2|%3|%4|%5|%6|%7|%8|%9")
                       .arg(r.bold)
                       .arg(r.italic)
                       .arg(r.underline)
+                      .arg(r.strike)
+                      .arg(r.superscript)
+                      .arg(r.subscript)
                       .arg(r.font)
                       .arg(r.sizePt)
                       .arg(r.color);
@@ -64,6 +72,12 @@ QString emitSpan(SpanCounter &sc, const TextRun &r)
             inner += QLatin1String("fo:font-style=\"italic\" ");
         if (r.underline)
             inner += QLatin1String("style:text-underline-style=\"solid\" ");
+        if (r.strike)
+            inner += QLatin1String("style:text-line-through-style=\"solid\" ");
+        if (r.superscript)
+            inner += QLatin1String("style:text-position=\"super 58%\" ");
+        if (r.subscript)
+            inner += QLatin1String("style:text-position=\"sub 58%\" ");
         if (!r.font.isEmpty())
             inner += QStringLiteral("style:font-name=\"%1\" ").arg(xmlEscape(r.font));
         if (r.sizePt > 0)
@@ -75,7 +89,10 @@ QString emitSpan(SpanCounter &sc, const TextRun &r)
                             .arg(id)
                             .arg(inner);
     }
-    return QStringLiteral("<text:span text:style-name=\"T%1\">%2</text:span>").arg(id).arg(xmlEscape(r.text));
+    QString span = QStringLiteral("<text:span text:style-name=\"T%1\">%2</text:span>").arg(id).arg(xmlEscape(txt));
+    if (!r.link.isEmpty())
+        span = QStringLiteral("<text:a xlink:href=\"%1\">%2</text:a>").arg(xmlEscape(r.link), span);
+    return span;
 }
 
 QString spansXml(SpanCounter &sc, const QVector<TextRun> &runs)
@@ -100,18 +117,22 @@ bool saveOdt(const Document &doc, const QString &path, QString *error)
 {
     double wMm = 0, hMm = 0;
     doc.page.pageSizeMm(wMm, hMm);
+    QString colsXml;
+    if (doc.page.columns > 1)
+        colsXml = QStringLiteral("<style:columns fo:column-count=\"%1\" fo:column-gap=\"0.5cm\"/>").arg(doc.page.columns);
     const QString pageLayout = QStringLiteral(
         "<style:page-layout style:name=\"pm1\"><style:page-layout-properties "
         "fo:page-width=\"%1mm\" fo:page-height=\"%2mm\" style:print-orientation=\"%3\" "
-        "fo:margin-top=\"%4mm\" fo:margin-right=\"%5mm\" fo:margin-bottom=\"%6mm\" fo:margin-left=\"%7mm\"/>"
-        "</style:page-layout>")
+        "fo:margin-top=\"%4mm\" fo:margin-right=\"%5mm\" fo:margin-bottom=\"%6mm\" fo:margin-left=\"%7mm\">"
+        "%8</style:page-layout-properties></style:page-layout>")
                                    .arg(wMm)
                                    .arg(hMm)
                                    .arg(doc.page.orientation)
                                    .arg(doc.page.marginsMm[0])
                                    .arg(doc.page.marginsMm[1])
                                    .arg(doc.page.marginsMm[2])
-                                   .arg(doc.page.marginsMm[3]);
+                                   .arg(doc.page.marginsMm[3])
+                                   .arg(colsXml);
 
     QString paraStyles;
     for (const auto &s : doc.styles) {
@@ -296,6 +317,13 @@ static void applyTextProps(TextRun &r, const QXmlStreamAttributes &a)
         r.italic = true;
     if (!a.value(QStringLiteral("style:text-underline-style")).isEmpty())
         r.underline = true;
+    if (!a.value(QStringLiteral("style:text-line-through-style")).isEmpty())
+        r.strike = true;
+    const QString pos = a.value(QStringLiteral("style:text-position")).toString();
+    if (pos.startsWith(QLatin1String("super")))
+        r.superscript = true;
+    if (pos.startsWith(QLatin1String("sub")))
+        r.subscript = true;
     if (!a.value(QStringLiteral("fo:color")).isEmpty())
         r.color = a.value(QStringLiteral("fo:color")).toString();
     if (!a.value(QStringLiteral("fo:font-size")).isEmpty()) {

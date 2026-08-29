@@ -53,6 +53,14 @@ class AppController : public QObject {
     Q_PROPERTY(QString headerText READ headerText WRITE setHeaderText NOTIFY documentChanged)
     Q_PROPERTY(QString footerText READ footerText WRITE setFooterText NOTIFY documentChanged)
     Q_PROPERTY(bool pageNumbers READ pageNumbers WRITE setPageNumbers NOTIFY documentChanged)
+    Q_PROPERTY(bool findRegex READ findRegex WRITE setFindRegex NOTIFY findChanged)
+    Q_PROPERTY(int pageColumns READ pageColumns WRITE setPageColumns NOTIFY documentChanged)
+    Q_PROPERTY(bool hyphenate READ hyphenate WRITE setHyphenate NOTIFY documentChanged)
+    Q_PROPERTY(bool trackChanges READ trackChanges WRITE setTrackChanges NOTIFY documentChanged)
+    Q_PROPERTY(QString linkUrl READ linkUrl WRITE setLinkUrl NOTIFY linkChanged)
+    Q_PROPERTY(QVariantList revisions READ revisions NOTIFY documentChanged)
+    Q_PROPERTY(QVariantList bookmarks READ bookmarks NOTIFY documentChanged)
+    Q_PROPERTY(QVariantList spellHits READ spellHits NOTIFY documentChanged)
 
 public:
     explicit AppController(QObject *parent = nullptr);
@@ -101,6 +109,15 @@ public:
     QString footerText() const;
     bool pageNumbers() const;
 
+    bool findRegex() const { return findRegex_; }
+    int pageColumns() const;
+    bool hyphenate() const;
+    bool trackChanges() const;
+    QString linkUrl() const { return linkUrl_; }
+    QVariantList revisions() const;
+    QVariantList bookmarks() const;
+    QVariantList spellHits() const { return spellHits_; }
+
     void setPage(int p);
     void setZoom(double z);
     void setDarkMode(bool v);
@@ -116,6 +133,11 @@ public:
     void setHeaderText(const QString &t);
     void setFooterText(const QString &t);
     void setPageNumbers(bool v);
+    void setFindRegex(bool v);
+    void setPageColumns(int n);
+    void setHyphenate(bool v);
+    void setTrackChanges(bool v);
+    void setLinkUrl(const QString &u);
 
     void placeCaret(const QString &id, int offset, int row, int col, bool extend);
     void notifyEdited();
@@ -130,6 +152,19 @@ public:
     Q_INVOKABLE void applyBold();
     Q_INVOKABLE void applyItalic();
     Q_INVOKABLE void applyUnderline();
+    Q_INVOKABLE void applyStrike();
+    Q_INVOKABLE void applySuper();
+    Q_INVOKABLE void applySub();
+    Q_INVOKABLE void applyLink();
+    Q_INVOKABLE void insertField(const QString &kind);
+    Q_INVOKABLE void insertFootnote();
+    Q_INVOKABLE void insertEndnote();
+    Q_INVOKABLE void updateToc();
+    Q_INVOKABLE void addBookmark(const QString &name);
+    Q_INVOKABLE void insertCrossref(const QString &target);
+    Q_INVOKABLE void acceptRevision(const QString &id);
+    Q_INVOKABLE void rejectRevision(const QString &id);
+    Q_INVOKABLE void runSpellcheck();
     Q_INVOKABLE void setAlign(const QString &align);
     Q_INVOKABLE void applyHeading(int level);
     Q_INVOKABLE void applyNamedStyle(const QString &name);
@@ -175,6 +210,7 @@ signals:
     void inspectorTabChanged();
     void recentsChanged();
     void saveFormatChanged();
+    void linkChanged();
     void needSaveAs();
     void tabsChanged();
     void sheetsChanged();
@@ -202,6 +238,7 @@ private:
     bool gateUnsaved(const QString &action);
     void runPending();
     void jumpFind(bool forward);
+    void refreshSpell();
 
     Session session_;
     IpcServer ipc_;
@@ -217,6 +254,10 @@ private:
     bool findVisible_ = false;
     QString findText_;
     QString replaceText_;
+    bool findRegex_ = false;
+    QString linkUrl_;
+    QVariantList spellHits_;
+    QTimer spellTimer_;
     int inspectorTab_ = 1;
     int fontSizePt_ = 16;
     QString saveFormat_ = QStringLiteral("docx");

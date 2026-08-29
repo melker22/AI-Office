@@ -3,7 +3,10 @@
 #include "core/Docx.h"
 #include "core/Odf.h"
 #include "core/Preview.h"
+#include "core/Spell.h"
 #include "lok/LokEngine.h"
+
+#include <QDateTime>
 
 #include <QDir>
 #include <QFile>
@@ -391,6 +394,14 @@ static void applyRunFormat(TextRun &r, const QJsonObject &args)
         r.color = args.value(QStringLiteral("color")).toString();
     if (args.contains(QStringLiteral("highlight")))
         r.highlight = args.value(QStringLiteral("highlight")).toString();
+    if (args.contains(QStringLiteral("strike")))
+        r.strike = args.value(QStringLiteral("strike")).toBool();
+    if (args.contains(QStringLiteral("superscript")))
+        r.superscript = args.value(QStringLiteral("superscript")).toBool();
+    if (args.contains(QStringLiteral("subscript")))
+        r.subscript = args.value(QStringLiteral("subscript")).toBool();
+    if (args.contains(QStringLiteral("link")))
+        r.link = args.value(QStringLiteral("link")).toString();
 }
 
 QJsonObject Session::applyCharacterFormat(const QJsonObject &args)
@@ -513,6 +524,10 @@ QJsonObject Session::setPageLayout(const QJsonObject &args)
     const auto m = args.value(QStringLiteral("margins_mm")).toArray();
     for (int i = 0; i < 4 && i < m.size(); ++i)
         doc_.page.marginsMm[i] = m.at(i).toDouble();
+    if (args.contains(QStringLiteral("columns")))
+        doc_.page.columns = qBound(1, args.value(QStringLiteral("columns")).toInt(1), 3);
+    if (args.contains(QStringLiteral("hyphenate")))
+        doc_.page.hyphenate = args.value(QStringLiteral("hyphenate")).toBool();
     markChanged();
     return ok();
 }
@@ -618,21 +633,45 @@ QJsonObject Session::findReplace(const QJsonObject &args)
     const QString find = args.value(QStringLiteral("find")).toString();
     const QString repl = args.value(QStringLiteral("replace")).toString();
     const bool all = args.value(QStringLiteral("all")).toBool(false);
+    const bool useRe = args.value(QStringLiteral("regex")).toBool(false);
     if (find.isEmpty())
         return fail(QStringLiteral("find is required"));
+    QRegularExpression re;
+    if (useRe) {
+        re.setPattern(find);
+        if (!re.isValid())
+            return fail(QStringLiteral("invalid regex"));
+    }
     pushUndo();
     int count = 0;
     auto replaceRuns = [&](QVector<TextRun> &runs) {
         for (auto &r : runs) {
-            if (!r.text.contains(find))
-                continue;
-            if (all) {
-                count += r.text.count(find);
-                r.text.replace(find, repl);
-            } else if (r.text.contains(find)) {
-                r.text.replace(r.text.indexOf(find), find.size(), repl);
-                ++count;
-                return true;
+            if (useRe) {
+                if (!re.match(r.text).hasMatch())
+                    continue;
+                if (all) {
+                    const int n = r.text.count(re);
+                    r.text.replace(re, repl);
+                    count += n;
+                } else {
+                    const auto m = re.match(r.text);
+                    if (!m.hasMatch())
+                        continue;
+                    r.text.replace(m.capturedStart(), m.capturedLength(), repl);
+                    ++count;
+                    return true;
+                }
+            } else {
+                if (!r.text.contains(find))
+                    continue;
+                if (all) {
+                    count += r.text.count(find);
+                    r.text.replace(find, repl);
+                } else {
+                    r.text.replace(r.text.indexOf(find), find.size(), repl);
+                    ++count;
+                    return true;
+                }
             }
         }
         return false;
@@ -758,22 +797,42 @@ QJsonObject Session::search(const QJsonObject &args)
 {
     const QString find = args.value(QStringLiteral("find")).toString();
     const bool forward = args.value(QStringLiteral("forward")).toBool(true);
+    const bool useRe = args.value(QStringLiteral("regex")).toBool(false);
     if (find.isEmpty())
         return fail(QStringLiteral("find is required"));
+    QRegularExpression re;
+    if (useRe) {
+        re.setPattern(find);
+        re.setPatternOptions(QRegularExpression::CaseInsensitiveOption);
+        if (!re.isValid())
+            return fail(QStringLiteral("invalid regex"));
+    }
     QJsonArray hits;
     for (const auto &b : doc_.body) {
         const QString t = b.plainText();
-        int from = 0;
-        while (true) {
-            const int i = t.indexOf(find, from, Qt::CaseInsensitive);
-            if (i < 0)
-                break;
-            QJsonObject h;
-            h[QStringLiteral("id")] = b.id;
-            h[QStringLiteral("start")] = i;
-            h[QStringLiteral("end")] = i + find.size();
-            hits.append(h);
-            from = i + qMax(1, find.size());
+        if (useRe) {
+            auto it = re.globalMatch(t);
+            while (it.hasNext()) {
+                const auto m = it.next();
+                QJsonObject h;
+                h[QStringLiteral("id")] = b.id;
+                h[QStringLiteral("start")] = int(m.capturedStart());
+                h[QStringLiteral("end")] = int(m.capturedEnd());
+                hits.append(h);
+            }
+        } else {
+            int from = 0;
+            while (true) {
+                const int i = t.indexOf(find, from, Qt::CaseInsensitive);
+                if (i < 0)
+                    break;
+                QJsonObject h;
+                h[QStringLiteral("id")] = b.id;
+                h[QStringLiteral("start")] = i;
+                h[QStringLiteral("end")] = i + find.size();
+                hits.append(h);
+                from = i + qMax(1, find.size());
+            }
         }
     }
     if (!forward) {
@@ -933,6 +992,20 @@ bool Session::insertTextAt(const QString &id, int offset, const QString &text, i
     TextRun ins;
     ins.text = text;
     *runs = spliceRuns(*runs, offset, offset, ins);
+    if (doc_.trackChanges) {
+        Revision rev;
+        rev.id = QStringLiteral("rev") + QString::number(doc_.nextCounter(QStringLiteral("rev")));
+        // nextCounter only scans body ids; use revisions size
+        rev.id = QStringLiteral("rev%1").arg(doc_.revisions.size() + 1);
+        rev.author = doc_.author.isEmpty() ? QStringLiteral("IA") : doc_.author;
+        rev.kind = QStringLiteral("insert");
+        rev.blockId = id;
+        rev.start = offset;
+        rev.end = offset + text.size();
+        rev.text = text;
+        rev.timestamp = QDateTime::currentMSecsSinceEpoch();
+        doc_.revisions.push_back(rev);
+    }
     return true;
 }
 
@@ -946,6 +1019,18 @@ bool Session::deleteBackward(const QString &id, int offset, int row, int col)
         if (!runs)
             return false;
         *runs = spliceRuns(*runs, offset - 1, offset, TextRun{});
+        if (doc_.trackChanges) {
+            Revision rev;
+            rev.id = QStringLiteral("rev%1").arg(doc_.revisions.size() + 1);
+            rev.author = doc_.author.isEmpty() ? QStringLiteral("IA") : doc_.author;
+            rev.kind = QStringLiteral("delete");
+            rev.blockId = id;
+            rev.start = offset - 1;
+            rev.end = offset;
+            rev.text = QStringLiteral("?");
+            rev.timestamp = QDateTime::currentMSecsSinceEpoch();
+            doc_.revisions.push_back(rev);
+        }
         return true;
     }
     if (row >= 0)
@@ -1387,6 +1472,270 @@ QJsonObject Session::documentFromTemplate(const QJsonObject &args)
     return ok();
 }
 
+QJsonObject Session::linkSet(const QJsonObject &args)
+{
+    const QString url = args.value(QStringLiteral("url")).toString();
+    QJsonObject fmt = args;
+    fmt[QStringLiteral("link")] = url;
+    if (!fmt.contains(QStringLiteral("ids"))) {
+        QJsonArray ids;
+        ids.append(sel_.focusId);
+        fmt[QStringLiteral("ids")] = ids;
+        const int a = qMin(sel_.anchorOff, sel_.focusOff);
+        const int b = qMax(sel_.anchorOff, sel_.focusOff);
+        if (sel_.anchorId == sel_.focusId && b > a) {
+            fmt[QStringLiteral("start")] = a;
+            fmt[QStringLiteral("end")] = b;
+        }
+    }
+    if (fmt.value(QStringLiteral("ids")).toArray().isEmpty())
+        return fail(QStringLiteral("no selection"));
+    return applyCharacterFormat(fmt);
+}
+
+QJsonObject Session::bookmarkAdd(const QJsonObject &args)
+{
+    const QString name = args.value(QStringLiteral("name")).toString();
+    if (name.isEmpty())
+        return fail(QStringLiteral("name is required"));
+    QString blockId = args.value(QStringLiteral("id")).toString();
+    if (blockId.isEmpty())
+        blockId = sel_.focusId;
+    if (!doc_.findBlock(blockId))
+        return fail(QStringLiteral("block not found"));
+    pushUndo();
+    Bookmark bm;
+    bm.id = QStringLiteral("bm%1").arg(doc_.bookmarks.size() + 1);
+    bm.name = name;
+    bm.blockId = blockId;
+    bm.offset = args.value(QStringLiteral("offset")).toInt(sel_.focusOff);
+    doc_.bookmarks.push_back(bm);
+    markChanged();
+    auto r = ok();
+    r[QStringLiteral("bookmark_id")] = bm.id;
+    return r;
+}
+
+QJsonObject Session::insertCrossref(const QJsonObject &args)
+{
+    const QString target = args.value(QStringLiteral("target")).toString();
+    if (target.isEmpty())
+        return fail(QStringLiteral("target is required"));
+    QJsonObject field;
+    field[QStringLiteral("kind")] = QStringLiteral("xref");
+    field[QStringLiteral("arg")] = target;
+    return insertField(field);
+}
+
+QJsonObject Session::insertField(const QJsonObject &args)
+{
+    const QString kind = args.value(QStringLiteral("kind")).toString();
+    const QStringList okKinds = {QStringLiteral("page_number"), QStringLiteral("page_count"),
+                                 QStringLiteral("date"), QStringLiteral("title"),
+                                 QStringLiteral("author"), QStringLiteral("xref")};
+    if (!okKinds.contains(kind))
+        return fail(QStringLiteral("kind must be page_number, page_count, date, title, author, or xref"));
+    QString id = args.value(QStringLiteral("id")).toString();
+    int off = args.value(QStringLiteral("offset")).toInt(-1);
+    if (id.isEmpty()) {
+        id = sel_.focusId;
+        off = sel_.focusOff;
+    }
+    Block *b = doc_.findBlock(id);
+    if (!b || b->type == QLatin1String("table") || b->type == QLatin1String("image")
+        || b->type == QLatin1String("break"))
+        return fail(QStringLiteral("cannot insert field here"));
+    pushUndo();
+    TextRun ins;
+    ins.field = kind;
+    ins.fieldArg = args.value(QStringLiteral("arg")).toString();
+    ins.text = runDisplayText(doc_, ins, 1, 1);
+    const int at = off < 0 ? b->plainText().size() : off;
+    b->runs = spliceRuns(b->runs, at, at, ins);
+    sel_.focusId = sel_.anchorId = id;
+    sel_.focusOff = sel_.anchorOff = at + ins.text.size();
+    markChanged();
+    return ok();
+}
+
+static QJsonObject insertNoteAtCaret(Document &doc, Selection &sel, const QJsonObject &args,
+                                     const QString &type)
+{
+    const QString text = args.value(QStringLiteral("text")).toString(QStringLiteral("Nota"));
+    QString hostId = args.value(QStringLiteral("id")).toString();
+    int off = args.value(QStringLiteral("offset")).toInt(-1);
+    if (hostId.isEmpty()) {
+        hostId = sel.focusId;
+        off = sel.focusOff;
+    }
+    Block *host = doc.findBlock(hostId);
+    if (!host || host->type == QLatin1String("table") || host->type == QLatin1String("image"))
+        return toolResultErr(QStringLiteral("cannot attach note here"));
+    Block note;
+    note.type = type;
+    note.style = QStringLiteral("Normal");
+    TextRun nr;
+    nr.text = text;
+    note.runs.push_back(nr);
+    doc.assignId(note);
+    const int n = int(std::count_if(doc.body.begin(), doc.body.end(), [&](const Block &b) {
+        return b.type == type;
+    })) + 1;
+    TextRun mark;
+    mark.text = QString::number(n);
+    mark.superscript = true;
+    mark.noteId = note.id;
+    const int at = off < 0 ? host->plainText().size() : off;
+    host->runs = spliceRuns(host->runs, at, at, mark);
+    doc.body.push_back(note);
+    sel.focusId = sel.anchorId = hostId;
+    sel.focusOff = sel.anchorOff = at + mark.text.size();
+    QJsonObject r = toolResultOk();
+    r[QStringLiteral("id")] = note.id;
+    r[QStringLiteral("host_id")] = hostId;
+    return r;
+}
+
+QJsonObject Session::insertFootnote(const QJsonObject &args)
+{
+    pushUndo();
+    auto r = insertNoteAtCaret(doc_, sel_, args, QStringLiteral("footnote"));
+    if (!r.value(QStringLiteral("ok")).toBool()) {
+        undo_.removeLast();
+        return r;
+    }
+    markChanged();
+    return r;
+}
+
+QJsonObject Session::insertEndnote(const QJsonObject &args)
+{
+    pushUndo();
+    auto r = insertNoteAtCaret(doc_, sel_, args, QStringLiteral("endnote"));
+    if (!r.value(QStringLiteral("ok")).toBool()) {
+        undo_.removeLast();
+        return r;
+    }
+    markChanged();
+    return r;
+}
+
+QJsonObject Session::tocUpdate(const QJsonObject &)
+{
+    pushUndo();
+    Block *toc = nullptr;
+    for (auto &b : doc_.body) {
+        if (b.type == QLatin1String("toc")) {
+            toc = &b;
+            break;
+        }
+    }
+    Block built;
+    built.type = QStringLiteral("toc");
+    built.style = QStringLiteral("Normal");
+    built.runs.clear();
+    built.tocTargets.clear();
+    for (const auto &b : doc_.body) {
+        if (b.type != QLatin1String("heading"))
+            continue;
+        TextRun r;
+        r.text = QString(qMax(0, b.level - 1) * 2, QLatin1Char(' ')) + b.plainText() + QLatin1Char('\n');
+        r.link = QStringLiteral("#") + b.id;
+        built.runs.push_back(r);
+        built.tocTargets.push_back(b.id);
+    }
+    if (built.runs.isEmpty()) {
+        TextRun r;
+        r.text = QStringLiteral("(sem títulos)");
+        built.runs.push_back(r);
+    }
+    if (toc) {
+        toc->runs = built.runs;
+        toc->tocTargets = built.tocTargets;
+    } else {
+        doc_.assignId(built);
+        int at = 0;
+        if (!doc_.body.isEmpty() && doc_.body.first().type == QLatin1String("heading"))
+            at = 1;
+        doc_.body.insert(at, built);
+        toc = &doc_.body[at];
+    }
+    markChanged();
+    auto r = ok();
+    r[QStringLiteral("id")] = toc->id;
+    return r;
+}
+
+QJsonObject Session::spellcheck(const QJsonObject &)
+{
+    auto r = ok();
+    r[QStringLiteral("available")] = spellAvailable();
+    r[QStringLiteral("hits")] = spellCheckDocument(doc_);
+    return r;
+}
+
+QJsonObject Session::trackChangesSet(const QJsonObject &args)
+{
+    pushUndo();
+    if (args.contains(QStringLiteral("on")))
+        doc_.trackChanges = args.value(QStringLiteral("on")).toBool();
+    markChanged();
+    auto r = ok();
+    r[QStringLiteral("on")] = doc_.trackChanges;
+    return r;
+}
+
+QJsonObject Session::revisionList(const QJsonObject &)
+{
+    QJsonArray a;
+    for (const auto &rev : doc_.revisions)
+        a.append(rev.toJson());
+    auto r = ok();
+    r[QStringLiteral("revisions")] = a;
+    r[QStringLiteral("on")] = doc_.trackChanges;
+    return r;
+}
+
+QJsonObject Session::revisionAccept(const QJsonObject &args)
+{
+    const QString id = args.value(QStringLiteral("id")).toString();
+    pushUndo();
+    for (int i = 0; i < doc_.revisions.size(); ++i) {
+        if (doc_.revisions[i].id == id) {
+            doc_.revisions.removeAt(i);
+            markChanged();
+            return ok();
+        }
+    }
+    undo_.removeLast();
+    return fail(QStringLiteral("revision not found"));
+}
+
+QJsonObject Session::revisionReject(const QJsonObject &args)
+{
+    const QString id = args.value(QStringLiteral("id")).toString();
+    Revision found;
+    int idx = -1;
+    for (int i = 0; i < doc_.revisions.size(); ++i) {
+        if (doc_.revisions[i].id == id) {
+            found = doc_.revisions[i];
+            idx = i;
+            break;
+        }
+    }
+    if (idx < 0)
+        return fail(QStringLiteral("revision not found"));
+    pushUndo();
+    if (found.kind == QLatin1String("insert")) {
+        Block *b = doc_.findBlock(found.blockId);
+        if (b)
+            b->runs = spliceRuns(b->runs, found.start, found.end, TextRun{});
+    }
+    doc_.revisions.removeAt(idx);
+    markChanged();
+    return ok();
+}
+
 QJsonObject Session::call(const QString &tool, const QJsonObject &args)
 {
     if (tool == QLatin1String("document_new"))
@@ -1473,6 +1822,30 @@ QJsonObject Session::call(const QString &tool, const QJsonObject &args)
         return importMarkdown(args);
     if (tool == QLatin1String("document_from_template"))
         return documentFromTemplate(args);
+    if (tool == QLatin1String("link_set"))
+        return linkSet(args);
+    if (tool == QLatin1String("bookmark_add"))
+        return bookmarkAdd(args);
+    if (tool == QLatin1String("insert_crossref"))
+        return insertCrossref(args);
+    if (tool == QLatin1String("insert_field"))
+        return insertField(args);
+    if (tool == QLatin1String("insert_footnote"))
+        return insertFootnote(args);
+    if (tool == QLatin1String("insert_endnote"))
+        return insertEndnote(args);
+    if (tool == QLatin1String("toc_update"))
+        return tocUpdate(args);
+    if (tool == QLatin1String("spellcheck"))
+        return spellcheck(args);
+    if (tool == QLatin1String("track_changes"))
+        return trackChangesSet(args);
+    if (tool == QLatin1String("revision_list"))
+        return revisionList(args);
+    if (tool == QLatin1String("revision_accept"))
+        return revisionAccept(args);
+    if (tool == QLatin1String("revision_reject"))
+        return revisionReject(args);
     return fail(QStringLiteral("unknown tool: ") + tool);
 }
 
@@ -1523,12 +1896,47 @@ void Session::commitCaretInsert(const QString &text)
         sel_.focusId = sel_.anchorId = doc_.body.first().id;
         sel_.focusOff = sel_.anchorOff = 0;
     }
+    QString t = text;
+    static const QMap<QString, QString> autoMap = {
+        {QStringLiteral("teh"), QStringLiteral("the")},
+        {QStringLiteral("recieve"), QStringLiteral("receive")},
+        {QStringLiteral("adn"), QStringLiteral("and")},
+        {QStringLiteral("nao"), QStringLiteral("não")},
+        {QStringLiteral("voce"), QStringLiteral("você")},
+        {QStringLiteral("vc"), QStringLiteral("você")},
+        {QStringLiteral("(c)"), QStringLiteral("©")},
+        {QStringLiteral("(r)"), QStringLiteral("®")},
+    };
+    const bool boundary = t.size() == 1 && (t[0].isSpace() || t[0].isPunct());
+    if (boundary) {
+        Block *b = doc_.findBlock(sel_.focusId);
+        if (b && sel_.tableRow < 0) {
+            const QString plain = b->plainText().left(sel_.focusOff);
+            int i = plain.size() - 1;
+            while (i >= 0 && (plain[i].isLetter() || plain[i] == QLatin1Char(')')))
+                --i;
+            const QString word = plain.mid(i + 1);
+            const auto it = autoMap.find(word.toLower());
+            if (it != autoMap.end() && !word.isEmpty()) {
+                QString repl = *it;
+                if (word[0].isUpper())
+                    repl[0] = repl[0].toUpper();
+                pushUndo();
+                b->runs = spliceRuns(b->runs, i + 1, sel_.focusOff, TextRun{});
+                TextRun ins;
+                ins.text = repl;
+                b->runs = spliceRuns(b->runs, i + 1, i + 1, ins);
+                sel_.focusOff = sel_.anchorOff = i + 1 + repl.size();
+                sel_.anchorId = sel_.focusId;
+            }
+        }
+    }
     pushUndo();
-    if (!insertTextAt(sel_.focusId, sel_.focusOff, text, sel_.tableRow, sel_.tableCol)) {
+    if (!insertTextAt(sel_.focusId, sel_.focusOff, t, sel_.tableRow, sel_.tableCol)) {
         undo_.removeLast();
         return;
     }
-    sel_.focusOff = sel_.anchorOff = sel_.focusOff + text.size();
+    sel_.focusOff = sel_.anchorOff = sel_.focusOff + t.size();
     sel_.anchorId = sel_.focusId;
     markChanged();
 }

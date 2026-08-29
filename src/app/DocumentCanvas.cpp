@@ -105,6 +105,22 @@ void DocumentCanvas::paint(QPainter *painter)
     paintPage(&ip, controller_->document(), lay, page, same ? sel.focusId : QString(),
               same ? a : -1, same ? b : -1, sel.tableRow, sel.tableCol,
               caretOn_ && hasActiveFocus(), sel.focusOff);
+    ip.setPen(QPen(QColor(QStringLiteral("#C45C4A")), 1));
+    for (const auto &hv : controller_->spellHits()) {
+        const auto m = hv.toMap();
+        const QString id = m.value(QStringLiteral("id")).toString();
+        const int st = m.value(QStringLiteral("start")).toInt();
+        const int en = m.value(QStringLiteral("end")).toInt();
+        const auto c0 = lay.caret(controller_->document(), id, st, -1, -1);
+        const auto c1 = lay.caret(controller_->document(), id, en, -1, -1);
+        if (!c0.ok || c0.page != page)
+            continue;
+        const qreal x0 = c0.rect.left();
+        const qreal x1 = c1.ok && c1.page == page ? c1.rect.left() : x0 + 12;
+        const qreal y = c0.rect.bottom() - 1;
+        for (qreal x = x0; x < x1; x += 4)
+            ip.drawLine(QPointF(x, y), QPointF(x + 2, y + 2));
+    }
     ip.end();
     const qreal x = (width() - img.width()) / 2.0;
     const qreal y = qMax(24.0, (height() - img.height()) / 2.0);

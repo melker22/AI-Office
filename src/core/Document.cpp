@@ -1,5 +1,6 @@
 #include "core/Document.h"
 
+#include <QDate>
 #include <QJsonArray>
 #include <QRegularExpression>
 #include <algorithm>
@@ -23,6 +24,18 @@ QJsonObject TextRun::toJson() const
         o[QStringLiteral("highlight")] = highlight;
     if (!link.isEmpty())
         o[QStringLiteral("link")] = link;
+    if (strike)
+        o[QStringLiteral("strike")] = true;
+    if (superscript)
+        o[QStringLiteral("superscript")] = true;
+    if (subscript)
+        o[QStringLiteral("subscript")] = true;
+    if (!field.isEmpty())
+        o[QStringLiteral("field")] = field;
+    if (!fieldArg.isEmpty())
+        o[QStringLiteral("field_arg")] = fieldArg;
+    if (!noteId.isEmpty())
+        o[QStringLiteral("note_id")] = noteId;
     return o;
 }
 
@@ -38,6 +51,12 @@ TextRun TextRun::fromJson(const QJsonObject &o)
     r.color = o.value(QStringLiteral("color")).toString();
     r.highlight = o.value(QStringLiteral("highlight")).toString();
     r.link = o.value(QStringLiteral("link")).toString();
+    r.strike = o.value(QStringLiteral("strike")).toBool();
+    r.superscript = o.value(QStringLiteral("superscript")).toBool();
+    r.subscript = o.value(QStringLiteral("subscript")).toBool();
+    r.field = o.value(QStringLiteral("field")).toString();
+    r.fieldArg = o.value(QStringLiteral("field_arg")).toString();
+    r.noteId = o.value(QStringLiteral("note_id")).toString();
     return r;
 }
 
@@ -59,6 +78,54 @@ Comment Comment::fromJson(const QJsonObject &o)
     c.text = o.value(QStringLiteral("text")).toString();
     c.resolved = o.value(QStringLiteral("resolved")).toBool();
     return c;
+}
+
+QJsonObject Bookmark::toJson() const
+{
+    QJsonObject o;
+    o[QStringLiteral("id")] = id;
+    o[QStringLiteral("name")] = name;
+    o[QStringLiteral("block_id")] = blockId;
+    o[QStringLiteral("offset")] = offset;
+    return o;
+}
+
+Bookmark Bookmark::fromJson(const QJsonObject &o)
+{
+    Bookmark b;
+    b.id = o.value(QStringLiteral("id")).toString();
+    b.name = o.value(QStringLiteral("name")).toString();
+    b.blockId = o.value(QStringLiteral("block_id")).toString();
+    b.offset = o.value(QStringLiteral("offset")).toInt();
+    return b;
+}
+
+QJsonObject Revision::toJson() const
+{
+    QJsonObject o;
+    o[QStringLiteral("id")] = id;
+    o[QStringLiteral("author")] = author;
+    o[QStringLiteral("kind")] = kind;
+    o[QStringLiteral("block_id")] = blockId;
+    o[QStringLiteral("start")] = start;
+    o[QStringLiteral("end")] = end;
+    o[QStringLiteral("text")] = text;
+    o[QStringLiteral("timestamp")] = double(timestamp);
+    return o;
+}
+
+Revision Revision::fromJson(const QJsonObject &o)
+{
+    Revision r;
+    r.id = o.value(QStringLiteral("id")).toString();
+    r.author = o.value(QStringLiteral("author")).toString();
+    r.kind = o.value(QStringLiteral("kind")).toString();
+    r.blockId = o.value(QStringLiteral("block_id")).toString();
+    r.start = o.value(QStringLiteral("start")).toInt();
+    r.end = o.value(QStringLiteral("end")).toInt();
+    r.text = o.value(QStringLiteral("text")).toString();
+    r.timestamp = qint64(o.value(QStringLiteral("timestamp")).toDouble());
+    return r;
 }
 
 QJsonObject HeaderFooter::toJson() const
@@ -168,6 +235,12 @@ QJsonObject Block::toJson() const
     } else if (type != QLatin1String("break")) {
         o[QStringLiteral("runs")] = runsToJson(runs);
     }
+    if (!tocTargets.isEmpty()) {
+        QJsonArray t;
+        for (const auto &id : tocTargets)
+            t.append(id);
+        o[QStringLiteral("toc_targets")] = t;
+    }
     if (!comments.isEmpty()) {
         QJsonArray ca;
         for (const auto &c : comments)
@@ -221,6 +294,8 @@ Block Block::fromJson(const QJsonObject &o)
         b.imageBytes = QByteArray::fromBase64(b64.toLatin1());
     for (const auto &c : o.value(QStringLiteral("comments")).toArray())
         b.comments.push_back(Comment::fromJson(c.toObject()));
+    for (const auto &t : o.value(QStringLiteral("toc_targets")).toArray())
+        b.tocTargets.push_back(t.toString());
     return b;
 }
 
@@ -286,6 +361,10 @@ QJsonObject PageLayout::toJson() const
     m.append(marginsMm[2]);
     m.append(marginsMm[3]);
     o[QStringLiteral("margins_mm")] = m;
+    if (columns > 1)
+        o[QStringLiteral("columns")] = columns;
+    if (hyphenate)
+        o[QStringLiteral("hyphenate")] = true;
     return o;
 }
 
@@ -297,6 +376,8 @@ PageLayout PageLayout::fromJson(const QJsonObject &o)
     const auto m = o.value(QStringLiteral("margins_mm")).toArray();
     for (int i = 0; i < 4 && i < m.size(); ++i)
         p.marginsMm[i] = m.at(i).toDouble(p.marginsMm[i]);
+    p.columns = qBound(1, o.value(QStringLiteral("columns")).toInt(1), 3);
+    p.hyphenate = o.value(QStringLiteral("hyphenate")).toBool();
     return p;
 }
 
@@ -382,6 +463,8 @@ QJsonObject Document::toJson() const
         meta[QStringLiteral("header")] = header.toJson();
     if (!footer.text.isEmpty() || footer.pageNumbers)
         meta[QStringLiteral("footer")] = footer.toJson();
+    if (trackChanges)
+        meta[QStringLiteral("track_changes")] = true;
     root[QStringLiteral("meta")] = meta;
     QJsonArray st;
     for (const auto &s : styles)
@@ -391,6 +474,18 @@ QJsonObject Document::toJson() const
     for (const auto &b : body)
         bodyA.append(b.toJson());
     root[QStringLiteral("body")] = bodyA;
+    if (!bookmarks.isEmpty()) {
+        QJsonArray bm;
+        for (const auto &b : bookmarks)
+            bm.append(b.toJson());
+        root[QStringLiteral("bookmarks")] = bm;
+    }
+    if (!revisions.isEmpty()) {
+        QJsonArray rv;
+        for (const auto &r : revisions)
+            rv.append(r.toJson());
+        root[QStringLiteral("revisions")] = rv;
+    }
     return root;
 }
 
@@ -403,6 +498,7 @@ Document Document::fromJson(const QJsonObject &o)
     d.page = PageLayout::fromJson(meta.value(QStringLiteral("page")).toObject());
     d.header = HeaderFooter::fromJson(meta.value(QStringLiteral("header")).toObject());
     d.footer = HeaderFooter::fromJson(meta.value(QStringLiteral("footer")).toObject());
+    d.trackChanges = meta.value(QStringLiteral("track_changes")).toBool();
     for (const auto &s : o.value(QStringLiteral("styles")).toArray())
         d.styles.push_back(StyleDef::fromJson(s.toObject()));
     if (d.styles.isEmpty()) {
@@ -419,6 +515,10 @@ Document Document::fromJson(const QJsonObject &o)
             d.assignId(blk);
         d.body.push_back(blk);
     }
+    for (const auto &b : o.value(QStringLiteral("bookmarks")).toArray())
+        d.bookmarks.push_back(Bookmark::fromJson(b.toObject()));
+    for (const auto &r : o.value(QStringLiteral("revisions")).toArray())
+        d.revisions.push_back(Revision::fromJson(r.toObject()));
     return d;
 }
 
@@ -449,6 +549,12 @@ QString Document::assignId(Block &b)
         prefix = QStringLiteral("img");
     else if (b.type == QLatin1String("break"))
         prefix = QStringLiteral("br");
+    else if (b.type == QLatin1String("footnote"))
+        prefix = QStringLiteral("fn");
+    else if (b.type == QLatin1String("endnote"))
+        prefix = QStringLiteral("en");
+    else if (b.type == QLatin1String("toc"))
+        prefix = QStringLiteral("toc");
     b.id = prefix + QString::number(nextCounter(prefix));
     return b.id;
 }
@@ -488,6 +594,33 @@ int Document::wordCount() const
         n += parts.size();
     }
     return n;
+}
+
+QString runDisplayText(const Document &doc, const TextRun &r, int page, int pages)
+{
+    if (r.field == QLatin1String("page_number"))
+        return QString::number(qMax(1, page));
+    if (r.field == QLatin1String("page_count"))
+        return QString::number(qMax(1, pages));
+    if (r.field == QLatin1String("date"))
+        return QDate::currentDate().toString(QStringLiteral("dd/MM/yyyy"));
+    if (r.field == QLatin1String("title"))
+        return doc.title;
+    if (r.field == QLatin1String("author"))
+        return doc.author.isEmpty() ? QStringLiteral("—") : doc.author;
+    if (r.field == QLatin1String("xref")) {
+        const Block *t = doc.findBlock(r.fieldArg);
+        if (t)
+            return t->plainText().left(48);
+        for (const auto &bm : doc.bookmarks) {
+            if (bm.id == r.fieldArg || bm.name == r.fieldArg) {
+                const Block *b = doc.findBlock(bm.blockId);
+                return b ? b->plainText().left(48) : bm.name;
+            }
+        }
+        return r.fieldArg;
+    }
+    return r.text;
 }
 
 static QString runsPlain(const QVector<TextRun> &runs)
@@ -555,6 +688,14 @@ void applyFormatToRange(QVector<TextRun> &runs, int start, int end, const QJsonO
             r.color = fmt.value(QStringLiteral("color")).toString();
         if (fmt.contains(QStringLiteral("highlight")))
             r.highlight = fmt.value(QStringLiteral("highlight")).toString();
+        if (fmt.contains(QStringLiteral("strike")))
+            r.strike = fmt.value(QStringLiteral("strike")).toBool();
+        if (fmt.contains(QStringLiteral("superscript")))
+            r.superscript = fmt.value(QStringLiteral("superscript")).toBool();
+        if (fmt.contains(QStringLiteral("subscript")))
+            r.subscript = fmt.value(QStringLiteral("subscript")).toBool();
+        if (fmt.contains(QStringLiteral("link")))
+            r.link = fmt.value(QStringLiteral("link")).toString();
     };
     QVector<TextRun> before = splitRuns(runs, 0, s);
     QVector<TextRun> mid = splitRuns(runs, s, e);

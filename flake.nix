@@ -17,6 +17,7 @@
             ];
             buildInputs = with pkgs; [
               qt6.qtbase qt6.qtdeclarative qt6.qtwayland zlib
+              hunspell hunspellDicts.pt_BR hunspellDicts.en_US
               ibm-plex source-serif jetbrains-mono
             ];
           };

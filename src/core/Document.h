@@ -13,14 +13,44 @@ struct TextRun {
     bool bold = false;
     bool italic = false;
     bool underline = false;
+    bool strike = false;
+    bool superscript = false;
+    bool subscript = false;
     QString font;
     double sizePt = 0;
     QString color;
     QString highlight;
     QString link;
+    QString field;    // page_number | page_count | date | title | author | xref
+    QString fieldArg; // xref target id
+    QString noteId;   // footnote/endnote block id
 
     QJsonObject toJson() const;
     static TextRun fromJson(const QJsonObject &o);
+};
+
+struct Bookmark {
+    QString id;
+    QString name;
+    QString blockId;
+    int offset = 0;
+
+    QJsonObject toJson() const;
+    static Bookmark fromJson(const QJsonObject &o);
+};
+
+struct Revision {
+    QString id;
+    QString author;
+    QString kind; // insert | delete | format
+    QString blockId;
+    int start = 0;
+    int end = 0;
+    QString text;
+    qint64 timestamp = 0;
+
+    QJsonObject toJson() const;
+    static Revision fromJson(const QJsonObject &o);
 };
 
 struct TableCell {
@@ -40,7 +70,7 @@ struct Comment {
 
 struct Block {
     QString id;
-    QString type; // paragraph, heading, list-item, table, image, break
+    QString type; // paragraph, heading, list-item, table, image, break, footnote, endnote, toc
     int level = 0;
     QString style;
     QString align;
@@ -55,6 +85,7 @@ struct Block {
     bool headerRow = false;
     QVector<double> colWidthsMm;
     QVector<Comment> comments;
+    QStringList tocTargets;
 
     QJsonObject toJson() const;
     static Block fromJson(const QJsonObject &o);
@@ -80,6 +111,8 @@ struct PageLayout {
     QString size = QStringLiteral("A4");
     QString orientation = QStringLiteral("portrait");
     double marginsMm[4] = {25, 20, 25, 20};
+    int columns = 1;
+    bool hyphenate = false;
 
     QJsonObject toJson() const;
     static PageLayout fromJson(const QJsonObject &o);
@@ -115,6 +148,9 @@ struct Document {
     HeaderFooter footer;
     QVector<StyleDef> styles;
     QVector<Block> body;
+    QVector<Bookmark> bookmarks;
+    QVector<Revision> revisions;
+    bool trackChanges = false;
 
     static Document blank(const QString &title = QString());
     QJsonObject toJson() const;
@@ -128,6 +164,7 @@ struct Document {
     int wordCount() const;
 };
 
+QString runDisplayText(const Document &doc, const TextRun &r, int page = 1, int pages = 1);
 StyleDef defaultStyle(const QString &name);
 QVector<TextRun> splitRuns(const QVector<TextRun> &runs, int start, int end);
 QVector<TextRun> spliceRuns(QVector<TextRun> runs, int start, int end, const TextRun &insert);

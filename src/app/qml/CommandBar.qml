@@ -84,6 +84,9 @@ Rectangle {
         IconBtn { glyph: "B"; tip: "Negrito"; boldGlyph: true; onClicked: app.applyBold() }
         IconBtn { glyph: "I"; tip: "Itálico"; italicGlyph: true; onClicked: app.applyItalic() }
         IconBtn { glyph: "S"; tip: "Sublinhado"; underlineGlyph: true; onClicked: app.applyUnderline() }
+        IconBtn { glyph: "T̶"; tip: "Tachado"; onClicked: app.applyStrike() }
+        IconBtn { glyph: "x²"; tip: "Superescrito"; onClicked: app.applySuper() }
+        IconBtn { glyph: "x₂"; tip: "Subscrito"; onClicked: app.applySub() }
 
         Rectangle { width: 1; height: 24; color: Theme.hairline; Layout.leftMargin: 6; Layout.rightMargin: 6 }
 
@@ -102,6 +105,8 @@ Rectangle {
         IconBtn { glyph: "⊞"; tip: "Inserir tabela"; active: app.tableSelected; onClicked: app.insertTable() }
         IconBtn { glyph: "▭"; tip: "Inserir imagem"; onClicked: bar.requestImage() }
         IconBtn { glyph: "⏎"; tip: "Inserir quebra"; onClicked: app.insertBreak() }
+        IconBtn { glyph: "¹"; tip: "Nota de rodapé"; onClicked: app.insertFootnote() }
+        IconBtn { glyph: "Σ"; tip: "Sumário"; onClicked: app.updateToc() }
 
         Item { Layout.fillWidth: true }
 

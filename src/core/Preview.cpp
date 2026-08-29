@@ -51,7 +51,51 @@ QFont fontFor(const Document &doc, const Block &b, const TextRun &r, qreal zoom)
     f.setBold(bold);
     f.setItalic(italic);
     f.setUnderline(r.underline);
+    f.setStrikeOut(r.strike);
+    if (r.superscript || r.subscript) {
+        f.setPointSizeF(qMax(6.0, f.pointSizeF() * 0.7));
+        if (r.superscript)
+            f.setStyleStrategy(QFont::PreferDefault);
+    }
     return f;
+}
+
+QString hyphenateDisplay(QString t)
+{
+    QString out;
+    QString word;
+    auto flush = [&]() {
+        if (word.size() > 10) {
+            for (int i = 0; i < word.size(); ++i) {
+                out += word[i];
+                if (i >= 3 && i + 3 < word.size() && ((i + 1) % 5 == 0))
+                    out += QChar(0x00AD);
+            }
+        } else {
+            out += word;
+        }
+        word.clear();
+    };
+    for (const QChar ch : t) {
+        if (ch.isLetter()) {
+            word += ch;
+        } else {
+            flush();
+            out += ch;
+        }
+    }
+    flush();
+    return out;
+}
+
+QString runsDisplay(const Document &doc, const QVector<TextRun> &runs, int page, int pages, bool hyphen)
+{
+    QString t;
+    for (const auto &r : runs)
+        t += runDisplayText(doc, r, page, pages);
+    if (hyphen)
+        t = hyphenateDisplay(t);
+    return t;
 }
 
 Qt::Alignment qtAlign(const QString &a)
@@ -73,7 +117,9 @@ qreal measureTextHeight(const Document &doc, const Block &b, const QVector<TextR
 {
     QString text;
     for (const auto &r : runs)
-        text += r.text;
+        text += runDisplayText(doc, r, 1, 1);
+    if (doc.page.hyphenate)
+        text = hyphenateDisplay(text);
     if (text.isEmpty())
         text = QLatin1Char(' ');
     TextRun probe = runs.isEmpty() ? TextRun{} : runs.first();
@@ -144,8 +190,20 @@ void DocumentLayout::relayout(const Document &doc, double z)
     marginL = mmToPx(doc.page.marginsMm[3], zoom);
     const qreal headerBand = (doc.header.pageNumbers || !doc.header.text.isEmpty()) ? 22 * zoom : 0;
     const qreal footerBand = (doc.footer.pageNumbers || !doc.footer.text.isEmpty()) ? 22 * zoom : 0;
+    int fnCount = 0;
+    int enCount = 0;
+    for (const auto &b : doc.body) {
+        if (b.type == QLatin1String("footnote"))
+            ++fnCount;
+        else if (b.type == QLatin1String("endnote"))
+            ++enCount;
+    }
+    const qreal fnBand = fnCount > 0 ? qMin(qreal(120) * zoom, 28 * zoom * fnCount + 8) : 0;
     contentW = paperW - marginL - marginR;
-    contentH = paperH - marginT - marginB - headerBand - footerBand;
+    contentH = paperH - marginT - marginB - headerBand - footerBand - fnBand;
+    const int colN = qBound(1, doc.page.columns, 3);
+    const qreal colGap = 14 * zoom;
+    const qreal colWidth = colN <= 1 ? contentW : (contentW - colGap * (colN - 1)) / colN;
 
     QVector<int> numbers;
     int decimal = 0;
@@ -176,16 +234,20 @@ void DocumentLayout::relayout(const Document &doc, double z)
         Measure m;
         const StyleDef *st = styleNamed(doc, b.style);
         m.before = (st ? st->spaceBeforePt : 0) * zoom * kDpi / 72.0;
+        if (b.type == QLatin1String("footnote") || b.type == QLatin1String("endnote")) {
+            meas.push_back(m);
+            continue;
+        }
         if (b.type == QLatin1String("break")) {
             meas.push_back(m);
             continue;
         }
         if (b.type == QLatin1String("table")) {
-            const auto colW = tableColWidths(b, contentW);
+            const auto tw = tableColWidths(b, colWidth);
             for (int r = 0; r < b.table.size(); ++r) {
                 qreal rh = 22 * zoom;
                 for (int c = 0; c < b.table[r].size(); ++c) {
-                    const qreal cw = c < colW.size() ? colW[c] : contentW;
+                    const qreal cw = c < tw.size() ? tw[c] : colWidth;
                     rh = qMax(rh, measureTextHeight(doc, b, b.table[r][c].runs, cw - 8, zoom) + 8);
                 }
                 m.rowH.push_back(rh);
@@ -199,7 +261,7 @@ void DocumentLayout::relayout(const Document &doc, double z)
             QImage img = loadBlockImage(b);
             qreal h = mmToPx(qMin(80.0, double(b.imageWidthMm > 0 ? b.imageWidthMm : 80)), zoom);
             if (!img.isNull()) {
-                const qreal w = qMin(contentW, mmToPx(b.imageWidthMm > 0 ? b.imageWidthMm : 80, zoom));
+                const qreal w = qMin(colWidth, mmToPx(b.imageWidthMm > 0 ? b.imageWidthMm : 80, zoom));
                 h = w * img.height() / qMax(1, img.width());
             }
             m.height = h + 8;
@@ -212,19 +274,24 @@ void DocumentLayout::relayout(const Document &doc, double z)
             QFont f = fontFor(doc, b, probe, zoom);
             m.markerW = QFontMetricsF(f).horizontalAdvance(m.marker);
         }
-        const qreal tw = contentW - m.markerW;
-        m.height = measureTextHeight(doc, b, b.runs, tw, zoom);
+        const qreal textW = colWidth - m.markerW;
+        m.height = measureTextHeight(doc, b, b.runs, textW, zoom);
         m.height += (st ? st->spaceAfterPt : 8) * zoom * kDpi / 72.0;
         meas.push_back(m);
     }
 
     blocks.clear();
     int page = 1;
+    int col = 0;
     qreal y = 0;
+    auto colX = [&](int c) { return marginL + c * (colWidth + colGap); };
     for (int i = 0; i < doc.body.size(); ++i) {
         const Block &b = doc.body[i];
+        if (b.type == QLatin1String("footnote") || b.type == QLatin1String("endnote"))
+            continue;
         if (b.type == QLatin1String("break") && i > 0) {
             ++page;
+            col = 0;
             y = 0;
             LaidBlock lb;
             lb.id = b.id;
@@ -235,8 +302,12 @@ void DocumentLayout::relayout(const Document &doc, double z)
         }
         const qreal need = meas[i].before + qMax(qreal(12), meas[i].height);
         if (y > 0 && y + need > contentH) {
-            ++page;
+            ++col;
             y = 0;
+            if (col >= colN) {
+                col = 0;
+                ++page;
+            }
         }
         y += meas[i].before;
         LaidBlock lb;
@@ -245,14 +316,14 @@ void DocumentLayout::relayout(const Document &doc, double z)
         lb.page = page;
         lb.marker = meas[i].marker;
         lb.markerWidth = meas[i].markerW;
-        lb.rect = QRectF(marginL, marginT + headerBand + y, contentW, meas[i].height);
+        lb.rect = QRectF(colX(col), marginT + headerBand + y, colWidth, meas[i].height);
         if (b.type == QLatin1String("table")) {
-            const auto colW = tableColWidths(b, contentW);
+            const auto tw = tableColWidths(b, colWidth);
             qreal ty = 0;
             for (int r = 0; r < b.table.size(); ++r) {
-                qreal x = marginL;
+                qreal x = lb.rect.left();
                 for (int c = 0; c < b.table[r].size(); ++c) {
-                    const qreal cw = c < colW.size() ? colW[c] : contentW;
+                    const qreal cw = c < tw.size() ? tw[c] : colWidth;
                     CellGeom g;
                     g.row = r;
                     g.col = c;
@@ -265,6 +336,39 @@ void DocumentLayout::relayout(const Document &doc, double z)
         }
         blocks.push_back(lb);
         y += meas[i].height;
+    }
+    // Footnotes on each page bottom; endnotes after last page.
+    qreal fnY = 0;
+    int fnPage = qMax(1, page);
+    for (int i = 0; i < doc.body.size(); ++i) {
+        const Block &b = doc.body[i];
+        if (b.type != QLatin1String("footnote"))
+            continue;
+        const qreal h = qMax(qreal(14 * zoom), measureTextHeight(doc, b, b.runs, contentW, zoom));
+        LaidBlock lb;
+        lb.id = b.id;
+        lb.type = b.type;
+        lb.page = fnPage;
+        lb.rect = QRectF(marginL, paperH - marginB - footerBand - fnBand + fnY, contentW, h);
+        blocks.push_back(lb);
+        fnY += h;
+    }
+    if (enCount > 0) {
+        ++page;
+        qreal ey = 0;
+        for (int i = 0; i < doc.body.size(); ++i) {
+            const Block &b = doc.body[i];
+            if (b.type != QLatin1String("endnote"))
+                continue;
+            const qreal h = qMax(qreal(16 * zoom), measureTextHeight(doc, b, b.runs, contentW, zoom) + 8);
+            LaidBlock lb;
+            lb.id = b.id;
+            lb.type = b.type;
+            lb.page = page;
+            lb.rect = QRectF(marginL, marginT + headerBand + ey, contentW, h);
+            blocks.push_back(lb);
+            ey += h;
+        }
     }
     pages = qMax(1, page);
 }
@@ -431,7 +535,7 @@ void paintPage(QPainter *p, const Document &doc, const DocumentLayout &lay, int 
             }
             continue;
         }
-        QString text = b.plainText();
+        QString text = runsDisplay(doc, b.runs, page, lay.pages, doc.page.hyphenate);
         TextRun probe = b.runs.isEmpty() ? TextRun{} : b.runs.first();
         QFont f = fontFor(doc, b, probe, lay.zoom);
         p->setFont(f);
@@ -467,15 +571,23 @@ void paintPage(QPainter *p, const Document &doc, const DocumentLayout &lay, int 
             fr.length = r.text.size();
             QTextCharFormat cf;
             cf.setFont(fontFor(doc, b, r, lay.zoom));
+            if (r.strike)
+                cf.setFontStrikeOut(true);
+            if (r.superscript)
+                cf.setVerticalAlignment(QTextCharFormat::AlignSuperScript);
+            if (r.subscript)
+                cf.setVerticalAlignment(QTextCharFormat::AlignSubScript);
             if (!r.color.isEmpty())
                 cf.setForeground(QColor(r.color));
             else if (!r.link.isEmpty())
                 cf.setForeground(QColor(QStringLiteral("#B5651D")));
             if (!r.link.isEmpty())
                 cf.setFontUnderline(true);
+            const QString disp = runDisplayText(doc, r, page, lay.pages);
+            fr.length = doc.page.hyphenate ? hyphenateDisplay(disp).size() : disp.size();
             fr.format = cf;
             fmts.append(fr);
-            pos += r.text.size();
+            pos += fr.length;
         }
         if (!fmts.isEmpty())
             layout.setFormats(fmts);

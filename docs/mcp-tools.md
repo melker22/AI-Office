@@ -63,6 +63,8 @@ The document is a JSON object with **stable block IDs**. Agents must address con
 | `table` | `rows`: array of rows; each cell `{ "runs": [...] }` |
 | `image` | `path`, `image_b64`, `width_mm` (bytes are the source of truth) |
 | `break` | page break (`break_kind`: `page`) |
+| `footnote` / `endnote` | nota; âncora no run via `note_id` |
+| `toc` | sumário; `toc_targets` = ids dos headings |
 
 ### Meta extras
 
@@ -70,7 +72,7 @@ The document is a JSON object with **stable block IDs**. Agents must address con
 
 ### Text run fields
 
-`text`, `bold`, `italic`, `underline`, `font` (optional), `size_pt` (0 = inherit), `color`, `highlight`.
+`text`, `bold`, `italic`, `underline`, `strike`, `superscript`, `subscript`, `font` (optional), `size_pt` (0 = inherit), `color`, `highlight`, `link`, `field` (`page_number` | `page_count` | `date` | `title` | `author` | `xref`), `field_arg`, `note_id`.
 
 ### ID prefixes
 
@@ -136,7 +138,7 @@ Args: `{ "ids": ["p1"] }`
 
 ### `apply_character_format`
 
-Args: `{ "ids": ["p1"], "start"?: int, "end"?: int, "bold"?: bool, "italic"?: bool, "underline"?: bool, "font"?: string, "size_pt"?: number, "color"?: string, "highlight"?: string }`  
+Args: `{ "ids": ["p1"], "start"?: int, "end"?: int, "bold"?: bool, "italic"?: bool, "underline"?: bool, "strike"?: bool, "superscript"?: bool, "subscript"?: bool, "font"?: string, "size_pt"?: number, "color"?: string, "highlight"?: string, "link"?: string }`  
 With `start`/`end`, applies to that range of the block’s plain text. Otherwise all runs.
 
 ### `apply_paragraph_format`
@@ -154,7 +156,7 @@ Args: `{ "name": string, "font"?: string, "size_pt"?: number, "bold"?: bool, "it
 
 ### `set_page_layout`
 
-Args: `{ "size"?: "A4"|"Letter", "orientation"?: "portrait"|"landscape", "margins_mm"?: [t, r, b, l] }`
+Args: `{ "size"?: "A4"|"Letter", "orientation"?: "portrait"|"landscape", "margins_mm"?: [t, r, b, l], "columns"?: 1|2|3, "hyphenate"?: bool }`
 
 ### `insert_table`
 
@@ -177,12 +179,12 @@ Args: `{ "after_id": "end", "kind"?: "page" }`
 
 ### `find_replace`
 
-Args: `{ "find": string, "replace": string, "all"?: false }`  
-`all` defaults to **false** (first match). Returns `{ "ok", "count" }`.
+Args: `{ "find": string, "replace": string, "all"?: false, "regex"?: false }`  
+`all` defaults to **false** (first match). `regex` uses `QRegularExpression`. Returns `{ "ok", "count" }`.
 
 ### `search`
 
-Args: `{ "find": string, "forward"?: true }`  
+Args: `{ "find": string, "forward"?: true, "regex"?: false }`  
 Find without replacing. Returns `{ hits: [{id, start, end}] }`.
 
 ### `set_cell` / `insert_row` / `insert_col` / `delete_row` / `delete_col`
@@ -212,6 +214,32 @@ Ids `added` / `removed` / `changed` / `moved` vs the document at last **save**, 
 ### `import_markdown` / `document_from_template`
 
 Markdown → blocks. Inline: `**bold**`, `*italic*`, `[text](url)`. Nested lists by indent. Templates: `carta` | `ata` | `contrato` (`template` or `name`). If the session is dirty, pass `force=true`. Optional `fields` replaces `{{placeholders}}` (cidade, data, nome, …). Title is human (`Carta`, not `carta`). Path is cleared.
+
+### `link_set` / `bookmark_add` / `insert_crossref`
+
+Hiperlink na seleção (`url`). Marcador nomeado no bloco (`name`, `id` opcional). Referência cruzada (`target` = id de bloco ou bookmark) como campo `xref`.
+
+### `insert_field`
+
+Args: `{ "kind": "page_number"|"page_count"|"date"|"title"|"author"|"xref", "arg"?: string }`  
+Insere no caret. `xref` usa `arg` como alvo.
+
+### `insert_footnote` / `insert_endnote`
+
+Args: `{ "text"?: string }`  
+Marca sobrescrita no caret + bloco `footnote`/`endnote` com id `fn*`/`en*`.
+
+### `toc_update`
+
+Cria ou regenera o bloco `toc` a partir dos headings. `toc_targets` guarda os ids.
+
+### `spellcheck`
+
+Hunspell se o binário foi compilado com a lib e existir dicionário (`DICPATH` ou `/usr/share/hunspell`). `{ available, hits: [{id,start,end,word,suggestions}] }`.
+
+### `track_changes` / `revision_list` / `revision_accept` / `revision_reject`
+
+`track_changes { on }` grava insert/delete. Aceitar remove a marca; rejeitar um `insert` desfaz o texto.
 
 ### `undo` / `redo`
 

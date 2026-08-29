@@ -33,6 +33,12 @@ QString runsToWml(const QVector<TextRun> &runs)
             rPr += QLatin1String("<w:i/>");
         if (r.underline)
             rPr += QLatin1String("<w:u w:val=\"single\"/>");
+        if (r.strike)
+            rPr += QLatin1String("<w:strike/>");
+        if (r.superscript)
+            rPr += QLatin1String("<w:vertAlign w:val=\"superscript\"/>");
+        if (r.subscript)
+            rPr += QLatin1String("<w:vertAlign w:val=\"subscript\"/>");
         if (r.sizePt > 0)
             rPr += QStringLiteral("<w:sz w:val=\"%1\"/><w:szCs w:val=\"%1\"/>").arg(int(r.sizePt * 2));
         if (!r.font.isEmpty())
@@ -46,10 +52,13 @@ QString runsToWml(const QVector<TextRun> &runs)
         const QString space = r.text.startsWith(QLatin1Char(' ')) || r.text.endsWith(QLatin1Char(' '))
             ? QStringLiteral(" xml:space=\"preserve\"")
             : QString();
-        xml += QStringLiteral("<w:r>");
+        QString runXml = QStringLiteral("<w:r>");
         if (!rPr.isEmpty())
-            xml += QStringLiteral("<w:rPr>%1</w:rPr>").arg(rPr);
-        xml += QStringLiteral("<w:t%1>%2</w:t></w:r>").arg(space, t);
+            runXml += QStringLiteral("<w:rPr>%1</w:rPr>").arg(rPr);
+        runXml += QStringLiteral("<w:t%1>%2</w:t></w:r>").arg(space, t);
+        if (!r.link.isEmpty())
+            runXml = QStringLiteral("<w:hyperlink w:anchor=\"%1\">%2</w:hyperlink>").arg(xmlEscape(r.link), runXml);
+        xml += runXml;
     }
     return xml;
 }
@@ -430,6 +439,12 @@ bool loadDocx(const QByteArray &zipData, Document &doc, QString *error)
                 run.italic = true;
             } else if (n == QLatin1String("u") && inR) {
                 run.underline = true;
+            } else if (n == QLatin1String("strike") && inR) {
+                run.strike = true;
+            } else if (n == QLatin1String("vertAlign") && inR) {
+                const auto v = xml.attributes().value(QStringLiteral("w:val")).toString();
+                run.superscript = (v == QLatin1String("superscript"));
+                run.subscript = (v == QLatin1String("subscript"));
             } else if (n == QLatin1String("t") && inR) {
                 run.text += xml.readElementText();
             } else if (n == QLatin1String("blip")) {

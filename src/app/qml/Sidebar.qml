@@ -273,6 +273,41 @@ Rectangle {
                     }
 
                     Text {
+                        text: "COLUNAS"
+                        color: Theme.inkMuted
+                        font.family: Theme.uiFont
+                        font.pixelSize: 11
+                        font.weight: Font.DemiBold
+                        font.letterSpacing: 1
+                    }
+                    UiSpin {
+                        width: 110
+                        from: 1
+                        to: 3
+                        value: app.pageColumns
+                        onValueModified: app.pageColumns = value
+                    }
+                    Row {
+                        spacing: 8
+                        Rectangle {
+                            width: 18
+                            height: 18
+                            radius: 4
+                            color: app.hyphenate ? Theme.accent : Theme.paper
+                            border.color: Theme.hairline
+                            border.width: 1
+                            MouseArea { anchors.fill: parent; onClicked: app.hyphenate = !app.hyphenate }
+                        }
+                        Text {
+                            text: "Hifenizar"
+                            color: Theme.ink
+                            font.family: Theme.uiFont
+                            font.pixelSize: 13
+                            anchors.verticalCenter: parent.verticalCenter
+                        }
+                    }
+
+                    Text {
                         text: "CABEÇALHO E RODAPÉ"
                         color: Theme.inkMuted
                         font.family: Theme.uiFont
@@ -488,6 +523,92 @@ Rectangle {
                                     color: Theme.inkMuted
                                     font.pixelSize: 11
                                 }
+                            }
+                        }
+                    }
+                }
+
+                Column {
+                    visible: side.docPane === 0
+                    width: parent.width - 32
+                    spacing: 8
+                    Text {
+                        text: "LIGAÇÃO E CAMPOS"
+                        color: Theme.inkMuted
+                        font.family: Theme.uiFont
+                        font.pixelSize: 11
+                        font.weight: Font.DemiBold
+                        font.letterSpacing: 1
+                    }
+                    Rectangle {
+                        width: parent.width
+                        height: 36
+                        radius: 8
+                        color: Theme.paper
+                        border.color: Theme.hairlineStrong
+                        border.width: 1
+                        UiField {
+                            anchors.fill: parent
+                            anchors.leftMargin: 10
+                            anchors.rightMargin: 10
+                            placeholder: "https://…"
+                            text: app.linkUrl
+                            onTextChanged: if (text !== app.linkUrl) app.linkUrl = text
+                            onAccepted: app.applyLink()
+                        }
+                    }
+                    UiButton { text: "Aplicar hiperlink"; kind: "secondary"; h: 32; onClicked: app.applyLink() }
+                    Row {
+                        spacing: 6
+                        UiButton { text: "Pág."; kind: "ghost"; h: 28; onClicked: app.insertField("page_number") }
+                        UiButton { text: "Data"; kind: "ghost"; h: 28; onClicked: app.insertField("date") }
+                        UiButton { text: "Título"; kind: "ghost"; h: 28; onClicked: app.insertField("title") }
+                    }
+                    UiButton { text: "Atualizar sumário"; kind: "secondary"; h: 32; onClicked: app.updateToc() }
+                    UiButton { text: "Ortografia"; kind: "secondary"; h: 32; onClicked: app.runSpellcheck() }
+                    Row {
+                        spacing: 8
+                        Rectangle {
+                            width: 18
+                            height: 18
+                            radius: 4
+                            color: app.trackChanges ? Theme.accent : Theme.paper
+                            border.color: Theme.hairline
+                            border.width: 1
+                            MouseArea { anchors.fill: parent; onClicked: app.trackChanges = !app.trackChanges }
+                        }
+                        Text {
+                            text: "Registar alterações"
+                            color: Theme.ink
+                            font.family: Theme.uiFont
+                            font.pixelSize: 13
+                            anchors.verticalCenter: parent.verticalCenter
+                        }
+                    }
+                    Repeater {
+                        model: app.revisions
+                        delegate: Rectangle {
+                            required property var modelData
+                            width: parent.width
+                            implicitHeight: 56
+                            radius: 8
+                            color: Theme.paper
+                            border.color: Theme.hairline
+                            border.width: 1
+                            Row {
+                                anchors.fill: parent
+                                anchors.margins: 8
+                                spacing: 8
+                                Text {
+                                    text: (modelData.kind || "") + " · " + (modelData.author || "")
+                                    color: Theme.ink
+                                    font.pixelSize: 12
+                                    width: parent.width - 100
+                                    elide: Text.ElideRight
+                                    anchors.verticalCenter: parent.verticalCenter
+                                }
+                                UiButton { text: "Ok"; kind: "ghost"; h: 24; onClicked: app.acceptRevision(modelData.id) }
+                                UiButton { text: "×"; kind: "ghost"; h: 24; onClicked: app.rejectRevision(modelData.id) }
                             }
                         }
                     }
