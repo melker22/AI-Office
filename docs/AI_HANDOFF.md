@@ -26,6 +26,26 @@
 
 ---
 
+## 2026-08-29 — Cursor — Fase IA wave 5: kerning, idioma, find, estilos, etiquetas
+
+**Objective:** Continuar waves 3–6 (JSON+MCP+`page_preview`). Sem chrome QML. Sem push.
+
+**Done:**
+- Kerning/tracking (`run.kerning`) no preview; idioma em run/bloco.
+- `search` por formato (bold/italic/font/highlight/lang/…); `goto`; `select_by_style`.
+- Listas: `list_restart`, `list_bullet`, `create_style kind=list`.
+- Página: `kind=page`, `number_format`/`number_start`, `insert_break page_restart`.
+- `StyleDef.next` + `split_block`; `update_style`; data com formato Qt; `insert_labels`.
+- Playbook: `AIOFFICE_HEADLESS=1 aioffice play qa/wave5-styles.json`.
+
+**Decisions:** Ligaduras ficam no HarfBuzz default (Qt 6.11 sem `QFont::PreferLigatures`). Nº impresso ≠ página física. Sem QML. PDF tagged continua Partial.
+
+**Next suggested step:** Waves 3–6 restantes (PDF tagged, moldura, ímpar/par, colar HTML, AutoFormat). Fase Humano só quando a IA estiver plena.
+
+**Commits:** `c52aa48` feat: add kerning, find-by-format, list/page styles, and labels
+
+---
+
 ## 2026-08-29 — Cursor — Fase IA wave 4: runs, checkbox, carácter, envelope
 
 **Objective:** Continuar waves 3–6 (JSON+MCP+`page_preview`). Sem chrome QML. Sem push.
