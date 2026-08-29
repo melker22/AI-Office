@@ -1,0 +1,113 @@
+#pragma once
+
+#include "core/Document.h"
+
+#include <QJsonArray>
+#include <QJsonObject>
+#include <QString>
+#include <QVector>
+#include <functional>
+
+namespace aioffice {
+
+class Session {
+public:
+    Session();
+
+    Document document() const { return doc_; }
+    const Document &documentRef() const { return doc_; }
+    QString path() const { return path_; }
+    bool dirty() const { return dirty_; }
+    bool liveConnected() const { return live_; }
+    void setLive(bool v) { live_ = v; }
+    Selection selection() const { return sel_; }
+    void setSelection(const Selection &s) { sel_ = s; }
+
+    QJsonObject newDocument(const QJsonObject &args);
+    QJsonObject openDocument(const QJsonObject &args);
+    QJsonObject saveDocument(const QJsonObject &args);
+    QJsonObject exportPdf(const QJsonObject &args);
+    QJsonObject getDocument(const QJsonObject &args);
+    QJsonObject getOutline(const QJsonObject &args);
+    QJsonObject insertBlocks(const QJsonObject &args);
+    QJsonObject replaceRange(const QJsonObject &args);
+    QJsonObject deleteRange(const QJsonObject &args);
+    QJsonObject applyCharacterFormat(const QJsonObject &args);
+    QJsonObject applyParagraphFormat(const QJsonObject &args);
+    QJsonObject applyStyle(const QJsonObject &args);
+    QJsonObject createStyle(const QJsonObject &args);
+    QJsonObject setPageLayout(const QJsonObject &args);
+    QJsonObject insertTable(const QJsonObject &args);
+    QJsonObject insertImage(const QJsonObject &args);
+    QJsonObject insertList(const QJsonObject &args);
+    QJsonObject insertBreak(const QJsonObject &args);
+    QJsonObject findReplace(const QJsonObject &args);
+    QJsonObject search(const QJsonObject &args);
+    QJsonObject undo(const QJsonObject &args);
+    QJsonObject redo(const QJsonObject &args);
+    QJsonObject pagePreview(const QJsonObject &args);
+    QJsonObject integrateHelp(const QJsonObject &args);
+    QJsonObject setCell(const QJsonObject &args);
+    QJsonObject insertRow(const QJsonObject &args);
+    QJsonObject insertCol(const QJsonObject &args);
+    QJsonObject deleteRow(const QJsonObject &args);
+    QJsonObject deleteCol(const QJsonObject &args);
+    QJsonObject selectionGet(const QJsonObject &args);
+    QJsonObject setSelectionTool(const QJsonObject &args);
+    QJsonObject insertAtCaret(const QJsonObject &args);
+    QJsonObject moveBlocks(const QJsonObject &args);
+    QJsonObject duplicateBlocks(const QJsonObject &args);
+    QJsonObject commentAdd(const QJsonObject &args);
+    QJsonObject commentResolve(const QJsonObject &args);
+    QJsonObject documentSetTitle(const QJsonObject &args);
+    QJsonObject setHeader(const QJsonObject &args);
+    QJsonObject setFooter(const QJsonObject &args);
+    QJsonObject documentDiff(const QJsonObject &args);
+    QJsonObject importMarkdown(const QJsonObject &args);
+    QJsonObject documentFromTemplate(const QJsonObject &args);
+
+    QJsonObject call(const QString &tool, const QJsonObject &args);
+
+    bool toggleTableHeader();
+    using ChangeCallback = std::function<void()>;
+    void setOnChanged(ChangeCallback cb) { onChanged_ = std::move(cb); }
+
+    bool insertTextAt(const QString &id, int offset, const QString &text, int row = -1, int col = -1);
+    bool deleteBackward(const QString &id, int offset, int row = -1, int col = -1);
+    bool splitBlock(const QString &id, int offset);
+    bool bumpListLevel(const QString &id, int delta);
+    void restoreSnapshot(const Document &d, const QString &path, bool dirty);
+    void commitCaretInsert(const QString &text);
+    void commitBackspace();
+    void commitSplit();
+
+private:
+    void pushUndo();
+    void markChanged();
+    void captureBaseline();
+    void stripLeadingEmptyParagraph();
+    void selectInserted(const QString &id);
+    QJsonObject ok() const;
+    QJsonObject fail(const QString &err) const;
+    int insertIndex(const QString &afterId, QString *err) const;
+    QVector<int> indexesFor(const QJsonArray &ids) const;
+    bool saveTo(const QString &path, QString *error);
+    bool loadFrom(const QString &path, QString *error);
+    Block *tableBlock(const QString &id);
+    QVector<TextRun> *runsAt(Block &b, int row, int col);
+
+    Document doc_;
+    Document baseline_;
+    QString path_;
+    bool dirty_ = false;
+    bool live_ = false;
+    QVector<Document> undo_;
+    QVector<Document> redo_;
+    Selection sel_;
+    ChangeCallback onChanged_;
+};
+
+QJsonObject toolResultOk(const QJsonObject &extra = {});
+QJsonObject toolResultErr(const QString &error);
+
+} // namespace aioffice

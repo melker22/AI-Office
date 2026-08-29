@@ -1,0 +1,8 @@
+{
+  "mcpServers": {
+    "ai-office": {
+      "command": "/home/melker-ricing-2/Documentos/Trabalho/AI-Office/scripts/aioffice",
+      "args": ["mcp"]
+    }
+  }
+}

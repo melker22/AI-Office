@@ -1,0 +1,32 @@
+---
+description: Ler e atualizar o handoff entre sessões de IA
+alwaysApply: true
+---
+
+# Protocolo de continuidade (AI Handoff)
+
+## Antes de qualquer tarefa com alterações
+
+1. Ler [`docs/AI_HANDOFF.md`](docs/AI_HANDOFF.md) — entrada mais recente no topo.
+2. Executar `git status` e `git log -5 --oneline`.
+3. Não repetir trabalho já listado como **Feito**; continuar a partir de **Próximo passo sugerido**.
+4. Consultar quando relevante:
+   - UI → [`docs/DESIGN_CHANGES.md`](docs/DESIGN_CHANGES.md)
+   - Arquitetura/stack → [`docs/DOCUMENTACAO_COMPLETA.md`](docs/DOCUMENTACAO_COMPLETA.md)
+   - Chrome Qt → [`.cursor/rules/design-overrides-qt.mdc`](design-overrides-qt.mdc)
+
+## Ao concluir (ou parar com trabalho parcial)
+
+1. Adicionar nova entrada no **topo** de `docs/AI_HANDOFF.md` (abaixo do template), usando o formato do template.
+2. Preencher: objetivo, feito, arquivos principais, decisões, próximo passo, hash do commit (se criado).
+3. Modelo: usar o nome se conhecido; senão `desconhecido` ou o que o usuário informou.
+
+## Quando NÃO atualizar o handoff
+
+- Sessão só de perguntas (Ask mode) sem alterações no projeto.
+- Respostas triviais sem impacto no código ou docs.
+
+## Manutenção do arquivo
+
+- Manter no máximo ~20 entradas em `AI_HANDOFF.md`.
+- Mover entradas antigas para `docs/AI_HANDOFF_ARCHIVE.md` quando ultrapassar esse limite.

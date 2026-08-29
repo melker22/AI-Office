@@ -1,0 +1,386 @@
+{
+    "body": [
+        {
+            "align": "center",
+            "id": "h1",
+            "level": 1,
+            "runs": [
+                {
+                    "bold": false,
+                    "italic": false,
+                    "text": "Relatório de ocupação — 3º trimestre",
+                    "underline": false
+                }
+            ],
+            "style": "Title",
+            "type": "heading"
+        },
+        {
+            "align": "center",
+            "id": "p2",
+            "runs": [
+                {
+                    "bold": false,
+                    "italic": false,
+                    "text": "Este relatório resume a ocupação do imóvel locado e as pendências de manutenção.",
+                    "underline": false
+                }
+            ],
+            "type": "paragraph"
+        },
+        {
+            "id": "h2",
+            "level": 2,
+            "runs": [
+                {
+                    "bold": false,
+                    "italic": false,
+                    "text": "Indicadores",
+                    "underline": false
+                }
+            ],
+            "style": "Heading 1",
+            "type": "heading"
+        },
+        {
+            "align": "left",
+            "id": "p1",
+            "level": 2,
+            "runs": [
+            ],
+            "style": "Heading 2",
+            "type": "heading"
+        },
+        {
+            "id": "t1",
+            "rows": [
+                [
+                    {
+                        "runs": [
+                            {
+                                "bold": true,
+                                "italic": false,
+                                "text": "Mês",
+                                "underline": false
+                            }
+                        ]
+                    },
+                    {
+                        "runs": [
+                            {
+                                "bold": true,
+                                "italic": false,
+                                "text": "Aluguel",
+                                "underline": false
+                            }
+                        ]
+                    },
+                    {
+                        "runs": [
+                            {
+                                "bold": true,
+                                "italic": false,
+                                "text": "Status",
+                                "underline": false
+                            }
+                        ]
+                    }
+                ],
+                [
+                    {
+                        "runs": [
+                            {
+                                "bold": false,
+                                "italic": false,
+                                "text": "Janeiro",
+                                "underline": false
+                            }
+                        ]
+                    },
+                    {
+                        "runs": [
+                            {
+                                "bold": false,
+                                "italic": false,
+                                "text": "R$ 1.200,00",
+                                "underline": false
+                            }
+                        ]
+                    },
+                    {
+                        "runs": [
+                            {
+                                "bold": false,
+                                "italic": false,
+                                "text": "Pago",
+                                "underline": false
+                            }
+                        ]
+                    }
+                ],
+                [
+                    {
+                        "runs": [
+                            {
+                                "bold": false,
+                                "italic": false,
+                                "text": "Fevereiro",
+                                "underline": false
+                            }
+                        ]
+                    },
+                    {
+                        "runs": [
+                            {
+                                "bold": false,
+                                "italic": false,
+                                "text": "R$ 1.200,00",
+                                "underline": false
+                            }
+                        ]
+                    },
+                    {
+                        "runs": [
+                            {
+                                "bold": false,
+                                "italic": false,
+                                "text": "Pago",
+                                "underline": false
+                            }
+                        ]
+                    }
+                ],
+                [
+                    {
+                        "runs": [
+                            {
+                                "bold": false,
+                                "italic": false,
+                                "text": "Março",
+                                "underline": false
+                            }
+                        ]
+                    },
+                    {
+                        "runs": [
+                            {
+                                "bold": false,
+                                "italic": false,
+                                "text": "R$ 1.200,00",
+                                "underline": false
+                            }
+                        ]
+                    },
+                    {
+                        "runs": [
+                            {
+                                "bold": false,
+                                "italic": false,
+                                "text": "Em atraso",
+                                "underline": false
+                            }
+                        ]
+                    }
+                ]
+            ],
+            "type": "table"
+        },
+        {
+            "id": "l1",
+            "level": 1,
+            "list_kind": "bullet",
+            "runs": [
+                {
+                    "bold": false,
+                    "italic": false,
+                    "text": "Trocar vedação da torneira",
+                    "underline": false
+                }
+            ],
+            "type": "list-item"
+        },
+        {
+            "id": "l2",
+            "level": 1,
+            "list_kind": "bullet",
+            "runs": [
+                {
+                    "bold": false,
+                    "italic": false,
+                    "text": "Revisar disjuntor do quarto",
+                    "underline": false
+                }
+            ],
+            "type": "list-item"
+        },
+        {
+            "id": "l3",
+            "level": 1,
+            "list_kind": "bullet",
+            "runs": [
+                {
+                    "bold": false,
+                    "italic": false,
+                    "text": "Pintura da fachada",
+                    "underline": false
+                }
+            ],
+            "type": "list-item"
+        },
+        {
+            "id": "l4",
+            "level": 1,
+            "list_kind": "decimal",
+            "runs": [
+                {
+                    "bold": false,
+                    "italic": false,
+                    "text": "Vistoria inicial",
+                    "underline": false
+                }
+            ],
+            "type": "list-item"
+        },
+        {
+            "id": "l5",
+            "level": 1,
+            "list_kind": "decimal",
+            "runs": [
+                {
+                    "bold": false,
+                    "italic": false,
+                    "text": "Entrega das chaves",
+                    "underline": false
+                }
+            ],
+            "type": "list-item"
+        },
+        {
+            "id": "l6",
+            "level": 1,
+            "list_kind": "decimal",
+            "runs": [
+                {
+                    "bold": false,
+                    "italic": false,
+                    "text": "Primeiro pagamento",
+                    "underline": false
+                }
+            ],
+            "type": "list-item"
+        },
+        {
+            "break_kind": "page",
+            "id": "br1",
+            "type": "break"
+        },
+        {
+            "id": "h3",
+            "level": 2,
+            "runs": [
+                {
+                    "bold": false,
+                    "italic": false,
+                    "text": "Anexo fotográfico",
+                    "underline": false
+                }
+            ],
+            "style": "Heading 1",
+            "type": "heading"
+        },
+        {
+            "id": "p3",
+            "runs": [
+                {
+                    "bold": false,
+                    "italic": false,
+                    "text": "Imagem de teste inserida pela IA:",
+                    "underline": false
+                }
+            ],
+            "type": "paragraph"
+        },
+        {
+            "id": "img1",
+            "path": "/tmp/aioffice-qa/logo.png",
+            "type": "image",
+            "width_mm": 60
+        }
+    ],
+    "meta": {
+        "page": {
+            "margins_mm": [
+                22,
+                18,
+                22,
+                18
+            ],
+            "orientation": "portrait",
+            "size": "A4"
+        },
+        "title": "Relatório trimestral QA"
+    },
+    "schema": 1,
+    "styles": [
+        {
+            "bold": false,
+            "color": "#1A1F24",
+            "font": "Liberation Serif",
+            "italic": false,
+            "name": "Normal",
+            "size_pt": 12,
+            "space_after_pt": 8,
+            "space_before_pt": 0
+        },
+        {
+            "bold": true,
+            "color": "#1A1F24",
+            "font": "Liberation Serif",
+            "italic": false,
+            "name": "Title",
+            "size_pt": 28,
+            "space_after_pt": 12,
+            "space_before_pt": 0
+        },
+        {
+            "bold": true,
+            "color": "#1A1F24",
+            "font": "Liberation Serif",
+            "italic": false,
+            "name": "Heading 1",
+            "size_pt": 22,
+            "space_after_pt": 8,
+            "space_before_pt": 16
+        },
+        {
+            "bold": true,
+            "color": "#1A1F24",
+            "font": "Liberation Serif",
+            "italic": false,
+            "name": "Heading 2",
+            "size_pt": 16,
+            "space_after_pt": 6,
+            "space_before_pt": 12
+        },
+        {
+            "bold": true,
+            "color": "#1A1F24",
+            "font": "Liberation Serif",
+            "italic": false,
+            "name": "Heading 3",
+            "size_pt": 13,
+            "space_after_pt": 4,
+            "space_before_pt": 10
+        },
+        {
+            "bold": false,
+            "color": "#4A5560",
+            "font": "Liberation Serif",
+            "italic": true,
+            "name": "Quote",
+            "size_pt": 12,
+            "space_after_pt": 8,
+            "space_before_pt": 0
+        }
+    ]
+}

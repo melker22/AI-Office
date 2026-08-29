@@ -1,0 +1,430 @@
+{
+    "body": [
+        {
+            "id": "h4",
+            "level": 2,
+            "runs": [
+                {
+                    "bold": false,
+                    "italic": false,
+                    "text": "Anexo fotográfico",
+                    "underline": false
+                }
+            ],
+            "style": "Heading 1",
+            "type": "heading"
+        },
+        {
+            "id": "h1",
+            "level": 1,
+            "runs": [
+                {
+                    "bold": false,
+                    "italic": false,
+                    "text": "Relatório de ocupação",
+                    "underline": false
+                },
+                {
+                    "bold": false,
+                    "italic": false,
+                    "text": " [nota]",
+                    "underline": false
+                }
+            ],
+            "style": "Title",
+            "type": "heading"
+        },
+        {
+            "align": "justify",
+            "comments": [
+                {
+                    "author": "IA",
+                    "id": "ce0c51394",
+                    "resolved": true,
+                    "text": "Revisar valores"
+                }
+            ],
+            "id": "p2",
+            "runs": [
+                {
+                    "bold": true,
+                    "italic": false,
+                    "text": "Resumo",
+                    "underline": false
+                },
+                {
+                    "bold": false,
+                    "italic": false,
+                    "text": " da ocupação do imóvel locado no 3º trimestre, com pendências de manutenção.",
+                    "underline": false
+                }
+            ],
+            "type": "paragraph"
+        },
+        {
+            "id": "h2",
+            "level": 1,
+            "runs": [
+                {
+                    "bold": false,
+                    "italic": false,
+                    "text": "Indicadores",
+                    "underline": false
+                }
+            ],
+            "style": "Heading 1",
+            "type": "heading"
+        },
+        {
+            "id": "t1",
+            "rows": [
+                [
+                    {
+                        "runs": [
+                            {
+                                "bold": false,
+                                "italic": false,
+                                "text": "Janeiro",
+                                "underline": false
+                            }
+                        ]
+                    },
+                    {
+                        "runs": [
+                            {
+                                "bold": false,
+                                "italic": false,
+                                "text": "R$ 1.200,00",
+                                "underline": false
+                            }
+                        ]
+                    },
+                    {
+                        "runs": [
+                            {
+                                "bold": false,
+                                "italic": false,
+                                "text": "Pago",
+                                "underline": false
+                            }
+                        ]
+                    }
+                ],
+                [
+                    {
+                        "runs": [
+                            {
+                                "bold": false,
+                                "italic": false,
+                                "text": "Fevereiro",
+                                "underline": false
+                            }
+                        ]
+                    },
+                    {
+                        "runs": [
+                            {
+                                "bold": false,
+                                "italic": false,
+                                "text": "R$ 1.200,00",
+                                "underline": false
+                            }
+                        ]
+                    },
+                    {
+                        "runs": [
+                            {
+                                "bold": false,
+                                "italic": false,
+                                "text": "Pago",
+                                "underline": false
+                            }
+                        ]
+                    }
+                ],
+                [
+                    {
+                        "runs": [
+                            {
+                                "bold": false,
+                                "italic": false,
+                                "text": "Março",
+                                "underline": false
+                            }
+                        ]
+                    },
+                    {
+                        "runs": [
+                            {
+                                "bold": false,
+                                "italic": false,
+                                "text": "R$ 1.200,00",
+                                "underline": false
+                            }
+                        ]
+                    },
+                    {
+                        "runs": [
+                            {
+                                "bold": false,
+                                "italic": false,
+                                "text": "Pendente",
+                                "underline": false
+                            }
+                        ]
+                    }
+                ],
+                [
+                    {
+                        "runs": [
+                            {
+                                "bold": false,
+                                "italic": false,
+                                "text": "",
+                                "underline": false
+                            }
+                        ]
+                    },
+                    {
+                        "runs": [
+                            {
+                                "bold": false,
+                                "italic": false,
+                                "text": "",
+                                "underline": false
+                            }
+                        ]
+                    },
+                    {
+                        "runs": [
+                            {
+                                "bold": false,
+                                "italic": false,
+                                "text": "Pendente",
+                                "underline": false
+                            }
+                        ]
+                    }
+                ]
+            ],
+            "type": "table"
+        },
+        {
+            "id": "l1",
+            "level": 1,
+            "list_kind": "bullet",
+            "runs": [
+                {
+                    "bold": false,
+                    "italic": false,
+                    "text": "Trocar vedação",
+                    "underline": false
+                }
+            ],
+            "type": "list-item"
+        },
+        {
+            "id": "l2",
+            "level": 1,
+            "list_kind": "bullet",
+            "runs": [
+                {
+                    "bold": false,
+                    "italic": false,
+                    "text": "Revisar disjuntor",
+                    "underline": false
+                }
+            ],
+            "type": "list-item"
+        },
+        {
+            "id": "l3",
+            "level": 1,
+            "list_kind": "bullet",
+            "runs": [
+                {
+                    "bold": false,
+                    "italic": false,
+                    "text": "Pintura",
+                    "underline": false
+                }
+            ],
+            "type": "list-item"
+        },
+        {
+            "id": "l4",
+            "level": 1,
+            "list_kind": "decimal",
+            "runs": [
+                {
+                    "bold": false,
+                    "italic": false,
+                    "text": "Vistoria",
+                    "underline": false
+                }
+            ],
+            "type": "list-item"
+        },
+        {
+            "id": "l5",
+            "level": 1,
+            "list_kind": "decimal",
+            "runs": [
+                {
+                    "bold": false,
+                    "italic": false,
+                    "text": "Chaves",
+                    "underline": false
+                }
+            ],
+            "type": "list-item"
+        },
+        {
+            "id": "l6",
+            "level": 1,
+            "list_kind": "decimal",
+            "runs": [
+                {
+                    "bold": false,
+                    "italic": false,
+                    "text": "Pagamento",
+                    "underline": false
+                }
+            ],
+            "type": "list-item"
+        },
+        {
+            "break_kind": "page",
+            "id": "br1",
+            "type": "break"
+        },
+        {
+            "id": "h3",
+            "level": 2,
+            "runs": [
+                {
+                    "bold": false,
+                    "italic": false,
+                    "text": "Anexo fotográfico",
+                    "underline": false
+                }
+            ],
+            "style": "Heading 1",
+            "type": "heading"
+        },
+        {
+            "id": "p3",
+            "runs": [
+                {
+                    "bold": false,
+                    "italic": false,
+                    "text": "Imagem embutida:",
+                    "underline": false
+                }
+            ],
+            "type": "paragraph"
+        },
+        {
+            "id": "img1",
+            "image_b64": "iVBORw0KGgoAAAANSUhEUgAAAKAAAABQAQMAAACkk+x3AAAAIGNIUk0AAHomAACAhAAA+gAAAIDoAAB1MAAA6mAAADqYAAAXcJy6UTwAAAAGUExURStfnv///y9upKUAAAABYktHRAH/Ai3eAAAAB3RJTUUH6ggdAxIZ99EwjQAAACV0RVh0ZGF0ZTpjcmVhdGUAMjAyNi0wOC0yOVQwMzoxODoyNSswMDowMAEFZM4AAAAldEVYdGRhdGU6bW9kaWZ5ADIwMjYtMDgtMjlUMDM6MTg6MjUrMDA6MDBwWNxyAAAAKHRFWHRkYXRlOnRpbWVzdGFtcAAyMDI2LTA4LTI5VDAzOjE4OjI1KzAwOjAwJ039rQAAABZJREFUOMtjYBgFo2AUjIJRMAoGHgAABpAAAe99NOMAAAAASUVORK5CYII=",
+            "image_mime": "image/png",
+            "path": "/tmp/aioffice-qa2/logo.png",
+            "type": "image",
+            "width_mm": 50
+        }
+    ],
+    "meta": {
+        "footer": {
+            "page_numbers": true,
+            "text": "AI Office"
+        },
+        "header": {
+            "page_numbers": true,
+            "text": "Relatório QA"
+        },
+        "page": {
+            "margins_mm": [
+                22,
+                18,
+                22,
+                18
+            ],
+            "orientation": "portrait",
+            "size": "A4"
+        },
+        "title": "Relatório QA 2"
+    },
+    "schema": 1,
+    "styles": [
+        {
+            "bold": false,
+            "color": "#1A1F24",
+            "font": "Liberation Serif",
+            "italic": false,
+            "name": "Normal",
+            "size_pt": 12,
+            "space_after_pt": 8,
+            "space_before_pt": 0
+        },
+        {
+            "bold": true,
+            "color": "#1A1F24",
+            "font": "Liberation Serif",
+            "italic": false,
+            "name": "Title",
+            "size_pt": 28,
+            "space_after_pt": 12,
+            "space_before_pt": 0
+        },
+        {
+            "bold": true,
+            "color": "#1A1F24",
+            "font": "Liberation Serif",
+            "italic": false,
+            "name": "Heading 1",
+            "size_pt": 22,
+            "space_after_pt": 8,
+            "space_before_pt": 16
+        },
+        {
+            "bold": true,
+            "color": "#1A1F24",
+            "font": "Liberation Serif",
+            "italic": false,
+            "name": "Heading 2",
+            "size_pt": 16,
+            "space_after_pt": 6,
+            "space_before_pt": 12
+        },
+        {
+            "bold": true,
+            "color": "#1A1F24",
+            "font": "Liberation Serif",
+            "italic": false,
+            "name": "Heading 3",
+            "size_pt": 13,
+            "space_after_pt": 4,
+            "space_before_pt": 10
+        },
+        {
+            "bold": false,
+            "color": "#4A5560",
+            "font": "Liberation Serif",
+            "italic": true,
+            "name": "Quote",
+            "size_pt": 12,
+            "space_after_pt": 8,
+            "space_before_pt": 0
+        },
+        {
+            "bold": false,
+            "color": "#2B5F9E",
+            "font": "Liberation Serif",
+            "italic": true,
+            "name": "Accent",
+            "size_pt": 12,
+            "space_after_pt": 8,
+            "space_before_pt": 0
+        }
+    ]
+}

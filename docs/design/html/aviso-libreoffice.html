@@ -1,0 +1,30 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<title>Aviso LibreOffice — Tinta & Papel</title>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;600;700&display=swap" rel="stylesheet">
+<style>
+  body { margin:0; font-family:"IBM Plex Sans",sans-serif; background:#E4DDD2; }
+  .toast { max-width:600px; margin:64px auto; background:#2A2420; color:#FDFBF7; border-radius:16px; padding:20px 24px; display:flex; gap:16px; border:1px solid #4B4239; }
+  .warn { width:40px; height:40px; border-radius:12px; background:rgba(180,64,42,.2); color:#D6644A; display:flex; align-items:center; justify-content:center; font-weight:700; flex-shrink:0; }
+  h3 { margin:0 0 6px; font-size:14px; }
+  p { margin:0 0 16px; color:#AFA391; font-size:13px; line-height:1.5; }
+  .ok { color:#5FA772; font-weight:600; }
+  button { height:32px; padding:0 16px; border-radius:8px; font-weight:700; font-size:12px; cursor:pointer; font-family:inherit; }
+  .primary { background:#fff; color:#2A2420; border:0; }
+  .ghost { background:transparent; color:#D6CCBB; border:1px solid #4B4239; }
+</style>
+</head>
+<body>
+<div class="toast">
+  <div class="warn">!</div>
+  <div>
+    <h3>LibreOffice não encontrado</h3>
+    <p>Arquivos <strong>.doc</strong> precisam do LibreOffice. ODT, DOCX, AIO JSON e <span class="ok">PDF nativo</span> não dependem dele.</p>
+    <button class="primary">Entendi</button>
+    <button class="ghost">Ignorar</button>
+  </div>
+</div>
+</body>
+</html>

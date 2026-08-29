@@ -1,0 +1,131 @@
+cmake_minimum_required(VERSION 3.22)
+project(AIOffice VERSION 0.1.0 LANGUAGES CXX)
+
+set(CMAKE_CXX_STANDARD 20)
+set(CMAKE_CXX_STANDARD_REQUIRED ON)
+set(CMAKE_CXX_EXTENSIONS OFF)
+set(CMAKE_AUTOMOC ON)
+set(CMAKE_AUTORCC ON)
+set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
+
+if(NOT CMAKE_BUILD_TYPE AND NOT CMAKE_CONFIGURATION_TYPES)
+    set(CMAKE_BUILD_TYPE RelWithDebInfo CACHE STRING "Build type" FORCE)
+endif()
+
+find_package(Qt6 6.5 REQUIRED COMPONENTS Core Gui Network Qml Quick QuickControls2)
+find_package(ZLIB REQUIRED)
+
+qt_standard_project_setup(REQUIRES 6.5)
+
+add_library(aioffice_core STATIC
+    src/core/Document.cpp
+    src/core/Session.cpp
+    src/core/Odf.cpp
+    src/core/Docx.cpp
+    src/core/Zip.cpp
+    src/core/Preview.cpp
+    src/core/Xml.cpp
+    src/lok/LokEngine.cpp
+    src/mcp/ToolDispatch.cpp
+    src/mcp/McpServer.cpp
+    src/mcp/Ipc.cpp
+    src/cli/Cli.cpp
+)
+target_include_directories(aioffice_core PUBLIC
+    ${CMAKE_CURRENT_SOURCE_DIR}/src
+)
+target_link_libraries(aioffice_core PUBLIC
+    Qt6::Core
+    Qt6::Gui
+    Qt6::Network
+    ZLIB::ZLIB
+)
+target_compile_definitions(aioffice_core PUBLIC
+    AIOFFICE_VERSION="${PROJECT_VERSION}"
+)
+
+if(UNIX AND NOT APPLE)
+    target_link_libraries(aioffice_core PUBLIC ${CMAKE_DL_LIBS})
+endif()
+
+qt_add_executable(aioffice
+    src/app/main.cpp
+    src/app/AppController.cpp
+    src/app/DocumentCanvas.cpp
+)
+
+set(_aio_qml
+    Main.qml
+    Theme.qml
+    IconBtn.qml
+    TitleBar.qml
+    DocTabs.qml
+    CommandBar.qml
+    FindBar.qml
+    Ruler.qml
+    OutlineRail.qml
+    EmptyWelcome.qml
+    OpenPanel.qml
+    SaveSheet.qml
+    UnsavedSheet.qml
+    LibreOfficeSheet.qml
+    TableMiniBar.qml
+    Sidebar.qml
+    StatusBarBar.qml
+    AiIntegratePanel.qml
+    UiButton.qml
+    UiField.qml
+    UiCombo.qml
+    UiSpin.qml
+    UiTip.qml
+)
+foreach(_f IN LISTS _aio_qml)
+    set_source_files_properties(src/app/qml/${_f} PROPERTIES QT_RESOURCE_ALIAS ${_f})
+endforeach()
+set_source_files_properties(src/app/qml/Theme.qml PROPERTIES QT_QML_SINGLETON_TYPE TRUE)
+
+qt_add_qml_module(aioffice
+    URI AIOffice
+    VERSION 1.0
+    RESOURCE_PREFIX /qt/qml
+    QML_FILES
+        src/app/qml/Main.qml
+        src/app/qml/Theme.qml
+        src/app/qml/IconBtn.qml
+        src/app/qml/TitleBar.qml
+        src/app/qml/DocTabs.qml
+        src/app/qml/CommandBar.qml
+        src/app/qml/FindBar.qml
+        src/app/qml/Ruler.qml
+        src/app/qml/OutlineRail.qml
+        src/app/qml/EmptyWelcome.qml
+        src/app/qml/OpenPanel.qml
+        src/app/qml/SaveSheet.qml
+        src/app/qml/UnsavedSheet.qml
+        src/app/qml/LibreOfficeSheet.qml
+        src/app/qml/TableMiniBar.qml
+        src/app/qml/Sidebar.qml
+        src/app/qml/StatusBarBar.qml
+        src/app/qml/AiIntegratePanel.qml
+        src/app/qml/UiButton.qml
+        src/app/qml/UiField.qml
+        src/app/qml/UiCombo.qml
+        src/app/qml/UiSpin.qml
+        src/app/qml/UiTip.qml
+)
+
+target_link_libraries(aioffice PRIVATE
+    aioffice_core
+    Qt6::Qml
+    Qt6::Quick
+    Qt6::QuickControls2
+)
+
+set_target_properties(aioffice PROPERTIES
+    OUTPUT_NAME aioffice
+    WIN32_EXECUTABLE FALSE
+)
+
+install(TARGETS aioffice RUNTIME DESTINATION bin)
+install(FILES skills/SKILL.md skills/mcp.json DESTINATION share/ai-office)
+install(FILES docs/mcp-tools.md DESTINATION share/ai-office/docs)

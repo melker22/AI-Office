@@ -1,0 +1,41 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<title>Salvar documento — PDF nativo</title>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;600;700&display=swap" rel="stylesheet">
+<style>
+  body { margin:0; background:rgba(42,36,32,.05); font-family:"IBM Plex Sans",sans-serif; min-height:100vh; display:flex; align-items:center; justify-content:center; }
+  .dlg { width:520px; background:#FBF7F0; border-radius:16px; border:1px solid #E4DDD2; overflow:hidden; }
+  header { padding:20px 24px; border-bottom:1px solid #F1EDE6; font-weight:700; color:#2A2420; }
+  .body { padding:24px; }
+  .fmt { display:flex; gap:16px; align-items:center; padding:16px; border-radius:12px; border:2px solid #B5651D; background:#FBF0E6; margin-bottom:12px; }
+  .fmt.warn { border-color:#E4DDD2; background:#fff; opacity:.7; }
+  .badge { font-size:10px; font-weight:700; text-transform:uppercase; background:rgba(63,125,79,.2); color:#3F7D4F; padding:2px 6px; border-radius:4px; }
+  .w { color:#B8862E; font-size:10px; font-weight:700; text-transform:uppercase; }
+  footer { padding:20px 24px; background:#FAF8F5; display:flex; justify-content:flex-end; gap:12px; }
+  .primary { height:40px; padding:0 32px; border-radius:12px; background:#B5651D; color:#fff; border:0; font-weight:700; }
+</style>
+</head>
+<body>
+<div class="dlg">
+  <header>Salvar Documento</header>
+  <div class="body">
+    <div class="fmt">
+      <div>
+        <div>PDF Document <span class="badge">Nativo</span></div>
+        <small style="color:#8A7D6C">Geração direta, sem LibreOffice.</small>
+      </div>
+    </div>
+    <div class="fmt warn">
+      <div>
+        <div>Microsoft Word (.doc)</div>
+        <small style="color:#AFA391">Requer LibreOffice. ODT/DOCX são nativos.</small>
+      </div>
+      <span class="w">Aviso</span>
+    </div>
+  </div>
+  <footer><button class="primary">Salvar agora</button></footer>
+</div>
+</body>
+</html>

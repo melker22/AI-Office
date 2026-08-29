@@ -1,0 +1,11 @@
+---
+description: Require all commit messages in English
+alwaysApply: true
+---
+
+# Commit Language Rule
+
+- All commit messages in this project must be written in English.
+- Use concise prefixes when appropriate: `feat:`, `fix:`, `refactor:`, `chore:`, `docs:`.
+- Do not mix Portuguese and English in the same commit title or body.
+- This rule applies to all future commits in this repository.

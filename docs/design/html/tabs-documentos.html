@@ -1,0 +1,25 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<title>Tabs de documentos — Tinta & Papel</title>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;600;700&display=swap" rel="stylesheet">
+<style>
+  body { margin:0; font-family:"IBM Plex Sans",sans-serif; background:#F1EDE6; }
+  .bar { height:40px; display:flex; align-items:flex-end; gap:4px; padding:0 12px; border-bottom:1px solid #E4DDD2; }
+  .tab { height:36px; padding:0 14px; display:flex; align-items:center; gap:8px; font-size:12.5px; color:#6B5F51; border-radius:8px 8px 0 0; }
+  .tab.active { background:#FBF7F0; color:#2A2420; font-weight:600; border:1px solid #E4DDD2; border-bottom:0; }
+  .dot { width:6px; height:6px; border-radius:3px; background:#B5651D; }
+  .dot.dim { opacity:.4; }
+  .plus { width:28px; height:28px; border-radius:8px; display:flex; align-items:center; justify-content:center; color:#AFA391; margin-bottom:4px; }
+</style>
+</head>
+<body>
+<div class="bar">
+  <div class="tab">☰ Relatório Anual</div>
+  <div class="tab active">☰ Proposta Comercial <span class="dot"></span></div>
+  <div class="tab">☰ Notas de Reunião <span class="dot dim"></span></div>
+  <div class="plus">+</div>
+</div>
+</body>
+</html>

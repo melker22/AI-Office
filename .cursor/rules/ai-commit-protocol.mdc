@@ -1,0 +1,28 @@
+---
+description: Commit ao fim do trabalho; push só com permissão
+alwaysApply: true
+---
+
+# Protocolo de commit (AI Office)
+
+## Ao finalizar alterações
+
+- Criar **um commit** por unidade lógica de trabalho (não um commit por linha).
+- Mensagem em **inglês**, no estilo do repositório (`feat:`, `fix:`, `chore:`, `docs:`).
+- Registrar o hash e a mensagem na entrada do [`docs/AI_HANDOFF.md`](docs/AI_HANDOFF.md).
+
+## Push
+
+- **Nunca** executar `git push` sem o usuário pedir explicitamente.
+
+## Não commitar
+
+- `.cursor/settings.json`
+- Secrets (`.env`, tokens, credenciais)
+- Arquivos que o usuário pediu para não versionar
+- `build/` e artefatos gerados
+
+## Antes do commit
+
+- `git status` e `git diff` para confirmar o escopo.
+- Não incluir arquivos acidentais ou não relacionados à tarefa.

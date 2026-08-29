@@ -1,0 +1,44 @@
+---
+description: Contexto do projeto AI Office Writer para agentes de IA
+alwaysApply: true
+---
+
+# AI Office — contexto do projeto
+
+## O que é
+
+Writer nativo (Linux + Windows v1). A IA do usuário edita o documento via MCP/CLI com **IDs estáveis**. Sem API key, sem créditos, sem chat Copilot.
+
+## Módulos
+
+| Pasta | Função |
+|--------|--------|
+| `src/core/` | `Document` JSON, `Session`, ODT/DOCX, Preview/Layout, Zip |
+| `src/app/` | Qt Quick GUI, `DocumentCanvas`, `AppController` |
+| `src/mcp/` | MCP stdio + Unix socket (`$XDG_RUNTIME_DIR/aioffice.sock`) |
+| `src/cli/` | `aioffice`, `aioffice call`, `aioffice mcp` |
+| `src/lok/` | LibreOffice opcional (DOC/PDF via soffice) |
+
+## Prioridades
+
+- **Design > framework:** Tinta & Papel (UX Pilot). Qt `Basic`. Componentes `Ui*`. Ver `design-overrides-qt.mdc`.
+- **Source of truth:** `.aio.json` com IDs. Não quebrar o contrato `{ok:false,error}`.
+- **Não começar** planilha nem apresentação enquanto o Writer não round-tripar ODT/DOCX.
+
+## Infra local (NixOS)
+
+```bash
+nix-shell
+cmake --preset linux && cmake --build --preset linux
+./build/linux/aioffice
+```
+
+Hyprland: classe da janela `aioffice`; notebook eDP-1 = workspace 1.
+
+## Convenções
+
+- C++20, Qt 6.5+, CMake presets linux/windows
+- Não pôr tipos C++ em `qt_add_qml_module SOURCES`
+- Não nomear propriedades QML `onX` (vira handler de sinal)
+- Não editar markdown não solicitado (exceto `docs/AI_HANDOFF.md` e docs pedidos)
+- Commits conforme `ai-commit-protocol.mdc`; push só com permissão

@@ -1,0 +1,608 @@
+{
+  "pass": 68,
+  "fail": 12,
+  "bugs_noted": [
+    {
+      "kind": "assert",
+      "name": "find_replace changed text",
+      "ok": false,
+      "detail": "Relatório de ocupação — 3º trimestre\nEste relatório resume a ocupação do imóvel locado e as pendências de manutenção.\nIndicadores\nTrocar vedação da torneira\nRevisar disjuntor do quarto\nPintura da fachada\nVistoria inicial\nEntrega das chaves\nPrimeiro pagamento\nAnexo fotográfico\nImagem de teste inserida pela IA:"
+    },
+    {
+      "kind": "assert",
+      "name": "undo restored Pendente",
+      "ok": false,
+      "detail": ""
+    },
+    {
+      "kind": "assert",
+      "name": "redo re-applied Em atraso",
+      "ok": false,
+      "detail": ""
+    },
+    {
+      "kind": "bug",
+      "name": "unknown after_id silently appends (should error)",
+      "ok": true,
+      "detail": "appended=True (silent fallback to end)"
+    },
+    {
+      "kind": "roundtrip",
+      "name": "ODT keeps table/list/image/break",
+      "ok": false,
+      "detail": "['heading', 'paragraph', 'heading', 'paragraph', 'paragraph', 'paragraph', 'paragraph', 'paragraph', 'paragraph', 'paragraph', 'paragraph', 'paragraph', 'paragraph', 'paragraph', 'paragraph', 'paragraph', 'paragraph', 'paragraph', 'paragraph', 'paragraph', 'paragraph', 'paragraph', 'paragraph', 'heading', 'paragraph', 'paragraph']"
+    },
+    {
+      "kind": "roundtrip",
+      "name": "ODT table cells (Janeiro/Aluguel)",
+      "ok": false,
+      "detail": "[]"
+    },
+    {
+      "kind": "roundtrip",
+      "name": "ODT image path preserved",
+      "ok": false,
+      "detail": "[]"
+    },
+    {
+      "kind": "roundtrip",
+      "name": "DOCX keeps table/list/image/break",
+      "ok": false,
+      "detail": "['heading', 'paragraph', 'heading', 'paragraph', 'paragraph', 'paragraph', 'paragraph', 'paragraph', 'paragraph', 'paragraph', 'paragraph', 'paragraph', 'paragraph', 'paragraph', 'paragraph', 'paragraph', 'paragraph', 'paragraph', 'paragraph', 'paragraph', 'paragraph', 'paragraph', 'paragraph', 'break', 'paragraph', 'heading', 'paragraph', 'paragraph']"
+    },
+    {
+      "kind": "roundtrip",
+      "name": "DOCX table cells",
+      "ok": false,
+      "detail": "[]"
+    },
+    {
+      "kind": "roundtrip",
+      "name": "DOCX image preserved",
+      "ok": false,
+      "detail": "[]"
+    },
+    {
+      "kind": "inspect",
+      "name": "ODT run colors after reopen",
+      "ok": true,
+      "detail": "{\"heading\": [[[\"ESCRITÓRIO MODELO LT\", null, false]]], \"paras\": [[[\"Mineiros/GO, 28 de a\", null, false]], [[\"À\", null, false]], [[\"Sra. Sterfanny Costa\", null, false]], [[\"Residencial Santa Ma\", null, false]], [[\"Assunto: \", null, false], [\"Confirmação de locaç\", null, false]], [[\"Prezada senhora,\", null, false]]]}"
+    },
+    {
+      "kind": "inspect",
+      "name": "ODT T-style vs span ids (collision?)",
+      "ok": true,
+      "detail": "{\"n_T_styles\": 3, \"span_ids\": [\"T1\", \"T1\", \"T1\"], \"unique_spans\": [\"T1\"]}"
+    },
+    {
+      "kind": "inspect",
+      "name": "ODT relatório T-styles",
+      "ok": true,
+      "detail": "{\"n_T_styles\": 3, \"span_ids\": [\"T1\", \"T1\", \"T1\"], \"unique_spans\": [\"T1\"]}"
+    },
+    {
+      "kind": "inspect",
+      "name": "DOCX zip entries",
+      "ok": true,
+      "detail": "['[Content_Types].xml', '_rels/.rels', 'word/_rels/document.xml.rels', 'word/document.xml', 'word/styles.xml', 'docProps/core.xml']"
+    },
+    {
+      "kind": "bug",
+      "name": "DOCX missing numbering.xml for lists",
+      "ok": true,
+      "detail": "entries=['[Content_Types].xml', '_rels/.rels', 'word/_rels/document.xml.rels', 'word/document.xml', 'word/styles.xml', 'docProps/core.xml']"
+    },
+    {
+      "kind": "bug",
+      "name": "page_preview zoom=1.0 often tiny/blank vs 2.0",
+      "ok": false,
+      "detail": "z1.0=67990B z1.15=69256B z2.0=84221B"
+    },
+    {
+      "kind": "roundtrip",
+      "name": "ODT page size/orientation",
+      "ok": false,
+      "detail": "{\"margins_mm\": [25, 20, 25, 20], \"orientation\": \"portrait\", \"size\": \"A4\"}"
+    },
+    {
+      "kind": "roundtrip",
+      "name": "DOCX page size/orientation",
+      "ok": false,
+      "detail": "{\"margins_mm\": [25, 20, 25, 20], \"orientation\": \"portrait\", \"size\": \"A4\"}"
+    }
+  ],
+  "all": [
+    {
+      "kind": "tool",
+      "name": "integrate_help",
+      "ok": true,
+      "detail": "Peça para a IA se integrar ao software para aproveitar todo o poder dele."
+    },
+    {
+      "kind": "error",
+      "name": "unknown tool",
+      "ok": true,
+      "detail": "unknown tool: no_such_tool"
+    },
+    {
+      "kind": "tool",
+      "name": "document_new",
+      "ok": true,
+      "detail": "{\"ok\": true, \"title\": \"Carta comercial \\u2014 QA\", \"dirty\": false}"
+    },
+    {
+      "kind": "tool",
+      "name": "set_page_layout A4 portrait",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "kind": "tool",
+      "name": "create_style LetterHead",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "kind": "tool",
+      "name": "insert_blocks carta",
+      "ok": true,
+      "detail": "['h1', 'p2', 'p3', 'p4', 'p5', 'p6', 'p7', 'p8', 'p9', 'p10', 'p11']"
+    },
+    {
+      "kind": "tool",
+      "name": "apply_style Title on letterhead",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "kind": "tool",
+      "name": "apply_character_format heading",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "kind": "tool",
+      "name": "document_get_outline",
+      "ok": true,
+      "detail": "[{\"id\": \"h1\", \"level\": 1, \"text\": \"ESCRITÓRIO MODELO LTDA\"}]"
+    },
+    {
+      "kind": "save",
+      "name": "carta odt",
+      "ok": true,
+      "detail": "/tmp/aioffice-qa/carta.odt 2196B"
+    },
+    {
+      "kind": "save",
+      "name": "carta docx",
+      "ok": true,
+      "detail": "/tmp/aioffice-qa/carta.docx 2412B"
+    },
+    {
+      "kind": "save",
+      "name": "carta aio.json",
+      "ok": true,
+      "detail": "/tmp/aioffice-qa/carta.aio.json 6489B"
+    },
+    {
+      "kind": "tool",
+      "name": "document_new relatório",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "kind": "tool",
+      "name": "insert_blocks relatório intro",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "kind": "tool",
+      "name": "insert_table 4x3",
+      "ok": true,
+      "detail": "['t1']"
+    },
+    {
+      "kind": "model",
+      "name": "table JSON shape",
+      "ok": true,
+      "detail": "{\"id\": \"t1\", \"rows\": [[{\"runs\": [{\"bold\": false, \"italic\": false, \"text\": \"Col 1\", \"underline\": false}]}, {\"runs\": [{\"bold\": false, \"italic\": false, \"text\": \"Col 2\", \"underline\": false}]}, {\"runs\": [{\"bold\": false, \"italic\": false, \"text\": \"Col 3\", \"underline\": false}]}], [{\"runs\": [{\"bold\": false, \"italic\": false, \"text\": \"\", \"underline\": false}]}, {\"runs\": [{\"bold\": false, \"italic\": false, \"text"
+    },
+    {
+      "kind": "tool",
+      "name": "replace_range fill table",
+      "ok": true,
+      "detail": "['t1']"
+    },
+    {
+      "kind": "tool",
+      "name": "insert_list bullet",
+      "ok": true,
+      "detail": "['l1', 'l2', 'l3']"
+    },
+    {
+      "kind": "tool",
+      "name": "insert_list decimal",
+      "ok": true,
+      "detail": "['l4', 'l5', 'l6']"
+    },
+    {
+      "kind": "tool",
+      "name": "insert_break page",
+      "ok": true,
+      "detail": "['br1']"
+    },
+    {
+      "kind": "tool",
+      "name": "insert_image",
+      "ok": true,
+      "detail": "['img1']"
+    },
+    {
+      "kind": "model",
+      "name": "relatório has table+list+image+break",
+      "ok": true,
+      "detail": "[('h1', 'heading'), ('p2', 'paragraph'), ('h2', 'heading'), ('p1', 'paragraph'), ('t1', 'table'), ('l1', 'list-item'), ('l2', 'list-item'), ('l3', 'list-item'), ('l4', 'list-item'), ('l5', 'list-item'), ('l6', 'list-item'), ('br1', 'break'), ('h3', 'heading'), ('p3', 'paragraph'), ('img1', 'image')]"
+    },
+    {
+      "kind": "save",
+      "name": "relatório odt",
+      "ok": true,
+      "detail": "2310B"
+    },
+    {
+      "kind": "save",
+      "name": "relatório docx",
+      "ok": true,
+      "detail": "2520B"
+    },
+    {
+      "kind": "save",
+      "name": "relatório aio.json",
+      "ok": true,
+      "detail": "11147B"
+    },
+    {
+      "kind": "tool",
+      "name": "find_replace all",
+      "ok": true,
+      "detail": "count=1"
+    },
+    {
+      "kind": "assert",
+      "name": "find_replace changed text",
+      "ok": false,
+      "detail": "Relatório de ocupação — 3º trimestre\nEste relatório resume a ocupação do imóvel locado e as pendências de manutenção.\nIndicadores\nTrocar vedação da torneira\nRevisar disjuntor do quarto\nPintura da fachada\nVistoria inicial\nEntrega das chaves\nPrimeiro pagamento\nAnexo fotográfico\nImagem de teste inserida pela IA:"
+    },
+    {
+      "kind": "tool",
+      "name": "undo after find_replace",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "kind": "assert",
+      "name": "undo restored Pendente",
+      "ok": false,
+      "detail": ""
+    },
+    {
+      "kind": "tool",
+      "name": "redo",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "kind": "assert",
+      "name": "redo re-applied Em atraso",
+      "ok": false,
+      "detail": ""
+    },
+    {
+      "kind": "tool",
+      "name": "find_replace no match",
+      "ok": true,
+      "detail": "count=0"
+    },
+    {
+      "kind": "error",
+      "name": "find_replace empty find",
+      "ok": true,
+      "detail": "find is required"
+    },
+    {
+      "kind": "tool",
+      "name": "apply_paragraph_format center",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "kind": "assert",
+      "name": "align is center",
+      "ok": true,
+      "detail": "center"
+    },
+    {
+      "kind": "tool",
+      "name": "apply_style Heading 2 converts type",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "kind": "assert",
+      "name": "Heading 2 sets type+level",
+      "ok": true,
+      "detail": "type=heading level=2 style=Heading 2"
+    },
+    {
+      "kind": "error",
+      "name": "delete_range missing id",
+      "ok": true,
+      "detail": "no matching ids"
+    },
+    {
+      "kind": "error",
+      "name": "replace_range missing id",
+      "ok": true,
+      "detail": "no matching ids"
+    },
+    {
+      "kind": "error",
+      "name": "apply_style missing id",
+      "ok": true,
+      "detail": "no matching ids"
+    },
+    {
+      "kind": "error",
+      "name": "apply_style empty name",
+      "ok": true,
+      "detail": "style is required"
+    },
+    {
+      "kind": "error",
+      "name": "create_style empty name",
+      "ok": true,
+      "detail": "name is required"
+    },
+    {
+      "kind": "error",
+      "name": "insert_image empty path",
+      "ok": true,
+      "detail": "path is required"
+    },
+    {
+      "kind": "error",
+      "name": "insert_list empty items",
+      "ok": true,
+      "detail": "items is required"
+    },
+    {
+      "kind": "error",
+      "name": "save unknown extension .txt",
+      "ok": true,
+      "detail": "Unknown extension: txt"
+    },
+    {
+      "kind": "error",
+      "name": "export PDF without LibreOffice",
+      "ok": true,
+      "detail": "LibreOffice (soffice) not found. Install it to convert DOC/PDF."
+    },
+    {
+      "kind": "error",
+      "name": "save .doc without LibreOffice",
+      "ok": true,
+      "detail": "LibreOffice (soffice) not found. Install it to convert DOC/PDF."
+    },
+    {
+      "kind": "error",
+      "name": "open missing file",
+      "ok": true,
+      "detail": "Cannot read /tmp/does-not-exist-aioffice.odt"
+    },
+    {
+      "kind": "bug",
+      "name": "unknown after_id silently appends (should error)",
+      "ok": true,
+      "detail": "appended=True (silent fallback to end)"
+    },
+    {
+      "kind": "open",
+      "name": "carta.aio.json",
+      "ok": true,
+      "detail": "ESCRITÓRIO MODELO LTDA\nMineiros/GO, 28 de agosto de 2026.\nÀ\nSra. Sterfanny Costa Ferreira\nResidencial Santa Maria — Mineiros/GO\nAssunto: Confirmação de locação residencial\nPrezada "
+    },
+    {
+      "kind": "roundtrip",
+      "name": "ODT keeps body text",
+      "ok": true,
+      "detail": "missing=[] types=['heading', 'paragraph', 'paragraph', 'paragraph', 'paragraph', 'paragraph', 'paragraph', 'paragraph', 'paragraph', 'paragraph', 'paragraph']"
+    },
+    {
+      "kind": "roundtrip",
+      "name": "DOCX keeps body text",
+      "ok": true,
+      "detail": "missing=[] types=['heading', 'paragraph', 'paragraph', 'paragraph', 'paragraph', 'paragraph', 'paragraph', 'paragraph', 'paragraph', 'paragraph', 'paragraph']"
+    },
+    {
+      "kind": "roundtrip",
+      "name": "JSON keeps table/list/image/break",
+      "ok": true,
+      "detail": "['heading', 'paragraph', 'heading', 'heading', 'table', 'list-item', 'list-item', 'list-item', 'list-item', 'list-item', 'list-item', 'break', 'heading', 'paragraph', 'image']"
+    },
+    {
+      "kind": "roundtrip",
+      "name": "ODT keeps table/list/image/break",
+      "ok": false,
+      "detail": "['heading', 'paragraph', 'heading', 'paragraph', 'paragraph', 'paragraph', 'paragraph', 'paragraph', 'paragraph', 'paragraph', 'paragraph', 'paragraph', 'paragraph', 'paragraph', 'paragraph', 'paragraph', 'paragraph', 'paragraph', 'paragraph', 'paragraph', 'paragraph', 'paragraph', 'paragraph', 'heading', 'paragraph', 'paragraph']"
+    },
+    {
+      "kind": "roundtrip",
+      "name": "ODT table cells (Janeiro/Aluguel)",
+      "ok": false,
+      "detail": "[]"
+    },
+    {
+      "kind": "roundtrip",
+      "name": "ODT image path preserved",
+      "ok": false,
+      "detail": "[]"
+    },
+    {
+      "kind": "roundtrip",
+      "name": "DOCX keeps table/list/image/break",
+      "ok": false,
+      "detail": "['heading', 'paragraph', 'heading', 'paragraph', 'paragraph', 'paragraph', 'paragraph', 'paragraph', 'paragraph', 'paragraph', 'paragraph', 'paragraph', 'paragraph', 'paragraph', 'paragraph', 'paragraph', 'paragraph', 'paragraph', 'paragraph', 'paragraph', 'paragraph', 'paragraph', 'paragraph', 'break', 'paragraph', 'heading', 'paragraph', 'paragraph']"
+    },
+    {
+      "kind": "roundtrip",
+      "name": "DOCX table cells",
+      "ok": false,
+      "detail": "[]"
+    },
+    {
+      "kind": "roundtrip",
+      "name": "DOCX image preserved",
+      "ok": false,
+      "detail": "[]"
+    },
+    {
+      "kind": "inspect",
+      "name": "ODT run colors after reopen",
+      "ok": true,
+      "detail": "{\"heading\": [[[\"ESCRITÓRIO MODELO LT\", null, false]]], \"paras\": [[[\"Mineiros/GO, 28 de a\", null, false]], [[\"À\", null, false]], [[\"Sra. Sterfanny Costa\", null, false]], [[\"Residencial Santa Ma\", null, false]], [[\"Assunto: \", null, false], [\"Confirmação de locaç\", null, false]], [[\"Prezada senhora,\", null, false]]]}"
+    },
+    {
+      "kind": "inspect",
+      "name": "ODT T-style vs span ids (collision?)",
+      "ok": true,
+      "detail": "{\"n_T_styles\": 3, \"span_ids\": [\"T1\", \"T1\", \"T1\"], \"unique_spans\": [\"T1\"]}"
+    },
+    {
+      "kind": "inspect",
+      "name": "ODT relatório T-styles",
+      "ok": true,
+      "detail": "{\"n_T_styles\": 3, \"span_ids\": [\"T1\", \"T1\", \"T1\"], \"unique_spans\": [\"T1\"]}"
+    },
+    {
+      "kind": "inspect",
+      "name": "DOCX zip entries",
+      "ok": true,
+      "detail": "['[Content_Types].xml', '_rels/.rels', 'word/_rels/document.xml.rels', 'word/document.xml', 'word/styles.xml', 'docProps/core.xml']"
+    },
+    {
+      "kind": "bug",
+      "name": "DOCX missing numbering.xml for lists",
+      "ok": true,
+      "detail": "entries=['[Content_Types].xml', '_rels/.rels', 'word/_rels/document.xml.rels', 'word/document.xml', 'word/styles.xml', 'docProps/core.xml']"
+    },
+    {
+      "kind": "preview",
+      "name": "page_preview p1 zoom=1.0",
+      "ok": true,
+      "detail": "pages=1 w=793 h=1122 png=67990B"
+    },
+    {
+      "kind": "preview",
+      "name": "page_preview p1 zoom=1.15",
+      "ok": true,
+      "detail": "pages=1 w=912 h=1290 png=69256B"
+    },
+    {
+      "kind": "preview",
+      "name": "page_preview p1 zoom=2.0",
+      "ok": true,
+      "detail": "pages=1 w=1587 h=2245 png=84221B"
+    },
+    {
+      "kind": "preview",
+      "name": "page_preview p2 zoom=2",
+      "ok": true,
+      "detail": "pages=1 png=84221B"
+    },
+    {
+      "kind": "bug",
+      "name": "page_preview zoom=1.0 often tiny/blank vs 2.0",
+      "ok": false,
+      "detail": "z1.0=67990B z1.15=69256B z2.0=84221B"
+    },
+    {
+      "kind": "tool",
+      "name": "set_page_layout Letter landscape",
+      "ok": true,
+      "detail": "{\"margins_mm\": [15, 15, 15, 15], \"orientation\": \"landscape\", \"size\": \"Letter\"}"
+    },
+    {
+      "kind": "assert",
+      "name": "landscape preview is wider than tall",
+      "ok": true,
+      "detail": "w=1214 h=938"
+    },
+    {
+      "kind": "roundtrip",
+      "name": "ODT page size/orientation",
+      "ok": false,
+      "detail": "{\"margins_mm\": [25, 20, 25, 20], \"orientation\": \"portrait\", \"size\": \"A4\"}"
+    },
+    {
+      "kind": "roundtrip",
+      "name": "DOCX page size/orientation",
+      "ok": false,
+      "detail": "{\"margins_mm\": [25, 20, 25, 20], \"orientation\": \"portrait\", \"size\": \"A4\"}"
+    },
+    {
+      "kind": "tool",
+      "name": "nested list-item level 2",
+      "ok": true,
+      "detail": "['l4']"
+    },
+    {
+      "kind": "model",
+      "name": "mixed bold/italic/underline runs",
+      "ok": true,
+      "detail": "{\"align\": \"justify\", \"id\": \"p4\", \"runs\": [{\"bold\": false, \"italic\": false, \"text\": \"Fica consignado que o aluguel de \", \"underline\": false}, {\"bold\": true, \"italic\": false, \"text\": \"R$ 1.200,00\", \"underline\": true}, {\"bold\": false, \"italic\": false, \"text\": \" será pago via PIX, e que reformas exigem \", \"underline\": false}, {\"bold\": false, \"italic\": true, \"text\": \"autorização escrita\", \"underline\": "
+    },
+    {
+      "kind": "roundtrip",
+      "name": "ODT mixed underline/italic/bold",
+      "ok": true,
+      "detail": "aluguel de \", \"underline\": false}, {\"bold\": false, \"italic\": false, \"text\": \"R$ 1.200,00\", \"underline\": false}, {\"bold\": false, \"italic\": false, \"text\": \" será pago via PIX, e que reformas exigem \", \"underline\": false}, {\"bold\": false, \"italic\": false, \"text\": \"autorização escrita\", \"underline\": false}, {\"bold\": false, \"italic\": false, \"text\": \".\", \"underline\": false}], \"style\": \"Normal\", \"type\": "
+    },
+    {
+      "kind": "cli",
+      "name": "aioffice tools lists 23 tools",
+      "ok": true,
+      "detail": "n=23"
+    },
+    {
+      "kind": "error",
+      "name": "save without path on new doc",
+      "ok": true,
+      "detail": "path is required (no current file)"
+    },
+    {
+      "kind": "tool",
+      "name": "undo after document_new",
+      "ok": true,
+      "detail": "ok=True err=None"
+    },
+    {
+      "kind": "ipc",
+      "name": "GUI socket still up",
+      "ok": true,
+      "detail": "/run/user/1002/aioffice.sock"
+    },
+    {
+      "kind": "tool",
+      "name": "insert_blocks 40 paragraphs",
+      "ok": true,
+      "detail": "n=40"
+    },
+    {
+      "kind": "preview",
+      "name": "preview long doc pages>1",
+      "ok": true,
+      "detail": "pages=1 png=7370B"
+    }
+  ]
+}

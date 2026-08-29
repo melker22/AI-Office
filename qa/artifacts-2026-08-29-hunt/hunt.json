@@ -1,0 +1,403 @@
+{
+  "bugs": [
+    {
+      "ok": false,
+      "name": "delete_col can delete every column",
+      "detail": "loop finished"
+    },
+    {
+      "ok": false,
+      "name": "missing image file errors",
+      "detail": "None"
+    },
+    {
+      "ok": false,
+      "name": "preview long unicode",
+      "detail": "pages=2 png=7370"
+    },
+    {
+      "ok": false,
+      "name": "rt DOCX image width_mm 40",
+      "detail": "80"
+    }
+  ],
+  "oks": [
+    {
+      "ok": true,
+      "name": "insert_table header stays row0",
+      "detail": "r0=['Mês', 'Valor'] r1=['Janeiro', '100']"
+    },
+    {
+      "ok": true,
+      "name": "markdown **bold** parsed",
+      "detail": "has_b=True stars=False italic=True sample=[{'bold': False, 'italic': False, 'text': 'Hello ', 'underline': False}, {'bold': True, 'italic': False, 'text': 'bold', 'underline': False}, {'bold': False, 'italic': False, 'text': ' and ', 'underline': False}, {'bold': False, 'italic': True, 'text': 'em', 'underline': False}, {'bold': False, 'italic': False, 'text': ' and ', 'underline': False}, {'bold': False, 'color': '#B5651D', 'italic': False, 'link': 'https://example.com', 'text': 'x', 'underline': True}, {'bold': False, 'italic': False, 'text': '.', 'underline': False}, {'bold': False, 'italic': False, 'text': '', 'underline': False}, {'bold': False, 'italic': False, 'text': 'a', 'underline'"
+    },
+    {
+      "ok": true,
+      "name": "markdown nested list",
+      "detail": "[(1, 'bullet', 'a'), (2, 'bullet', 'nested'), (1, 'decimal', 'one'), (1, 'decimal', 'two')]"
+    },
+    {
+      "ok": true,
+      "name": "template without force on dirty fails",
+      "detail": "document is unsaved; pass force=true to discard"
+    },
+    {
+      "ok": true,
+      "name": "template name=carta force title/path",
+      "detail": "title='Carta' path='' ok=True"
+    },
+    {
+      "ok": true,
+      "name": "template fields {{placeholders}}",
+      "detail": "Carta\n\nMineiros, 29/08/2026\n\nPrezado(a) Sterfanny,\n\nCorpo da carta.\n\nAtenciosamente,\n\nRemetente"
+    },
+    {
+      "ok": true,
+      "name": "template ata title",
+      "detail": "Ata"
+    },
+    {
+      "ok": true,
+      "name": "template contrato",
+      "detail": "Contrato"
+    },
+    {
+      "ok": true,
+      "name": "insert_at_caret replaces range",
+      "detail": "abc XYZ ghi"
+    },
+    {
+      "ok": true,
+      "name": "char format range 2:5 only CDE bold",
+      "detail": "runs=[{'bold': False, 'italic': False, 'text': 'AB', 'underline': False}, {'bold': True, 'italic': False, 'text': 'CDE', 'underline': False}, {'bold': False, 'italic': False, 'text': 'FGHIJ', 'underline': False}] bold='CDE'"
+    },
+    {
+      "ok": true,
+      "name": "document_diff sees insert after save",
+      "detail": "{'added': ['p2'], 'changed': [], 'dirty': True, 'moved': [], 'ok': True, 'path': '/tmp/aioffice-qa3/diffbase.aio.json', 'removed': [], 'title': 'diff'}"
+    },
+    {
+      "ok": true,
+      "name": "set_cell row OOB errors",
+      "detail": "cell out of range"
+    },
+    {
+      "ok": true,
+      "name": "set_cell negative row errors",
+      "detail": "cell out of range"
+    },
+    {
+      "ok": true,
+      "name": "set_cell unicode",
+      "detail": "None"
+    },
+    {
+      "ok": true,
+      "name": "delete all rows result",
+      "detail": "ok=True err=None types=['paragraph', 'table']"
+    },
+    {
+      "ok": true,
+      "name": "table survives deleting all rows (or errors)",
+      "detail": "n=1 rows=0"
+    },
+    {
+      "ok": true,
+      "name": "col_widths stored?",
+      "detail": "['col_widths_mm', 'header', 'id', 'rows', 'type']"
+    },
+    {
+      "ok": true,
+      "name": "decimal kind",
+      "detail": "['decimal', 'decimal', 'decimal']"
+    },
+    {
+      "ok": true,
+      "name": "kind=number alias",
+      "detail": "None"
+    },
+    {
+      "ok": true,
+      "name": "kind=square (unknown)",
+      "detail": "ok=True err=None"
+    },
+    {
+      "ok": true,
+      "name": "insert_image honors width_mm 30",
+      "detail": "30"
+    },
+    {
+      "ok": true,
+      "name": "jpeg mime",
+      "detail": "mime=image/jpeg path=/tmp/aioffice-qa3/red.jpg"
+    },
+    {
+      "ok": true,
+      "name": "page break present",
+      "detail": "['paragraph', 'list-item', 'list-item', 'list-item', 'list-item', 'list-item', 'image', 'image', 'image', 'break']"
+    },
+    {
+      "ok": true,
+      "name": "search case-sensitive?",
+      "detail": "hits=[{'end': 3, 'id': 'p2', 'start': 0}, {'end': 7, 'id': 'p2', 'start': 4}, {'end': 11, 'id': 'p2', 'start': 8}]"
+    },
+    {
+      "ok": true,
+      "name": "find_replace default first only",
+      "detail": "1"
+    },
+    {
+      "ok": true,
+      "name": "overlapping aa->a on aaaa",
+      "detail": "count=3 text='aa'"
+    },
+    {
+      "ok": true,
+      "name": "search space",
+      "detail": "ok=True n=0"
+    },
+    {
+      "ok": true,
+      "name": "selection after deleting selected block",
+      "detail": "{'anchor_id': 'p3', 'anchor_off': 0, 'focus_id': 'p3', 'focus_off': 4}"
+    },
+    {
+      "ok": true,
+      "name": "move_blocks after itself",
+      "detail": "ok=True err=None"
+    },
+    {
+      "ok": true,
+      "name": "move unknown after_id fails",
+      "detail": "unknown after_id: id-nao"
+    },
+    {
+      "ok": true,
+      "name": "duplicate_blocks",
+      "detail": "['p5']"
+    },
+    {
+      "ok": true,
+      "name": "replace_range non-contiguous",
+      "detail": "ok=True err=None types=['paragraph', 'paragraph', 'paragraph']"
+    },
+    {
+      "ok": true,
+      "name": "comment_add",
+      "detail": "{'comment_id': 'c34956f29', 'dirty': True, 'ok': True, 'path': '', 'title': 'cmt'}"
+    },
+    {
+      "ok": true,
+      "name": "comment on missing id",
+      "detail": "id not found"
+    },
+    {
+      "ok": true,
+      "name": "comment_resolve",
+      "detail": "None"
+    },
+    {
+      "ok": true,
+      "name": "resolve twice",
+      "detail": "ok=True err=None"
+    },
+    {
+      "ok": true,
+      "name": "invalid size/orientation/margins accepted?",
+      "detail": "ok=True err=None page={'margins_mm': [-10, 0, 5000, 3], 'orientation': 'upside', 'size': 'Legal'}"
+    },
+    {
+      "ok": true,
+      "name": "landscape preview wider",
+      "detail": "w=1290 h=912"
+    },
+    {
+      "ok": true,
+      "name": "preview page 0",
+      "detail": "ok=True page=1 err=None"
+    },
+    {
+      "ok": true,
+      "name": "preview page 99",
+      "detail": "ok=True page=1 pages=1 err=None"
+    },
+    {
+      "ok": true,
+      "name": "preview zoom 0",
+      "detail": "ok=True w=1290 err=None"
+    },
+    {
+      "ok": true,
+      "name": "preview zoom -1",
+      "detail": "ok=True err=None"
+    },
+    {
+      "ok": true,
+      "name": "preview zoom 20",
+      "detail": "ok=True png=1915520 err=None"
+    },
+    {
+      "ok": true,
+      "name": "undo past empty",
+      "detail": "last ok=True err=None"
+    },
+    {
+      "ok": true,
+      "name": "redo past empty",
+      "detail": "ok=False err=nothing to redo"
+    },
+    {
+      "ok": true,
+      "name": "insert long unicode paragraph",
+      "detail": "ids=['p2'] err=None"
+    },
+    {
+      "ok": true,
+      "name": "search emoji",
+      "detail": "[{'end': 10, 'id': 'p2', 'start': 8}, {'end': 21, 'id': 'p2', 'start': 19}, {'end': 32, 'id': 'p2', 'start': 30}, {'end': 43, 'id': 'p2', 'start': 41}, {'end': 54, 'id': 'p2', 'start': 52}, {'end': 65, 'id': 'p2', 'start': 63}, {'end': 76, 'id': 'p2', 'start': 74}, {'end': 87, 'id': 'p2', 'start': 85}, {'end': 98, 'id': 'p2', 'start': 96}, {'end': 109, 'id': 'p2', 'start': 107}, {'end': 120, 'id': 'p2', 'start': 118}, {'end': 131, 'id': 'p2', 'start': 129}, {'end': 142, 'id': 'p2', 'start': 140}, {'end': 153, 'id': 'p2', 'start': 151}, {'end': 164, 'id': 'p2', 'start': 162}, {'end': 175, 'id': 'p2', 'start': 173}, {'end': 186, 'id': 'p2', 'start': 184}, {'end': 197, 'id': 'p2', 'start': 195}"
+    },
+    {
+      "ok": true,
+      "name": "insert_blocks empty array",
+      "detail": "ok=True err=None"
+    },
+    {
+      "ok": true,
+      "name": "insert empty runs",
+      "detail": "{'dirty': True, 'ids': ['p3'], 'ok': True, 'path': '', 'title': 'uni'}"
+    },
+    {
+      "ok": true,
+      "name": "save json",
+      "detail": "7650B err=None"
+    },
+    {
+      "ok": true,
+      "name": "save odt",
+      "detail": "2533B err=None"
+    },
+    {
+      "ok": true,
+      "name": "save docx",
+      "detail": "3238B err=None"
+    },
+    {
+      "ok": true,
+      "name": "pdf export",
+      "detail": "None sz=22163"
+    },
+    {
+      "ok": true,
+      "name": "rt JSON types",
+      "detail": "['heading', 'paragraph', 'paragraph', 'table', 'list-item', 'list-item', 'break', 'image']"
+    },
+    {
+      "ok": true,
+      "name": "rt JSON page",
+      "detail": "{'margins_mm': [12, 12, 12, 12], 'orientation': 'landscape', 'size': 'Letter'}"
+    },
+    {
+      "ok": true,
+      "name": "rt JSON image width_mm 40",
+      "detail": "40"
+    },
+    {
+      "ok": true,
+      "name": "rt JSON mixed B/I/U",
+      "detail": "B=True I=True U=True"
+    },
+    {
+      "ok": true,
+      "name": "rt ODT types",
+      "detail": "['heading', 'paragraph', 'paragraph', 'table', 'list-item', 'list-item', 'break', 'image']"
+    },
+    {
+      "ok": true,
+      "name": "rt ODT page",
+      "detail": "{'margins_mm': [12, 12, 12, 12], 'orientation': 'landscape', 'size': 'Letter'}"
+    },
+    {
+      "ok": true,
+      "name": "rt ODT image width_mm 40",
+      "detail": "40"
+    },
+    {
+      "ok": true,
+      "name": "rt ODT mixed B/I/U",
+      "detail": "B=True I=True U=True"
+    },
+    {
+      "ok": true,
+      "name": "rt DOCX types",
+      "detail": "['heading', 'paragraph', 'paragraph', 'table', 'list-item', 'list-item', 'break', 'image']"
+    },
+    {
+      "ok": true,
+      "name": "rt DOCX page",
+      "detail": "{'margins_mm': [11.994444444444444, 11.994444444444444, 11.994444444444444, 11.994444444444444], 'orientation': 'landscape', 'size': 'Letter'}"
+    },
+    {
+      "ok": true,
+      "name": "rt DOCX mixed B/I/U",
+      "detail": "B=True I=True U=True"
+    },
+    {
+      "ok": true,
+      "name": "save unwritable path",
+      "detail": "Cannot write /proc/cannot-write.odt"
+    },
+    {
+      "ok": true,
+      "name": "save no extension",
+      "detail": "Unknown extension: "
+    },
+    {
+      "ok": true,
+      "name": "open png as document",
+      "detail": "Unknown extension: png. Use odt, docx, doc, aio.json."
+    },
+    {
+      "ok": true,
+      "name": "save unicode filename",
+      "detail": "ok=True err=None"
+    },
+    {
+      "ok": true,
+      "name": "Heading 3 conversion",
+      "detail": "{'id': 'p2', 'level': 3, 'runs': [{'bold': False, 'italic': False, 'text': 'virar', 'underline': False}], 'style': 'Heading 3', 'type': 'heading'}"
+    },
+    {
+      "ok": true,
+      "name": "apply unknown style",
+      "detail": "ok=True"
+    },
+    {
+      "ok": true,
+      "name": "create_style invalid size/color",
+      "detail": "ok=True err=None"
+    },
+    {
+      "ok": true,
+      "name": "empty header/footer",
+      "detail": "None"
+    },
+    {
+      "ok": true,
+      "name": "insert 40x12 table",
+      "detail": "ok=True err=None ids=['t1']"
+    },
+    {
+      "ok": true,
+      "name": "preview huge table",
+      "detail": "pages=2 png=9828"
+    },
+    {
+      "ok": true,
+      "name": "cli convert",
+      "detail": "{\n    \"dirty\": false,\n    \"ok\": true,\n    \"path\": \"/tmp/aioffice-qa3/c.pdf\",\n    \"title\": \"fmt2\"\n}\n"
+    }
+  ],
+  "n_bug": 4,
+  "n_ok": 75
+}

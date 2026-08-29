@@ -1,0 +1,476 @@
+{
+  "pass": 70,
+  "fail": 4,
+  "fails": [
+    {
+      "kind": "tool",
+      "name": "document_from_template carta",
+      "ok": false,
+      "detail": "words=None title=None"
+    },
+    {
+      "kind": "assert",
+      "name": "template carta has body",
+      "ok": false,
+      "detail": "['paragraph']"
+    },
+    {
+      "kind": "tool",
+      "name": "template contrato",
+      "ok": false,
+      "detail": "None"
+    },
+    {
+      "kind": "tool",
+      "name": "template ata",
+      "ok": false,
+      "detail": "None"
+    }
+  ],
+  "all": [
+    {
+      "kind": "tool",
+      "name": "integrate_help",
+      "ok": true,
+      "detail": "Integração Grok Build"
+    },
+    {
+      "kind": "error",
+      "name": "unknown tool",
+      "ok": true,
+      "detail": "unknown tool: nope_tool"
+    },
+    {
+      "kind": "tool",
+      "name": "document_new refuses dirty",
+      "ok": true,
+      "detail": "document is unsaved; pass force=true to discard"
+    },
+    {
+      "kind": "tool",
+      "name": "document_new force",
+      "ok": true,
+      "detail": "QA 2026-08-29"
+    },
+    {
+      "kind": "tool",
+      "name": "document_from_template carta",
+      "ok": false,
+      "detail": "words=None title=None"
+    },
+    {
+      "kind": "assert",
+      "name": "template carta has body",
+      "ok": false,
+      "detail": "['paragraph']"
+    },
+    {
+      "kind": "tool",
+      "name": "import_markdown",
+      "ok": true,
+      "detail": "['paragraph', 'heading', 'paragraph', 'paragraph', 'paragraph', 'list-item', 'list-item', 'paragraph', 'list-item', 'list-item', 'paragraph']"
+    },
+    {
+      "kind": "assert",
+      "name": "markdown heading+lists",
+      "ok": true,
+      "detail": "\nTítulo MD\n\nParágrafo **negrito** e *itálico*.\n\num\ndois\n\nalfa\nbeta\n"
+    },
+    {
+      "kind": "tool",
+      "name": "insert_blocks intro",
+      "ok": true,
+      "detail": "['h1', 'p2', 'h2']"
+    },
+    {
+      "kind": "tool",
+      "name": "insert_table with cells",
+      "ok": true,
+      "detail": "['t1']"
+    },
+    {
+      "kind": "tool",
+      "name": "set_cell",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "kind": "tool",
+      "name": "insert_row",
+      "ok": true,
+      "detail": "{'dirty': True, 'ok': True, 'path': '', 'title': 'Relatório QA 2'}"
+    },
+    {
+      "kind": "tool",
+      "name": "insert_col",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "kind": "assert",
+      "name": "table grew to 5x4",
+      "ok": true,
+      "detail": "rows=5 cols=4"
+    },
+    {
+      "kind": "tool",
+      "name": "delete_col",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "kind": "tool",
+      "name": "delete_row",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "kind": "assert",
+      "name": "table back to 4x3",
+      "ok": true,
+      "detail": "rows=4 cols=3"
+    },
+    {
+      "kind": "tool",
+      "name": "insert_list bullet",
+      "ok": true,
+      "detail": "['l1', 'l2', 'l3']"
+    },
+    {
+      "kind": "tool",
+      "name": "insert_list decimal",
+      "ok": true,
+      "detail": "['l4', 'l5', 'l6']"
+    },
+    {
+      "kind": "tool",
+      "name": "insert_break",
+      "ok": true,
+      "detail": "['br1']"
+    },
+    {
+      "kind": "tool",
+      "name": "insert_image",
+      "ok": true,
+      "detail": "['img1']"
+    },
+    {
+      "kind": "assert",
+      "name": "image has image_b64",
+      "ok": true,
+      "detail": "['id', 'image_b64', 'image_mime', 'path', 'type', 'width_mm']"
+    },
+    {
+      "kind": "tool",
+      "name": "comment_add",
+      "ok": true,
+      "detail": "{'comment_id': 'ce0c51394', 'dirty': True, 'ok': True, 'path': '', 'title': 'Relatório QA 2'}"
+    },
+    {
+      "kind": "tool",
+      "name": "comment_resolve",
+      "ok": true,
+      "detail": "cid=ce0c51394 None"
+    },
+    {
+      "kind": "tool",
+      "name": "apply_character_format range",
+      "ok": true,
+      "detail": "Resumo da ocupação d"
+    },
+    {
+      "kind": "tool",
+      "name": "search",
+      "ok": true,
+      "detail": "[{'end': 21, 'id': 'h1', 'start': 13}, {'end': 18, 'id': 'p2', 'start': 10}]"
+    },
+    {
+      "kind": "assert",
+      "name": "search hit has id/start/end",
+      "ok": true,
+      "detail": "{'end': 21, 'id': 'h1', 'start': 13}"
+    },
+    {
+      "kind": "tool",
+      "name": "set_selection+get",
+      "ok": true,
+      "detail": "{'anchor_id': 'h1', 'anchor_off': 13, 'focus_id': 'h1', 'focus_off': 21}"
+    },
+    {
+      "kind": "tool",
+      "name": "insert_at_caret",
+      "ok": true,
+      "detail": "None"
+    },
+    {
+      "kind": "tool",
+      "name": "find_replace all=true in table",
+      "ok": true,
+      "detail": "count=1"
+    },
+    {
+      "kind": "error",
+      "name": "unknown after_id fails",
+      "ok": true,
+      "detail": "unknown after_id: id-fantasma"
+    },
+    {
+      "kind": "tool",
+      "name": "duplicate_blocks",
+      "ok": true,
+      "detail": "['h4']"
+    },
+    {
+      "kind": "tool",
+      "name": "move_blocks",
+      "ok": true,
+      "detail": "None"
+    },
+    {
+      "kind": "tool",
+      "name": "document_diff",
+      "ok": true,
+      "detail": "{\"added\": [], \"changed\": [], \"dirty\": true, \"ok\": true, \"path\": \"\", \"removed\": [], \"title\": \"Relatório QA 2\"}"
+    },
+    {
+      "kind": "tool",
+      "name": "undo",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "kind": "tool",
+      "name": "redo",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "kind": "model",
+      "name": "live has table/list/image/break",
+      "ok": true,
+      "detail": "['heading', 'heading', 'paragraph', 'heading', 'table', 'list-item', 'list-item', 'list-item', 'list-item', 'list-item', 'list-item', 'break', 'heading', 'paragraph', 'image']"
+    },
+    {
+      "kind": "save",
+      "name": "json",
+      "ok": true,
+      "detail": "12771B"
+    },
+    {
+      "kind": "save",
+      "name": "odt",
+      "ok": true,
+      "detail": "2747B"
+    },
+    {
+      "kind": "save",
+      "name": "docx",
+      "ok": true,
+      "detail": "3431B"
+    },
+    {
+      "kind": "save",
+      "name": "pdf nativo",
+      "ok": true,
+      "detail": " size=24886"
+    },
+    {
+      "kind": "inspect",
+      "name": "ODT zip has Pictures?",
+      "ok": true,
+      "detail": "['mimetype', 'content.xml', 'styles.xml', 'meta.xml', 'META-INF/manifest.xml', 'Pictures/image1.png']"
+    },
+    {
+      "kind": "inspect",
+      "name": "ODT content has table:table",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "kind": "inspect",
+      "name": "ODT content has text:list",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "kind": "inspect",
+      "name": "ODT content has draw:image or frame",
+      "ok": true,
+      "detail": "no img tag"
+    },
+    {
+      "kind": "inspect",
+      "name": "DOCX has numbering.xml",
+      "ok": true,
+      "detail": "['[Content_Types].xml', '_rels/.rels', 'word/_rels/document.xml.rels', 'word/document.xml', 'word/styles.xml', 'word/numbering.xml', 'docProps/core.xml', 'word/media/image1.png']"
+    },
+    {
+      "kind": "inspect",
+      "name": "DOCX has w:tbl",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "kind": "inspect",
+      "name": "DOCX embeds media",
+      "ok": true,
+      "detail": "['[Content_Types].xml', '_rels/.rels', 'word/_rels/document.xml.rels', 'word/document.xml', 'word/styles.xml', 'word/numbering.xml', 'docProps/core.xml', 'word/media/image1.png']"
+    },
+    {
+      "kind": "inspect",
+      "name": "DOCX pgSz not hardcoded A4 only",
+      "ok": true,
+      "detail": "['<w:pgSz w:w=\"11907\" w:h=\"16839\"/>']"
+    },
+    {
+      "kind": "roundtrip",
+      "name": "JSON keeps table/list/image/break",
+      "ok": true,
+      "detail": "types=['heading', 'heading', 'paragraph', 'heading', 'table', 'list-item', 'list-item', 'list-item', 'list-item', 'list-item', 'list-item', 'break', 'heading', 'paragraph', 'image'] page={'margins_mm': [22, 18, 22, 18], 'orientation': 'portrait', 'size': 'A4'}"
+    },
+    {
+      "kind": "roundtrip",
+      "name": "ODT keeps table/list/image/break",
+      "ok": true,
+      "detail": "types=['heading', 'heading', 'paragraph', 'heading', 'table', 'list-item', 'list-item', 'list-item', 'list-item', 'list-item', 'list-item', 'break', 'heading', 'paragraph', 'paragraph', 'image'] page={'margins_mm': [22, 18, 22, 18], 'orientation': 'portrait', 'size': 'A4'}"
+    },
+    {
+      "kind": "roundtrip",
+      "name": "DOCX keeps table/list/image/break",
+      "ok": true,
+      "detail": "types=['heading', 'heading', 'paragraph', 'heading', 'table', 'list-item', 'list-item', 'list-item', 'list-item', 'list-item', 'list-item', 'paragraph', 'break', 'paragraph', 'heading', 'paragraph', 'image'] page={'margins_mm': [21.992945326278658, 17.989417989417987, 21.992945326278658, 17.989417989417987], 'orientation': 'portrait', 'size': 'A4'}"
+    },
+    {
+      "kind": "roundtrip",
+      "name": "ODT Letter landscape",
+      "ok": true,
+      "detail": "{'margins_mm': [15, 15, 15, 15], 'orientation': 'landscape', 'size': 'Letter'}"
+    },
+    {
+      "kind": "roundtrip",
+      "name": "DOCX Letter landscape",
+      "ok": true,
+      "detail": "{'margins_mm': [14.991181657848324, 14.991181657848324, 14.991181657848324, 14.991181657848324], 'orientation': 'landscape', 'size': 'Letter'}"
+    },
+    {
+      "kind": "roundtrip",
+      "name": "ODT keeps underline/italic/bold",
+      "ok": true,
+      "detail": "[{\"id\": \"h1\", \"level\": 1, \"runs\": [{\"bold\": false, \"italic\": false, \"text\": \"ATA\", \"underline\": false}], \"style\": \"Title\", \"type\": \"heading\"}, {\"id\": \"p1\", \"runs\": [{\"bold\": false, \"italic\": false, \"text\": \"Aluguel de \", \"underline\": false}, {\"bold\": true, \"italic\": false, \"text\": \"R$ 1.200,00\", \"underline\": true}, {\"bold\": false, \"italic\": false, \"text\": \" e \", \"underline\": false}, {\"bold\": false, \"italic\": true, \"text\": \"autorização escrita\", \"underline\": false}, {\"bold\": false, \"italic\": fals"
+    },
+    {
+      "kind": "assert",
+      "name": "ODT mixed runs U/I/B",
+      "ok": true,
+      "detail": "U=True I=True B=True"
+    },
+    {
+      "kind": "preview",
+      "name": "p1 zoom 1.15",
+      "ok": true,
+      "detail": "pages=2 png=66116B w=912"
+    },
+    {
+      "kind": "preview",
+      "name": "p1 zoom 1.0 not blank",
+      "ok": true,
+      "detail": "png=55253B pages=2"
+    },
+    {
+      "kind": "preview",
+      "name": "page=all",
+      "ok": true,
+      "detail": "n=2 pages=2"
+    },
+    {
+      "kind": "preview",
+      "name": "all[1] size",
+      "ok": true,
+      "detail": "66116B page=1"
+    },
+    {
+      "kind": "preview",
+      "name": "all[2] size",
+      "ok": true,
+      "detail": "23605B page=2"
+    },
+    {
+      "kind": "preview",
+      "name": "p2 (after break)",
+      "ok": true,
+      "detail": "pages=2 png=23605B"
+    },
+    {
+      "kind": "error",
+      "name": "unknown ext txt",
+      "ok": true,
+      "detail": "Unknown extension: txt"
+    },
+    {
+      "kind": "error",
+      "name": "doc without LO",
+      "ok": true,
+      "detail": "LibreOffice (soffice) not found. Install it to convert DOC/PDF."
+    },
+    {
+      "kind": "error",
+      "name": "open missing",
+      "ok": true,
+      "detail": "Cannot read /tmp/nope-aioffice.odt"
+    },
+    {
+      "kind": "error",
+      "name": "set_cell bad table",
+      "ok": true,
+      "detail": "table id not found"
+    },
+    {
+      "kind": "error",
+      "name": "delete missing id",
+      "ok": true,
+      "detail": "no matching ids"
+    },
+    {
+      "kind": "error",
+      "name": "search empty",
+      "ok": true,
+      "detail": "{'error': 'find is required', 'ok': False}"
+    },
+    {
+      "kind": "tool",
+      "name": "template contrato",
+      "ok": false,
+      "detail": "None"
+    },
+    {
+      "kind": "tool",
+      "name": "template ata",
+      "ok": false,
+      "detail": "None"
+    },
+    {
+      "kind": "error",
+      "name": "unknown template",
+      "ok": true,
+      "detail": "template must be carta, ata, or contrato"
+    },
+    {
+      "kind": "assert",
+      "name": "Title converts to heading",
+      "ok": true,
+      "detail": "type=heading style=Title level=1"
+    },
+    {
+      "kind": "assert",
+      "name": "decimal list_kind",
+      "ok": true,
+      "detail": "['decimal', 'decimal', 'decimal']"
+    },
+    {
+      "kind": "cli",
+      "name": "aioffice convert json->pdf",
+      "ok": true,
+      "detail": "{\n    \"dirty\": false,\n    \"ok\": true,\n    \"path\": \"/tmp/aioffice-qa2/converted.pdf\",\n    \"title\": \"Relatório QA 2\"\n}\n"
+    }
+  ]
+}

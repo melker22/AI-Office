@@ -1,0 +1,25 @@
+---
+description: O design UX Pilot (Tinta & Papel) manda no visual; Qt/Kirigami nunca ditam a aparência
+alwaysApply: true
+---
+
+# Design > framework
+
+AI Office **não** usa a cara padrão do Qt Quick Controls, Fusion, Material, Universal, Imagine, Fluent nem Kirigami. Essas stacks existem só para **implementar** o sistema **Tinta & Papel** (UX Pilot). Se o default do framework divergir do frame, **sobrescreva o default**.
+
+- Estilo: `Basic` (canvas vazio). Nunca `Fusion` / `Material` / `Universal` / Kirigami.
+- Chrome da UI: componentes `Ui*` (botão, campo, combo, spin, tooltip). Não deixe ComboBox/SpinBox/Button/TextField/ToolTip com indicador, popup, seta ou hover do Qt.
+- Tokens: `Theme.qml` (`#B5651D` cobre, papel `#FBF7F0`, tinta `#2A2420`; dark `#D68A44` / `#1D1916`). Sem azul Microsoft, sem verde LibreOffice.
+- Raio 8–12px no chrome, **0px na página**. Hit de ícone 32px. Fonte UI IBM Plex Sans; serif só na folha.
+- Copy de Integração é literal. Sem ribbon Word, sem chat Copilot, sem botão Compartilhar.
+
+```qml
+// ❌ BAD — cara do Qt vaza
+ComboBox { model: styles }   // seta + popup Fusion
+SpinBox { from: 5; to: 80 }  // setas nativas
+
+// ✅ GOOD — desenho nosso
+UiCombo { model: styles; text: app.headingLabel }
+UiSpin { value: mm; suffix: "mm" }
+UiButton { kind: "primary"; text: "Novo documento" }
+```

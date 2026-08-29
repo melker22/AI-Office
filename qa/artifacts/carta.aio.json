@@ -1,0 +1,243 @@
+{
+    "body": [
+        {
+            "align": "center",
+            "id": "h1",
+            "level": 1,
+            "runs": [
+                {
+                    "bold": true,
+                    "color": "#1A365D",
+                    "italic": false,
+                    "text": "ESCRITÓRIO MODELO LTDA",
+                    "underline": false
+                }
+            ],
+            "style": "Title",
+            "type": "heading"
+        },
+        {
+            "align": "right",
+            "id": "p2",
+            "runs": [
+                {
+                    "bold": false,
+                    "italic": false,
+                    "text": "Mineiros/GO, 28 de agosto de 2026.",
+                    "underline": false
+                }
+            ],
+            "type": "paragraph"
+        },
+        {
+            "align": "left",
+            "id": "p3",
+            "runs": [
+                {
+                    "bold": false,
+                    "italic": false,
+                    "text": "À",
+                    "underline": false
+                }
+            ],
+            "type": "paragraph"
+        },
+        {
+            "align": "left",
+            "id": "p4",
+            "runs": [
+                {
+                    "bold": true,
+                    "italic": false,
+                    "text": "Sra. Sterfanny Costa Ferreira",
+                    "underline": false
+                }
+            ],
+            "type": "paragraph"
+        },
+        {
+            "align": "left",
+            "id": "p5",
+            "runs": [
+                {
+                    "bold": false,
+                    "italic": false,
+                    "text": "Residencial Santa Maria — Mineiros/GO",
+                    "underline": false
+                }
+            ],
+            "type": "paragraph"
+        },
+        {
+            "align": "left",
+            "id": "p6",
+            "runs": [
+                {
+                    "bold": true,
+                    "italic": false,
+                    "text": "Assunto: ",
+                    "underline": false
+                },
+                {
+                    "bold": false,
+                    "italic": false,
+                    "text": "Confirmação de locação residencial",
+                    "underline": false
+                }
+            ],
+            "type": "paragraph"
+        },
+        {
+            "align": "justify",
+            "id": "p7",
+            "runs": [
+                {
+                    "bold": false,
+                    "italic": false,
+                    "text": "Prezada senhora,",
+                    "underline": false
+                }
+            ],
+            "type": "paragraph"
+        },
+        {
+            "align": "justify",
+            "id": "p8",
+            "runs": [
+                {
+                    "bold": false,
+                    "italic": false,
+                    "text": "Confirmamos a locação do imóvel situado na Rua da Mata, Quadra 16, Lote 24, pelo valor mensal de R$ 1.200,00, com vencimento no 6º dia útil.",
+                    "underline": false
+                }
+            ],
+            "type": "paragraph"
+        },
+        {
+            "align": "justify",
+            "id": "p9",
+            "runs": [
+                {
+                    "bold": false,
+                    "italic": false,
+                    "text": "Atenciosamente,",
+                    "underline": false
+                }
+            ],
+            "type": "paragraph"
+        },
+        {
+            "align": "left",
+            "id": "p10",
+            "runs": [
+                {
+                    "bold": false,
+                    "italic": false,
+                    "text": "Gildasio Castro Santos",
+                    "underline": false
+                }
+            ],
+            "type": "paragraph"
+        },
+        {
+            "align": "left",
+            "id": "p11",
+            "runs": [
+                {
+                    "bold": false,
+                    "italic": false,
+                    "text": "Locador",
+                    "underline": false
+                }
+            ],
+            "type": "paragraph"
+        }
+    ],
+    "meta": {
+        "page": {
+            "margins_mm": [
+                25,
+                20,
+                25,
+                20
+            ],
+            "orientation": "portrait",
+            "size": "A4"
+        },
+        "title": "Carta comercial — QA"
+    },
+    "schema": 1,
+    "styles": [
+        {
+            "bold": false,
+            "color": "#1A1F24",
+            "font": "Liberation Serif",
+            "italic": false,
+            "name": "Normal",
+            "size_pt": 12,
+            "space_after_pt": 8,
+            "space_before_pt": 0
+        },
+        {
+            "bold": true,
+            "color": "#1A1F24",
+            "font": "Liberation Serif",
+            "italic": false,
+            "name": "Title",
+            "size_pt": 28,
+            "space_after_pt": 12,
+            "space_before_pt": 0
+        },
+        {
+            "bold": true,
+            "color": "#1A1F24",
+            "font": "Liberation Serif",
+            "italic": false,
+            "name": "Heading 1",
+            "size_pt": 22,
+            "space_after_pt": 8,
+            "space_before_pt": 16
+        },
+        {
+            "bold": true,
+            "color": "#1A1F24",
+            "font": "Liberation Serif",
+            "italic": false,
+            "name": "Heading 2",
+            "size_pt": 16,
+            "space_after_pt": 6,
+            "space_before_pt": 12
+        },
+        {
+            "bold": true,
+            "color": "#1A1F24",
+            "font": "Liberation Serif",
+            "italic": false,
+            "name": "Heading 3",
+            "size_pt": 13,
+            "space_after_pt": 4,
+            "space_before_pt": 10
+        },
+        {
+            "bold": false,
+            "color": "#4A5560",
+            "font": "Liberation Serif",
+            "italic": true,
+            "name": "Quote",
+            "size_pt": 12,
+            "space_after_pt": 8,
+            "space_before_pt": 0
+        },
+        {
+            "align": "center",
+            "bold": true,
+            "color": "#1A1F24",
+            "font": "Liberation Serif",
+            "italic": false,
+            "name": "LetterHead",
+            "size_pt": 18,
+            "space_after_pt": 12,
+            "space_before_pt": 0
+        }
+    ]
+}
