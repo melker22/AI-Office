@@ -93,6 +93,11 @@ public:
     QJsonObject toggleCheck(const QJsonObject &args);
     QJsonObject insertSpecial(const QJsonObject &args);
     QJsonObject paintFormat(const QJsonObject &args);
+    QJsonObject gotoBlock(const QJsonObject &args);
+    QJsonObject selectByStyle(const QJsonObject &args);
+    QJsonObject updateStyle(const QJsonObject &args);
+    QJsonObject insertLabels(const QJsonObject &args);
+    QJsonObject splitBlockTool(const QJsonObject &args);
 
     QJsonObject validate(const QJsonObject &args);
     QJsonObject batch(const QJsonObject &args);

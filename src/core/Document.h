@@ -25,6 +25,8 @@ struct TextRun {
     QString caps; // upper | lower | title
     bool hidden = false;
     QString charStyle;
+    QString lang;
+    double kerning = 0; // extra letter-spacing percent (0 = default)
     QString link;
     QString field;    // page_number | page_count | date | title | author | xref
     QString fieldArg; // xref target id
@@ -120,6 +122,11 @@ struct Block {
     QString wrap;
     QString anchor;
     bool checked = false;
+    bool listRestart = false;
+    QString listBullet;
+    QString lang;
+    bool pageRestart = false;
+    int pageNumber = 0;
 
     QJsonObject toJson() const;
     static Block fromJson(const QJsonObject &o);
@@ -136,7 +143,12 @@ struct StyleDef {
     QString align;
     double spaceBeforePt = 0;
     double spaceAfterPt = 8;
-    QString kind; // paragraph | character
+    QString kind; // paragraph | character | list | page
+    QString next;
+    QString listKind;
+    QString listBullet;
+    QString pageSize;
+    QString pageOrientation;
 
     QJsonObject toJson() const;
     static StyleDef fromJson(const QJsonObject &o);
@@ -154,6 +166,8 @@ struct PageLayout {
     QString borderColor;
     double borderPt = 0;
     QString background;
+    QString numberFormat; // arabic | roman | alpha
+    int numberStart = 1;
 
     QJsonObject toJson() const;
     static PageLayout fromJson(const QJsonObject &o);
@@ -209,6 +223,7 @@ struct Document {
 };
 
 QString runDisplayText(const Document &doc, const TextRun &r, int page = 1, int pages = 1);
+QString formatPageNumber(int n, const QString &format);
 StyleDef defaultStyle(const QString &name);
 QVector<TextRun> splitRuns(const QVector<TextRun> &runs, int start, int end);
 QVector<TextRun> spliceRuns(QVector<TextRun> runs, int start, int end, const TextRun &insert);

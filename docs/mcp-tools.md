@@ -138,26 +138,33 @@ Args: `{ "ids": ["p1"] }`
 
 ### `apply_character_format`
 
-Args: `{ "ids": ["p1"], "start"?: int, "end"?: int, "bold"?: bool, "italic"?: bool, "underline"?: bool, "strike"?: bool, "superscript"?: bool, "subscript"?: bool, "font"?: string, "size_pt"?: number, "color"?: string, "highlight"?: string, "link"?: string, "small_caps"?: bool, "caps"?: "upper"|"lower"|"title", "hidden"?: bool, "char_style"?: string }`  
-With `start`/`end`, applies to that range of the block’s plain text. Otherwise all runs. `highlight` is painted in `page_preview`. `hidden` omits the run from preview. `char_style` names a `create_style` with `kind=character`.
+Args: `{ "ids": ["p1"], "start"?: int, "end"?: int, "bold"?: bool, "italic"?: bool, "underline"?: bool, "strike"?: bool, "superscript"?: bool, "subscript"?: bool, "font"?: string, "size_pt"?: number, "color"?: string, "highlight"?: string, "link"?: string, "small_caps"?: bool, "caps"?: "upper"|"lower"|"title", "hidden"?: bool, "char_style"?: string, "lang"?: string, "kerning"?: number }`  
+With `start`/`end`, applies to that range of the block’s plain text. Otherwise all runs. `highlight` is painted in `page_preview`. `hidden` omits the run from preview. `char_style` names a `create_style` with `kind=character`. `kerning` is extra letter-spacing percent (preview + ligatures). `lang` is stored on the run (BCP 47).
 
 ### `apply_paragraph_format`
 
-Args: `{ "ids": ["p1"], "align"?: "left"|"center"|"right"|"justify", "style"?: string, "indent_left_mm"?: number, "indent_right_mm"?: number, "indent_first_mm"?: number, "space_before_pt"?: number, "space_after_pt"?: number, "line_height"?: number, "keep_with_next"?: bool, "orphans"?: int, "widows"?: int, "drop_cap_lines"?: int, "tabs"?: [{"pos_mm": number, "align"?: "left"|"right"|"center"|"decimal"}], "border_pt"?: number, "border_color"?: string }`  
-`drop_cap_lines` ≥ 2 paints a visual drop cap in `page_preview`. Tab stops pair with `insert_tab` / `\t` in run text.
+Args: `{ "ids": ["p1"], "align"?: "left"|"center"|"right"|"justify", "style"?: string, "indent_left_mm"?: number, "indent_right_mm"?: number, "indent_first_mm"?: number, "space_before_pt"?: number, "space_after_pt"?: number, "line_height"?: number, "keep_with_next"?: bool, "orphans"?: int, "widows"?: int, "drop_cap_lines"?: int, "tabs"?: [{"pos_mm": number, "align"?: "left"|"right"|"center"|"decimal"}], "border_pt"?: number, "border_color"?: string, "list_restart"?: bool, "list_bullet"?: string, "lang"?: string }`  
+`drop_cap_lines` ≥ 2 paints a visual drop cap in `page_preview`. Tab stops pair with `insert_tab` / `\t` in run text. `list_restart` resets decimal numbering; `list_bullet` is the custom marker.
 
 ### `apply_style`
 
 Args: `{ "ids": ["p1"], "style": "Heading 1" }`  
-`Heading N` sets `type=heading` and `level`. `Title` becomes a heading (level 1) with style Title.
+`Heading N` sets `type=heading` and `level`. `Title` becomes a heading (level 1) with style Title. A `kind=list` style also sets `list_kind` / `list_bullet`.
 
 ### `create_style`
 
-Args: `{ "name": string, "font"?: string, "size_pt"?: number, "bold"?: bool, "italic"?: bool, "color"?: string, "align"?: string, "space_before_pt"?: number, "space_after_pt"?: number, "kind"?: "paragraph"|"character" }`
+Args: `{ "name": string, "font"?: string, "size_pt"?: number, "bold"?: bool, "italic"?: bool, "color"?: string, "align"?: string, "space_before_pt"?: number, "space_after_pt"?: number, "kind"?: "paragraph"|"character"|"list"|"page", "next"?: string, "list_kind"?: string, "list_bullet"?: string, "page_size"?: string, "page_orientation"?: string }`  
+`next` is the style applied to the new block after `split_block`.
+
+### `update_style`
+
+Args: `{ "name"?: string, "id"?: string, "offset"?: int }`  
+Copies font/size/bold/italic/color (and list attrs) from the caret run into the named style.
 
 ### `set_page_layout`
 
-Args: `{ "size"?: "A4"|"Letter"|"Legal"|"A3"|"A5"|"A6"|"Tabloid"|"DL"|"C5"|"C6", "orientation"?: "portrait"|"landscape", "margins_mm"?: [t, r, b, l], "columns"?: 1|2|3, "hyphenate"?: bool, "gutter_mm"?: number, "column_gap_mm"?: number, "column_separator"?: bool, "border_pt"?: number, "border_color"?: string, "background"?: string }`
+Args: `{ "size"?: "A4"|"Letter"|"Legal"|"A3"|"A5"|"A6"|"Tabloid"|"DL"|"C5"|"C6", "orientation"?: "portrait"|"landscape", "margins_mm"?: [t, r, b, l], "columns"?: 1|2|3, "hyphenate"?: bool, "gutter_mm"?: number, "column_gap_mm"?: number, "column_separator"?: bool, "border_pt"?: number, "border_color"?: string, "background"?: string, "style"?: string, "number_format"?: "arabic"|"roman"|"alpha", "number_start"?: int }`  
+`style` copies `page_size` / `page_orientation` from a `kind=page` style. `number_format` / `number_start` change the printed page label; `insert_break {page_restart:true, page_number?:n}` restarts the counter.
 
 ### `insert_table`
 
@@ -172,12 +179,12 @@ Reads the file into `image_b64`.
 
 ### `insert_list`
 
-Args: `{ "after_id": "end", "kind": "bullet"|"decimal"|"number"|"checkbox", "items": ["a", "b"] }`  
-`checkbox` items may be `{ "text": "…", "checked": true }`. `toggle_check { id }` flips the box.
+Args: `{ "after_id": "end", "kind": "bullet"|"decimal"|"number"|"checkbox", "items": ["a", "b"], "bullet"?: string, "restart"?: bool }`  
+`checkbox` items may be `{ "text": "…", "checked": true }`. `toggle_check { id }` flips the box. `bullet` is a custom marker; `restart` sets `list_restart` on the first item.
 
 ### `insert_break`
 
-Args: `{ "after_id": "end", "kind"?: "page"|"column" }`
+Args: `{ "after_id": "end", "kind"?: "page"|"column"|"page_restart", "page_restart"?: bool, "page_number"?: int }`
 
 ### `insert_line_break` / `insert_tab`
 
@@ -190,8 +197,28 @@ Args: `{ "find": string, "replace": string, "all"?: false, "regex"?: false }`
 
 ### `search`
 
-Args: `{ "find": string, "forward"?: true, "regex"?: false }`  
-Find without replacing. Returns `{ hits: [{id, start, end}] }`.
+Args: `{ "find"?: string, "forward"?: true, "regex"?: false, "bold"?: bool, "italic"?: bool, "font"?: string, "highlight"?: string, "lang"?: string, "char_style"?: string, "size_pt"?: number, "kerning"?: number }`  
+Find without replacing. `find` may be omitted when a format filter is present. Returns `{ hits: [{id, start, end}] }`.
+
+### `goto`
+
+Args: `{ "id"?: string, "page"?: int }`  
+Moves the caret. Returns `{ id, page, display_page }`.
+
+### `select_by_style`
+
+Args: `{ "style": "Heading 1" }`  
+Returns `{ ids: [...] }` and selects the first match.
+
+### `split_block`
+
+Args: `{ "id"?: string, "offset"?: int }`  
+Splits at the caret if `id` is omitted. The new block takes `create_style.next` when set.
+
+### `insert_labels`
+
+Args: `{ "records": ["A", "B"] | [{"text":"A"}], "cols"?: 2, "rows"?: int, "after_id"?: "end" }`  
+Builds a table (no header) filled left-to-right, top-to-bottom.
 
 ### `set_cell` / `insert_row` / `insert_col` / `delete_row` / `delete_col`
 
@@ -228,7 +255,7 @@ Hiperlink na seleção (`url`). Marcador nomeado no bloco (`name`, `id` opcional
 ### `insert_field`
 
 Args: `{ "kind": "page_number"|"page_count"|"date"|"title"|"author"|"xref"|"filename"|"word_count"|"custom"|"merge", "arg"?: string }`  
-Insere no caret. `xref`/`custom`/`merge` usam `arg`. Campo `merge` mostra `«arg»` até `mail_merge`.
+Insere no caret. `xref`/`custom`/`merge` usam `arg`. Campo `merge` mostra `«arg»` até `mail_merge`. `date` usa `arg` como formato Qt (`dd/MM/yyyy` por omissão; `yyyy-MM-dd hh:mm` para data/hora).
 
 ### `insert_footnote` / `insert_endnote`
 

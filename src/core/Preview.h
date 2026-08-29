@@ -60,11 +60,13 @@ struct DocumentLayout {
     qreal contentW = 0;
     qreal contentH = 0;
     QVector<LaidBlock> blocks;
+    QVector<int> displayOf; // displayOf[physical] = printed page number
 
     void relayout(const Document &doc, double zoom);
     HitResult hitTest(const Document &doc, int page, QPointF posInPage) const;
     CaretRect caret(const Document &doc, const QString &id, int offset, int row = -1, int col = -1) const;
     int pageOf(const QString &id) const;
+    int displayPage(int physical) const;
 };
 
 void paintPage(QPainter *p, const Document &doc, const DocumentLayout &lay, int page,

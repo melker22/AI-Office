@@ -37,6 +37,39 @@ QJsonObject toolResultErr(const QString &error)
     return o;
 }
 
+static StyleDef *styleByName(Document &doc, const QString &name)
+{
+    for (auto &s : doc.styles) {
+        if (s.name == name)
+            return &s;
+    }
+    return nullptr;
+}
+
+static const StyleDef *styleByName(const Document &doc, const QString &name)
+{
+    for (const auto &s : doc.styles) {
+        if (s.name == name)
+            return &s;
+    }
+    return nullptr;
+}
+
+static TextRun runAtOffset(const Block &b, int offset)
+{
+    if (b.runs.isEmpty())
+        return {};
+    const QString plain = b.plainText();
+    const int at = qBound(0, offset, qMax(0, plain.size() - 1));
+    int pos = 0;
+    for (const auto &r : b.runs) {
+        if (at < pos + r.text.size() || pos + r.text.size() >= plain.size())
+            return r;
+        pos += r.text.size();
+    }
+    return b.runs.last();
+}
+
 Session::Session()
 {
     doc_ = Document::blank();
@@ -545,6 +578,12 @@ QJsonObject Session::applyParagraphFormat(const QJsonObject &args)
                 doc_.body[i].tabs.push_back(ts);
             }
         }
+        if (args.contains(QStringLiteral("list_restart")))
+            doc_.body[i].listRestart = args.value(QStringLiteral("list_restart")).toBool();
+        if (args.contains(QStringLiteral("list_bullet")))
+            doc_.body[i].listBullet = args.value(QStringLiteral("list_bullet")).toString();
+        if (args.contains(QStringLiteral("lang")))
+            doc_.body[i].lang = args.value(QStringLiteral("lang")).toString();
     }
     markChanged();
     return ok();
@@ -572,6 +611,15 @@ QJsonObject Session::applyStyle(const QJsonObject &args)
             doc_.body[i].type = QStringLiteral("heading");
             doc_.body[i].level = 1;
             doc_.body[i].style = QStringLiteral("Title");
+        }
+        if (const StyleDef *st = styleByName(doc_, style)) {
+            if (st->kind == QLatin1String("list")) {
+                doc_.body[i].type = QStringLiteral("list-item");
+                if (!st->listKind.isEmpty())
+                    doc_.body[i].listKind = st->listKind;
+                if (!st->listBullet.isEmpty())
+                    doc_.body[i].listBullet = st->listBullet;
+            }
         }
     }
     return ok();
@@ -603,6 +651,16 @@ QJsonObject Session::createStyle(const QJsonObject &args)
         s.spaceAfterPt = args.value(QStringLiteral("space_after_pt")).toDouble();
     if (args.contains(QStringLiteral("kind")))
         s.kind = args.value(QStringLiteral("kind")).toString();
+    if (args.contains(QStringLiteral("next")))
+        s.next = args.value(QStringLiteral("next")).toString();
+    if (args.contains(QStringLiteral("list_kind")))
+        s.listKind = args.value(QStringLiteral("list_kind")).toString();
+    if (args.contains(QStringLiteral("list_bullet")))
+        s.listBullet = args.value(QStringLiteral("list_bullet")).toString();
+    if (args.contains(QStringLiteral("page_size")))
+        s.pageSize = args.value(QStringLiteral("page_size")).toString();
+    if (args.contains(QStringLiteral("page_orientation")))
+        s.pageOrientation = args.value(QStringLiteral("page_orientation")).toString();
     bool replaced = false;
     for (auto &ex : doc_.styles) {
         if (ex.name == name) {
@@ -619,7 +677,19 @@ QJsonObject Session::createStyle(const QJsonObject &args)
 
 QJsonObject Session::setPageLayout(const QJsonObject &args)
 {
+    const StyleDef *pageStyle = nullptr;
+    if (args.contains(QStringLiteral("style"))) {
+        pageStyle = styleByName(doc_, args.value(QStringLiteral("style")).toString());
+        if (!pageStyle)
+            return fail(QStringLiteral("unknown page style"));
+    }
     pushUndo();
+    if (pageStyle) {
+        if (!pageStyle->pageSize.isEmpty())
+            doc_.page.size = pageStyle->pageSize;
+        if (!pageStyle->pageOrientation.isEmpty())
+            doc_.page.orientation = pageStyle->pageOrientation;
+    }
     if (args.contains(QStringLiteral("size")))
         doc_.page.size = args.value(QStringLiteral("size")).toString();
     if (args.contains(QStringLiteral("orientation")))
@@ -643,6 +713,10 @@ QJsonObject Session::setPageLayout(const QJsonObject &args)
         doc_.page.borderColor = args.value(QStringLiteral("border_color")).toString();
     if (args.contains(QStringLiteral("background")))
         doc_.page.background = args.value(QStringLiteral("background")).toString();
+    if (args.contains(QStringLiteral("number_format")))
+        doc_.page.numberFormat = args.value(QStringLiteral("number_format")).toString();
+    if (args.contains(QStringLiteral("number_start")))
+        doc_.page.numberStart = qMax(1, args.value(QStringLiteral("number_start")).toInt(1));
     markChanged();
     return ok();
 }
@@ -729,6 +803,10 @@ QJsonObject Session::insertList(const QJsonObject &args)
             r.text = it.toString();
         }
         b.runs.push_back(r);
+        if (args.contains(QStringLiteral("bullet")))
+            b.listBullet = args.value(QStringLiteral("bullet")).toString();
+        if (blocks.isEmpty() && args.value(QStringLiteral("restart")).toBool())
+            b.listRestart = true;
         blocks.append(b.toJson());
     }
     if (blocks.isEmpty())
@@ -743,7 +821,13 @@ QJsonObject Session::insertBreak(const QJsonObject &args)
 {
     Block b;
     b.type = QStringLiteral("break");
-    b.breakKind = args.value(QStringLiteral("kind")).toString(QStringLiteral("page"));
+    QString kind = args.value(QStringLiteral("kind")).toString(QStringLiteral("page"));
+    b.pageRestart = args.value(QStringLiteral("page_restart")).toBool()
+        || kind == QLatin1String("page_restart");
+    b.pageNumber = args.value(QStringLiteral("page_number")).toInt();
+    if (kind == QLatin1String("page_restart"))
+        kind = QStringLiteral("page");
+    b.breakKind = kind;
     QJsonObject wrap;
     wrap[QStringLiteral("after_id")] = args.value(QStringLiteral("after_id")).toString(QStringLiteral("end"));
     wrap[QStringLiteral("blocks")] = QJsonArray{b.toJson()};
@@ -948,10 +1032,59 @@ QJsonObject Session::search(const QJsonObject &args)
     const QString find = args.value(QStringLiteral("find")).toString();
     const bool forward = args.value(QStringLiteral("forward")).toBool(true);
     const bool useRe = args.value(QStringLiteral("regex")).toBool(false);
-    if (find.isEmpty())
-        return fail(QStringLiteral("find is required"));
+    const bool hasFmt = args.contains(QStringLiteral("bold")) || args.contains(QStringLiteral("italic"))
+        || args.contains(QStringLiteral("underline")) || args.contains(QStringLiteral("strike"))
+        || args.contains(QStringLiteral("font")) || args.contains(QStringLiteral("highlight"))
+        || args.contains(QStringLiteral("char_style")) || args.contains(QStringLiteral("size_pt"))
+        || args.contains(QStringLiteral("lang")) || args.contains(QStringLiteral("kerning"));
+    if (find.isEmpty() && !hasFmt)
+        return fail(QStringLiteral("find or a format filter is required"));
+    auto runMatches = [&](const TextRun &r, const Block &b) {
+        if (args.contains(QStringLiteral("bold")) && r.bold != args.value(QStringLiteral("bold")).toBool())
+            return false;
+        if (args.contains(QStringLiteral("italic")) && r.italic != args.value(QStringLiteral("italic")).toBool())
+            return false;
+        if (args.contains(QStringLiteral("underline")) && r.underline != args.value(QStringLiteral("underline")).toBool())
+            return false;
+        if (args.contains(QStringLiteral("strike")) && r.strike != args.value(QStringLiteral("strike")).toBool())
+            return false;
+        if (args.contains(QStringLiteral("font"))
+            && r.font.compare(args.value(QStringLiteral("font")).toString(), Qt::CaseInsensitive) != 0)
+            return false;
+        if (args.contains(QStringLiteral("highlight"))
+            && r.highlight.compare(args.value(QStringLiteral("highlight")).toString(), Qt::CaseInsensitive) != 0)
+            return false;
+        if (args.contains(QStringLiteral("char_style"))
+            && r.charStyle != args.value(QStringLiteral("char_style")).toString())
+            return false;
+        if (args.contains(QStringLiteral("size_pt"))
+            && !qFuzzyCompare(r.sizePt + 1.0, args.value(QStringLiteral("size_pt")).toDouble() + 1.0))
+            return false;
+        if (args.contains(QStringLiteral("lang"))) {
+            const QString lang = r.lang.isEmpty() ? b.lang : r.lang;
+            if (lang.compare(args.value(QStringLiteral("lang")).toString(), Qt::CaseInsensitive) != 0)
+                return false;
+        }
+        if (args.contains(QStringLiteral("kerning"))
+            && !qFuzzyCompare(r.kerning + 1.0, args.value(QStringLiteral("kerning")).toDouble() + 1.0))
+            return false;
+        return true;
+    };
+    auto rangeMatches = [&](const Block &b, int start, int end) {
+        if (!hasFmt)
+            return true;
+        int pos = 0;
+        for (const auto &r : b.runs) {
+            const int a = pos;
+            const int c = pos + r.text.size();
+            if (c > start && a < end && !runMatches(r, b))
+                return false;
+            pos = c;
+        }
+        return true;
+    };
     QRegularExpression re;
-    if (useRe) {
+    if (useRe && !find.isEmpty()) {
         re.setPattern(find);
         re.setPatternOptions(QRegularExpression::CaseInsensitiveOption);
         if (!re.isValid())
@@ -959,15 +1092,33 @@ QJsonObject Session::search(const QJsonObject &args)
     }
     QJsonArray hits;
     for (const auto &b : doc_.body) {
+        if (find.isEmpty()) {
+            int pos = 0;
+            for (const auto &r : b.runs) {
+                if (runMatches(r, b) && !r.text.isEmpty()) {
+                    QJsonObject h;
+                    h[QStringLiteral("id")] = b.id;
+                    h[QStringLiteral("start")] = pos;
+                    h[QStringLiteral("end")] = pos + r.text.size();
+                    hits.append(h);
+                }
+                pos += r.text.size();
+            }
+            continue;
+        }
         const QString t = b.plainText();
         if (useRe) {
             auto it = re.globalMatch(t);
             while (it.hasNext()) {
                 const auto m = it.next();
+                const int s = int(m.capturedStart());
+                const int e = int(m.capturedEnd());
+                if (!rangeMatches(b, s, e))
+                    continue;
                 QJsonObject h;
                 h[QStringLiteral("id")] = b.id;
-                h[QStringLiteral("start")] = int(m.capturedStart());
-                h[QStringLiteral("end")] = int(m.capturedEnd());
+                h[QStringLiteral("start")] = s;
+                h[QStringLiteral("end")] = e;
                 hits.append(h);
             }
         } else {
@@ -976,11 +1127,14 @@ QJsonObject Session::search(const QJsonObject &args)
                 const int i = t.indexOf(find, from, Qt::CaseInsensitive);
                 if (i < 0)
                     break;
-                QJsonObject h;
-                h[QStringLiteral("id")] = b.id;
-                h[QStringLiteral("start")] = i;
-                h[QStringLiteral("end")] = i + find.size();
-                hits.append(h);
+                const int e = i + find.size();
+                if (rangeMatches(b, i, e)) {
+                    QJsonObject h;
+                    h[QStringLiteral("id")] = b.id;
+                    h[QStringLiteral("start")] = i;
+                    h[QStringLiteral("end")] = e;
+                    hits.append(h);
+                }
                 from = i + qMax(1, find.size());
             }
         }
@@ -1230,8 +1384,21 @@ bool Session::splitBlock(const QString &id, int offset)
     Block rest;
     rest.type = b.type == QLatin1String("heading") ? QStringLiteral("paragraph") : b.type;
     rest.style = QStringLiteral("Normal");
+    if (const StyleDef *st = styleByName(doc_, b.style); st && !st->next.isEmpty()) {
+        rest.style = st->next;
+        if (rest.style.startsWith(QLatin1String("Heading")) || rest.style == QLatin1String("Title")) {
+            rest.type = QStringLiteral("heading");
+            if (rest.style == QLatin1String("Title"))
+                rest.level = 1;
+            else {
+                bool okN = false;
+                const int lv = rest.style.section(QLatin1Char(' '), 1, 1).toInt(&okN);
+                rest.level = okN ? lv : 1;
+            }
+        }
+    }
     rest.listKind = b.listKind;
-    rest.level = b.level;
+    rest.level = rest.type == QLatin1String("heading") ? rest.level : b.level;
     rest.runs = splitRuns(b.runs, off, plain.size());
     b.runs = splitRuns(b.runs, 0, off);
     if (b.runs.isEmpty())
@@ -2260,6 +2427,175 @@ QJsonObject Session::paintFormat(const QJsonObject &args)
     return applyCharacterFormat(fmt);
 }
 
+QJsonObject Session::gotoBlock(const QJsonObject &args)
+{
+    DocumentLayout lay;
+    lay.relayout(doc_, 1.0);
+    QString id = args.value(QStringLiteral("id")).toString();
+    int page = args.value(QStringLiteral("page")).toInt(0);
+    if (!id.isEmpty()) {
+        if (!doc_.findBlock(id))
+            return fail(QStringLiteral("id not found"));
+        page = lay.pageOf(id);
+        sel_.anchorId = sel_.focusId = id;
+        sel_.anchorOff = sel_.focusOff = 0;
+        sel_.tableRow = sel_.tableCol = -1;
+    } else if (page > 0) {
+        if (page > lay.pages)
+            return fail(QStringLiteral("page not found"));
+        bool found = false;
+        for (const auto &lb : lay.blocks) {
+            if (lb.page == page && lb.type != QLatin1String("break")) {
+                id = lb.id;
+                found = true;
+                break;
+            }
+        }
+        if (!found)
+            return fail(QStringLiteral("page not found"));
+        sel_.anchorId = sel_.focusId = id;
+        sel_.anchorOff = sel_.focusOff = 0;
+        sel_.tableRow = sel_.tableCol = -1;
+    } else {
+        return fail(QStringLiteral("page or id is required"));
+    }
+    auto r = ok();
+    r[QStringLiteral("id")] = id;
+    r[QStringLiteral("page")] = page;
+    r[QStringLiteral("display_page")] = lay.displayPage(page);
+    return r;
+}
+
+QJsonObject Session::selectByStyle(const QJsonObject &args)
+{
+    const QString style = args.value(QStringLiteral("style")).toString();
+    if (style.isEmpty())
+        return fail(QStringLiteral("style is required"));
+    QJsonArray ids;
+    for (const auto &b : doc_.body) {
+        if (b.style == style)
+            ids.append(b.id);
+    }
+    if (!ids.isEmpty()) {
+        const QString first = ids.at(0).toString();
+        sel_.anchorId = sel_.focusId = first;
+        sel_.anchorOff = sel_.focusOff = 0;
+        sel_.tableRow = sel_.tableCol = -1;
+    }
+    auto r = ok();
+    r[QStringLiteral("ids")] = ids;
+    return r;
+}
+
+QJsonObject Session::updateStyle(const QJsonObject &args)
+{
+    QString id = args.value(QStringLiteral("id")).toString();
+    if (id.isEmpty())
+        id = sel_.focusId;
+    const Block *b = doc_.findBlock(id);
+    if (!b)
+        return fail(QStringLiteral("id not found"));
+    QString name = args.value(QStringLiteral("name")).toString();
+    if (name.isEmpty())
+        name = b->style;
+    if (name.isEmpty())
+        name = QStringLiteral("Normal");
+    const TextRun sample = runAtOffset(*b, args.value(QStringLiteral("offset")).toInt(sel_.focusOff));
+    pushUndo();
+    StyleDef *target = styleByName(doc_, name);
+    if (!target) {
+        StyleDef s = defaultStyle(QStringLiteral("Normal"));
+        s.name = name;
+        doc_.styles.push_back(s);
+        target = &doc_.styles.last();
+    }
+    if (!sample.font.isEmpty())
+        target->font = sample.font;
+    if (sample.sizePt > 0)
+        target->sizePt = sample.sizePt;
+    target->bold = sample.bold;
+    target->italic = sample.italic;
+    if (!sample.color.isEmpty())
+        target->color = sample.color;
+    if (!b->align.isEmpty())
+        target->align = b->align;
+    if (b->spaceBeforePt >= 0)
+        target->spaceBeforePt = b->spaceBeforePt;
+    if (b->spaceAfterPt >= 0)
+        target->spaceAfterPt = b->spaceAfterPt;
+    if (b->type == QLatin1String("list-item")) {
+        target->kind = QStringLiteral("list");
+        target->listKind = b->listKind;
+        target->listBullet = b->listBullet;
+    }
+    markChanged();
+    auto r = ok();
+    r[QStringLiteral("name")] = name;
+    return r;
+}
+
+QJsonObject Session::insertLabels(const QJsonObject &args)
+{
+    const auto recs = args.value(QStringLiteral("records")).toArray();
+    if (recs.isEmpty())
+        return fail(QStringLiteral("records is required"));
+    const int cols = qMax(1, args.value(QStringLiteral("cols")).toInt(2));
+    int rows = args.value(QStringLiteral("rows")).toInt(0);
+    if (rows <= 0)
+        rows = (recs.size() + cols - 1) / cols;
+    Block b;
+    b.type = QStringLiteral("table");
+    b.headerRow = false;
+    int idx = 0;
+    for (int r = 0; r < rows; ++r) {
+        QVector<TableCell> row;
+        for (int c = 0; c < cols; ++c) {
+            TableCell cell;
+            TextRun run;
+            if (idx < recs.size()) {
+                if (recs.at(idx).isObject())
+                    run.text = recs.at(idx).toObject().value(QStringLiteral("text")).toString();
+                else
+                    run.text = recs.at(idx).toString();
+                ++idx;
+            }
+            cell.runs.push_back(run);
+            row.push_back(cell);
+        }
+        b.table.push_back(row);
+    }
+    QJsonObject wrap;
+    wrap[QStringLiteral("after_id")] = args.value(QStringLiteral("after_id")).toString(QStringLiteral("end"));
+    wrap[QStringLiteral("blocks")] = QJsonArray{b.toJson()};
+    return insertBlocks(wrap);
+}
+
+QJsonObject Session::splitBlockTool(const QJsonObject &args)
+{
+    QString id = args.value(QStringLiteral("id")).toString();
+    int off = args.contains(QStringLiteral("offset")) ? args.value(QStringLiteral("offset")).toInt() : -1;
+    if (id.isEmpty()) {
+        id = sel_.focusId;
+        if (off < 0)
+            off = sel_.focusOff;
+    }
+    if (id.isEmpty())
+        return fail(QStringLiteral("id is required"));
+    if (off < 0)
+        off = 0;
+    if (!doc_.findBlock(id))
+        return fail(QStringLiteral("id not found"));
+    pushUndo();
+    if (!splitBlock(id, off)) {
+        undo_.removeLast();
+        return fail(QStringLiteral("cannot split this block"));
+    }
+    markChanged();
+    auto r = ok();
+    r[QStringLiteral("id")] = sel_.focusId;
+    return r;
+}
+
 QJsonObject Session::validate(const QJsonObject &)
 {
     QJsonArray errors;
@@ -2560,6 +2896,16 @@ QJsonObject Session::call(const QString &tool, const QJsonObject &args)
         return insertSpecial(args);
     if (tool == QLatin1String("paint_format"))
         return paintFormat(args);
+    if (tool == QLatin1String("goto") || tool == QLatin1String("go_to"))
+        return gotoBlock(args);
+    if (tool == QLatin1String("select_by_style"))
+        return selectByStyle(args);
+    if (tool == QLatin1String("update_style"))
+        return updateStyle(args);
+    if (tool == QLatin1String("insert_labels"))
+        return insertLabels(args);
+    if (tool == QLatin1String("split_block"))
+        return splitBlockTool(args);
     if (tool == QLatin1String("insert_line_break")) {
         QJsonObject a = args;
         a[QStringLiteral("text")] = QString(QChar::LineFeed);

@@ -68,6 +68,8 @@ QFont fontFor(const Document &doc, const Block &b, const TextRun &r, qreal zoom)
     f.setStrikeOut(r.strike);
     if (r.smallCaps)
         f.setCapitalization(QFont::SmallCaps);
+    if (r.kerning != 0)
+        f.setLetterSpacing(QFont::PercentageSpacing, 100.0 + r.kerning);
     if (r.superscript || r.subscript) {
         f.setPointSizeF(qMax(6.0, f.pointSizeF() * 0.7));
         if (r.superscript)
@@ -242,6 +244,8 @@ QString listMarker(const Block &b, int number)
         return b.checked ? QStringLiteral("☑  ") : QStringLiteral("☐  ");
     if (b.listKind == QLatin1String("decimal"))
         return QString::number(number) + QStringLiteral(".  ");
+    if (!b.listBullet.isEmpty())
+        return b.listBullet + QStringLiteral("  ");
     return QStringLiteral("•  ");
 }
 
@@ -305,10 +309,9 @@ void DocumentLayout::relayout(const Document &doc, double z)
     int decimal = 0;
     for (const auto &b : doc.body) {
         if (b.type == QLatin1String("list-item") && b.listKind == QLatin1String("decimal")) {
-            if (b.level <= 1)
-                ++decimal;
-            else
-                ++decimal;
+            if (b.listRestart)
+                decimal = 0;
+            ++decimal;
             numbers.push_back(decimal);
         } else {
             if (b.type != QLatin1String("list-item"))
@@ -382,11 +385,25 @@ void DocumentLayout::relayout(const Document &doc, double z)
     }
 
     blocks.clear();
+    displayOf.clear();
+    displayOf.resize(2);
+    displayOf[1] = qMax(1, doc.page.numberStart);
     QMap<int, QVector<int>> fnByPage;
     int page = 1;
+    int display = displayOf[1];
     int col = 0;
     qreal y = 0;
     auto colX = [&](int c) { return marginL + c * (colWidth + colGap); };
+    auto advancePage = [&](bool restart, int restartTo) {
+        ++page;
+        if (restart)
+            display = restartTo > 0 ? restartTo : qMax(1, doc.page.numberStart);
+        else
+            ++display;
+        if (displayOf.size() <= page)
+            displayOf.resize(page + 1);
+        displayOf[page] = display;
+    };
     for (int i = 0; i < doc.body.size(); ++i) {
         const Block &b = doc.body[i];
         if (b.type == QLatin1String("footnote") || b.type == QLatin1String("endnote"))
@@ -397,10 +414,11 @@ void DocumentLayout::relayout(const Document &doc, double z)
                 y = 0;
                 if (col >= colN) {
                     col = 0;
-                    ++page;
+                    advancePage(false, 0);
                 }
             } else {
-                ++page;
+                const bool restart = b.pageRestart || b.breakKind == QLatin1String("page_restart");
+                advancePage(restart, b.pageNumber);
                 col = 0;
                 y = 0;
             }
@@ -419,7 +437,7 @@ void DocumentLayout::relayout(const Document &doc, double z)
             y = 0;
             if (col >= colN) {
                 col = 0;
-                ++page;
+                advancePage(false, 0);
             }
         }
         y += meas[i].before;
@@ -473,7 +491,7 @@ void DocumentLayout::relayout(const Document &doc, double z)
         }
     }
     if (enCount > 0) {
-        ++page;
+        advancePage(false, 0);
         qreal ey = 0;
         for (int i = 0; i < doc.body.size(); ++i) {
             const Block &b = doc.body[i];
@@ -499,6 +517,13 @@ int DocumentLayout::pageOf(const QString &id) const
             return b.page;
     }
     return 1;
+}
+
+int DocumentLayout::displayPage(int physical) const
+{
+    if (physical >= 1 && physical < displayOf.size())
+        return qMax(1, displayOf[physical]);
+    return qMax(1, physical);
 }
 
 HitResult DocumentLayout::hitTest(const Document &doc, int page, QPointF posInPage) const
@@ -595,11 +620,14 @@ void paintPage(QPainter *p, const Document &doc, const DocumentLayout &lay, int 
                            lay.contentW + 8, lay.paperH - lay.marginT - lay.marginB + 8));
     }
 
+    const int shown = lay.displayPage(page);
     const bool hasHeader = doc.header.pageNumbers || !doc.header.text.isEmpty();
     const bool hasFooter = doc.footer.pageNumbers || !doc.footer.text.isEmpty();
     auto pageLabel = [&]() {
         QString t = doc.header.pageNumbers || doc.footer.pageNumbers
-            ? QStringLiteral("Página %1 de %2").arg(page).arg(lay.pages)
+            ? QStringLiteral("Página %1 de %2")
+                  .arg(formatPageNumber(shown, doc.page.numberFormat))
+                  .arg(lay.pages)
             : QString();
         return t;
     };
@@ -720,7 +748,7 @@ void paintPage(QPainter *p, const Document &doc, const DocumentLayout &lay, int 
         }
         QString raw;
         for (const auto &r : b.runs)
-            raw += runDisplayText(doc, r, page, lay.pages);
+            raw += runDisplayText(doc, r, shown, lay.pages);
         const DropCapInfo dc = dropCapInfo(doc, b, b.runs, lay.zoom);
         const int skip = dc.lines > 0 ? dc.skip : 0;
         QString text = raw.mid(skip);
@@ -765,7 +793,7 @@ void paintPage(QPainter *p, const Document &doc, const DocumentLayout &lay, int 
         int pos = 0;
         int rawPos = 0;
         for (const auto &r : b.runs) {
-            QString disp = runDisplayText(doc, r, page, lay.pages);
+            QString disp = runDisplayText(doc, r, shown, lay.pages);
             const int rawLen = disp.size();
             if (rawPos + rawLen <= skip) {
                 rawPos += rawLen;

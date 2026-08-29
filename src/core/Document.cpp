@@ -1,6 +1,6 @@
 #include "core/Document.h"
 
-#include <QDate>
+#include <QDateTime>
 #include <QJsonArray>
 #include <QJsonDocument>
 #include <QRegularExpression>
@@ -31,6 +31,10 @@ QJsonObject TextRun::toJson() const
         o[QStringLiteral("hidden")] = true;
     if (!charStyle.isEmpty())
         o[QStringLiteral("char_style")] = charStyle;
+    if (!lang.isEmpty())
+        o[QStringLiteral("lang")] = lang;
+    if (kerning != 0)
+        o[QStringLiteral("kerning")] = kerning;
     if (!link.isEmpty())
         o[QStringLiteral("link")] = link;
     if (strike)
@@ -63,6 +67,8 @@ TextRun TextRun::fromJson(const QJsonObject &o)
     r.caps = o.value(QStringLiteral("caps")).toString();
     r.hidden = o.value(QStringLiteral("hidden")).toBool();
     r.charStyle = o.value(QStringLiteral("char_style")).toString();
+    r.lang = o.value(QStringLiteral("lang")).toString();
+    r.kerning = o.value(QStringLiteral("kerning")).toDouble();
     r.link = o.value(QStringLiteral("link")).toString();
     r.strike = o.value(QStringLiteral("strike")).toBool();
     r.superscript = o.value(QStringLiteral("superscript")).toBool();
@@ -345,6 +351,16 @@ QJsonObject Block::toJson() const
         o[QStringLiteral("border_color")] = borderColor;
     if (checked)
         o[QStringLiteral("checked")] = true;
+    if (listRestart)
+        o[QStringLiteral("list_restart")] = true;
+    if (!listBullet.isEmpty())
+        o[QStringLiteral("list_bullet")] = listBullet;
+    if (!lang.isEmpty())
+        o[QStringLiteral("lang")] = lang;
+    if (pageRestart)
+        o[QStringLiteral("page_restart")] = true;
+    if (pageNumber > 0)
+        o[QStringLiteral("page_number")] = pageNumber;
     return o;
 }
 
@@ -419,6 +435,11 @@ Block Block::fromJson(const QJsonObject &o)
     b.wrap = o.value(QStringLiteral("wrap")).toString();
     b.anchor = o.value(QStringLiteral("anchor")).toString();
     b.checked = o.value(QStringLiteral("checked")).toBool();
+    b.listRestart = o.value(QStringLiteral("list_restart")).toBool();
+    b.listBullet = o.value(QStringLiteral("list_bullet")).toString();
+    b.lang = o.value(QStringLiteral("lang")).toString();
+    b.pageRestart = o.value(QStringLiteral("page_restart")).toBool();
+    b.pageNumber = o.value(QStringLiteral("page_number")).toInt();
     return b;
 }
 
@@ -463,6 +484,16 @@ QJsonObject StyleDef::toJson() const
     o[QStringLiteral("space_after_pt")] = spaceAfterPt;
     if (!kind.isEmpty() && kind != QLatin1String("paragraph"))
         o[QStringLiteral("kind")] = kind;
+    if (!next.isEmpty())
+        o[QStringLiteral("next")] = next;
+    if (!listKind.isEmpty())
+        o[QStringLiteral("list_kind")] = listKind;
+    if (!listBullet.isEmpty())
+        o[QStringLiteral("list_bullet")] = listBullet;
+    if (!pageSize.isEmpty())
+        o[QStringLiteral("page_size")] = pageSize;
+    if (!pageOrientation.isEmpty())
+        o[QStringLiteral("page_orientation")] = pageOrientation;
     return o;
 }
 
@@ -479,6 +510,11 @@ StyleDef StyleDef::fromJson(const QJsonObject &o)
     s.spaceBeforePt = o.value(QStringLiteral("space_before_pt")).toDouble();
     s.spaceAfterPt = o.value(QStringLiteral("space_after_pt")).toDouble(8);
     s.kind = o.value(QStringLiteral("kind")).toString();
+    s.next = o.value(QStringLiteral("next")).toString();
+    s.listKind = o.value(QStringLiteral("list_kind")).toString();
+    s.listBullet = o.value(QStringLiteral("list_bullet")).toString();
+    s.pageSize = o.value(QStringLiteral("page_size")).toString();
+    s.pageOrientation = o.value(QStringLiteral("page_orientation")).toString();
     return s;
 }
 
@@ -509,6 +545,10 @@ QJsonObject PageLayout::toJson() const
         o[QStringLiteral("border_color")] = borderColor;
     if (!background.isEmpty())
         o[QStringLiteral("background")] = background;
+    if (!numberFormat.isEmpty() && numberFormat != QLatin1String("arabic"))
+        o[QStringLiteral("number_format")] = numberFormat;
+    if (numberStart != 1)
+        o[QStringLiteral("number_start")] = numberStart;
     return o;
 }
 
@@ -528,6 +568,10 @@ PageLayout PageLayout::fromJson(const QJsonObject &o)
     p.borderPt = o.value(QStringLiteral("border_pt")).toDouble();
     p.borderColor = o.value(QStringLiteral("border_color")).toString();
     p.background = o.value(QStringLiteral("background")).toString();
+    p.numberFormat = o.value(QStringLiteral("number_format")).toString();
+    p.numberStart = o.contains(QStringLiteral("number_start"))
+        ? o.value(QStringLiteral("number_start")).toInt(1)
+        : 1;
     return p;
 }
 
@@ -817,18 +861,49 @@ int Document::wordCount() const
     return n;
 }
 
+QString formatPageNumber(int n, const QString &format)
+{
+    n = qMax(1, n);
+    const QString f = format.toLower();
+    if (f == QLatin1String("roman")) {
+        static const int vals[] = {1000, 900, 500, 400, 100, 90, 50, 40, 10, 9, 5, 4, 1};
+        static const char *syms[] = {"m", "cm", "d", "cd", "c", "xc", "l", "xl", "x", "ix", "v", "iv", "i"};
+        QString out;
+        int x = qMin(n, 3999);
+        for (int i = 0; i < 13; ++i) {
+            while (x >= vals[i]) {
+                out += QLatin1String(syms[i]);
+                x -= vals[i];
+            }
+        }
+        return out;
+    }
+    if (f == QLatin1String("alpha")) {
+        QString out;
+        int x = n;
+        while (x > 0) {
+            --x;
+            out.prepend(QChar(QLatin1Char('a' + (x % 26))));
+            x /= 26;
+        }
+        return out;
+    }
+    return QString::number(n);
+}
+
 QString runDisplayText(const Document &doc, const TextRun &r, int page, int pages)
 {
     if (r.hidden)
         return {};
     QString t;
     if (r.field == QLatin1String("page_number"))
-        t = QString::number(qMax(1, page));
+        t = formatPageNumber(qMax(1, page), doc.page.numberFormat);
     else if (r.field == QLatin1String("page_count"))
         t = QString::number(qMax(1, pages));
-    else if (r.field == QLatin1String("date"))
-        t = QDate::currentDate().toString(QStringLiteral("dd/MM/yyyy"));
-    else if (r.field == QLatin1String("title"))
+    else if (r.field == QLatin1String("date")) {
+        const QString fmt = r.fieldArg.isEmpty() ? QStringLiteral("dd/MM/yyyy") : r.fieldArg;
+        t = QDateTime::currentDateTime().toString(fmt);
+    } else if (r.field == QLatin1String("title"))
         t = doc.title;
     else if (r.field == QLatin1String("author"))
         t = doc.author.isEmpty() ? QStringLiteral("—") : doc.author;
@@ -950,6 +1025,10 @@ void applyFormatToRun(TextRun &r, const QJsonObject &fmt)
         r.hidden = fmt.value(QStringLiteral("hidden")).toBool();
     if (fmt.contains(QStringLiteral("char_style")))
         r.charStyle = fmt.value(QStringLiteral("char_style")).toString();
+    if (fmt.contains(QStringLiteral("lang")))
+        r.lang = fmt.value(QStringLiteral("lang")).toString();
+    if (fmt.contains(QStringLiteral("kerning")))
+        r.kerning = fmt.value(QStringLiteral("kerning")).toDouble();
 }
 
 void clearRunFormat(TextRun &r)
@@ -968,6 +1047,8 @@ void clearRunFormat(TextRun &r)
     r.caps.clear();
     r.hidden = false;
     r.charStyle.clear();
+    r.lang.clear();
+    r.kerning = 0;
     r.link.clear();
 }
 
@@ -988,6 +1069,8 @@ QJsonObject runFormatJson(const TextRun &r)
     o[QStringLiteral("caps")] = r.caps;
     o[QStringLiteral("hidden")] = r.hidden;
     o[QStringLiteral("char_style")] = r.charStyle;
+    o[QStringLiteral("lang")] = r.lang;
+    o[QStringLiteral("kerning")] = r.kerning;
     o[QStringLiteral("link")] = r.link;
     return o;
 }
