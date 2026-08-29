@@ -26,6 +26,44 @@
 
 ---
 
+## 2026-08-29 — Cursor — Fase IA: DoD + fundação MCP + fatia Writer
+
+**Objective:** Executar o programa Fase IA (depois Humano): Wave 0 auditoria, Wave 1 fundação MCP, Wave 2 round-trip A+B, fatia JSON+MCP+preview das waves 3–6. Sem chrome QML novo. Sem push.
+
+**Done:**
+- **DoD IA:** dado no `.aio.json` com IDs; tool MCP/`aioffice call` com `{ok:false,error}`; `page_preview` reflecte; `docs/mcp-tools.md` actualizado. ODT/DOCX não bloqueia a subfase (SoT = JSON).
+- Wave 0: coluna Notion **Fase** (`IA`/`Humano`/`Infra`/`Fora`); board alinhado ao `Session::call`.
+- Wave 1: `validate`, `batch` atómico, `id`/`ids[]`, `checkpoint`/`restore`, `aioffice play`, JSON canónico, `page_preview` `from`/`to`, `insert_markdown`, outline rico. Teste: `AIOFFICE_HEADLESS=1 aioffice play qa/wave1-foundation.json`.
+- Wave 2: round-trip ODT/DOCX de notas, campos, TOC, bookmarks, revisões; notas no layout por página; quebra de coluna + separador; track `format` + accept/reject all; Hunspell `DICPATH` com `:` + dicts no `shell.nix`; Autocorrect JSON MCP.
+- Waves 3–6 (fatia, não o catálogo inteiro): recuos/`keep_with_next`/papéis extra/gutter; `merge_cells`/`split_cells`/`table_sort`/`set_image`/`insert_caption`; export `md`/`txt`/`html`; campos `filename`/`word_count`/`custom`.
+- Fase Humano **não** começou (UX Pilot + `Ui*` só depois da IA plena).
+
+**Decisions:** `aioffice play` é sequencial (macros); atomicidade = tool `batch`. Checkpoint fora de `batch`. Commits locais por unidade; nunca `git push` neste programa até pedido.
+
+**Next suggested step:** Continuar waves 3–6 no Notion (tabulações, drop cap visual, nested table, mala direta, PDF/A). Fase Humano só quando o critério IA estiver pleno no catálogo restante.
+
+**Commits:** `cc141e4` feat: add MCP session foundation and Writer IA extras
+
+---
+
+
+## 2026-08-29 — Cursor — Backlog longo no Roadmap (o que um agente pode fazer)
+
+**Objective:** Acrescentar no Notion tudo o que, mesmo demorando anos, um agente pode implementar no AI Office *do nosso jeito* (JSON+IDs, MCP/CLI, Tinta & Papel).
+
+**Done:**
+- +150 linhas Todo no Roadmap (formato, chrome, tabela, MCP, a11y, testes, etc.).
+- Board: 22 Done, 16 Partial, **203 Todo** (241 no total).
+- Hub callout + `docs/WRITER_FEATURE_CATALOG.md` actualizados.
+
+**Decisions:** Se cabe no nosso modelo, entra. Continua **fora**: Calc, Impress, Draw-app, Base, StarBasic, Gallery/UI/ícones LO, WPS/FreeOffice, chat Copilot, Share. Gráficos/fórmulas = renderer nosso. CRDT local está no board como horizonte longo.
+
+**Next suggested step:** Round-trip ODT/DOCX das ondas A+B; tools MCP de lote/IDs.
+
+**Commits:** nenhum (usuário não pediu)
+
+---
+
 ## 2026-08-29 — Cursor — Catálogo Writer Guide no Roadmap Notion
 
 **Objective:** Encher o Roadmap para Produção (hub AI Office) com o catálogo de ideias do Writer Guide 26.2 — Done / Partial / Todo — sem copiar código/UI do LO e sem Calc/Impress/Base.
