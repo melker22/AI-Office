@@ -6,10 +6,12 @@
 #include <QPageSize>
 #include <QPainter>
 #include <QPen>
+#include <QPagedPaintDevice>
 #include <QPdfWriter>
 #include <QSet>
 #include <QTextCharFormat>
 #include <QTextLayout>
+#include <QTextOption>
 
 namespace aioffice {
 namespace {
@@ -90,16 +92,6 @@ QString hyphenateDisplay(QString t)
     return out;
 }
 
-QString runsDisplay(const Document &doc, const QVector<TextRun> &runs, int page, int pages, bool hyphen)
-{
-    QString t;
-    for (const auto &r : runs)
-        t += runDisplayText(doc, r, page, pages);
-    if (hyphen)
-        t = hyphenateDisplay(t);
-    return t;
-}
-
 Qt::Alignment qtAlign(const QString &a)
 {
     if (a == QLatin1String("center"))
@@ -114,12 +106,93 @@ Qt::Alignment qtAlign(const QString &a)
 constexpr qreal kDpi = 96.0;
 qreal mmToPx(qreal mm, qreal zoom) { return mm * kDpi / 25.4 * zoom; }
 
+void applyTabs(QTextOption &opt, const Block &b, qreal zoom)
+{
+    if (b.tabs.isEmpty())
+        return;
+    QList<QTextOption::Tab> tabs;
+    for (const auto &t : b.tabs) {
+        QTextOption::Tab tab;
+        tab.position = mmToPx(t.posMm, zoom);
+        if (t.align == QLatin1String("right"))
+            tab.type = QTextOption::RightTab;
+        else if (t.align == QLatin1String("center"))
+            tab.type = QTextOption::CenterTab;
+        else if (t.align == QLatin1String("decimal")) {
+            tab.type = QTextOption::DelimiterTab;
+            tab.delimiter = QLatin1Char('.');
+        } else {
+            tab.type = QTextOption::LeftTab;
+        }
+        tabs.append(tab);
+    }
+    opt.setTabs(tabs);
+}
+
+struct DropCapInfo {
+    QString letter;
+    int skip = 0;
+    int lines = 0;
+    qreal width = 0;
+    qreal height = 0;
+    QFont font;
+};
+
+DropCapInfo dropCapInfo(const Document &doc, const Block &b, const QVector<TextRun> &runs, qreal zoom)
+{
+    DropCapInfo d;
+    if (b.dropCapLines < 2 || b.type == QLatin1String("list-item"))
+        return d;
+    QString text;
+    for (const auto &r : runs)
+        text += runDisplayText(doc, r, 1, 1);
+    int i = 0;
+    while (i < text.size() && text.at(i).isSpace())
+        ++i;
+    if (i >= text.size())
+        return d;
+    d.letter = text.mid(i, 1);
+    d.skip = i + d.letter.size();
+    d.lines = b.dropCapLines;
+    TextRun probe = runs.isEmpty() ? TextRun{} : runs.first();
+    d.font = fontFor(doc, b, probe, zoom);
+    d.font.setPointSizeF(qMax(12.0, d.font.pointSizeF() * d.lines * 0.82));
+    d.font.setBold(true);
+    QFontMetricsF fm(d.font);
+    d.width = fm.horizontalAdvance(d.letter) + 6 * zoom;
+    d.height = fm.ascent() + fm.descent();
+    return d;
+}
+
+qreal layoutLines(QTextLayout &layout, qreal width, qreal dropW, int dropLines)
+{
+    layout.beginLayout();
+    qreal y = 0;
+    int lineNo = 0;
+    for (;;) {
+        QTextLine line = layout.createLine();
+        if (!line.isValid())
+            break;
+        const bool beside = dropLines > 0 && lineNo < dropLines;
+        const qreal w = beside ? qMax(qreal(20), width - dropW) : width;
+        line.setLineWidth(w);
+        line.setPosition(QPointF(beside ? dropW : 0, y));
+        y += line.height();
+        ++lineNo;
+    }
+    layout.endLayout();
+    return y;
+}
+
 qreal measureTextHeight(const Document &doc, const Block &b, const QVector<TextRun> &runs, qreal width,
                         qreal zoom)
 {
     QString text;
     for (const auto &r : runs)
         text += runDisplayText(doc, r, 1, 1);
+    const DropCapInfo dc = dropCapInfo(doc, b, runs, zoom);
+    if (dc.lines > 0 && dc.skip > 0 && dc.skip <= text.size())
+        text = text.mid(dc.skip);
     if (doc.page.hyphenate)
         text = hyphenateDisplay(text);
     if (text.isEmpty())
@@ -129,19 +202,26 @@ qreal measureTextHeight(const Document &doc, const Block &b, const QVector<TextR
     QTextLayout layout(text, f);
     QTextOption opt;
     opt.setWrapMode(QTextOption::WrapAtWordBoundaryOrAnywhere);
+    applyTabs(opt, b, zoom);
     layout.setTextOption(opt);
-    layout.beginLayout();
-    qreal y = 0;
-    for (;;) {
-        QTextLine line = layout.createLine();
-        if (!line.isValid())
-            break;
-        line.setLineWidth(width);
-        line.setPosition(QPointF(0, y));
-        y += line.height();
+    const qreal y = layoutLines(layout, width, dc.width, dc.lines);
+    return qMax(qMax(QFontMetricsF(f).height(), y), dc.height);
+}
+
+qreal measureNestedHeight(const Document &doc, const Block &b, const TableCell &cell, qreal cw, qreal zoom)
+{
+    if (cell.nested.isEmpty())
+        return measureTextHeight(doc, b, cell.runs, qMax(qreal(12), cw - 8), zoom) + 8;
+    const int cols = cell.nested.first().size();
+    qreal h = 0;
+    const qreal icw = qMax(qreal(12), (cw - 8) / qMax(1, cols));
+    for (const auto &nrow : cell.nested) {
+        qreal rh = 16 * zoom;
+        for (const auto &nc : nrow)
+            rh = qMax(rh, measureTextHeight(doc, b, nc.runs, icw - 4, zoom) + 4);
+        h += rh;
     }
-    layout.endLayout();
-    return qMax(QFontMetricsF(f).height(), y);
+    return h + 8;
 }
 
 QString listMarker(const Block &b, int number)
@@ -251,7 +331,7 @@ void DocumentLayout::relayout(const Document &doc, double z)
                 qreal rh = 22 * zoom;
                 for (int c = 0; c < b.table[r].size(); ++c) {
                     const qreal cw = c < tw.size() ? tw[c] : colWidth;
-                    rh = qMax(rh, measureTextHeight(doc, b, b.table[r][c].runs, cw - 8, zoom) + 8);
+                    rh = qMax(rh, measureNestedHeight(doc, b, b.table[r][c], cw, zoom));
                 }
                 m.rowH.push_back(rh);
                 m.height += rh;
@@ -491,6 +571,14 @@ void paintPage(QPainter *p, const Document &doc, const DocumentLayout &lay, int 
 {
     p->fillRect(0, 0, lay.paperW, lay.paperH, QColor(QStringLiteral("#FDFBF7")));
     p->fillRect(0, 0, lay.paperW, 3, QColor(QStringLiteral("#B5651D")));
+    if (doc.page.borderPt > 0) {
+        QPen bp(QColor(doc.page.borderColor.isEmpty() ? QStringLiteral("#B5651D") : doc.page.borderColor),
+                qMax(qreal(0.5), doc.page.borderPt * lay.zoom));
+        p->setPen(bp);
+        p->setBrush(Qt::NoBrush);
+        p->drawRect(QRectF(lay.marginL - 4, lay.marginT - 4,
+                           lay.contentW + 8, lay.paperH - lay.marginT - lay.marginB + 8));
+    }
 
     const bool hasHeader = doc.header.pageNumbers || !doc.header.text.isEmpty();
     const bool hasFooter = doc.footer.pageNumbers || !doc.footer.text.isEmpty();
@@ -544,15 +632,52 @@ void paintPage(QPainter *p, const Document &doc, const DocumentLayout &lay, int 
                 if (selId == lb.id && selRow == g.row && selCol == g.col)
                     p->setBrush(QColor(QStringLiteral("#F3E0CC")));
                 p->drawRect(g.rect);
-                QString t;
-                if (g.row < b.table.size() && g.col < b.table[g.row].size())
-                    for (const auto &r : b.table[g.row][g.col].runs)
-                        t += r.text;
-                p->setPen(QColor(QStringLiteral("#1A1F24")));
-                QFont tf(QStringLiteral("Liberation Serif"));
-                tf.setPointSizeF(10 * lay.zoom);
-                p->setFont(tf);
-                p->drawText(g.rect.adjusted(4, 2, -4, -2), Qt::AlignVCenter | Qt::AlignLeft | Qt::TextWordWrap, t);
+                if (g.row < b.table.size() && g.col < b.table[g.row].size()
+                    && !b.table[g.row][g.col].nested.isEmpty()) {
+                    const auto &cell = b.table[g.row][g.col];
+                    const int nc = cell.nested.first().size();
+                    const qreal icw = g.rect.width() / qMax(1, nc);
+                    qreal iy = g.rect.top();
+                    p->setPen(QPen(QColor(QStringLiteral("#D2C8B8")), 1));
+                    for (const auto &nrow : cell.nested) {
+                        qreal rh = 16 * lay.zoom;
+                        for (const auto &ncell : nrow) {
+                            QString t;
+                            for (const auto &r : ncell.runs)
+                                t += r.text;
+                            rh = qMax(rh, QFontMetricsF(QFont(QStringLiteral("Liberation Serif"), int(10 * lay.zoom))).boundingRect(QRect(0, 0, int(icw - 6), 400),
+                                                                 Qt::TextWordWrap, t).height()
+                                    + 6);
+                        }
+                        qreal ix = g.rect.left();
+                        for (const auto &ncell : nrow) {
+                            QRectF nr(ix, iy, icw, rh);
+                            p->setBrush(QColor(QStringLiteral("#FDFBF7")));
+                            p->setPen(QPen(QColor(QStringLiteral("#D2C8B8")), 1));
+                            p->drawRect(nr);
+                            QString t;
+                            for (const auto &r : ncell.runs)
+                                t += r.text;
+                            p->setPen(QColor(QStringLiteral("#1A1F24")));
+                            QFont tf(QStringLiteral("Liberation Serif"));
+                            tf.setPointSizeF(9 * lay.zoom);
+                            p->setFont(tf);
+                            p->drawText(nr.adjusted(3, 1, -3, -1), Qt::AlignVCenter | Qt::AlignLeft | Qt::TextWordWrap, t);
+                            ix += icw;
+                        }
+                        iy += rh;
+                    }
+                } else {
+                    QString t;
+                    if (g.row < b.table.size() && g.col < b.table[g.row].size())
+                        for (const auto &r : b.table[g.row][g.col].runs)
+                            t += r.text;
+                    p->setPen(QColor(QStringLiteral("#1A1F24")));
+                    QFont tf(QStringLiteral("Liberation Serif"));
+                    tf.setPointSizeF(10 * lay.zoom);
+                    p->setFont(tf);
+                    p->drawText(g.rect.adjusted(4, 2, -4, -2), Qt::AlignVCenter | Qt::AlignLeft | Qt::TextWordWrap, t);
+                }
             }
             continue;
         }
@@ -571,7 +696,21 @@ void paintPage(QPainter *p, const Document &doc, const DocumentLayout &lay, int 
             }
             continue;
         }
-        QString text = runsDisplay(doc, b.runs, page, lay.pages, doc.page.hyphenate);
+        if (b.borderPt > 0) {
+            QPen bp(QColor(b.borderColor.isEmpty() ? QStringLiteral("#B5651D") : b.borderColor),
+                    qMax(qreal(0.5), b.borderPt * lay.zoom));
+            p->setPen(bp);
+            p->setBrush(Qt::NoBrush);
+            p->drawRect(lb.rect.adjusted(-2, -1, 2, 1));
+        }
+        QString raw;
+        for (const auto &r : b.runs)
+            raw += runDisplayText(doc, r, page, lay.pages);
+        const DropCapInfo dc = dropCapInfo(doc, b, b.runs, lay.zoom);
+        const int skip = dc.lines > 0 ? dc.skip : 0;
+        QString text = raw.mid(skip);
+        if (doc.page.hyphenate)
+            text = hyphenateDisplay(text);
         TextRun probe = b.runs.isEmpty() ? TextRun{} : b.runs.first();
         QFont f = fontFor(doc, b, probe, lay.zoom);
         p->setFont(f);
@@ -592,19 +731,37 @@ void paintPage(QPainter *p, const Document &doc, const DocumentLayout &lay, int 
             p->fillRect(QRectF(x0, lb.rect.top(), qMax(2.0, x1 - x0), qMin(lb.rect.height(), 22.0 * lay.zoom)),
                         QColor(QStringLiteral("#B5651D40")));
         }
+        if (dc.lines > 0 && !dc.letter.isEmpty()) {
+            p->setFont(dc.font);
+            p->setPen(col);
+            p->drawText(QPointF(lb.rect.left() + lb.markerWidth, lb.rect.top() + QFontMetricsF(dc.font).ascent()),
+                        dc.letter);
+            p->setFont(f);
+        }
         p->setPen(col);
         QTextLayout layout(text.isEmpty() ? QString() : text, f);
         QTextOption opt;
         opt.setWrapMode(QTextOption::WrapAtWordBoundaryOrAnywhere);
         const StyleDef *st = styleNamed(doc, b.style);
         opt.setAlignment(qtAlign(b.align.isEmpty() && st ? st->align : b.align));
+        applyTabs(opt, b, lay.zoom);
         layout.setTextOption(opt);
         QList<QTextLayout::FormatRange> fmts;
         int pos = 0;
+        int rawPos = 0;
         for (const auto &r : b.runs) {
+            QString disp = runDisplayText(doc, r, page, lay.pages);
+            const int rawLen = disp.size();
+            if (rawPos + rawLen <= skip) {
+                rawPos += rawLen;
+                continue;
+            }
+            disp = disp.mid(qMax(0, skip - rawPos));
+            if (doc.page.hyphenate)
+                disp = hyphenateDisplay(disp);
             QTextLayout::FormatRange fr;
             fr.start = pos;
-            fr.length = r.text.size();
+            fr.length = disp.size();
             QTextCharFormat cf;
             cf.setFont(fontFor(doc, b, r, lay.zoom));
             if (r.strike)
@@ -619,25 +776,14 @@ void paintPage(QPainter *p, const Document &doc, const DocumentLayout &lay, int 
                 cf.setForeground(QColor(QStringLiteral("#B5651D")));
             if (!r.link.isEmpty())
                 cf.setFontUnderline(true);
-            const QString disp = runDisplayText(doc, r, page, lay.pages);
-            fr.length = doc.page.hyphenate ? hyphenateDisplay(disp).size() : disp.size();
             fr.format = cf;
             fmts.append(fr);
             pos += fr.length;
+            rawPos += rawLen;
         }
         if (!fmts.isEmpty())
             layout.setFormats(fmts);
-        layout.beginLayout();
-        qreal ly = 0;
-        for (;;) {
-            QTextLine line = layout.createLine();
-            if (!line.isValid())
-                break;
-            line.setLineWidth(lb.rect.width() - lb.markerWidth);
-            line.setPosition(QPointF(0, ly));
-            ly += line.height();
-        }
-        layout.endLayout();
+        layoutLines(layout, lb.rect.width() - lb.markerWidth, dc.width, dc.lines);
         layout.draw(p, QPointF(lb.rect.left() + lb.markerWidth, lb.rect.top()));
         int openComments = 0;
         for (const auto &c : b.comments) {
@@ -695,7 +841,7 @@ QByteArray renderPagePng(const Document &doc, int page, double zoom)
     return bytes;
 }
 
-bool exportNativePdf(const Document &doc, const QString &path, QString *error)
+bool exportNativePdf(const Document &doc, const QString &path, QString *error, bool pdfa)
 {
     double wMm = 0, hMm = 0;
     doc.page.pageSizeMm(wMm, hMm);
@@ -703,6 +849,10 @@ bool exportNativePdf(const Document &doc, const QString &path, QString *error)
     writer.setPageSize(QPageSize(QSizeF(wMm, hMm), QPageSize::Millimeter));
     writer.setResolution(96);
     writer.setPageMargins(QMarginsF(0, 0, 0, 0));
+    writer.setTitle(doc.title);
+    writer.setCreator(QStringLiteral("AI Office"));
+    if (pdfa)
+        writer.setPdfVersion(QPagedPaintDevice::PdfVersion_A1b);
     QPainter p(&writer);
     if (!p.isActive()) {
         if (error)

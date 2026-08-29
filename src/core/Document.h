@@ -54,10 +54,20 @@ struct Revision {
     static Revision fromJson(const QJsonObject &o);
 };
 
+struct NestedCell {
+    QVector<TextRun> runs;
+};
+
+struct TabStop {
+    double posMm = 0;
+    QString align; // left | right | center | decimal
+};
+
 struct TableCell {
     QVector<TextRun> runs;
     int colSpan = 1;
     int rowSpan = 1;
+    QVector<QVector<NestedCell>> nested;
 };
 
 struct Comment {
@@ -98,6 +108,9 @@ struct Block {
     int orphans = 0;
     int widows = 0;
     int dropCapLines = 0;
+    QVector<TabStop> tabs;
+    QString borderColor;
+    double borderPt = 0;
     QString altText;
     QString caption;
     QString wrap;
@@ -133,6 +146,8 @@ struct PageLayout {
     double gutterMm = 0;
     double columnGapMm = 5;
     bool columnSeparator = false;
+    QString borderColor;
+    double borderPt = 0;
 
     QJsonObject toJson() const;
     static PageLayout fromJson(const QJsonObject &o);

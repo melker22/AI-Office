@@ -189,6 +189,42 @@ static QJsonArray runsToJson(const QVector<TextRun> &runs)
     return a;
 }
 
+static QJsonArray nestedToJson(const QVector<QVector<NestedCell>> &nested)
+{
+    QJsonArray rows;
+    for (const auto &row : nested) {
+        QJsonArray cells;
+        for (const auto &c : row) {
+            QJsonObject o;
+            o[QStringLiteral("runs")] = runsToJson(c.runs);
+            cells.append(o);
+        }
+        rows.append(cells);
+    }
+    return rows;
+}
+
+static QVector<QVector<NestedCell>> nestedFromJson(const QJsonValue &v)
+{
+    QVector<QVector<NestedCell>> nested;
+    for (const auto &rowV : v.toArray()) {
+        QVector<NestedCell> row;
+        for (const auto &cellV : rowV.toArray()) {
+            NestedCell cell;
+            const QJsonObject o = cellV.toObject();
+            cell.runs = runsFromJson(o.value(QStringLiteral("runs")));
+            if (cell.runs.isEmpty() && o.contains(QStringLiteral("text"))) {
+                TextRun r;
+                r.text = o.value(QStringLiteral("text")).toString();
+                cell.runs.push_back(r);
+            }
+            row.push_back(cell);
+        }
+        nested.push_back(row);
+    }
+    return nested;
+}
+
 QJsonObject Block::toJson() const
 {
     QJsonObject o;
@@ -215,6 +251,8 @@ QJsonObject Block::toJson() const
                     c[QStringLiteral("col_span")] = cell.colSpan;
                 if (cell.rowSpan > 1)
                     c[QStringLiteral("row_span")] = cell.rowSpan;
+                if (!cell.nested.isEmpty())
+                    c[QStringLiteral("nested")] = nestedToJson(cell.nested);
                 cells.append(c);
             }
             rows.append(cells);
@@ -278,6 +316,21 @@ QJsonObject Block::toJson() const
         o[QStringLiteral("widows")] = widows;
     if (dropCapLines > 0)
         o[QStringLiteral("drop_cap_lines")] = dropCapLines;
+    if (!tabs.isEmpty()) {
+        QJsonArray ta;
+        for (const auto &t : tabs) {
+            QJsonObject to;
+            to[QStringLiteral("pos_mm")] = t.posMm;
+            if (!t.align.isEmpty() && t.align != QLatin1String("left"))
+                to[QStringLiteral("align")] = t.align;
+            ta.append(to);
+        }
+        o[QStringLiteral("tabs")] = ta;
+    }
+    if (borderPt > 0)
+        o[QStringLiteral("border_pt")] = borderPt;
+    if (!borderColor.isEmpty())
+        o[QStringLiteral("border_color")] = borderColor;
     return o;
 }
 
@@ -310,6 +363,7 @@ Block Block::fromJson(const QJsonObject &o)
                 }
                 cell.colSpan = qMax(1, cellV.toObject().value(QStringLiteral("col_span")).toInt(1));
                 cell.rowSpan = qMax(1, cellV.toObject().value(QStringLiteral("row_span")).toInt(1));
+                cell.nested = nestedFromJson(cellV.toObject().value(QStringLiteral("nested")));
                 row.push_back(cell);
             }
             b.table.push_back(row);
@@ -338,6 +392,14 @@ Block Block::fromJson(const QJsonObject &o)
     b.orphans = o.value(QStringLiteral("orphans")).toInt();
     b.widows = o.value(QStringLiteral("widows")).toInt();
     b.dropCapLines = o.value(QStringLiteral("drop_cap_lines")).toInt();
+    for (const auto &t : o.value(QStringLiteral("tabs")).toArray()) {
+        TabStop ts;
+        ts.posMm = t.toObject().value(QStringLiteral("pos_mm")).toDouble();
+        ts.align = t.toObject().value(QStringLiteral("align")).toString(QStringLiteral("left"));
+        b.tabs.push_back(ts);
+    }
+    b.borderPt = o.value(QStringLiteral("border_pt")).toDouble();
+    b.borderColor = o.value(QStringLiteral("border_color")).toString();
     b.altText = o.value(QStringLiteral("alt")).toString();
     b.caption = o.value(QStringLiteral("caption")).toString();
     b.wrap = o.value(QStringLiteral("wrap")).toString();
@@ -354,6 +416,12 @@ QString Block::plainText() const
                 QString t;
                 for (const auto &r : cell.runs)
                     t += r.text;
+                for (const auto &nrow : cell.nested) {
+                    for (const auto &nc : nrow) {
+                        for (const auto &r : nc.runs)
+                            t += r.text;
+                    }
+                }
                 parts << t;
             }
         }
@@ -420,6 +488,10 @@ QJsonObject PageLayout::toJson() const
         o[QStringLiteral("column_gap_mm")] = columnGapMm;
     if (columnSeparator)
         o[QStringLiteral("column_separator")] = true;
+    if (borderPt > 0)
+        o[QStringLiteral("border_pt")] = borderPt;
+    if (!borderColor.isEmpty())
+        o[QStringLiteral("border_color")] = borderColor;
     return o;
 }
 
@@ -436,6 +508,8 @@ PageLayout PageLayout::fromJson(const QJsonObject &o)
     p.gutterMm = o.value(QStringLiteral("gutter_mm")).toDouble();
     p.columnGapMm = o.value(QStringLiteral("column_gap_mm")).toDouble(5);
     p.columnSeparator = o.value(QStringLiteral("column_separator")).toBool();
+    p.borderPt = o.value(QStringLiteral("border_pt")).toDouble();
+    p.borderColor = o.value(QStringLiteral("border_color")).toString();
     return p;
 }
 
@@ -734,6 +808,10 @@ QString runDisplayText(const Document &doc, const TextRun &r, int page, int page
         return QString::number(doc.wordCount());
     if (r.field == QLatin1String("custom"))
         return r.fieldArg.isEmpty() ? r.text : r.fieldArg;
+    if (r.field == QLatin1String("merge") || r.field == QLatin1String("mail_merge")) {
+        const QString key = r.fieldArg.isEmpty() ? r.text : r.fieldArg;
+        return key.isEmpty() ? QStringLiteral("«merge»") : QStringLiteral("«%1»").arg(key);
+    }
     if (r.field == QLatin1String("xref")) {
         const Block *t = doc.findBlock(r.fieldArg);
         if (t)

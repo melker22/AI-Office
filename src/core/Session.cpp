@@ -335,8 +335,14 @@ QJsonObject Session::exportPdf(const QJsonObject &args)
     if (pdf.isEmpty())
         return fail(QStringLiteral("path is required"));
     QString nativeErr;
-    if (exportNativePdf(doc_, pdf, &nativeErr))
-        return ok();
+    const bool pdfa = args.value(QStringLiteral("pdfa")).toBool()
+        || args.value(QStringLiteral("pdf_a")).toBool();
+    if (exportNativePdf(doc_, pdf, &nativeErr, pdfa)) {
+        auto r = ok();
+        if (pdfa)
+            r[QStringLiteral("pdfa")] = true;
+        return r;
+    }
     QTemporaryDir tmp;
     const QString odt = tmp.filePath(QStringLiteral("export.odt"));
     QString err;
@@ -547,6 +553,19 @@ QJsonObject Session::applyParagraphFormat(const QJsonObject &args)
             doc_.body[i].widows = args.value(QStringLiteral("widows")).toInt();
         if (args.contains(QStringLiteral("drop_cap_lines")))
             doc_.body[i].dropCapLines = args.value(QStringLiteral("drop_cap_lines")).toInt();
+        if (args.contains(QStringLiteral("border_pt")))
+            doc_.body[i].borderPt = args.value(QStringLiteral("border_pt")).toDouble();
+        if (args.contains(QStringLiteral("border_color")))
+            doc_.body[i].borderColor = args.value(QStringLiteral("border_color")).toString();
+        if (args.contains(QStringLiteral("tabs"))) {
+            doc_.body[i].tabs.clear();
+            for (const auto &t : args.value(QStringLiteral("tabs")).toArray()) {
+                TabStop ts;
+                ts.posMm = t.toObject().value(QStringLiteral("pos_mm")).toDouble();
+                ts.align = t.toObject().value(QStringLiteral("align")).toString(QStringLiteral("left"));
+                doc_.body[i].tabs.push_back(ts);
+            }
+        }
     }
     markChanged();
     return ok();
@@ -639,6 +658,10 @@ QJsonObject Session::setPageLayout(const QJsonObject &args)
         doc_.page.columnGapMm = args.value(QStringLiteral("column_gap_mm")).toDouble();
     if (args.contains(QStringLiteral("column_separator")))
         doc_.page.columnSeparator = args.value(QStringLiteral("column_separator")).toBool();
+    if (args.contains(QStringLiteral("border_pt")))
+        doc_.page.borderPt = args.value(QStringLiteral("border_pt")).toDouble();
+    if (args.contains(QStringLiteral("border_color")))
+        doc_.page.borderColor = args.value(QStringLiteral("border_color")).toString();
     markChanged();
     return ok();
 }
@@ -995,16 +1018,29 @@ QJsonObject Session::setCell(const QJsonObject &args)
     if (row < 0 || row >= b->table.size() || col < 0 || col >= b->table[row].size())
         return fail(QStringLiteral("cell out of range"));
     pushUndo();
-        TableCell cell;
+    TableCell &cell = b->table[row][col];
+    auto fillRuns = [&](QVector<TextRun> &runs) {
+        runs.clear();
         if (args.contains(QStringLiteral("runs"))) {
             for (const auto &v : args.value(QStringLiteral("runs")).toArray())
-                cell.runs.push_back(TextRun::fromJson(v.toObject()));
+                runs.push_back(TextRun::fromJson(v.toObject()));
         } else {
             TextRun r;
             r.text = args.value(QStringLiteral("text")).toString();
-            cell.runs.push_back(r);
+            runs.push_back(r);
         }
-    b->table[row][col] = cell;
+    };
+    if (args.contains(QStringLiteral("nested_row"))) {
+        const int nr = args.value(QStringLiteral("nested_row")).toInt();
+        const int nc = args.value(QStringLiteral("nested_col")).toInt();
+        if (nr < 0 || nr >= cell.nested.size() || nc < 0 || nc >= cell.nested[nr].size()) {
+            undo_.removeLast();
+            return fail(QStringLiteral("nested cell out of range"));
+        }
+        fillRuns(cell.nested[nr][nc].runs);
+    } else {
+        fillRuns(cell.runs);
+    }
     markChanged();
     return ok();
 }
@@ -1680,9 +1716,10 @@ QJsonObject Session::insertField(const QJsonObject &args)
                                  QStringLiteral("date"), QStringLiteral("title"),
                                  QStringLiteral("author"), QStringLiteral("xref"),
                                  QStringLiteral("filename"), QStringLiteral("file_name"),
-                                 QStringLiteral("word_count"), QStringLiteral("custom")};
+                                 QStringLiteral("word_count"), QStringLiteral("custom"),
+                                 QStringLiteral("merge"), QStringLiteral("mail_merge")};
     if (!okKinds.contains(kind))
-        return fail(QStringLiteral("kind must be page_number, page_count, date, title, author, xref, filename, word_count, or custom"));
+        return fail(QStringLiteral("kind must be page_number, page_count, date, title, author, xref, filename, word_count, custom, or merge"));
     QString id = args.value(QStringLiteral("id")).toString();
     int off = args.value(QStringLiteral("offset")).toInt(-1);
     if (id.isEmpty()) {
@@ -2018,6 +2055,96 @@ QJsonObject Session::insertCaption(const QJsonObject &args)
     return ok();
 }
 
+QJsonObject Session::nestTable(const QJsonObject &args)
+{
+    Block *b = tableBlock(args.value(QStringLiteral("id")).toString());
+    if (!b)
+        return fail(QStringLiteral("table not found"));
+    const int row = args.value(QStringLiteral("row")).toInt();
+    const int col = args.value(QStringLiteral("col")).toInt();
+    if (row < 0 || row >= b->table.size() || col < 0 || col >= b->table[row].size())
+        return fail(QStringLiteral("cell out of range"));
+    const int rows = qMax(1, args.value(QStringLiteral("rows")).toInt(2));
+    const int cols = qMax(1, args.value(QStringLiteral("cols")).toInt(2));
+    pushUndo();
+    auto &cell = b->table[row][col];
+    cell.nested.clear();
+    for (int r = 0; r < rows; ++r) {
+        QVector<NestedCell> nrow;
+        for (int c = 0; c < cols; ++c)
+            nrow.push_back(NestedCell{});
+        cell.nested.push_back(nrow);
+    }
+    markChanged();
+    return ok();
+}
+
+static void substituteMergeRuns(QVector<TextRun> &runs, const QJsonObject &rec)
+{
+    for (auto &r : runs) {
+        if (r.field == QLatin1String("merge") || r.field == QLatin1String("mail_merge")) {
+            const QString key = r.fieldArg.isEmpty() ? r.text : r.fieldArg;
+            r.text = rec.value(key).toString();
+            r.field.clear();
+            r.fieldArg.clear();
+        } else {
+            QString t = r.text;
+            for (auto it = rec.begin(); it != rec.end(); ++it)
+                t.replace(QStringLiteral("{{") + it.key() + QStringLiteral("}}"), it.value().toString());
+            r.text = t;
+        }
+    }
+}
+
+static void substituteMergeBlock(Block &b, const QJsonObject &rec)
+{
+    substituteMergeRuns(b.runs, rec);
+    for (auto &row : b.table) {
+        for (auto &cell : row) {
+            substituteMergeRuns(cell.runs, rec);
+            for (auto &nrow : cell.nested) {
+                for (auto &nc : nrow)
+                    substituteMergeRuns(nc.runs, rec);
+            }
+        }
+    }
+}
+
+QJsonObject Session::mailMerge(const QJsonObject &args)
+{
+    const QJsonArray records = args.value(QStringLiteral("records")).toArray();
+    if (records.isEmpty())
+        return fail(QStringLiteral("records is required"));
+    if (doc_.body.isEmpty())
+        return fail(QStringLiteral("document is empty"));
+    pushUndo();
+    const QVector<Block> tmpl = doc_.body;
+    doc_.body.clear();
+    QJsonArray ids;
+    for (int i = 0; i < records.size(); ++i) {
+        if (i > 0) {
+            Block br;
+            br.type = QStringLiteral("break");
+            br.breakKind = QStringLiteral("page");
+            doc_.assignId(br);
+            doc_.body.push_back(br);
+        }
+        const QJsonObject rec = records.at(i).toObject();
+        for (Block b : tmpl) {
+            b.id.clear();
+            doc_.assignId(b);
+            substituteMergeBlock(b, rec);
+            ids.append(b.id);
+            doc_.body.push_back(b);
+        }
+    }
+    markChanged();
+    auto r = ok();
+    r[QStringLiteral("copies")] = records.size();
+    r[QStringLiteral("ids")] = ids;
+    return r;
+}
+
 QJsonObject Session::validate(const QJsonObject &)
 {
     QJsonArray errors;
@@ -2306,6 +2433,20 @@ QJsonObject Session::call(const QString &tool, const QJsonObject &args)
         return setImage(args);
     if (tool == QLatin1String("insert_caption"))
         return insertCaption(args);
+    if (tool == QLatin1String("nest_table"))
+        return nestTable(args);
+    if (tool == QLatin1String("mail_merge"))
+        return mailMerge(args);
+    if (tool == QLatin1String("insert_line_break")) {
+        QJsonObject a = args;
+        a[QStringLiteral("text")] = QString(QChar::LineFeed);
+        return insertAtCaret(a);
+    }
+    if (tool == QLatin1String("insert_tab")) {
+        QJsonObject a = args;
+        a[QStringLiteral("text")] = QString(QLatin1Char('\t'));
+        return insertAtCaret(a);
+    }
     if (tool == QLatin1String("validate") || tool == QLatin1String("document_validate"))
         return validate(args);
     if (tool == QLatin1String("batch"))

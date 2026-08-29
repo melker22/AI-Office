@@ -74,6 +74,6 @@ void paintPage(QPainter *p, const Document &doc, const DocumentLayout &lay, int 
 
 PreviewResult renderPage(const Document &doc, int page, double zoom);
 QByteArray renderPagePng(const Document &doc, int page, double zoom);
-bool exportNativePdf(const Document &doc, const QString &path, QString *error);
+bool exportNativePdf(const Document &doc, const QString &path, QString *error, bool pdfa = false);
 
 } // namespace aioffice

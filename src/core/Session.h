@@ -87,6 +87,8 @@ public:
     QJsonObject tableSort(const QJsonObject &args);
     QJsonObject setImage(const QJsonObject &args);
     QJsonObject insertCaption(const QJsonObject &args);
+    QJsonObject nestTable(const QJsonObject &args);
+    QJsonObject mailMerge(const QJsonObject &args);
 
     QJsonObject validate(const QJsonObject &args);
     QJsonObject batch(const QJsonObject &args);

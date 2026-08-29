@@ -99,8 +99,8 @@ Saves to `path` or the last opened/saved path. Format from extension.
 
 ### `document_export_pdf`
 
-Args: `{ "path": string }`  
-Native `QPdfWriter` (no LibreOffice). Falls back to soffice only if native write fails.
+Args: `{ "path": string, "pdfa"?: bool }`  
+Native `QPdfWriter` (no LibreOffice). `pdfa=true` requests PDF/A-1b. Tagged PDF is not produced. Falls back to soffice only if native write fails.
 
 ### `document_get`
 
@@ -143,7 +143,8 @@ With `start`/`end`, applies to that range of the block’s plain text. Otherwise
 
 ### `apply_paragraph_format`
 
-Args: `{ "ids": ["p1"], "align"?: "left"|"center"|"right"|"justify", "style"?: string }`
+Args: `{ "ids": ["p1"], "align"?: "left"|"center"|"right"|"justify", "style"?: string, "indent_left_mm"?: number, "indent_right_mm"?: number, "indent_first_mm"?: number, "space_before_pt"?: number, "space_after_pt"?: number, "line_height"?: number, "keep_with_next"?: bool, "orphans"?: int, "widows"?: int, "drop_cap_lines"?: int, "tabs"?: [{"pos_mm": number, "align"?: "left"|"right"|"center"|"decimal"}], "border_pt"?: number, "border_color"?: string }`  
+`drop_cap_lines` ≥ 2 paints a visual drop cap in `page_preview`. Tab stops pair with `insert_tab` / `\t` in run text.
 
 ### `apply_style`
 
@@ -156,7 +157,7 @@ Args: `{ "name": string, "font"?: string, "size_pt"?: number, "bold"?: bool, "it
 
 ### `set_page_layout`
 
-Args: `{ "size"?: "A4"|"Letter", "orientation"?: "portrait"|"landscape", "margins_mm"?: [t, r, b, l], "columns"?: 1|2|3, "hyphenate"?: bool }`
+Args: `{ "size"?: "A4"|"Letter"|"Legal"|"A3"|"A5"|"A6"|"Tabloid", "orientation"?: "portrait"|"landscape", "margins_mm"?: [t, r, b, l], "columns"?: 1|2|3, "hyphenate"?: bool, "gutter_mm"?: number, "column_gap_mm"?: number, "column_separator"?: bool, "border_pt"?: number, "border_color"?: string }`
 
 ### `insert_table`
 
@@ -175,7 +176,11 @@ Args: `{ "after_id": "end", "kind": "bullet"|"decimal"|"number", "items": ["a", 
 
 ### `insert_break`
 
-Args: `{ "after_id": "end", "kind"?: "page" }`
+Args: `{ "after_id": "end", "kind"?: "page"|"column" }`
+
+### `insert_line_break` / `insert_tab`
+
+Insert `\n` or `\t` at the caret (`id`/`offset` optional). Does not split the block. Tab stops come from `apply_paragraph_format.tabs`.
 
 ### `find_replace`
 
@@ -189,7 +194,7 @@ Find without replacing. Returns `{ hits: [{id, start, end}] }`.
 
 ### `set_cell` / `insert_row` / `insert_col` / `delete_row` / `delete_col`
 
-Table surgery on a table `id` (the selected table in the GUI). `set_cell`: `{id, row, col, text|runs}`.
+Table surgery on a table `id` (the selected table in the GUI). `set_cell`: `{id, row, col, text|runs, nested_row?, nested_col?}`. `nested_*` writes into a nested table created by `nest_table`.
 
 ### `selection_get` / `set_selection` / `insert_at_caret`
 
@@ -221,8 +226,8 @@ Hiperlink na seleção (`url`). Marcador nomeado no bloco (`name`, `id` opcional
 
 ### `insert_field`
 
-Args: `{ "kind": "page_number"|"page_count"|"date"|"title"|"author"|"xref"|"filename"|"word_count"|"custom", "arg"?: string }`  
-Insere no caret. `xref`/`custom` usam `arg`.
+Args: `{ "kind": "page_number"|"page_count"|"date"|"title"|"author"|"xref"|"filename"|"word_count"|"custom"|"merge", "arg"?: string }`  
+Insere no caret. `xref`/`custom`/`merge` usam `arg`. Campo `merge` mostra `«arg»` até `mail_merge`.
 
 ### `insert_footnote` / `insert_endnote`
 
@@ -245,9 +250,15 @@ Hunspell se o binário foi compilado com a lib e existir dicionário (`DICPATH` 
 
 Mapa `{from: to}` no JSON do documento (sem GUI). O caret aplica a lista + defaults (`teh`→`the`, …).
 
-### `merge_cells` / `split_cells` / `table_sort`
+### `merge_cells` / `split_cells` / `table_sort` / `nest_table`
 
-`merge_cells {id, row, col, col_span?, row_span?}`. `table_sort {id, col}` ordena linhas de dados.
+`merge_cells {id, row, col, col_span?, row_span?}`. `table_sort {id, col}` ordena linhas de dados.  
+`nest_table {id, row, col, rows?, cols?}` cria uma tabela de um nível dentro da célula (`cell.nested` no JSON).
+
+### `mail_merge`
+
+Args: `{ "records": [ {"nome": "Ana"}, {"nome": "Bia"} ] }`  
+Clona o corpo por registo, substitui `{{chave}}` e campos `merge`, e insere quebra de página entre cópias. IDs novos. Undo restaura o modelo.
 
 ### `set_image` / `insert_caption`
 
