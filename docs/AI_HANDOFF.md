@@ -43,7 +43,7 @@
 
 **Next suggested step:** Empacotar Linux (PATH/Nix); Windows v1. Planilha e PPT = apps separados.
 
-**Commits:** (preenchido após o commit)
+**Commits:** `97a4551` feat: initial AI Office Writer under MPL-2.0
 
 ---
 
@@ -66,7 +66,7 @@
 
 **Next suggested step:** Reiniciar a GUI no eDP-1 e conferir comentário no papel + botão H. Depois empacotar PATH/Nix.
 
-**Commits:** nenhum (usuário não pediu)
+**Commits:** `97a4551` feat: initial AI Office Writer under MPL-2.0
 
 ---
 
