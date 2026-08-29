@@ -38,7 +38,7 @@ If LibreOffice is missing, the app still edits, opens, and saves **AIO JSON, ODT
 
 ## Licenses
 
-- Our code: **MPL-2.0** (same license as LibreOffice)
+- Our code: **GPL-3.0-or-later** — Copyright (C) 2026 Melker Halberd Pereira Alves
 - LibreOffice (optional runtime): **MPL-2.0** — dynamically invoked, not statically linked
 - The app never ships a model and never takes vendor API keys
 

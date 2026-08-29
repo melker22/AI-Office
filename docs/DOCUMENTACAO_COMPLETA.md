@@ -97,4 +97,4 @@ Hyprland: classe `aioffice`; eDP-1 = workspace 1. Log Qt: `QT_FORCE_STDERR_LOGGI
 
 ---
 
-*AI Office Writer · C++20 · Qt 6 · MPL-2.0 (LO opcional, também MPL)*
+*AI Office Writer · C++20 · Qt 6 · GPL-3.0-or-later · Copyright (C) 2026 Melker Halberd Pereira Alves (LO opcional: MPL)*

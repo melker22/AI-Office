@@ -67,4 +67,10 @@ Skill para agentes: [`skills/SKILL.md`](skills/SKILL.md). Contrato: [`docs/mcp-t
 
 ## Licença
 
-[Mozilla Public License 2.0](LICENSE) — a mesma licença do LibreOffice. LibreOffice, se instalado, permanece um programa MPL-2.0 separado, invocado em runtime (não há link estático).
+Copyright (C) 2026 Melker Halberd Pereira Alves
+
+[GNU General Public License v3](LICENSE) (ou, à sua escolha, qualquer versão posterior).
+
+O AI Office é software livre: pode copiar, modificar e usar noutros projetos, desde que esses projetos também sejam livres sob a GPL. O aviso de copyright (este nome) tem de ser preservado.
+
+LibreOffice, se instalado, permanece um programa MPL-2.0 separado, invocado em runtime (não há link estático).

@@ -28,6 +28,22 @@
 
 ---
 
+## 2026-08-29 — Cursor — Relicense to GPL-3.0-or-later
+
+**Objective:** Trocar MPL-2.0 por GPL para o software e os derivados continuarem livres, com o nome do autor citado.
+
+**Done:**
+- `LICENSE` = texto oficial GNU GPL v3 (29 June 2007).
+- Copyright (C) 2026 Melker Halberd Pereira Alves no README, `docs/architecture.md` e `docs/DOCUMENTACAO_COMPLETA.md`.
+
+**Decisions:** GPL-3.0-or-later (copyleft: quem reutilizar tem de manter livre). Attribution pelo aviso de copyright, que a GPL obriga a preservar. LO continua MPL, processo separado.
+
+**Next suggested step:** Empacotar Linux (PATH/Nix); Windows v1. Planilha e PPT = apps separados.
+
+**Commits:** (preenchido após o commit)
+
+---
+
 ## 2026-08-29 — Cursor — MPL-2.0 + initial git commit
 
 **Objective:** Inicializar o repositório git, publicar no GitHub, e alinhar a licença com a do LibreOffice (MPL 2.0).
