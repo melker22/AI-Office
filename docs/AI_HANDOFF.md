@@ -41,7 +41,7 @@
 
 **Next suggested step:** Round-trip ODT/DOCX das ondas A+B; mesclar células / âncora de imagem. Não implementar features neste passo.
 
-**Commits:** nenhum (usuário não pediu)
+**Commits:** `aae080d` docs: catalog Writer Guide features for the Notion roadmap
 
 ---
 
