@@ -26,6 +26,25 @@
 
 ---
 
+## 2026-08-29 — Cursor — Fase IA wave 4: runs, checkbox, carácter, envelope
+
+**Objective:** Continuar waves 3–6 (JSON+MCP+`page_preview`). Sem chrome QML. Sem push.
+
+**Done:**
+- Fonte/tamanho/cor e realce pintados no preview; `small_caps` / `caps`; `hidden`; `char_style`.
+- Checkbox: `insert_list kind=checkbox`, `toggle_check`.
+- `clear_format`, `paint_format`, `insert_special` (nbsp/shy/emdash/…).
+- Fundo da página (`background`); papéis DL/C5/C6; template `envelope`.
+- Playbook: `AIOFFICE_HEADLESS=1 aioffice play qa/wave4-runs.json`.
+
+**Decisions:** Texto oculto some no preview mas fica no JSON. Envelope = DL landscape; etiquetas ficam Partial. Sem QML.
+
+**Next suggested step:** Waves 3–6 restantes (kerning, idioma, find por formato, estilos de página/lista, etiquetas, PDF tagged). Fase Humano só quando a IA estiver plena.
+
+**Commits:** `ae64b4b` feat: add run styles, checkbox lists, and envelope template
+
+---
+
 ## 2026-08-29 — Cursor — Fase IA wave 3: tabs, drop cap, nested, merge, PDF/A
 
 **Objective:** Continuar waves 3–6 (JSON+MCP+`page_preview` apenas). Sem chrome QML. Sem push.
