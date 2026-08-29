@@ -26,6 +26,43 @@
 
 ---
 
+## 2026-08-29 — Cursor — Catálogo Writer Guide no Roadmap Notion
+
+**Objective:** Encher o Roadmap para Produção (hub AI Office) com o catálogo de ideias do Writer Guide 26.2 — Done / Partial / Todo — sem copiar código/UI do LO e sem Calc/Impress/Base.
+
+**Done:**
+- Colunas `Fonte` e `Camada` no data source `collection://f3cc11ed-9e5e-4389-b49a-ca98f98dda62`.
+- Callout do hub: sync 2026-08-29 + `docs/ATTRIBUTION.md` + este catálogo.
+- Round-trip ODT/DOCX → **Partial** (notas/campos/TOC/revisões ainda não).
+- 75 linhas novas (12 Done + 13 Partial + 50 Todo Writer/Formats). Board: 22 Done, 16 Partial, 53 Todo.
+- Espelho: `docs/WRITER_FEATURE_CATALOG.md`.
+
+**Decisions:** Ideias TDF só. Macros = MCP/CLI. Formas no documento de texto = cap. 11 no nosso canvas. Planilha/PPT continua Todo / não começar.
+
+**Next suggested step:** Round-trip ODT/DOCX das ondas A+B; mesclar células / âncora de imagem. Não implementar features neste passo.
+
+**Commits:** nenhum (usuário não pediu)
+
+---
+
+## 2026-08-29 — Cursor — Writer ondas A+B (ideias LO, código nosso)
+
+**Objective:** Implementar no Writer (JSON + MCP + GUI Tinta & Papel) as ideias de documento estruturado e edição de texto do LibreOffice Writer Guide, sem copiar código.
+
+**Done:**
+- `docs/ATTRIBUTION.md` (TDF / Writer Guide; WPS e FreeOffice fora).
+- Runs: tachado, super/sub, campos, `note_id`.
+- Bookmarks, revisões, `page.columns`, `hyphenate`, blocos footnote/endnote/toc.
+- Tools: link_set, bookmark_add, insert_crossref/field/footnote/endnote, toc_update, spellcheck, track_changes, revision_*.
+- Find `regex`; Hunspell opcional; Autocorrect no caret; hífen no layout.
+- CommandBar + Sidebar + FindBar.
+
+**Decisions:** Código nosso, GPL. LO só como referência de ideias. Ortografia só se Hunspell estiver no build.
+
+**Next suggested step:** Empacotar Linux; Windows v1. Mesclar células / âncora de imagem depois.
+
+**Commits:** `bd131dd` feat: add Writer Guide ideas in JSON, MCP, and GUI
+
 ---
 
 ## 2026-08-29 — Cursor — Relicense to GPL-3.0-or-later
