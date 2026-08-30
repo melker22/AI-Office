@@ -39,7 +39,7 @@
 
 **Next suggested step:** Social preview PNG 1280×640 quando quiserem um cartão para Discord/Twitter.
 
-**Commits:** `3af42aa` docs: present Writer on GitHub with a readable Tinta e Papel README
+**Commits:** `3694217` docs: present Writer on GitHub with a readable Tinta e Papel README
 
 ---
 
