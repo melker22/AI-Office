@@ -26,6 +26,25 @@
 
 ---
 
+## 2026-08-30 — Cursor — Fase IA wave 7: promote, listas, tabela, export MD/txt
+
+**Objective:** Continuar JSON+MCP+`page_preview` após wave 6. Sem chrome QML. Sem push.
+
+**Done:**
+- `promote_heading` / `demote_heading` (parágrafo → Heading 1; H2 ↔ H1).
+- `wrap_list` / `unwrap_list`.
+- `text_to_table`, `table_to_text`, `split_table` (e `table_sort` já existia — alinhado no board).
+- `export_markdown`, `export_text`, `copy_markdown`.
+- Playbook: `AIOFFICE_HEADLESS=1 aioffice play qa/wave7-structure-export.json`.
+
+**Decisions:** Export MD/txt não mudam o canvas; `page_preview` cobre promote/listas/tabelas. Sem QML. PDF tagged continua Partial.
+
+**Next suggested step:** keep-with-next/break-before visíveis se faltar, secções ímpar/par, bordas de célula, ou começar Fase Humano no chrome Tinta & Papel.
+
+**Commits:** `258d661` feat: add heading promote, list wrap, and Markdown export
+
+---
+
 ## 2026-08-30 — Cursor — Fase IA wave 6: HTML, molduras, ímpar/par, AutoFormat
 
 **Objective:** Continuar waves 3–6 (JSON+MCP+`page_preview`). Sem chrome QML. Sem push.

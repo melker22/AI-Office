@@ -1,6 +1,6 @@
 # Catálogo Writer — ideias do Guide, código nosso
 
-Espelho git do board **Roadmap para Produção** no Notion ([hub](https://app.notion.com/p/3cb46a79156b819daef5ea9d7c41385a)). Sync: **2026-08-30** (Fase IA wave 6: HTML, molduras, ímpar/par, AutoFormat). Totais: **85 Done**, **19 Partial**, **137 Todo**. Coluna **Fase** = `IA` | `Humano` | `Infra` | `Fora`.
+Espelho git do board **Roadmap para Produção** no Notion ([hub](https://app.notion.com/p/3cb46a79156b819daef5ea9d7c41385a)). Sync: **2026-08-30** (Fase IA wave 7: estrutura, tabela, export MD/txt). Totais: **93 Done**, **19 Partial**, **129 Todo**. Coluna **Fase** = `IA` | `Humano` | `Infra` | `Fora`.
 
 Fonte citável: The Document Foundation — [LibreOffice Writer Guide 26.2](https://books.libreoffice.org/en/WG262/WG262.html). Atribuição e limites: [`ATTRIBUTION.md`](ATTRIBUTION.md).
 
@@ -94,6 +94,14 @@ Camadas: `JSON+MCP+GUI` · `JSON+MCP` · `só JSON` · `infra`.
 | Moldura / caixa de texto | Writer | WG 26.2 cap. 11 | JSON+MCP |
 | Estilos de moldura | Writer | WG 26.2 cap. 8 | JSON+MCP |
 | Carregar estilos de um template | Writer | WG 26.2 cap. 8 | JSON+MCP |
+| Promover e despromover heading | MCP | WG 26.2 cap. 8 | JSON+MCP |
+| Envolver e desenvolver lista | MCP | WG 26.2 cap. 12 | JSON+MCP |
+| Converter texto e tabela | Writer | WG 26.2 cap. 13 | JSON+MCP |
+| Dividir tabela | Writer | WG 26.2 cap. 13 | JSON+MCP |
+| Ordenar tabela | Writer | WG 26.2 cap. 13 | JSON+MCP |
+| Exportar Markdown | Formats | WG 26.2 cap. 7 | JSON+MCP |
+| Exportar texto plano | Formats | WG 26.2 cap. 7 | JSON+MCP |
+| Copiar seleção como Markdown | Formats | infra | JSON+MCP |
 
 ## Partial
 
@@ -102,7 +110,7 @@ Camadas: `JSON+MCP+GUI` · `JSON+MCP` · `só JSON` · `infra`.
 | Shell Tinta & Papel | Design | UX Pilot | Zero vazamento Qt |
 | Linux packaging / PATH | Platform | infra | PATH global NixOS |
 | Round-trip ODT/DOCX | Formats | WG 26.2 cap. 1, 7 | Fidelidade visual LO; nested notes |
-| Autocorrect mínimo | Writer | WG 26.2 cap. 2 | AutoFormat; GUI |
+| Autocorrect mínimo | Writer | WG 26.2 cap. 2 | GUI |
 | Campos dinâmicos | Writer | WG 26.2 cap. 17 | Dezenas de tipos do Guide |
 | Colunas de página 2–3 | Writer | WG 26.2 cap. 6 | Colunas desiguais |
 | Control de alterações (inserir/apagar) | Writer | WG 26.2 cap. 3 | UI / balloons |
@@ -122,15 +130,15 @@ Critério: se cabe em JSON+IDs + MCP/CLI + canvas Tinta & Papel, entra mesmo que
 - **Runs / texto:** maiúsculas (GUI); carácter especial extra; limpar formato GUI; zona de hifenação.
 - **Página:** ímpar/par (secções); gutter; papéis extra; livreto; capítulo no header; colunas desiguais; separador; imagem no header; break-before; keep-with-next; tons de papel.
 - **Chrome:** régua; stats; zoom GUI; print preview; Navigator rico; paleta; atalhos; recents; status bar; modo leitura; split; foco/typewriter; inspector por tipo.
-- **Tabela:** estilos; sort; texto↔tabela; repeat header; bordas de célula; v_align; split; width auto; padding.
+- **Tabela:** estilos; repeat header; bordas de célula; v_align; width auto; padding.
 - **Lista:** GUI de estilos/marcador/reinício.
 - **Objectos:** rotate/flip; ajustes; opacity; lib de imagens (não Gallery); chart nosso; align; z-index; conectores.
 - **Campos / notas / TOC:** filename; word_count; user vars; input; xref heading/lista/caption; link interno; restart notas; endnotes por seção; convert note; separador; TOC níveis/outros estilos; concordância.
 - **Revisão:** accept/reject all; vista original/final; track formato; snapshots; balloons; fios; senha; read-only; redact.
-- **Export:** Markdown; txt; PDF etiquetado; página-como-imagem; copy MD; embed fontes; comments/XMP no PDF; print range/duplex.
+- **Export:** PDF etiquetado; página-como-imagem; embed fontes; comments/XMP no PDF; print range/duplex.
 - **Língua:** user.dic; underline ao escrever; vários Hunspell; padrões de hífen; Autocorrect lista; CJK vertical; ruby; kashida.
 - **Estilos:** load from template GUI.
-- **MCP (o que a IA usa):** tool por mutação restante; promote heading; wrap_list. **Feito nesta leva:** insert_html, insert_plain, insert_frame, autoformat, join_blocks, load_styles.
+- **MCP (o que a IA usa):** tool por mutação restante. **Feito nesta leva:** promote_heading, wrap_list, text_to_table, split_table, export_markdown/text, copy_markdown.
 - **Infra:** crash recovery; layout lazy; backup ~; MIME; Flatpak; Hunspell no Nix; watch file; CRDT local (anos).
 - **A11y:** alt; reading order; teclado só no canvas.
 - **Citações:** CSL ABNT/APA; etiquetas.
