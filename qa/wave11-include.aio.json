@@ -1,0 +1,19 @@
+{
+  "schema": 1,
+  "meta": { "title": "Include" },
+  "body": [
+    {
+      "id": "h1",
+      "type": "heading",
+      "level": 1,
+      "style": "Heading 1",
+      "runs": [{ "text": "Incluido" }]
+    },
+    {
+      "id": "p1",
+      "type": "paragraph",
+      "style": "Normal",
+      "runs": [{ "text": "bloco vindo do documento mestre." }]
+    }
+  ]
+}

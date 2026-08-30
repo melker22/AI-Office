@@ -12,6 +12,7 @@
 #include <QPagedPaintDevice>
 #include <QPdfWriter>
 #include <QSet>
+#include <QStringList>
 #include <QTextCharFormat>
 #include <QTextLayout>
 #include <QTextOption>
@@ -89,9 +90,25 @@ QString hyphenateDisplay(QString t, double zoneMm = 0)
     const int minLen = zoneMm > 0 ? 6 : 10;
     auto flush = [&]() {
         if (word.size() > minLen) {
+            static const QStringList tails = {
+                QStringLiteral("mente"), QStringLiteral("ção"), QStringLiteral("ções"),
+                QStringLiteral("dade"), QStringLiteral("dades"), QStringLiteral("ismo"),
+                QStringLiteral("tion"), QStringLiteral("ness"), QStringLiteral("ing"),
+                QStringLiteral("mente"), QStringLiteral("ável"), QStringLiteral("ível"),
+            };
+            int cut = -1;
+            const QString low = word.toLower();
+            for (const auto &tail : tails) {
+                if (low.size() > tail.size() + 3 && low.endsWith(tail)) {
+                    cut = word.size() - tail.size();
+                    break;
+                }
+            }
             for (int i = 0; i < word.size(); ++i) {
                 out += word[i];
-                if (i >= 3 && i + 3 < word.size() && ((i + 1) % 5 == 0))
+                if (i + 1 == cut)
+                    out += QChar(0x00AD);
+                else if (cut < 0 && i >= 3 && i + 3 < word.size() && ((i + 1) % 5 == 0))
                     out += QChar(0x00AD);
             }
         } else {
@@ -222,7 +239,7 @@ qreal layoutLines(QTextLayout &layout, qreal width, qreal dropW, int dropLines)
 }
 
 qreal measureTextHeight(const Document &doc, const Block &b, const QVector<TextRun> &runs, qreal width,
-                        qreal zoom)
+                        qreal zoom, QVector<qreal> *lineHs = nullptr)
 {
     QString text;
     for (const auto &r : runs)
@@ -242,6 +259,13 @@ qreal measureTextHeight(const Document &doc, const Block &b, const QVector<TextR
     applyTabs(opt, b, zoom);
     layout.setTextOption(opt);
     const qreal y = layoutLines(layout, width, dc.width, dc.lines);
+    if (lineHs) {
+        lineHs->clear();
+        for (int i = 0; i < layout.lineCount(); ++i)
+            lineHs->push_back(qMax(qreal(8), layout.lineAt(i).height()));
+        if (lineHs->isEmpty())
+            lineHs->push_back(qMax(QFontMetricsF(f).height(), y));
+    }
     return qMax(qMax(QFontMetricsF(f).height(), y), dc.height);
 }
 
@@ -406,6 +430,7 @@ void DocumentLayout::relayout(const Document &doc, double z)
         qreal markerW = 0;
         QString marker;
         QVector<qreal> rowH;
+        QVector<qreal> lineH;
     };
     QVector<Measure> meas;
     for (int i = 0; i < doc.body.size(); ++i) {
@@ -476,7 +501,7 @@ void DocumentLayout::relayout(const Document &doc, double z)
         qreal textW = colWidth - m.markerW - indent - mmToPx(b.indentRightMm, zoom);
         if (b.type == QLatin1String("frame") && b.imageWidthMm > 0)
             textW = qMin(textW, mmToPx(b.imageWidthMm, zoom));
-        m.height = measureTextHeight(doc, b, b.runs, qMax(qreal(20), textW), zoom);
+        m.height = measureTextHeight(doc, b, b.runs, qMax(qreal(20), textW), zoom, &m.lineH);
         if (b.type == QLatin1String("frame"))
             m.height += 12 * zoom;
         const qreal afterPt = b.spaceAfterPt >= 0 ? b.spaceAfterPt : (st ? st->spaceAfterPt : 8);
@@ -646,14 +671,93 @@ void DocumentLayout::relayout(const Document &doc, double z)
         qreal need = meas[i].before + qMax(qreal(12), meas[i].height);
         if (b.keepWithNext && i + 1 < meas.size())
             need += meas[i + 1].before + meas[i + 1].height;
-        if (y > 0 && y + need > contentH) {
+        auto newColOrPage = [&]() {
             ++col;
             y = 0;
             if (col >= colN) {
                 col = 0;
                 advancePage(false, 0);
             }
+        };
+        const bool textish = b.type == QLatin1String("paragraph") || b.type == QLatin1String("heading")
+            || b.type == QLatin1String("list-item") || b.type == QLatin1String("toc")
+            || b.type == QLatin1String("frame");
+        const QVector<qreal> &lhs = meas[i].lineH;
+        if (textish && !b.keepWithNext && lhs.size() >= 2) {
+            y += meas[i].before;
+            const int orph = b.orphans > 0 ? b.orphans : 2;
+            const int wid = b.widows > 0 ? b.widows : 2;
+            int line = 0;
+            qreal accY0 = 0;
+            const qreal indent = mmToPx(b.indentLeftMm, zoom);
+            const qreal indentR = mmToPx(b.indentRightMm, zoom);
+            qreal blockW = colW(col) - indent - indentR;
+            if (b.type == QLatin1String("frame") && b.imageWidthMm > 0)
+                blockW = qMin(blockW, mmToPx(b.imageWidthMm, zoom));
+            while (line < lhs.size()) {
+                qreal remain = contentH - y;
+                if (y > 0 && remain < lhs[line] * orph && (lhs.size() - line) >= orph) {
+                    newColOrPage();
+                    remain = contentH;
+                }
+                int take = 0;
+                qreal used = 0;
+                while (line + take < lhs.size()) {
+                    const qreal h = lhs[line + take];
+                    if (take > 0 && used + h > remain)
+                        break;
+                    used += h;
+                    ++take;
+                }
+                if (take == 0) {
+                    if (y <= 0 && line < lhs.size()) {
+                        take = 1;
+                        used = lhs[line];
+                    } else {
+                        newColOrPage();
+                        continue;
+                    }
+                }
+                const int left = int(lhs.size()) - line - take;
+                if (left > 0 && left < wid && take > wid) {
+                    take -= (wid - left);
+                    used = 0;
+                    for (int k = 0; k < take; ++k)
+                        used += lhs[line + k];
+                }
+                LaidBlock lb;
+                lb.id = b.id;
+                lb.type = b.type;
+                lb.page = page;
+                lb.marker = line == 0 ? meas[i].marker : QString();
+                lb.markerWidth = line == 0 ? meas[i].markerW : 0;
+                lb.layoutY0 = accY0;
+                lb.rect = QRectF(colX(col) + indent, marginT + headerBand + y, blockW, used);
+                blocks.push_back(lb);
+                if (line == 0) {
+                    for (const auto &r : b.runs) {
+                        if (r.noteId.isEmpty())
+                            continue;
+                        const int ni = doc.indexOf(r.noteId);
+                        if (ni < 0)
+                            continue;
+                        if (doc.body[ni].type == QLatin1String("footnote"))
+                            fnByPage[page].push_back(ni);
+                        else if (doc.body[ni].type == QLatin1String("endnote") && !pendingEn.contains(ni))
+                            pendingEn.push_back(ni);
+                    }
+                }
+                y += used;
+                for (int k = 0; k < take; ++k)
+                    accY0 += lhs[line + k];
+                line += take;
+                if (line < lhs.size())
+                    newColOrPage();
+            }
+            continue;
         }
+        if (y > 0 && y + need > contentH)
+            newColOrPage();
         y += meas[i].before;
         LaidBlock lb;
         lb.id = b.id;
@@ -865,6 +969,17 @@ void paintPage(QPainter *p, const Document &doc, const DocumentLayout &lay, int 
     }
 
     const int shown = lay.displayPage(page);
+    QMap<QString, int> pageNoteNo;
+    if (doc.page.noteRestart) {
+        int n = 0;
+        for (const auto &lb0 : lay.blocks) {
+            if (lb0.page != page)
+                continue;
+            const Block *nb = doc.findBlock(lb0.id);
+            if (nb && nb->type == QLatin1String("footnote"))
+                pageNoteNo[lb0.id] = ++n;
+        }
+    }
     const HeaderFooter &hdr = headerForPage(doc, page, shown);
     const HeaderFooter &ftr = footerForPage(doc, page, shown);
     const bool hasHeader = hdr.active();
@@ -1164,6 +1279,8 @@ void paintPage(QPainter *p, const Document &doc, const DocumentLayout &lay, int 
         QString raw;
         for (const auto &r : b.runs)
             raw += runDisplayText(doc, r, shown, lay.pages);
+        if (b.type == QLatin1String("footnote") && doc.page.noteRestart && pageNoteNo.contains(b.id))
+            raw = QString::number(pageNoteNo.value(b.id)) + QStringLiteral("  ") + raw;
         if (b.type == QLatin1String("heading") && chapNo.contains(b.id))
             raw = chapNo.value(b.id) + QStringLiteral("  ") + raw;
         const DropCapInfo dc = dropCapInfo(doc, b, b.runs, lay.zoom);
@@ -1240,6 +1357,8 @@ void paintPage(QPainter *p, const Document &doc, const DocumentLayout &lay, int 
         int rawPos = 0;
         for (const auto &r : b.runs) {
             QString disp = runDisplayText(doc, r, shown, lay.pages);
+            if (!r.noteId.isEmpty() && doc.page.noteRestart && pageNoteNo.contains(r.noteId))
+                disp = QString::number(pageNoteNo.value(r.noteId));
             const int rawLen = disp.size();
             if (rawPos + rawLen <= skip) {
                 rawPos += rawLen;
@@ -1278,7 +1397,10 @@ void paintPage(QPainter *p, const Document &doc, const DocumentLayout &lay, int 
         if (!fmts.isEmpty())
             layout.setFormats(fmts);
         layoutLines(layout, lb.rect.width() - lb.markerWidth, dc.width, dc.lines);
-        layout.draw(p, QPointF(lb.rect.left() + lb.markerWidth, lb.rect.top()));
+        p->save();
+        p->setClipRect(lb.rect.adjusted(-2, -1, 2, 1));
+        layout.draw(p, QPointF(lb.rect.left() + lb.markerWidth, lb.rect.top() - lb.layoutY0));
+        p->restore();
         {
             qreal rx = lb.rect.left() + lb.markerWidth;
             QFont rf = f;
@@ -1364,7 +1486,7 @@ QByteArray renderPagePng(const Document &doc, int page, double zoom)
 }
 
 bool exportNativePdf(const Document &doc, const QString &path, QString *error, bool pdfa,
-                     int fromPage, int toPage, bool booklet)
+                     int fromPage, int toPage, bool booklet, int copies, bool comments)
 {
     double wMm = 0, hMm = 0;
     doc.page.pageSizeMm(wMm, hMm);
@@ -1420,22 +1542,59 @@ bool exportNativePdf(const Document &doc, const QString &path, QString *error, b
         paintPage(&p, doc, lay, pg);
         p.restore();
     };
-    if (booklet) {
-        for (int i = 0; i < seq.size(); i += 2) {
-            if (i > 0)
-                writer.newPage();
-            const qreal half = writer.width() / 2.0;
-            const qreal hh = writer.height();
-            paintDocPage(seq.value(i), QRectF(0, 0, half, hh));
-            paintDocPage(seq.value(i + 1), QRectF(half, 0, half, hh));
+    bool first = true;
+    auto emitSeq = [&]() {
+        if (booklet) {
+            for (int i = 0; i < seq.size(); i += 2) {
+                if (!first)
+                    writer.newPage();
+                first = false;
+                const qreal half = writer.width() / 2.0;
+                const qreal hh = writer.height();
+                paintDocPage(seq.value(i), QRectF(0, 0, half, hh));
+                paintDocPage(seq.value(i + 1), QRectF(half, 0, half, hh));
+            }
+        } else {
+            for (int pg : seq) {
+                if (!first)
+                    writer.newPage();
+                first = false;
+                paintDocPage(pg, QRectF(0, 0, writer.width(), writer.height()));
+            }
         }
-    } else {
-        bool first = true;
-        for (int pg : seq) {
+    };
+    const int nCopies = qMax(1, copies);
+    for (int c = 0; c < nCopies; ++c)
+        emitSeq();
+    if (comments) {
+        QStringList lines;
+        for (const auto &b : doc.body) {
+            for (const auto &cm : b.comments) {
+                if (cm.resolved)
+                    continue;
+                lines << QStringLiteral("%1 [%2]: %3").arg(b.id, cm.author, cm.text);
+            }
+        }
+        if (!lines.isEmpty()) {
             if (!first)
                 writer.newPage();
             first = false;
-            paintDocPage(pg, QRectF(0, 0, writer.width(), writer.height()));
+            p.fillRect(QRectF(0, 0, writer.width(), writer.height()), QColor(QStringLiteral("#FDFBF7")));
+            QFont cf(QStringLiteral("IBM Plex Sans"));
+            cf.setPointSize(11);
+            p.setFont(cf);
+            p.setPen(QColor(QStringLiteral("#2A2420")));
+            qreal y = 48;
+            p.drawText(QPointF(36, y), QStringLiteral("Comentários"));
+            y += 28;
+            cf.setPointSize(9);
+            p.setFont(cf);
+            for (const auto &line : lines) {
+                p.drawText(QRectF(36, y, writer.width() - 72, 40), Qt::TextWordWrap, line);
+                y += 36;
+                if (y > writer.height() - 48)
+                    break;
+            }
         }
     }
     p.end();

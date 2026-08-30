@@ -59,6 +59,7 @@ struct Revision {
     int start = 0;
     int end = 0;
     QString text;
+    QString payload; // format JSON when kind=format
     qint64 timestamp = 0;
 
     QJsonObject toJson() const;

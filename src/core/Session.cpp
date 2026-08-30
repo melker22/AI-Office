@@ -13,6 +13,7 @@
 #include <QFileInfo>
 #include <QJsonArray>
 #include <QJsonDocument>
+#include <QJsonObject>
 #include <QMap>
 #include <QRegularExpression>
 #include <QSet>
@@ -378,7 +379,9 @@ QJsonObject Session::exportPdf(const QJsonObject &args)
     if (exportNativePdf(doc_, pdf, &nativeErr, pdfa,
                         args.value(QStringLiteral("from")).toInt(),
                         args.value(QStringLiteral("to")).toInt(),
-                        args.value(QStringLiteral("booklet")).toBool() || doc_.page.booklet)) {
+                        args.value(QStringLiteral("booklet")).toBool() || doc_.page.booklet,
+                        qMax(1, args.value(QStringLiteral("copies")).toInt(1)),
+                        args.value(QStringLiteral("comments")).toBool())) {
         auto r = ok();
         if (pdfa)
             r[QStringLiteral("pdfa")] = true;
@@ -537,7 +540,10 @@ QJsonObject Session::applyCharacterFormat(const QJsonObject &args)
         rev.author = doc_.author.isEmpty() ? QStringLiteral("IA") : doc_.author;
         rev.kind = QStringLiteral("format");
         rev.blockId = doc_.body[idx.first()].id;
+        rev.start = start;
+        rev.end = end;
         rev.timestamp = QDateTime::currentMSecsSinceEpoch();
+        rev.payload = QString::fromUtf8(QJsonDocument(args).toJson(QJsonDocument::Compact));
         doc_.revisions.push_back(rev);
     }
     markChanged();
@@ -929,8 +935,10 @@ QJsonObject Session::findReplace(const QJsonObject &args)
     }
     pushUndo();
     int count = 0;
+    const QJsonObject fmt = args.value(QStringLiteral("format")).toObject();
     auto replaceRuns = [&](QVector<TextRun> &runs) {
         for (auto &r : runs) {
+            bool hit = false;
             if (useRe) {
                 if (!re.match(r.text).hasMatch())
                     continue;
@@ -938,12 +946,16 @@ QJsonObject Session::findReplace(const QJsonObject &args)
                     const int n = r.text.count(re);
                     r.text.replace(re, repl);
                     count += n;
+                    hit = n > 0;
                 } else {
                     const auto m = re.match(r.text);
                     if (!m.hasMatch())
                         continue;
                     r.text.replace(m.capturedStart(), m.capturedLength(), repl);
                     ++count;
+                    hit = true;
+                    if (!fmt.isEmpty())
+                        applyFormatToRun(r, fmt);
                     return true;
                 }
             } else {
@@ -952,12 +964,18 @@ QJsonObject Session::findReplace(const QJsonObject &args)
                 if (all) {
                     count += r.text.count(find);
                     r.text.replace(find, repl);
+                    hit = true;
                 } else {
                     r.text.replace(r.text.indexOf(find), find.size(), repl);
                     ++count;
+                    hit = true;
+                    if (!fmt.isEmpty())
+                        applyFormatToRun(r, fmt);
                     return true;
                 }
             }
+            if (hit && !fmt.isEmpty())
+                applyFormatToRun(r, fmt);
         }
         return false;
     };
@@ -2204,9 +2222,10 @@ QJsonObject Session::insertField(const QJsonObject &args)
                                  QStringLiteral("chapter"), QStringLiteral("var"),
                                  QStringLiteral("variable"), QStringLiteral("input"),
                                  QStringLiteral("time"), QStringLiteral("cite"),
-                                 QStringLiteral("citation")};
+                                 QStringLiteral("citation"), QStringLiteral("filepath"),
+                                 QStringLiteral("file_path"), QStringLiteral("path")};
     if (!okKinds.contains(kind))
-        return fail(QStringLiteral("kind must be page_number, page_count, date, title, author, xref, filename, word_count, custom, merge, chapter, var, input, time, or cite"));
+        return fail(QStringLiteral("kind must be page_number, page_count, date, title, author, xref, filename, word_count, custom, merge, chapter, var, input, time, cite, or filepath"));
     QString id = args.value(QStringLiteral("id")).toString();
     int off = args.value(QStringLiteral("offset")).toInt(-1);
     if (id.isEmpty()) {
@@ -2322,9 +2341,13 @@ QJsonObject Session::tocUpdate(const QJsonObject &args)
         if (!heading && !styled)
             continue;
         const int lv = heading ? b.level : 1;
+        const QString tocName = QStringLiteral("TOC %1").arg(qBound(1, lv, 6));
+        if (!styleByName(doc_, tocName))
+            doc_.styles.push_back(defaultStyle(tocName));
         TextRun r;
         r.text = QString(qMax(0, lv - 1) * 2, QLatin1Char(' ')) + b.plainText() + QLatin1Char('\n');
         r.link = QStringLiteral("#") + b.id;
+        r.charStyle = tocName;
         built.runs.push_back(r);
         built.tocTargets.push_back(b.id);
     }
@@ -4254,6 +4277,169 @@ QJsonObject Session::revisionView(const QJsonObject &args)
     return r;
 }
 
+QJsonObject Session::imageLibraryAdd(const QJsonObject &args)
+{
+    const QString path = args.value(QStringLiteral("path")).toString();
+    if (path.isEmpty())
+        return fail(QStringLiteral("path is required"));
+    pushUndo();
+    if (!doc_.imageLibrary.contains(path))
+        doc_.imageLibrary.push_back(path);
+    markChanged();
+    auto r = ok();
+    r[QStringLiteral("count")] = doc_.imageLibrary.size();
+    return r;
+}
+
+QJsonObject Session::imageLibraryList(const QJsonObject &)
+{
+    QJsonArray a;
+    for (const auto &p : doc_.imageLibrary)
+        a.append(p);
+    auto r = ok();
+    r[QStringLiteral("paths")] = a;
+    return r;
+}
+
+QJsonObject Session::imageLibraryInsert(const QJsonObject &args)
+{
+    QString path = args.value(QStringLiteral("path")).toString();
+    if (path.isEmpty()) {
+        const int i = args.value(QStringLiteral("index")).toInt(-1);
+        if (i < 0 || i >= doc_.imageLibrary.size())
+            return fail(QStringLiteral("path or index is required"));
+        path = doc_.imageLibrary.at(i);
+    }
+    QJsonObject a = args;
+    a[QStringLiteral("path")] = path;
+    return insertImage(a);
+}
+
+QJsonObject Session::insertBibliography(const QJsonObject &args)
+{
+    if (doc_.bibliography.isEmpty())
+        return fail(QStringLiteral("bibliography is empty"));
+    const QString style = args.value(QStringLiteral("style")).toString(QStringLiteral("apa")).toLower();
+    QString err;
+    int at = insertIndex(args.value(QStringLiteral("after_id")).toString(QStringLiteral("end")), &err);
+    if (at < 0)
+        return fail(err);
+    pushUndo();
+    Block heading;
+    heading.type = QStringLiteral("heading");
+    heading.level = 1;
+    heading.style = QStringLiteral("Heading 1");
+    TextRun ht;
+    ht.text = args.value(QStringLiteral("title")).toString(QStringLiteral("Referências"));
+    heading.runs.push_back(ht);
+    doc_.assignId(heading);
+    doc_.body.insert(at++, heading);
+    QJsonArray ids;
+    ids.append(heading.id);
+    for (const auto &e : doc_.bibliography) {
+        Block para;
+        para.type = QStringLiteral("paragraph");
+        para.style = QStringLiteral("Normal");
+        TextRun r;
+        if (style == QLatin1String("abnt")) {
+            r.text = e.author.toUpper();
+            if (!r.text.isEmpty())
+                r.text += QStringLiteral(". ");
+            r.text += e.title;
+            if (!e.title.isEmpty() && !e.year.isEmpty())
+                r.text += QStringLiteral(". ");
+            r.text += e.year;
+            if (!e.year.isEmpty())
+                r.text += QLatin1Char('.');
+        } else {
+            r.text = e.author;
+            if (!e.year.isEmpty())
+                r.text += QStringLiteral(" (") + e.year + QStringLiteral("). ");
+            else if (!r.text.isEmpty())
+                r.text += QStringLiteral(". ");
+            r.text += e.title;
+            if (!e.title.isEmpty())
+                r.text += QLatin1Char('.');
+        }
+        para.runs.push_back(r);
+        doc_.assignId(para);
+        doc_.body.insert(at++, para);
+        ids.append(para.id);
+    }
+    markChanged();
+    auto r = ok();
+    r[QStringLiteral("ids")] = ids;
+    r[QStringLiteral("id")] = heading.id;
+    return r;
+}
+
+static void remapRunIds(QVector<TextRun> &runs, const QMap<QString, QString> &idMap)
+{
+    for (auto &run : runs) {
+        if (!run.noteId.isEmpty() && idMap.contains(run.noteId))
+            run.noteId = idMap.value(run.noteId);
+        if (!run.fieldArg.isEmpty() && idMap.contains(run.fieldArg))
+            run.fieldArg = idMap.value(run.fieldArg);
+        if (run.link.startsWith(QLatin1Char('#'))) {
+            const QString old = run.link.mid(1);
+            if (idMap.contains(old))
+                run.link = QLatin1Char('#') + idMap.value(old);
+        }
+    }
+}
+
+QJsonObject Session::documentInclude(const QJsonObject &args)
+{
+    const QString path = args.value(QStringLiteral("path")).toString();
+    if (path.isEmpty())
+        return fail(QStringLiteral("path is required"));
+    QFile f(path);
+    if (!f.open(QIODevice::ReadOnly))
+        return fail(QStringLiteral("cannot read ") + path);
+    QJsonParseError pe;
+    const auto docj = QJsonDocument::fromJson(f.readAll(), &pe);
+    if (pe.error != QJsonParseError::NoError || !docj.isObject())
+        return fail(QStringLiteral("invalid JSON: ") + pe.errorString());
+    Document other = Document::fromJson(docj.object());
+    QString err;
+    int at = insertIndex(args.value(QStringLiteral("after_id")).toString(QStringLiteral("end")), &err);
+    if (at < 0)
+        return fail(err);
+    pushUndo();
+    QMap<QString, QString> idMap;
+    QVector<Block> incoming = other.body;
+    for (auto &b : incoming) {
+        const QString old = b.id;
+        b.id.clear();
+        doc_.assignId(b);
+        if (!old.isEmpty())
+            idMap[old] = b.id;
+    }
+    for (auto &b : incoming) {
+        remapRunIds(b.runs, idMap);
+        for (auto &row : b.table) {
+            for (auto &cell : row)
+                remapRunIds(cell.runs, idMap);
+        }
+        if (!b.connectTo.isEmpty() && idMap.contains(b.connectTo))
+            b.connectTo = idMap.value(b.connectTo);
+        for (auto &t : b.tocTargets) {
+            if (idMap.contains(t))
+                t = idMap.value(t);
+        }
+    }
+    QJsonArray ids;
+    for (auto &b : incoming) {
+        doc_.body.insert(at++, b);
+        ids.append(b.id);
+    }
+    markChanged();
+    auto r = ok();
+    r[QStringLiteral("ids")] = ids;
+    r[QStringLiteral("count")] = ids.size();
+    return r;
+}
+
 QJsonObject Session::validate(const QJsonObject &)
 {
     QJsonArray errors;
@@ -4455,6 +4641,7 @@ QJsonObject Session::call(const QString &tool, const QJsonObject &args)
         QStringLiteral("snapshot_list"),
         QStringLiteral("repeat_last"),
         QStringLiteral("revision_view"),
+        QStringLiteral("image_library_list"),
     };
     if (doc_.readOnly && !kReadOnlyOk.contains(tool))
         return fail(QStringLiteral("document is read-only"));
@@ -4720,6 +4907,16 @@ QJsonObject Session::dispatchTool(const QString &tool, const QJsonObject &args)
         return alignObjects(args);
     if (tool == QLatin1String("revision_view"))
         return revisionView(args);
+    if (tool == QLatin1String("image_library_add"))
+        return imageLibraryAdd(args);
+    if (tool == QLatin1String("image_library_list"))
+        return imageLibraryList(args);
+    if (tool == QLatin1String("image_library_insert"))
+        return imageLibraryInsert(args);
+    if (tool == QLatin1String("insert_bibliography"))
+        return insertBibliography(args);
+    if (tool == QLatin1String("document_include"))
+        return documentInclude(args);
     if (tool == QLatin1String("insert_line_break")) {
         QJsonObject a = args;
         a[QStringLiteral("text")] = QString(QChar::LineFeed);

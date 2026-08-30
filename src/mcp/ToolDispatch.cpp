@@ -49,7 +49,9 @@ QJsonArray toolDefinitions()
                               {QStringLiteral("pdfa"), prop(QStringLiteral("boolean"), QStringLiteral("PDF/A-1b via QPdfWriter"))},
                               {QStringLiteral("from"), prop(QStringLiteral("integer"))},
                               {QStringLiteral("to"), prop(QStringLiteral("integer"))},
-                              {QStringLiteral("booklet"), prop(QStringLiteral("boolean"))}},
+                              {QStringLiteral("booklet"), prop(QStringLiteral("boolean"))},
+                              {QStringLiteral("copies"), prop(QStringLiteral("integer"))},
+                              {QStringLiteral("comments"), prop(QStringLiteral("boolean"), QStringLiteral("Append a comments page (not PDF annotations)"))}},
                   QJsonArray{QStringLiteral("path")}));
     a.append(tool(QStringLiteral("document_get"),
                   QStringLiteral("Return the full semantic JSON (stable block ids, styles, page layout)."),
@@ -209,11 +211,12 @@ QJsonArray toolDefinitions()
                               {QStringLiteral("page_number"), prop(QStringLiteral("integer"))},
                               {QStringLiteral("hidden"), prop(QStringLiteral("boolean"))}}));
     a.append(tool(QStringLiteral("find_replace"),
-                  QStringLiteral("Find/replace. regex=true uses QRegularExpression."),
+                  QStringLiteral("Find/replace. regex=true uses QRegularExpression. Optional format={bold,...} applied to replaced runs."),
                   QJsonObject{{QStringLiteral("find"), prop(QStringLiteral("string"))},
                               {QStringLiteral("replace"), prop(QStringLiteral("string"))},
                               {QStringLiteral("all"), prop(QStringLiteral("boolean"))},
-                              {QStringLiteral("regex"), prop(QStringLiteral("boolean"))}},
+                              {QStringLiteral("regex"), prop(QStringLiteral("boolean"))},
+                              {QStringLiteral("format"), prop(QStringLiteral("object"))}},
                   QJsonArray{QStringLiteral("find")}));
     a.append(tool(QStringLiteral("undo"), QStringLiteral("Undo the last semantic edit."), {}));
     a.append(tool(QStringLiteral("redo"), QStringLiteral("Redo."), {}));
@@ -377,7 +380,7 @@ QJsonArray toolDefinitions()
                   QJsonObject{{QStringLiteral("target"), prop(QStringLiteral("string"))}},
                   QJsonArray{QStringLiteral("target")}));
     a.append(tool(QStringLiteral("insert_field"),
-                  QStringLiteral("Insert a field: page_number, page_count, date, title, author, xref, filename, word_count, custom, merge, chapter, var, input, time, cite."),
+                  QStringLiteral("Insert a field: page_number, page_count, date, title, author, xref, filename, word_count, custom, merge, chapter, var, input, time, cite, filepath."),
                   QJsonObject{{QStringLiteral("kind"), prop(QStringLiteral("string"))},
                               {QStringLiteral("arg"), prop(QStringLiteral("string"))},
                               {QStringLiteral("id"), prop(QStringLiteral("string"))},
@@ -392,7 +395,7 @@ QJsonArray toolDefinitions()
                   QJsonObject{{QStringLiteral("text"), prop(QStringLiteral("string"))},
                               {QStringLiteral("id"), prop(QStringLiteral("string"))}}));
     a.append(tool(QStringLiteral("toc_update"),
-                  QStringLiteral("Create or refresh a table of contents from headings. Optional min_level, max_level, styles[] extra paragraph styles."),
+                  QStringLiteral("Create or refresh a table of contents from headings. Applies named styles TOC 1…TOC 6. Optional min_level, max_level, styles[] extra paragraph styles."),
                   QJsonObject{{QStringLiteral("min_level"), prop(QStringLiteral("integer"))},
                               {QStringLiteral("max_level"), prop(QStringLiteral("integer"))},
                               {QStringLiteral("styles"), prop(QStringLiteral("array"))}}));
@@ -777,6 +780,29 @@ QJsonArray toolDefinitions()
     a.append(tool(QStringLiteral("revision_view"),
                   QStringLiteral("Set revision view: original|final|empty. Returned on document_get."),
                   QJsonObject{{QStringLiteral("view"), prop(QStringLiteral("string"))}}));
+    a.append(tool(QStringLiteral("image_library_add"),
+                  QStringLiteral("Append a path to the document image library."),
+                  QJsonObject{{QStringLiteral("path"), prop(QStringLiteral("string"))}},
+                  QJsonArray{QStringLiteral("path")}));
+    a.append(tool(QStringLiteral("image_library_list"),
+                  QStringLiteral("List image library paths."),
+                  {}));
+    a.append(tool(QStringLiteral("image_library_insert"),
+                  QStringLiteral("Insert an image from the library (index or path) after after_id."),
+                  QJsonObject{{QStringLiteral("index"), prop(QStringLiteral("integer"))},
+                              {QStringLiteral("path"), prop(QStringLiteral("string"))},
+                              {QStringLiteral("after_id"), prop(QStringLiteral("string"))},
+                              {QStringLiteral("width_mm"), prop(QStringLiteral("number"))}}));
+    a.append(tool(QStringLiteral("insert_bibliography"),
+                  QStringLiteral("Insert a bibliography list from document entries. style=apa|abnt (lite, not CSL)."),
+                  QJsonObject{{QStringLiteral("after_id"), prop(QStringLiteral("string"))},
+                              {QStringLiteral("title"), prop(QStringLiteral("string"))},
+                              {QStringLiteral("style"), prop(QStringLiteral("string"))}}));
+    a.append(tool(QStringLiteral("document_include"),
+                  QStringLiteral("Insert another .aio.json body after after_id, assigning new stable IDs."),
+                  QJsonObject{{QStringLiteral("path"), prop(QStringLiteral("string"))},
+                              {QStringLiteral("after_id"), prop(QStringLiteral("string"))}},
+                  QJsonArray{QStringLiteral("path")}));
     return a;
 }
 

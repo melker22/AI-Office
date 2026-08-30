@@ -46,6 +46,7 @@ struct LaidBlock {
     qreal markerWidth = 0;
     QString marker;
     QVector<CellGeom> cells;
+    qreal layoutY0 = 0;
 };
 
 struct DocumentLayout {
@@ -77,6 +78,7 @@ void paintPage(QPainter *p, const Document &doc, const DocumentLayout &lay, int 
 PreviewResult renderPage(const Document &doc, int page, double zoom);
 QByteArray renderPagePng(const Document &doc, int page, double zoom);
 bool exportNativePdf(const Document &doc, const QString &path, QString *error, bool pdfa = false,
-                     int fromPage = 0, int toPage = 0, bool booklet = false);
+                     int fromPage = 0, int toPage = 0, bool booklet = false, int copies = 1,
+                     bool comments = false);
 
 } // namespace aioffice

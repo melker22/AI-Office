@@ -145,6 +145,11 @@ public:
     QJsonObject documentLinks(const QJsonObject &args);
     QJsonObject alignObjects(const QJsonObject &args);
     QJsonObject revisionView(const QJsonObject &args);
+    QJsonObject imageLibraryAdd(const QJsonObject &args);
+    QJsonObject imageLibraryList(const QJsonObject &args);
+    QJsonObject imageLibraryInsert(const QJsonObject &args);
+    QJsonObject insertBibliography(const QJsonObject &args);
+    QJsonObject documentInclude(const QJsonObject &args);
 
     QJsonObject validate(const QJsonObject &args);
     QJsonObject batch(const QJsonObject &args);

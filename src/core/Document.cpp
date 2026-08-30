@@ -165,6 +165,8 @@ QJsonObject Revision::toJson() const
     o[QStringLiteral("end")] = end;
     o[QStringLiteral("text")] = text;
     o[QStringLiteral("timestamp")] = double(timestamp);
+    if (!payload.isEmpty())
+        o[QStringLiteral("payload")] = payload;
     return o;
 }
 
@@ -179,6 +181,7 @@ Revision Revision::fromJson(const QJsonObject &o)
     r.end = o.value(QStringLiteral("end")).toInt();
     r.text = o.value(QStringLiteral("text")).toString();
     r.timestamp = qint64(o.value(QStringLiteral("timestamp")).toDouble());
+    r.payload = o.value(QStringLiteral("payload")).toString();
     return r;
 }
 
@@ -850,6 +853,11 @@ StyleDef defaultStyle(const QString &name)
         s.italic = true;
         s.sizePt = 12;
         s.color = QStringLiteral("#4A5560");
+    } else if (name.startsWith(QLatin1String("TOC "))) {
+        const int lv = qBound(1, name.mid(4).trimmed().toInt(), 6);
+        s.sizePt = qMax(9.0, 13.0 - lv);
+        s.spaceAfterPt = 2;
+        s.italic = lv > 1;
     } else {
         s.name = QStringLiteral("Normal");
         s.sizePt = 12;
@@ -1221,7 +1229,9 @@ QString runDisplayText(const Document &doc, const TextRun &r, int page, int page
         t = doc.title;
     else if (r.field == QLatin1String("author"))
         t = doc.author.isEmpty() ? QStringLiteral("—") : doc.author;
-    else if (r.field == QLatin1String("filename") || r.field == QLatin1String("file_name"))
+    else if (r.field == QLatin1String("filename") || r.field == QLatin1String("file_name")
+             || r.field == QLatin1String("filepath") || r.field == QLatin1String("file_path")
+             || r.field == QLatin1String("path"))
         t = doc.fileName.isEmpty() ? doc.title : doc.fileName;
     else if (r.field == QLatin1String("word_count"))
         t = QString::number(doc.wordCount());
