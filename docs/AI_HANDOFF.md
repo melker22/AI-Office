@@ -26,6 +26,28 @@
 
 ---
 
+## 2026-08-30 — Cursor — Fase IA wave 11: órfãs, biblioteca, notas, mestre
+
+**Objective:** Regra always-apply «implementar, não descartar» + continuar a Fase IA (JSON+IDs + MCP + `page_preview`). Sem QML novo.
+
+**Done:**
+- Regra `.cursor/rules/implement-dont-discard.mdc` (`alwaysApply`).
+- Órfãs/viúvas: parágrafo parte entre páginas (clip + `layoutY0`).
+- Notas: `note_restart` numera por página no preview.
+- Biblioteca de imagens MCP; `insert_bibliography` APA/ABNT-lite; `document_include`.
+- Track de formato (`Revision.payload`); `find_replace` com `format`; estilos `TOC 1`…`TOC 6`.
+- PDF `copies` + página de comentários; hífen com sufixos; campo `filepath`.
+- Playbook: `AIOFFICE_HEADLESS=1 aioffice play qa/wave11-ia-continue.json` (`valid: true`, 4 páginas).
+- Notion: **183 Done / 18 Partial / 40 Todo**.
+
+**Decisions:** Comentários PDF = página extra (QPainter não emite anotações). Duplex = SO. CSL/tagged PDF/hífen TeX = Partial honesto. Sem chrome QML. Sem push.
+
+**Next suggested step:** Onda 12 no que ainda for IA no board, ou Fase Humano no chrome. Testes golden só quando o utilizador pedir.
+
+**Commits:** `06bd863` feat: split paragraphs for orphans and add library MCP tools
+
+---
+
 ## 2026-08-30 — Cursor — Fase IA wave 10: objectos, página, revisão
 
 **Objective:** Continuar a Fase IA (JSON+IDs + MCP + `page_preview`). Não descartar formas/QR/ruby/livreto por serem “grandes”. Sem QML novo.

@@ -338,10 +338,21 @@ Insere um Heading 1 e um parágrafo por termo com números de página (`concorda
 - `align_objects {align: left|center|right|distribute}`
 - `revision_view {view: original|final}`
 - `set_page_layout` extra: `width_mm`, `height_mm`, `tone`, `grid_mm`, `line_numbers`, `chapter_numbers`, `gutter_mirror`, `hyphen_zone_mm`, `booklet`, `writing_mode`
-- `document_export_pdf` extra: `from`, `to`, `booklet` (2-up)
+- `document_export_pdf` extra: `from`, `to`, `booklet` (2-up), `copies`, `comments` (página extra, não anotações PDF)
 - `set_image` extra: `flip_h`, `flip_v`, `crop`, `shadow_pt`, `z_index`
 - `comment_add` extra: `parent_id`
-- `insert_field` extra: `time`, `cite`
+- `insert_field` extra: `time`, `cite`, `filepath`
+
+### Wave 11 — biblioteca, órfãs, notas, mestre
+
+- `image_library_add` `{path}` / `image_library_list` / `image_library_insert` `{index|path, after_id?}`
+- `insert_bibliography` `{style: apa|abnt, title?, after_id?}` — lista APA/ABNT-lite a partir de `bibliography_set` (não é CSL)
+- `document_include` `{path, after_id?}` — insere outro `.aio.json` com IDs novos
+- `find_replace` extra: `format` aplicado aos runs substituídos
+- `toc_update` cria estilos nomeados `TOC 1`…`TOC 6` e aplica `char_style` por nível
+- `track_changes` + `apply_character_format` grava `Revision.payload` (JSON do formato)
+- `set_page_layout` `note_restart` numera notas por página no `page_preview`
+- Órfãs/viúvas: o parágrafo parte entre páginas (default 2 linhas)
 
 ### `spellcheck`
 

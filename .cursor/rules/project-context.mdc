@@ -23,6 +23,7 @@ Writer nativo (Linux + Windows v1). A IA do usuário edita o documento via MCP/C
 
 - **Design > framework:** Tinta & Papel (UX Pilot). Qt `Basic`. Componentes `Ui*`. Ver `design-overrides-qt.mdc`.
 - **Source of truth:** `.aio.json` com IDs. Não quebrar o contrato `{ok:false,error}`.
+- **Implementar, não descartar:** ver `implement-dont-discard.mdc`. Complexidade informa; o utilizador decide; depois implementa-se.
 - **Não começar** planilha nem apresentação enquanto o Writer não round-tripar ODT/DOCX.
 
 ## Infra local (NixOS)

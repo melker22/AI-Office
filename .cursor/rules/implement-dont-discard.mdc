@@ -1,0 +1,29 @@
+---
+description: Implementar funcionalidades pedidas; não descartar por tamanho ou complexidade
+alwaysApply: true
+---
+
+# Implementar, não descartar
+
+A implementação das funcionalidades pedidas é **essencial**. Descartar, adiar para “anos”, reclassificar como Fora, ou pular um item porque o trabalho é grande, difícil ou “não cabe nesta onda” é **inaceitável**, excepto se o utilizador pedir explicitamente para não implementar.
+
+## Obrigatório
+
+- Informar complexidade e um processo viável (ondas, fatias JSON+MCP+`page_preview`, limites honestos do stack).
+- Se o utilizador, **depois** de saber isso, disser para implementar: **implementar**. Não negociar de novo o descarte.
+- Ondas e pausas são permitidas. Tempo não é desculpa para omitir o que foi pedido.
+- “Permitted” neste Writer = dados no `.aio.json` com IDs + MCP/CLI `{ok:false,error}` + `page_preview`. Chrome QML = Fase Humano (não é descarte da IA). Packaging/CRDT/senha = Infra.
+
+## Proibido
+
+```
+❌ BAD — “QR, charts, ruby, livreto ficam Fora / para mais tarde”
+❌ BAD — fechar a fase saltando itens IA porque a onda já foi longa
+❌ BAD — Partial no board só porque não deu vontade de fazer o motor
+
+✅ GOOD — “CSL completo é um processador; a fatia viável agora é cite+JSON; implemento isso e deixo o processador como Partial honesto”
+✅ GOOD — “tagged PDF o QPainter não emite; mantenho Partial e implemento o resto”
+✅ GOOD — onda 11 no que ainda for IA no board, sem reclassificar o resto como Fora
+```
+
+Limite honesto = impossibilidade técnica do stack (ex.: structure tree PDF). Não confundir com “é muito código”.
