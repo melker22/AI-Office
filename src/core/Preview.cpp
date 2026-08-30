@@ -120,6 +120,24 @@ Qt::Alignment qtAlign(const QString &a)
 constexpr qreal kDpi = 96.0;
 qreal mmToPx(qreal mm, qreal zoom) { return mm * kDpi / 25.4 * zoom; }
 
+const HeaderFooter &headerForPage(const Document &doc, int physical, int display)
+{
+    if (physical == 1 && doc.headerFirst.active())
+        return doc.headerFirst;
+    if (display % 2 == 0 && doc.headerEven.active())
+        return doc.headerEven;
+    return doc.header;
+}
+
+const HeaderFooter &footerForPage(const Document &doc, int physical, int display)
+{
+    if (physical == 1 && doc.footerFirst.active())
+        return doc.footerFirst;
+    if (display % 2 == 0 && doc.footerEven.active())
+        return doc.footerEven;
+    return doc.footer;
+}
+
 void applyTabs(QTextOption &opt, const Block &b, qreal zoom)
 {
     if (b.tabs.isEmpty())
@@ -288,8 +306,12 @@ void DocumentLayout::relayout(const Document &doc, double z)
     marginR = mmToPx(doc.page.marginsMm[1], zoom);
     marginB = mmToPx(doc.page.marginsMm[2], zoom);
     marginL = mmToPx(doc.page.marginsMm[3] + doc.page.gutterMm, zoom);
-    const qreal headerBand = (doc.header.pageNumbers || !doc.header.text.isEmpty()) ? 22 * zoom : 0;
-    const qreal footerBand = (doc.footer.pageNumbers || !doc.footer.text.isEmpty()) ? 22 * zoom : 0;
+    const qreal headerBand = (doc.header.active() || doc.headerEven.active() || doc.headerFirst.active())
+        ? 22 * zoom
+        : 0;
+    const qreal footerBand = (doc.footer.active() || doc.footerEven.active() || doc.footerFirst.active())
+        ? 22 * zoom
+        : 0;
     int fnCount = 0;
     int enCount = 0;
     for (const auto &b : doc.body) {
@@ -375,8 +397,12 @@ void DocumentLayout::relayout(const Document &doc, double z)
             m.markerW = QFontMetricsF(f).horizontalAdvance(m.marker);
         }
         const qreal indent = mmToPx(b.indentLeftMm + b.indentFirstMm, zoom);
-        const qreal textW = colWidth - m.markerW - indent - mmToPx(b.indentRightMm, zoom);
+        qreal textW = colWidth - m.markerW - indent - mmToPx(b.indentRightMm, zoom);
+        if (b.type == QLatin1String("frame") && b.imageWidthMm > 0)
+            textW = qMin(textW, mmToPx(b.imageWidthMm, zoom));
         m.height = measureTextHeight(doc, b, b.runs, qMax(qreal(20), textW), zoom);
+        if (b.type == QLatin1String("frame"))
+            m.height += 12 * zoom;
         const qreal afterPt = b.spaceAfterPt >= 0 ? b.spaceAfterPt : (st ? st->spaceAfterPt : 8);
         m.height += afterPt * zoom * kDpi / 72.0;
         if (b.lineHeight > 0 && b.lineHeight != 1.0)
@@ -448,7 +474,10 @@ void DocumentLayout::relayout(const Document &doc, double z)
         lb.marker = meas[i].marker;
         lb.markerWidth = meas[i].markerW;
         const qreal indent = mmToPx(b.indentLeftMm, zoom);
-        lb.rect = QRectF(colX(col) + indent, marginT + headerBand + y, colWidth - indent, meas[i].height);
+        qreal blockW = colWidth - indent;
+        if (b.type == QLatin1String("frame") && b.imageWidthMm > 0)
+            blockW = qMin(blockW, mmToPx(b.imageWidthMm, zoom));
+        lb.rect = QRectF(colX(col) + indent, marginT + headerBand + y, blockW, meas[i].height);
         if (b.type == QLatin1String("table")) {
             const auto tw = tableColWidths(b, colWidth);
             qreal ty = 0;
@@ -621,29 +650,30 @@ void paintPage(QPainter *p, const Document &doc, const DocumentLayout &lay, int 
     }
 
     const int shown = lay.displayPage(page);
-    const bool hasHeader = doc.header.pageNumbers || !doc.header.text.isEmpty();
-    const bool hasFooter = doc.footer.pageNumbers || !doc.footer.text.isEmpty();
+    const HeaderFooter &hdr = headerForPage(doc, page, shown);
+    const HeaderFooter &ftr = footerForPage(doc, page, shown);
+    const bool hasHeader = hdr.active();
+    const bool hasFooter = ftr.active();
     auto pageLabel = [&]() {
-        QString t = doc.header.pageNumbers || doc.footer.pageNumbers
+        return (hdr.pageNumbers || ftr.pageNumbers)
             ? QStringLiteral("Página %1 de %2")
                   .arg(formatPageNumber(shown, doc.page.numberFormat))
                   .arg(lay.pages)
             : QString();
-        return t;
     };
     p->setPen(QColor(QStringLiteral("#6B6258")));
     QFont hf(QStringLiteral("IBM Plex Sans"));
     hf.setPointSizeF(9 * lay.zoom);
     p->setFont(hf);
     if (hasHeader) {
-        QString t = doc.header.text;
-        if (doc.header.pageNumbers)
+        QString t = hdr.text;
+        if (hdr.pageNumbers)
             t = t.isEmpty() ? pageLabel() : t + QStringLiteral("  ·  ") + pageLabel();
         p->drawText(QRectF(lay.marginL, 8 * lay.zoom, lay.contentW, 18 * lay.zoom), Qt::AlignLeft | Qt::AlignVCenter, t);
     }
     if (hasFooter) {
-        QString t = doc.footer.text;
-        if (doc.footer.pageNumbers)
+        QString t = ftr.text;
+        if (ftr.pageNumbers)
             t = t.isEmpty() ? pageLabel() : t + QStringLiteral("  ·  ") + pageLabel();
         p->drawText(QRectF(lay.marginL, lay.paperH - lay.marginB + 2, lay.contentW, 18 * lay.zoom),
                     Qt::AlignLeft | Qt::AlignVCenter, t);
@@ -739,9 +769,11 @@ void paintPage(QPainter *p, const Document &doc, const DocumentLayout &lay, int 
             }
             continue;
         }
-        if (b.borderPt > 0) {
+        const qreal borderPt = b.borderPt > 0 ? b.borderPt
+            : (b.type == QLatin1String("frame") ? 0.75 : 0);
+        if (borderPt > 0) {
             QPen bp(QColor(b.borderColor.isEmpty() ? QStringLiteral("#B5651D") : b.borderColor),
-                    qMax(qreal(0.5), b.borderPt * lay.zoom));
+                    qMax(qreal(0.5), borderPt * lay.zoom));
             p->setPen(bp);
             p->setBrush(Qt::NoBrush);
             p->drawRect(lb.rect.adjusted(-2, -1, 2, 1));

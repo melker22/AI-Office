@@ -121,7 +121,7 @@ QJsonArray toolDefinitions()
                               {QStringLiteral("style"), prop(QStringLiteral("string"))}},
                   QJsonArray{QStringLiteral("style")}));
     a.append(tool(QStringLiteral("create_style"),
-                  QStringLiteral("Create or replace a named style (kind=paragraph|character|list|page)."),
+                  QStringLiteral("Create or replace a named style (kind=paragraph|character|list|page|frame)."),
                   QJsonObject{{QStringLiteral("name"), prop(QStringLiteral("string"))},
                               {QStringLiteral("font"), prop(QStringLiteral("string"))},
                               {QStringLiteral("size_pt"), prop(QStringLiteral("number"))},
@@ -131,7 +131,7 @@ QJsonArray toolDefinitions()
                               {QStringLiteral("align"), prop(QStringLiteral("string"))},
                               {QStringLiteral("space_before_pt"), prop(QStringLiteral("number"))},
                               {QStringLiteral("space_after_pt"), prop(QStringLiteral("number"))},
-                              {QStringLiteral("kind"), prop(QStringLiteral("string"), QStringLiteral("paragraph|character|list|page"))},
+                              {QStringLiteral("kind"), prop(QStringLiteral("string"), QStringLiteral("paragraph|character|list|page|frame"))},
                               {QStringLiteral("next"), prop(QStringLiteral("string"), QStringLiteral("Style applied to the new block after split_block"))},
                               {QStringLiteral("list_kind"), prop(QStringLiteral("string"))},
                               {QStringLiteral("list_bullet"), prop(QStringLiteral("string"))},
@@ -295,13 +295,17 @@ QJsonArray toolDefinitions()
                   QJsonObject{{QStringLiteral("title"), prop(QStringLiteral("string"))},
                               {QStringLiteral("author"), prop(QStringLiteral("string"))}}));
     a.append(tool(QStringLiteral("set_header"),
-                  QStringLiteral("Set header text and page_numbers."),
+                  QStringLiteral("Set header text and page_numbers. even=true or first=true selects the variant."),
                   QJsonObject{{QStringLiteral("text"), prop(QStringLiteral("string"))},
-                              {QStringLiteral("page_numbers"), prop(QStringLiteral("boolean"))}}));
+                              {QStringLiteral("page_numbers"), prop(QStringLiteral("boolean"))},
+                              {QStringLiteral("even"), prop(QStringLiteral("boolean"))},
+                              {QStringLiteral("first"), prop(QStringLiteral("boolean"))}}));
     a.append(tool(QStringLiteral("set_footer"),
-                  QStringLiteral("Set footer text and page_numbers."),
+                  QStringLiteral("Set footer text and page_numbers. even=true or first=true selects the variant."),
                   QJsonObject{{QStringLiteral("text"), prop(QStringLiteral("string"))},
-                              {QStringLiteral("page_numbers"), prop(QStringLiteral("boolean"))}}));
+                              {QStringLiteral("page_numbers"), prop(QStringLiteral("boolean"))},
+                              {QStringLiteral("even"), prop(QStringLiteral("boolean"))},
+                              {QStringLiteral("first"), prop(QStringLiteral("boolean"))}}));
     a.append(tool(QStringLiteral("document_diff"),
                   QStringLiteral("Ids added/removed/changed/moved vs last save, open, new, or template."), {}));
     a.append(tool(QStringLiteral("import_markdown"),
@@ -495,6 +499,34 @@ QJsonArray toolDefinitions()
                   QStringLiteral("Split a block at offset. The new block takes the style's next field when set."),
                   QJsonObject{{QStringLiteral("id"), prop(QStringLiteral("string"))},
                               {QStringLiteral("offset"), prop(QStringLiteral("integer"))}}));
+    a.append(tool(QStringLiteral("join_blocks"),
+                  QStringLiteral("Join the block with the previous one."),
+                  QJsonObject{{QStringLiteral("id"), prop(QStringLiteral("string"))}}));
+    a.append(tool(QStringLiteral("insert_html"),
+                  QStringLiteral("Insert sanitized HTML as blocks (p, h1-h3, lists, b/i/u, links). Scripts are dropped."),
+                  QJsonObject{{QStringLiteral("html"), prop(QStringLiteral("string"))},
+                              {QStringLiteral("after_id"), prop(QStringLiteral("string"))}},
+                  QJsonArray{QStringLiteral("html")}));
+    a.append(tool(QStringLiteral("insert_plain"),
+                  QStringLiteral("Insert plain text as paragraphs (one block per line). No character format."),
+                  QJsonObject{{QStringLiteral("text"), prop(QStringLiteral("string"))},
+                              {QStringLiteral("after_id"), prop(QStringLiteral("string"))}},
+                  QJsonArray{QStringLiteral("text")}));
+    a.append(tool(QStringLiteral("insert_frame"),
+                  QStringLiteral("Insert a text frame (bordered box) after after_id."),
+                  QJsonObject{{QStringLiteral("text"), prop(QStringLiteral("string"))},
+                              {QStringLiteral("width_mm"), prop(QStringLiteral("integer"))},
+                              {QStringLiteral("border_pt"), prop(QStringLiteral("number"))},
+                              {QStringLiteral("border_color"), prop(QStringLiteral("string"))},
+                              {QStringLiteral("style"), prop(QStringLiteral("string"))},
+                              {QStringLiteral("after_id"), prop(QStringLiteral("string"))}}));
+    a.append(tool(QStringLiteral("autoformat"),
+                  QStringLiteral("Replace --, ..., 1/2 and straight quotes; link bare URLs. lang defaults to pt-PT."),
+                  QJsonObject{{QStringLiteral("lang"), prop(QStringLiteral("string"), QStringLiteral("pt-PT or en"))}}));
+    a.append(tool(QStringLiteral("load_styles"),
+                  QStringLiteral("Merge named styles from another .aio.json (replace same names)."),
+                  QJsonObject{{QStringLiteral("path"), prop(QStringLiteral("string"))}},
+                  QJsonArray{QStringLiteral("path")}));
     return a;
 }
 

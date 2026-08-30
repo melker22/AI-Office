@@ -178,6 +178,7 @@ struct HeaderFooter {
     QString text;
     bool pageNumbers = false;
 
+    bool active() const { return pageNumbers || !text.isEmpty(); }
     QJsonObject toJson() const;
     static HeaderFooter fromJson(const QJsonObject &o);
 };
@@ -201,6 +202,10 @@ struct Document {
     PageLayout page;
     HeaderFooter header;
     HeaderFooter footer;
+    HeaderFooter headerEven;
+    HeaderFooter footerEven;
+    HeaderFooter headerFirst;
+    HeaderFooter footerFirst;
     QVector<StyleDef> styles;
     QVector<Block> body;
     QVector<Bookmark> bookmarks;

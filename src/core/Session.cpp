@@ -17,6 +17,10 @@
 #include <QRegularExpression>
 #include <QSet>
 #include <QTemporaryDir>
+#include <QTextBlock>
+#include <QTextDocument>
+#include <QTextFragment>
+#include <QTextList>
 #include <QUuid>
 #include <algorithm>
 
@@ -619,6 +623,12 @@ QJsonObject Session::applyStyle(const QJsonObject &args)
                     doc_.body[i].listKind = st->listKind;
                 if (!st->listBullet.isEmpty())
                     doc_.body[i].listBullet = st->listBullet;
+            } else if (st->kind == QLatin1String("frame")) {
+                doc_.body[i].type = QStringLiteral("frame");
+                if (doc_.body[i].borderPt <= 0)
+                    doc_.body[i].borderPt = 0.75;
+                if (doc_.body[i].borderColor.isEmpty() && !st->color.isEmpty())
+                    doc_.body[i].borderColor = st->color;
             }
         }
     }
@@ -1514,9 +1524,15 @@ QJsonObject Session::documentSetTitle(const QJsonObject &args)
 QJsonObject Session::setHeader(const QJsonObject &args)
 {
     pushUndo();
-    doc_.header.text = args.value(QStringLiteral("text")).toString();
+    HeaderFooter *hf = &doc_.header;
+    if (args.value(QStringLiteral("first")).toBool())
+        hf = &doc_.headerFirst;
+    else if (args.value(QStringLiteral("even")).toBool())
+        hf = &doc_.headerEven;
+    if (args.contains(QStringLiteral("text")))
+        hf->text = args.value(QStringLiteral("text")).toString();
     if (args.contains(QStringLiteral("page_numbers")))
-        doc_.header.pageNumbers = args.value(QStringLiteral("page_numbers")).toBool();
+        hf->pageNumbers = args.value(QStringLiteral("page_numbers")).toBool();
     markChanged();
     return ok();
 }
@@ -1524,9 +1540,15 @@ QJsonObject Session::setHeader(const QJsonObject &args)
 QJsonObject Session::setFooter(const QJsonObject &args)
 {
     pushUndo();
-    doc_.footer.text = args.value(QStringLiteral("text")).toString();
+    HeaderFooter *hf = &doc_.footer;
+    if (args.value(QStringLiteral("first")).toBool())
+        hf = &doc_.footerFirst;
+    else if (args.value(QStringLiteral("even")).toBool())
+        hf = &doc_.footerEven;
+    if (args.contains(QStringLiteral("text")))
+        hf->text = args.value(QStringLiteral("text")).toString();
     if (args.contains(QStringLiteral("page_numbers")))
-        doc_.footer.pageNumbers = args.value(QStringLiteral("page_numbers")).toBool();
+        hf->pageNumbers = args.value(QStringLiteral("page_numbers")).toBool();
     markChanged();
     return ok();
 }
@@ -1721,6 +1743,56 @@ static QVector<Block> blocksFromMarkdown(const QString &md)
         out.push_back(b);
     }
     flushTable();
+    return out;
+}
+
+static QVector<Block> blocksFromHtml(const QString &html)
+{
+    QTextDocument td;
+    td.setHtml(html);
+    QVector<Block> out;
+    for (QTextBlock tb = td.begin(); tb.isValid(); tb = tb.next()) {
+        Block b;
+        b.type = QStringLiteral("paragraph");
+        b.style = QStringLiteral("Normal");
+        const int hl = tb.blockFormat().headingLevel();
+        if (hl >= 1 && hl <= 3) {
+            b.type = QStringLiteral("heading");
+            b.level = hl;
+            b.style = QStringLiteral("Heading %1").arg(hl);
+        }
+        if (QTextList *lst = tb.textList()) {
+            b.type = QStringLiteral("list-item");
+            b.level = qBound(1, lst->format().indent(), 8);
+            const auto st = lst->format().style();
+            b.listKind = (st == QTextListFormat::ListDecimal || st == QTextListFormat::ListUpperRoman
+                          || st == QTextListFormat::ListLowerRoman || st == QTextListFormat::ListUpperAlpha
+                          || st == QTextListFormat::ListLowerAlpha)
+                ? QStringLiteral("decimal")
+                : QStringLiteral("bullet");
+        }
+        for (auto it = tb.begin(); !it.atEnd(); ++it) {
+            const QTextFragment frag = it.fragment();
+            QString t = frag.text();
+            t.replace(QChar::ParagraphSeparator, QLatin1Char('\n'));
+            t.remove(QChar::ObjectReplacementCharacter);
+            if (t.isEmpty())
+                continue;
+            TextRun r;
+            r.text = t;
+            r.bold = frag.charFormat().fontWeight() >= QFont::DemiBold;
+            r.italic = frag.charFormat().fontItalic();
+            r.underline = frag.charFormat().fontUnderline();
+            if (frag.charFormat().isAnchor())
+                r.link = frag.charFormat().anchorHref();
+            b.runs.push_back(r);
+        }
+        if (b.runs.isEmpty() && out.isEmpty())
+            continue;
+        if (b.runs.isEmpty())
+            b.runs.push_back(TextRun{});
+        out.push_back(b);
+    }
     return out;
 }
 
@@ -2596,6 +2668,198 @@ QJsonObject Session::splitBlockTool(const QJsonObject &args)
     return r;
 }
 
+QJsonObject Session::joinBlocks(const QJsonObject &args)
+{
+    QString id = args.value(QStringLiteral("id")).toString();
+    if (id.isEmpty())
+        id = sel_.focusId;
+    if (id.isEmpty())
+        return fail(QStringLiteral("id is required"));
+    const int idx = doc_.indexOf(id);
+    if (idx <= 0)
+        return fail(QStringLiteral("cannot join this block"));
+    pushUndo();
+    Block &prev = doc_.body[idx - 1];
+    Block &cur = doc_.body[idx];
+    if (prev.type == QLatin1String("table") || prev.type == QLatin1String("image")
+        || prev.type == QLatin1String("break") || cur.type == QLatin1String("table")
+        || cur.type == QLatin1String("image") || cur.type == QLatin1String("break")) {
+        undo_.removeLast();
+        return fail(QStringLiteral("cannot join this block"));
+    }
+    const int joinOff = prev.plainText().size();
+    for (const auto &r : cur.runs)
+        prev.runs.push_back(r);
+    const QString keep = prev.id;
+    doc_.body.removeAt(idx);
+    sel_.anchorId = sel_.focusId = keep;
+    sel_.anchorOff = sel_.focusOff = joinOff;
+    sel_.tableRow = sel_.tableCol = -1;
+    markChanged();
+    auto r = ok();
+    r[QStringLiteral("id")] = keep;
+    return r;
+}
+
+QJsonObject Session::insertHtml(const QJsonObject &args)
+{
+    const QString html = args.value(QStringLiteral("html")).toString();
+    if (html.trimmed().isEmpty())
+        return fail(QStringLiteral("html is required"));
+    auto blocks = blocksFromHtml(html);
+    if (blocks.isEmpty())
+        return fail(QStringLiteral("html produced no blocks"));
+    QJsonArray arr;
+    for (auto &b : blocks)
+        arr.append(b.toJson());
+    QJsonObject wrap;
+    wrap[QStringLiteral("after_id")] = args.value(QStringLiteral("after_id")).toString(QStringLiteral("end"));
+    wrap[QStringLiteral("blocks")] = arr;
+    return insertBlocks(wrap);
+}
+
+QJsonObject Session::insertPlain(const QJsonObject &args)
+{
+    QString text = args.value(QStringLiteral("text")).toString();
+    if (text.isEmpty())
+        return fail(QStringLiteral("text is required"));
+    text.replace(QLatin1Char('\r'), QString());
+    QJsonArray arr;
+    const auto paras = text.split(QLatin1Char('\n'));
+    for (const QString &para : paras) {
+        Block b;
+        b.type = QStringLiteral("paragraph");
+        b.style = QStringLiteral("Normal");
+        TextRun r;
+        r.text = para;
+        b.runs.push_back(r);
+        arr.append(b.toJson());
+    }
+    QJsonObject wrap;
+    wrap[QStringLiteral("after_id")] = args.value(QStringLiteral("after_id")).toString(QStringLiteral("end"));
+    wrap[QStringLiteral("blocks")] = arr;
+    return insertBlocks(wrap);
+}
+
+QJsonObject Session::insertFrame(const QJsonObject &args)
+{
+    Block b;
+    b.type = QStringLiteral("frame");
+    b.style = args.value(QStringLiteral("style")).toString();
+    b.borderPt = args.contains(QStringLiteral("border_pt"))
+        ? args.value(QStringLiteral("border_pt")).toDouble()
+        : 0.75;
+    b.borderColor = args.value(QStringLiteral("border_color")).toString(QStringLiteral("#B5651D"));
+    b.imageWidthMm = args.contains(QStringLiteral("width_mm"))
+        ? args.value(QStringLiteral("width_mm")).toInt()
+        : 80;
+    TextRun r;
+    r.text = args.value(QStringLiteral("text")).toString();
+    b.runs.push_back(r);
+    QJsonObject wrap;
+    wrap[QStringLiteral("after_id")] = args.value(QStringLiteral("after_id")).toString(QStringLiteral("end"));
+    wrap[QStringLiteral("blocks")] = QJsonArray{b.toJson()};
+    return insertBlocks(wrap);
+}
+
+static void autoFormatRuns(QVector<TextRun> &runs, const QString &lang, bool *quoteOpen)
+{
+    const bool pt = lang.startsWith(QLatin1String("pt"), Qt::CaseInsensitive);
+    const QChar qOpen = pt ? QChar(0x00AB) : QChar(0x201C);
+    const QChar qClose = pt ? QChar(0x00BB) : QChar(0x201D);
+    bool open = quoteOpen ? *quoteOpen : true;
+    const QRegularExpression urlRe(QStringLiteral(R"(https?://[^\s<>]+)"));
+    for (auto &r : runs) {
+        QString t = r.text;
+        t.replace(QStringLiteral("..."), QString(QChar(0x2026)));
+        t.replace(QStringLiteral("--"), QString(QChar(0x2014)));
+        t.replace(QStringLiteral("1/4"), QString(QChar(0x00BC)));
+        t.replace(QStringLiteral("1/2"), QString(QChar(0x00BD)));
+        t.replace(QStringLiteral("3/4"), QString(QChar(0x00BE)));
+        QString quoted;
+        quoted.reserve(t.size());
+        for (const QChar ch : t) {
+            if (ch == QLatin1Char('"') || ch == QChar(0x201C) || ch == QChar(0x201D)) {
+                quoted += open ? qOpen : qClose;
+                open = !open;
+            } else {
+                quoted += ch;
+            }
+        }
+        r.text = quoted;
+        if (r.link.isEmpty()) {
+            const auto m = urlRe.match(r.text.trimmed());
+            if (m.hasMatch() && m.captured() == r.text.trimmed())
+                r.link = m.captured();
+        }
+    }
+    if (quoteOpen)
+        *quoteOpen = open;
+}
+
+QJsonObject Session::autoFormat(const QJsonObject &args)
+{
+    QString lang = args.value(QStringLiteral("lang")).toString();
+    if (lang.isEmpty()) {
+        for (const auto &b : doc_.body) {
+            if (!b.lang.isEmpty()) {
+                lang = b.lang;
+                break;
+            }
+            for (const auto &r : b.runs) {
+                if (!r.lang.isEmpty()) {
+                    lang = r.lang;
+                    break;
+                }
+            }
+            if (!lang.isEmpty())
+                break;
+        }
+    }
+    if (lang.isEmpty())
+        lang = QStringLiteral("pt-PT");
+    pushUndo();
+    bool quoteOpen = true;
+    for (auto &b : doc_.body) {
+        autoFormatRuns(b.runs, lang, &quoteOpen);
+        for (auto &row : b.table) {
+            for (auto &cell : row)
+                autoFormatRuns(cell.runs, lang, &quoteOpen);
+        }
+    }
+    markChanged();
+    auto r = ok();
+    r[QStringLiteral("lang")] = lang;
+    return r;
+}
+
+QJsonObject Session::loadStyles(const QJsonObject &args)
+{
+    const QString path = args.value(QStringLiteral("path")).toString();
+    if (path.isEmpty())
+        return fail(QStringLiteral("path is required"));
+    QFile f(path);
+    if (!f.open(QIODevice::ReadOnly))
+        return fail(QStringLiteral("cannot read path"));
+    const auto docj = QJsonDocument::fromJson(f.readAll());
+    if (!docj.isObject())
+        return fail(QStringLiteral("not a document JSON"));
+    const Document other = Document::fromJson(docj.object());
+    pushUndo();
+    int n = 0;
+    for (const auto &s : other.styles) {
+        if (StyleDef *ex = styleByName(doc_, s.name))
+            *ex = s;
+        else
+            doc_.styles.push_back(s);
+        ++n;
+    }
+    markChanged();
+    auto r = ok();
+    r[QStringLiteral("count")] = n;
+    return r;
+}
+
 QJsonObject Session::validate(const QJsonObject &)
 {
     QJsonArray errors;
@@ -2604,7 +2868,7 @@ QJsonObject Session::validate(const QJsonObject &)
     const QStringList known{QStringLiteral("paragraph"), QStringLiteral("heading"),
                             QStringLiteral("list-item"), QStringLiteral("table"), QStringLiteral("image"),
                             QStringLiteral("break"),     QStringLiteral("footnote"), QStringLiteral("endnote"),
-                            QStringLiteral("toc")};
+                            QStringLiteral("toc"),       QStringLiteral("frame")};
     auto err = [&](const QString &code, const QString &id, const QString &msg) {
         QJsonObject e;
         e[QStringLiteral("code")] = code;
@@ -2906,6 +3170,18 @@ QJsonObject Session::call(const QString &tool, const QJsonObject &args)
         return insertLabels(args);
     if (tool == QLatin1String("split_block"))
         return splitBlockTool(args);
+    if (tool == QLatin1String("join_blocks") || tool == QLatin1String("join_block"))
+        return joinBlocks(args);
+    if (tool == QLatin1String("insert_html"))
+        return insertHtml(args);
+    if (tool == QLatin1String("insert_plain") || tool == QLatin1String("paste_plain"))
+        return insertPlain(args);
+    if (tool == QLatin1String("insert_frame"))
+        return insertFrame(args);
+    if (tool == QLatin1String("autoformat") || tool == QLatin1String("auto_format"))
+        return autoFormat(args);
+    if (tool == QLatin1String("load_styles"))
+        return loadStyles(args);
     if (tool == QLatin1String("insert_line_break")) {
         QJsonObject a = args;
         a[QStringLiteral("text")] = QString(QChar::LineFeed);

@@ -301,6 +301,8 @@ QJsonObject Block::toJson() const
             o[QStringLiteral("anchor")] = anchor;
     } else if (type != QLatin1String("break")) {
         o[QStringLiteral("runs")] = runsToJson(runs);
+        if (type == QLatin1String("frame") && imageWidthMm > 0)
+            o[QStringLiteral("width_mm")] = imageWidthMm;
     }
     if (!tocTargets.isEmpty()) {
         QJsonArray t;
@@ -682,6 +684,14 @@ QJsonObject Document::toJson() const
         meta[QStringLiteral("header")] = header.toJson();
     if (!footer.text.isEmpty() || footer.pageNumbers)
         meta[QStringLiteral("footer")] = footer.toJson();
+    if (headerEven.active())
+        meta[QStringLiteral("header_even")] = headerEven.toJson();
+    if (footerEven.active())
+        meta[QStringLiteral("footer_even")] = footerEven.toJson();
+    if (headerFirst.active())
+        meta[QStringLiteral("header_first")] = headerFirst.toJson();
+    if (footerFirst.active())
+        meta[QStringLiteral("footer_first")] = footerFirst.toJson();
     if (trackChanges)
         meta[QStringLiteral("track_changes")] = true;
     if (!fileName.isEmpty())
@@ -759,6 +769,10 @@ Document Document::fromJson(const QJsonObject &o)
     d.page = PageLayout::fromJson(meta.value(QStringLiteral("page")).toObject());
     d.header = HeaderFooter::fromJson(meta.value(QStringLiteral("header")).toObject());
     d.footer = HeaderFooter::fromJson(meta.value(QStringLiteral("footer")).toObject());
+    d.headerEven = HeaderFooter::fromJson(meta.value(QStringLiteral("header_even")).toObject());
+    d.footerEven = HeaderFooter::fromJson(meta.value(QStringLiteral("footer_even")).toObject());
+    d.headerFirst = HeaderFooter::fromJson(meta.value(QStringLiteral("header_first")).toObject());
+    d.footerFirst = HeaderFooter::fromJson(meta.value(QStringLiteral("footer_first")).toObject());
     d.trackChanges = meta.value(QStringLiteral("track_changes")).toBool();
     d.fileName = meta.value(QStringLiteral("file_name")).toString();
     for (const auto &s : o.value(QStringLiteral("styles")).toArray())
@@ -820,6 +834,8 @@ QString Document::assignId(Block &b)
         prefix = QStringLiteral("en");
     else if (b.type == QLatin1String("toc"))
         prefix = QStringLiteral("toc");
+    else if (b.type == QLatin1String("frame"))
+        prefix = QStringLiteral("fr");
     b.id = prefix + QString::number(nextCounter(prefix));
     return b.id;
 }

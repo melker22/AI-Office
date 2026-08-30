@@ -238,7 +238,26 @@ Args: `{ "id": "p1", "text": "...", "author"?: "IA" }` / `{ "comment_id": "..." 
 
 ### `document_set_title` / `set_header` / `set_footer`
 
-Title/author; header/footer `{text, page_numbers}`.
+Title/author; header/footer `{text, page_numbers, even?: bool, first?: bool}`. `even` is the even-page variant; `first` is the first-page variant.
+
+### `insert_html` / `insert_plain`
+
+`insert_html {html, after_id?}` parses a sanitized HTML fragment (`QTextDocument`: p, h1–h3, lists, bold/italic/underline, links). Scripts and unknown tags are dropped.  
+`insert_plain {text, after_id?}` inserts one paragraph per line with no character format.
+
+### `insert_frame`
+
+Args: `{ "text"?: string, "width_mm"?: 80, "border_pt"?: 0.75, "border_color"?: "#B5651D", "style"?: string, "after_id"?: "end" }`  
+Block `type=frame` (id `fr*`). `create_style kind=frame` + `apply_style` also converts a block into a frame.
+
+### `autoformat`
+
+Args: `{ "lang"?: "pt-PT"|"en" }`  
+`--` → emdash, `...` → ellipsis, `1/2` `1/4` `3/4` → fractions, straight quotes → «» (pt) or “” (en). Bare `http(s)://` runs become links.
+
+### `join_blocks` / `load_styles`
+
+`join_blocks {id}` merges with the previous block. `load_styles {path}` copies named styles from another `.aio.json`.
 
 ### `document_diff`
 

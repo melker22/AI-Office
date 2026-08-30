@@ -1,0 +1,15 @@
+[
+  {"tool": "document_new", "args": {"title": "Wave6", "force": true}},
+  {"tool": "set_header", "args": {"text": "Impar", "page_numbers": true}},
+  {"tool": "set_header", "args": {"even": true, "text": "Par"}},
+  {"tool": "set_header", "args": {"first": true, "text": "Capa"}},
+  {"tool": "insert_html", "args": {"after_id": "p1", "html": "<h1>Titulo</h1><p>Hello <b>bold</b> and <i>ita</i> -- \"ola\" 1/2.</p><ul><li>um</li></ul>"}},
+  {"tool": "insert_plain", "args": {"after_id": "end", "text": "linha A\nlinha B"}},
+  {"tool": "create_style", "args": {"name": "Caixa", "kind": "frame", "color": "#B5651D"}},
+  {"tool": "insert_frame", "args": {"after_id": "end", "text": "aviso", "width_mm": 60, "style": "Caixa"}},
+  {"tool": "autoformat", "args": {"lang": "pt-PT"}},
+  {"tool": "insert_break", "args": {"after_id": "end", "kind": "page"}},
+  {"tool": "insert_plain", "args": {"after_id": "end", "text": "pagina dois"}},
+  {"tool": "page_preview", "args": {"from": 1, "to": 2, "zoom": 1}},
+  {"tool": "validate", "args": {}}
+]

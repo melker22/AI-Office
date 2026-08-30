@@ -98,6 +98,12 @@ public:
     QJsonObject updateStyle(const QJsonObject &args);
     QJsonObject insertLabels(const QJsonObject &args);
     QJsonObject splitBlockTool(const QJsonObject &args);
+    QJsonObject joinBlocks(const QJsonObject &args);
+    QJsonObject insertHtml(const QJsonObject &args);
+    QJsonObject insertPlain(const QJsonObject &args);
+    QJsonObject insertFrame(const QJsonObject &args);
+    QJsonObject autoFormat(const QJsonObject &args);
+    QJsonObject loadStyles(const QJsonObject &args);
 
     QJsonObject validate(const QJsonObject &args);
     QJsonObject batch(const QJsonObject &args);
