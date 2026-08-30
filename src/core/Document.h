@@ -74,6 +74,11 @@ struct TableCell {
     int colSpan = 1;
     int rowSpan = 1;
     QVector<QVector<NestedCell>> nested;
+    QString borderColor;
+    double borderPt = 0;
+    QString background;
+    QString vAlign; // top | middle | bottom
+    double paddingMm = 0;
 };
 
 struct Comment {
@@ -111,6 +116,7 @@ struct Block {
     double spaceAfterPt = -1;
     double lineHeight = 1.0;
     bool keepWithNext = false;
+    bool breakBefore = false;
     int orphans = 0;
     int widows = 0;
     int dropCapLines = 0;

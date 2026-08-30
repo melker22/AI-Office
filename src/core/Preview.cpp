@@ -240,20 +240,28 @@ qreal measureTextHeight(const Document &doc, const Block &b, const QVector<TextR
     return qMax(qMax(QFontMetricsF(f).height(), y), dc.height);
 }
 
+qreal cellPadPx(const TableCell &cell, qreal zoom)
+{
+    if (cell.paddingMm > 0)
+        return mmToPx(cell.paddingMm, zoom);
+    return 4 * zoom;
+}
+
 qreal measureNestedHeight(const Document &doc, const Block &b, const TableCell &cell, qreal cw, qreal zoom)
 {
+    const qreal pad = cellPadPx(cell, zoom);
     if (cell.nested.isEmpty())
-        return measureTextHeight(doc, b, cell.runs, qMax(qreal(12), cw - 8), zoom) + 8;
+        return measureTextHeight(doc, b, cell.runs, qMax(qreal(12), cw - pad * 2), zoom) + pad * 2;
     const int cols = cell.nested.first().size();
     qreal h = 0;
-    const qreal icw = qMax(qreal(12), (cw - 8) / qMax(1, cols));
+    const qreal icw = qMax(qreal(12), (cw - pad * 2) / qMax(1, cols));
     for (const auto &nrow : cell.nested) {
         qreal rh = 16 * zoom;
         for (const auto &nc : nrow)
             rh = qMax(rh, measureTextHeight(doc, b, nc.runs, icw - 4, zoom) + 4);
         h += rh;
     }
-    return h + 8;
+    return h + pad * 2;
 }
 
 QString listMarker(const Block &b, int number)
@@ -455,6 +463,11 @@ void DocumentLayout::relayout(const Document &doc, double z)
             blocks.push_back(lb);
             continue;
         }
+        if (b.breakBefore && y > 0) {
+            col = 0;
+            y = 0;
+            advancePage(false, 0);
+        }
         qreal need = meas[i].before + qMax(qreal(12), meas[i].height);
         if (b.keepWithNext && i + 1 < meas.size())
             need += meas[i + 1].before + meas[i + 1].height;
@@ -474,7 +487,8 @@ void DocumentLayout::relayout(const Document &doc, double z)
         lb.marker = meas[i].marker;
         lb.markerWidth = meas[i].markerW;
         const qreal indent = mmToPx(b.indentLeftMm, zoom);
-        qreal blockW = colWidth - indent;
+        const qreal indentR = mmToPx(b.indentRightMm, zoom);
+        qreal blockW = colWidth - indent - indentR;
         if (b.type == QLatin1String("frame") && b.imageWidthMm > 0)
             blockW = qMin(blockW, mmToPx(b.imageWidthMm, zoom));
         lb.rect = QRectF(colX(col) + indent, marginT + headerBand + y, blockW, meas[i].height);
@@ -700,13 +714,23 @@ void paintPage(QPainter *p, const Document &doc, const DocumentLayout &lay, int 
         if (b.type == QLatin1String("table")) {
             for (const auto &g : lb.cells) {
                 const bool head = b.headerRow && g.row == 0;
-                p->setPen(QPen(QColor(QStringLiteral("#D2C8B8")), 1));
-                p->setBrush(head ? QColor(QStringLiteral("#FBF0E6")) : QColor(QStringLiteral("#FDFBF7")));
+                const TableCell *cellp = (g.row < b.table.size() && g.col < b.table[g.row].size())
+                    ? &b.table[g.row][g.col]
+                    : nullptr;
+                QColor fill = head ? QColor(QStringLiteral("#FBF0E6")) : QColor(QStringLiteral("#FDFBF7"));
+                if (cellp && !cellp->background.isEmpty())
+                    fill = QColor(cellp->background);
                 if (selId == lb.id && selRow == g.row && selCol == g.col)
-                    p->setBrush(QColor(QStringLiteral("#F3E0CC")));
+                    fill = QColor(QStringLiteral("#F3E0CC"));
+                QPen cellPen(QColor(QStringLiteral("#D2C8B8")), 1);
+                if (cellp && cellp->borderPt > 0) {
+                    cellPen = QPen(QColor(cellp->borderColor.isEmpty() ? QStringLiteral("#B5651D") : cellp->borderColor),
+                                   qMax(qreal(0.5), cellp->borderPt * lay.zoom));
+                }
+                p->setPen(cellPen);
+                p->setBrush(fill);
                 p->drawRect(g.rect);
-                if (g.row < b.table.size() && g.col < b.table[g.row].size()
-                    && !b.table[g.row][g.col].nested.isEmpty()) {
+                if (cellp && !cellp->nested.isEmpty()) {
                     const auto &cell = b.table[g.row][g.col];
                     const int nc = cell.nested.first().size();
                     const qreal icw = g.rect.width() / qMax(1, nc);
@@ -742,14 +766,23 @@ void paintPage(QPainter *p, const Document &doc, const DocumentLayout &lay, int 
                     }
                 } else {
                     QString t;
-                    if (g.row < b.table.size() && g.col < b.table[g.row].size())
-                        for (const auto &r : b.table[g.row][g.col].runs)
+                    if (cellp) {
+                        for (const auto &r : cellp->runs)
                             t += r.text;
+                    }
                     p->setPen(QColor(QStringLiteral("#1A1F24")));
                     QFont tf(QStringLiteral("Liberation Serif"));
                     tf.setPointSizeF(10 * lay.zoom);
                     p->setFont(tf);
-                    p->drawText(g.rect.adjusted(4, 2, -4, -2), Qt::AlignVCenter | Qt::AlignLeft | Qt::TextWordWrap, t);
+                    const qreal pad = cellp ? cellPadPx(*cellp, lay.zoom) : 4 * lay.zoom;
+                    Qt::Alignment va = Qt::AlignVCenter;
+                    if (cellp) {
+                        if (cellp->vAlign == QLatin1String("top"))
+                            va = Qt::AlignTop;
+                        else if (cellp->vAlign == QLatin1String("bottom"))
+                            va = Qt::AlignBottom;
+                    }
+                    p->drawText(g.rect.adjusted(pad, pad, -pad, -pad), va | Qt::AlignLeft | Qt::TextWordWrap, t);
                 }
             }
             continue;

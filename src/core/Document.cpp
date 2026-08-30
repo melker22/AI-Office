@@ -269,6 +269,16 @@ QJsonObject Block::toJson() const
                     c[QStringLiteral("col_span")] = cell.colSpan;
                 if (cell.rowSpan > 1)
                     c[QStringLiteral("row_span")] = cell.rowSpan;
+                if (cell.borderPt > 0)
+                    c[QStringLiteral("border_pt")] = cell.borderPt;
+                if (!cell.borderColor.isEmpty())
+                    c[QStringLiteral("border_color")] = cell.borderColor;
+                if (!cell.background.isEmpty())
+                    c[QStringLiteral("background")] = cell.background;
+                if (!cell.vAlign.isEmpty())
+                    c[QStringLiteral("v_align")] = cell.vAlign;
+                if (cell.paddingMm > 0)
+                    c[QStringLiteral("padding_mm")] = cell.paddingMm;
                 if (!cell.nested.isEmpty())
                     c[QStringLiteral("nested")] = nestedToJson(cell.nested);
                 cells.append(c);
@@ -330,6 +340,8 @@ QJsonObject Block::toJson() const
         o[QStringLiteral("line_height")] = lineHeight;
     if (keepWithNext)
         o[QStringLiteral("keep_with_next")] = true;
+    if (breakBefore)
+        o[QStringLiteral("break_before")] = true;
     if (orphans > 0)
         o[QStringLiteral("orphans")] = orphans;
     if (widows > 0)
@@ -395,6 +407,11 @@ Block Block::fromJson(const QJsonObject &o)
                 }
                 cell.colSpan = qMax(1, cellV.toObject().value(QStringLiteral("col_span")).toInt(1));
                 cell.rowSpan = qMax(1, cellV.toObject().value(QStringLiteral("row_span")).toInt(1));
+                cell.borderPt = cellV.toObject().value(QStringLiteral("border_pt")).toDouble();
+                cell.borderColor = cellV.toObject().value(QStringLiteral("border_color")).toString();
+                cell.background = cellV.toObject().value(QStringLiteral("background")).toString();
+                cell.vAlign = cellV.toObject().value(QStringLiteral("v_align")).toString();
+                cell.paddingMm = cellV.toObject().value(QStringLiteral("padding_mm")).toDouble();
                 cell.nested = nestedFromJson(cellV.toObject().value(QStringLiteral("nested")));
                 row.push_back(cell);
             }
@@ -421,6 +438,7 @@ Block Block::fromJson(const QJsonObject &o)
     b.spaceAfterPt = o.contains(QStringLiteral("space_after_pt")) ? o.value(QStringLiteral("space_after_pt")).toDouble() : -1;
     b.lineHeight = o.value(QStringLiteral("line_height")).toDouble(1.0);
     b.keepWithNext = o.value(QStringLiteral("keep_with_next")).toBool();
+    b.breakBefore = o.value(QStringLiteral("break_before")).toBool();
     b.orphans = o.value(QStringLiteral("orphans")).toInt();
     b.widows = o.value(QStringLiteral("widows")).toInt();
     b.dropCapLines = o.value(QStringLiteral("drop_cap_lines")).toInt();

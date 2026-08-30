@@ -564,6 +564,8 @@ QJsonObject Session::applyParagraphFormat(const QJsonObject &args)
             doc_.body[i].lineHeight = args.value(QStringLiteral("line_height")).toDouble();
         if (args.contains(QStringLiteral("keep_with_next")))
             doc_.body[i].keepWithNext = args.value(QStringLiteral("keep_with_next")).toBool();
+        if (args.contains(QStringLiteral("break_before")))
+            doc_.body[i].breakBefore = args.value(QStringLiteral("break_before")).toBool();
         if (args.contains(QStringLiteral("orphans")))
             doc_.body[i].orphans = args.value(QStringLiteral("orphans")).toInt();
         if (args.contains(QStringLiteral("widows")))
@@ -1191,9 +1193,19 @@ QJsonObject Session::setCell(const QJsonObject &args)
             return fail(QStringLiteral("nested cell out of range"));
         }
         fillRuns(cell.nested[nr][nc].runs);
-    } else {
+    } else if (args.contains(QStringLiteral("text")) || args.contains(QStringLiteral("runs"))) {
         fillRuns(cell.runs);
     }
+    if (args.contains(QStringLiteral("border_pt")))
+        cell.borderPt = args.value(QStringLiteral("border_pt")).toDouble();
+    if (args.contains(QStringLiteral("border_color")))
+        cell.borderColor = args.value(QStringLiteral("border_color")).toString();
+    if (args.contains(QStringLiteral("background")))
+        cell.background = args.value(QStringLiteral("background")).toString();
+    if (args.contains(QStringLiteral("v_align")))
+        cell.vAlign = args.value(QStringLiteral("v_align")).toString();
+    if (args.contains(QStringLiteral("padding_mm")))
+        cell.paddingMm = args.value(QStringLiteral("padding_mm")).toDouble();
     markChanged();
     return ok();
 }

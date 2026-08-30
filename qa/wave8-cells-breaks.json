@@ -1,0 +1,11 @@
+[
+  {"tool": "document_new", "args": {"title": "Wave8", "force": true}},
+  {"tool": "set_page_layout", "args": {"gutter_mm": 12}},
+  {"tool": "insert_plain", "args": {"after_id": "p1", "text": "Titulo junto\nParagrafo que fica com o titulo\nDepois da quebra"}},
+  {"tool": "apply_paragraph_format", "args": {"id": "p2", "keep_with_next": true, "indent_left_mm": 12, "indent_right_mm": 8, "indent_first_mm": 6}},
+  {"tool": "apply_paragraph_format", "args": {"id": "p4", "break_before": true}},
+  {"tool": "insert_table", "args": {"after_id": "end", "rows": 2, "cols": 2, "header": true, "header_texts": ["A", "B"], "cells": ["um", "dois"]}},
+  {"tool": "set_cell", "args": {"id": "t1", "row": 1, "col": 0, "border_pt": 1.5, "border_color": "#B5651D", "background": "#F3E0CC", "v_align": "top", "padding_mm": 3}},
+  {"tool": "page_preview", "args": {"from": 1, "to": 2, "zoom": 1}},
+  {"tool": "validate", "args": {}}
+]
