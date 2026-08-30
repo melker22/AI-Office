@@ -2,9 +2,11 @@
 
 #include <QByteArray>
 #include <QDateTime>
+#include <QJsonArray>
 #include <QJsonObject>
 #include <QMap>
 #include <QString>
+#include <QStringList>
 #include <QVector>
 
 namespace aioffice {
@@ -31,6 +33,9 @@ struct TextRun {
     QString field;    // page_number | page_count | date | title | author | xref
     QString fieldArg; // xref target id
     QString noteId;   // footnote/endnote block id
+    QString ruby;
+    bool redact = false;
+    QString showIf; // hide run unless doc.vars[showIf] is non-empty / not "0"
 
     QJsonObject toJson() const;
     static TextRun fromJson(const QJsonObject &o);
@@ -87,6 +92,7 @@ struct Comment {
     QString author;
     QString text;
     bool resolved = false;
+    QString parentId;
 
     QJsonObject toJson() const;
     static Comment fromJson(const QJsonObject &o);
@@ -136,6 +142,26 @@ struct Block {
     int pageNumber = 0;
     int rotateDeg = 0;
     double opacity = 1.0;
+    bool flipH = false;
+    bool flipV = false;
+    double cropL = 0;
+    double cropT = 0;
+    double cropR = 0;
+    double cropB = 0;
+    double shadowPt = 0;
+    int zIndex = 0;
+    QString groupId;
+    QString shapeKind; // rect | ellipse | line
+    QString fill;
+    QString stroke;
+    double heightMm = 0;
+    QJsonArray data; // chart series or form options
+    QString qrText;
+    QString formKind; // text | checkbox | dropdown
+    QString writingMode; // vertical
+    bool sectionHidden = false;
+    bool numbered = false;
+    QString connectTo;
 
     QJsonObject toJson() const;
     static Block fromJson(const QJsonObject &o);
@@ -178,6 +204,17 @@ struct PageLayout {
     QString numberFormat; // arabic | roman | alpha
     int numberStart = 1;
     QVector<double> columnWeights; // relative column widths when columns > 1
+    double widthMm = 0;  // custom size when > 0
+    double heightMm = 0;
+    double hyphenZoneMm = 0;
+    bool gutterMirror = false;
+    bool lineNumbers = false;
+    bool chapterNumbers = false;
+    bool noteRestart = false;
+    QString tone; // sepia | night
+    QString writingMode; // vertical
+    double gridMm = 0;
+    bool booklet = false;
 
     QJsonObject toJson() const;
     static PageLayout fromJson(const QJsonObject &o);
@@ -195,6 +232,17 @@ struct HeaderFooter {
     static HeaderFooter fromJson(const QJsonObject &o);
 };
 
+struct BiblioEntry {
+    QString id;
+    QString key;
+    QString author;
+    QString title;
+    QString year;
+
+    QJsonObject toJson() const;
+    static BiblioEntry fromJson(const QJsonObject &o);
+};
+
 struct Selection {
     QString anchorId;
     int anchorOff = 0;
@@ -202,6 +250,7 @@ struct Selection {
     int focusOff = 0;
     int tableRow = -1;
     int tableCol = -1;
+    QStringList ids;
 
     QJsonObject toJson() const;
     static Selection fromJson(const QJsonObject &o);
@@ -230,6 +279,12 @@ struct Document {
     QString watermark;
     QMap<QString, QString> autocorrect;
     QMap<QString, QString> vars;
+    QMap<QString, QString> autotext;
+    QMap<QString, QString> thesaurus;
+    QStringList userDic;
+    QStringList imageLibrary;
+    QVector<BiblioEntry> bibliography;
+    QStringList readingOrder;
 
     static Document blank(const QString &title = QString());
     QJsonObject toJson() const;

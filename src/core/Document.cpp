@@ -49,6 +49,12 @@ QJsonObject TextRun::toJson() const
         o[QStringLiteral("field_arg")] = fieldArg;
     if (!noteId.isEmpty())
         o[QStringLiteral("note_id")] = noteId;
+    if (!ruby.isEmpty())
+        o[QStringLiteral("ruby")] = ruby;
+    if (redact)
+        o[QStringLiteral("redact")] = true;
+    if (!showIf.isEmpty())
+        o[QStringLiteral("show_if")] = showIf;
     return o;
 }
 
@@ -76,6 +82,9 @@ TextRun TextRun::fromJson(const QJsonObject &o)
     r.field = o.value(QStringLiteral("field")).toString();
     r.fieldArg = o.value(QStringLiteral("field_arg")).toString();
     r.noteId = o.value(QStringLiteral("note_id")).toString();
+    r.ruby = o.value(QStringLiteral("ruby")).toString();
+    r.redact = o.value(QStringLiteral("redact")).toBool();
+    r.showIf = o.value(QStringLiteral("show_if")).toString();
     return r;
 }
 
@@ -86,6 +95,8 @@ QJsonObject Comment::toJson() const
     o[QStringLiteral("author")] = author;
     o[QStringLiteral("text")] = text;
     o[QStringLiteral("resolved")] = resolved;
+    if (!parentId.isEmpty())
+        o[QStringLiteral("parent_id")] = parentId;
     return o;
 }
 
@@ -96,7 +107,31 @@ Comment Comment::fromJson(const QJsonObject &o)
     c.author = o.value(QStringLiteral("author")).toString();
     c.text = o.value(QStringLiteral("text")).toString();
     c.resolved = o.value(QStringLiteral("resolved")).toBool();
+    c.parentId = o.value(QStringLiteral("parent_id")).toString();
     return c;
+}
+
+QJsonObject BiblioEntry::toJson() const
+{
+    QJsonObject o;
+    o[QStringLiteral("id")] = id;
+    if (!key.isEmpty())
+        o[QStringLiteral("key")] = key;
+    o[QStringLiteral("author")] = author;
+    o[QStringLiteral("title")] = title;
+    o[QStringLiteral("year")] = year;
+    return o;
+}
+
+BiblioEntry BiblioEntry::fromJson(const QJsonObject &o)
+{
+    BiblioEntry e;
+    e.id = o.value(QStringLiteral("id")).toString();
+    e.key = o.value(QStringLiteral("key")).toString();
+    e.author = o.value(QStringLiteral("author")).toString();
+    e.title = o.value(QStringLiteral("title")).toString();
+    e.year = o.value(QStringLiteral("year")).toString();
+    return e;
 }
 
 QJsonObject Bookmark::toJson() const
@@ -180,6 +215,12 @@ QJsonObject Selection::toJson() const
         o[QStringLiteral("row")] = tableRow;
     if (tableCol >= 0)
         o[QStringLiteral("col")] = tableCol;
+    if (!ids.isEmpty()) {
+        QJsonArray a;
+        for (const auto &id : ids)
+            a.append(id);
+        o[QStringLiteral("ids")] = a;
+    }
     return o;
 }
 
@@ -192,6 +233,8 @@ Selection Selection::fromJson(const QJsonObject &o)
     s.focusOff = o.value(QStringLiteral("focus_off")).toInt();
     s.tableRow = o.value(QStringLiteral("row")).toInt(-1);
     s.tableCol = o.value(QStringLiteral("col")).toInt(-1);
+    for (const auto &v : o.value(QStringLiteral("ids")).toArray())
+        s.ids.push_back(v.toString());
     return s;
 }
 
@@ -317,6 +360,42 @@ QJsonObject Block::toJson() const
             o[QStringLiteral("wrap")] = wrap;
         if (!anchor.isEmpty())
             o[QStringLiteral("anchor")] = anchor;
+        if (flipH)
+            o[QStringLiteral("flip_h")] = true;
+        if (flipV)
+            o[QStringLiteral("flip_v")] = true;
+        if (cropL > 0 || cropT > 0 || cropR > 0 || cropB > 0) {
+            QJsonArray c;
+            c.append(cropL);
+            c.append(cropT);
+            c.append(cropR);
+            c.append(cropB);
+            o[QStringLiteral("crop")] = c;
+        }
+    } else if (type == QLatin1String("shape") || type == QLatin1String("chart") || type == QLatin1String("qr")
+               || type == QLatin1String("equation") || type == QLatin1String("form")
+               || type == QLatin1String("biblio")) {
+        o[QStringLiteral("runs")] = runsToJson(runs);
+        if (imageWidthMm > 0)
+            o[QStringLiteral("width_mm")] = imageWidthMm;
+        if (heightMm > 0)
+            o[QStringLiteral("height_mm")] = heightMm;
+        if (!shapeKind.isEmpty())
+            o[QStringLiteral("shape")] = shapeKind;
+        if (!fill.isEmpty())
+            o[QStringLiteral("fill")] = fill;
+        if (!stroke.isEmpty())
+            o[QStringLiteral("stroke")] = stroke;
+        if (!qrText.isEmpty())
+            o[QStringLiteral("qr")] = qrText;
+        if (!formKind.isEmpty())
+            o[QStringLiteral("form")] = formKind;
+        if (!data.isEmpty())
+            o[QStringLiteral("data")] = data;
+        if (numbered)
+            o[QStringLiteral("numbered")] = true;
+        if (!connectTo.isEmpty())
+            o[QStringLiteral("connect_to")] = connectTo;
     } else if (type != QLatin1String("break")) {
         o[QStringLiteral("runs")] = runsToJson(runs);
         if (type == QLatin1String("frame") && imageWidthMm > 0)
@@ -387,6 +466,16 @@ QJsonObject Block::toJson() const
         o[QStringLiteral("rotate")] = rotateDeg;
     if (opacity != 1.0)
         o[QStringLiteral("opacity")] = opacity;
+    if (shadowPt > 0)
+        o[QStringLiteral("shadow_pt")] = shadowPt;
+    if (zIndex != 0)
+        o[QStringLiteral("z_index")] = zIndex;
+    if (!groupId.isEmpty())
+        o[QStringLiteral("group")] = groupId;
+    if (!writingMode.isEmpty())
+        o[QStringLiteral("writing_mode")] = writingMode;
+    if (sectionHidden)
+        o[QStringLiteral("section_hidden")] = true;
     return o;
 }
 
@@ -475,6 +564,29 @@ Block Block::fromJson(const QJsonObject &o)
     b.pageNumber = o.value(QStringLiteral("page_number")).toInt();
     b.rotateDeg = o.value(QStringLiteral("rotate")).toInt();
     b.opacity = o.contains(QStringLiteral("opacity")) ? o.value(QStringLiteral("opacity")).toDouble() : 1.0;
+    b.flipH = o.value(QStringLiteral("flip_h")).toBool();
+    b.flipV = o.value(QStringLiteral("flip_v")).toBool();
+    const auto crop = o.value(QStringLiteral("crop")).toArray();
+    if (crop.size() >= 4) {
+        b.cropL = crop.at(0).toDouble();
+        b.cropT = crop.at(1).toDouble();
+        b.cropR = crop.at(2).toDouble();
+        b.cropB = crop.at(3).toDouble();
+    }
+    b.shadowPt = o.value(QStringLiteral("shadow_pt")).toDouble();
+    b.zIndex = o.value(QStringLiteral("z_index")).toInt();
+    b.groupId = o.value(QStringLiteral("group")).toString();
+    b.shapeKind = o.value(QStringLiteral("shape")).toString();
+    b.fill = o.value(QStringLiteral("fill")).toString();
+    b.stroke = o.value(QStringLiteral("stroke")).toString();
+    b.heightMm = o.value(QStringLiteral("height_mm")).toDouble();
+    b.data = o.value(QStringLiteral("data")).toArray();
+    b.qrText = o.value(QStringLiteral("qr")).toString();
+    b.formKind = o.value(QStringLiteral("form")).toString();
+    b.writingMode = o.value(QStringLiteral("writing_mode")).toString();
+    b.sectionHidden = o.value(QStringLiteral("section_hidden")).toBool();
+    b.numbered = o.value(QStringLiteral("numbered")).toBool();
+    b.connectTo = o.value(QStringLiteral("connect_to")).toString();
     return b;
 }
 
@@ -590,6 +702,28 @@ QJsonObject PageLayout::toJson() const
             w.append(x);
         o[QStringLiteral("column_widths")] = w;
     }
+    if (widthMm > 0)
+        o[QStringLiteral("width_mm")] = widthMm;
+    if (heightMm > 0)
+        o[QStringLiteral("height_mm")] = heightMm;
+    if (hyphenZoneMm > 0)
+        o[QStringLiteral("hyphen_zone_mm")] = hyphenZoneMm;
+    if (gutterMirror)
+        o[QStringLiteral("gutter_mirror")] = true;
+    if (lineNumbers)
+        o[QStringLiteral("line_numbers")] = true;
+    if (chapterNumbers)
+        o[QStringLiteral("chapter_numbers")] = true;
+    if (noteRestart)
+        o[QStringLiteral("note_restart")] = true;
+    if (!tone.isEmpty())
+        o[QStringLiteral("tone")] = tone;
+    if (!writingMode.isEmpty())
+        o[QStringLiteral("writing_mode")] = writingMode;
+    if (gridMm > 0)
+        o[QStringLiteral("grid_mm")] = gridMm;
+    if (booklet)
+        o[QStringLiteral("booklet")] = true;
     return o;
 }
 
@@ -615,11 +749,29 @@ PageLayout PageLayout::fromJson(const QJsonObject &o)
         : 1;
     for (const auto &w : o.value(QStringLiteral("column_widths")).toArray())
         p.columnWeights.push_back(w.toDouble());
+    p.widthMm = o.value(QStringLiteral("width_mm")).toDouble();
+    p.heightMm = o.value(QStringLiteral("height_mm")).toDouble();
+    p.hyphenZoneMm = o.value(QStringLiteral("hyphen_zone_mm")).toDouble();
+    p.gutterMirror = o.value(QStringLiteral("gutter_mirror")).toBool();
+    p.lineNumbers = o.value(QStringLiteral("line_numbers")).toBool();
+    p.chapterNumbers = o.value(QStringLiteral("chapter_numbers")).toBool();
+    p.noteRestart = o.value(QStringLiteral("note_restart")).toBool();
+    p.tone = o.value(QStringLiteral("tone")).toString();
+    p.writingMode = o.value(QStringLiteral("writing_mode")).toString();
+    p.gridMm = o.value(QStringLiteral("grid_mm")).toDouble();
+    p.booklet = o.value(QStringLiteral("booklet")).toBool();
     return p;
 }
 
 void PageLayout::pageSizeMm(double &w, double &h) const
 {
+    if (widthMm > 0 && heightMm > 0) {
+        w = widthMm;
+        h = heightMm;
+        if (orientation.compare(QLatin1String("landscape"), Qt::CaseInsensitive) == 0 && widthMm < heightMm)
+            std::swap(w, h);
+        return;
+    }
     const QString s = size.toLower();
     if (s == QLatin1String("letter")) {
         w = 215.9;
@@ -766,6 +918,30 @@ QJsonObject Document::toJson() const
             vo[it.key()] = it.value();
         meta[QStringLiteral("vars")] = vo;
     }
+    if (!autotext.isEmpty()) {
+        QJsonObject ao;
+        for (auto it = autotext.begin(); it != autotext.end(); ++it)
+            ao[it.key()] = it.value();
+        meta[QStringLiteral("autotext")] = ao;
+    }
+    if (!userDic.isEmpty()) {
+        QJsonArray a;
+        for (const auto &w : userDic)
+            a.append(w);
+        meta[QStringLiteral("user_dic")] = a;
+    }
+    if (!imageLibrary.isEmpty()) {
+        QJsonArray a;
+        for (const auto &p : imageLibrary)
+            a.append(p);
+        meta[QStringLiteral("image_library")] = a;
+    }
+    if (!readingOrder.isEmpty()) {
+        QJsonArray a;
+        for (const auto &id : readingOrder)
+            a.append(id);
+        meta[QStringLiteral("reading_order")] = a;
+    }
     root[QStringLiteral("meta")] = meta;
     QJsonArray st;
     for (const auto &s : styles)
@@ -792,6 +968,18 @@ QJsonObject Document::toJson() const
         for (auto it = autocorrect.begin(); it != autocorrect.end(); ++it)
             ac[it.key()] = it.value();
         root[QStringLiteral("autocorrect")] = ac;
+    }
+    if (!thesaurus.isEmpty()) {
+        QJsonObject th;
+        for (auto it = thesaurus.begin(); it != thesaurus.end(); ++it)
+            th[it.key()] = it.value();
+        root[QStringLiteral("thesaurus")] = th;
+    }
+    if (!bibliography.isEmpty()) {
+        QJsonArray ba;
+        for (const auto &e : bibliography)
+            ba.append(e.toJson());
+        root[QStringLiteral("bibliography")] = ba;
     }
     return root;
 }
@@ -852,6 +1040,15 @@ Document Document::fromJson(const QJsonObject &o)
     const auto vo = meta.value(QStringLiteral("vars")).toObject();
     for (auto it = vo.begin(); it != vo.end(); ++it)
         d.vars.insert(it.key(), it.value().toString());
+    const auto ao = meta.value(QStringLiteral("autotext")).toObject();
+    for (auto it = ao.begin(); it != ao.end(); ++it)
+        d.autotext.insert(it.key(), it.value().toString());
+    for (const auto &w : meta.value(QStringLiteral("user_dic")).toArray())
+        d.userDic.push_back(w.toString());
+    for (const auto &p : meta.value(QStringLiteral("image_library")).toArray())
+        d.imageLibrary.push_back(p.toString());
+    for (const auto &id : meta.value(QStringLiteral("reading_order")).toArray())
+        d.readingOrder.push_back(id.toString());
     for (const auto &s : o.value(QStringLiteral("styles")).toArray())
         d.styles.push_back(StyleDef::fromJson(s.toObject()));
     if (d.styles.isEmpty()) {
@@ -875,6 +1072,11 @@ Document Document::fromJson(const QJsonObject &o)
     const auto ac = o.value(QStringLiteral("autocorrect")).toObject();
     for (auto it = ac.begin(); it != ac.end(); ++it)
         d.autocorrect.insert(it.key(), it.value().toString());
+    const auto th = o.value(QStringLiteral("thesaurus")).toObject();
+    for (auto it = th.begin(); it != th.end(); ++it)
+        d.thesaurus.insert(it.key(), it.value().toString());
+    for (const auto &e : o.value(QStringLiteral("bibliography")).toArray())
+        d.bibliography.push_back(BiblioEntry::fromJson(e.toObject()));
     return d;
 }
 
@@ -913,6 +1115,18 @@ QString Document::assignId(Block &b)
         prefix = QStringLiteral("toc");
     else if (b.type == QLatin1String("frame"))
         prefix = QStringLiteral("fr");
+    else if (b.type == QLatin1String("shape"))
+        prefix = QStringLiteral("sh");
+    else if (b.type == QLatin1String("chart"))
+        prefix = QStringLiteral("ch");
+    else if (b.type == QLatin1String("qr"))
+        prefix = QStringLiteral("qr");
+    else if (b.type == QLatin1String("equation"))
+        prefix = QStringLiteral("eq");
+    else if (b.type == QLatin1String("form"))
+        prefix = QStringLiteral("fm");
+    else if (b.type == QLatin1String("biblio"))
+        prefix = QStringLiteral("bib");
     b.id = prefix + QString::number(nextCounter(prefix));
     return b.id;
 }
@@ -988,8 +1202,15 @@ QString runDisplayText(const Document &doc, const TextRun &r, int page, int page
 {
     if (r.hidden)
         return {};
+    if (!r.showIf.isEmpty()) {
+        const QString v = doc.vars.value(r.showIf);
+        if (v.isEmpty() || v == QLatin1String("0") || v == QLatin1String("false"))
+            return {};
+    }
     QString t;
-    if (r.field == QLatin1String("page_number"))
+    if (r.redact)
+        t = QString(qMax(1, r.text.size()), QChar(0x2588));
+    else if (r.field == QLatin1String("page_number"))
         t = formatPageNumber(qMax(1, page), doc.page.numberFormat);
     else if (r.field == QLatin1String("page_count"))
         t = QString::number(qMax(1, pages));
@@ -1022,11 +1243,31 @@ QString runDisplayText(const Document &doc, const TextRun &r, int page, int page
     else if (r.field == QLatin1String("merge") || r.field == QLatin1String("mail_merge")) {
         const QString key = r.fieldArg.isEmpty() ? r.text : r.fieldArg;
         t = key.isEmpty() ? QStringLiteral("«merge»") : QStringLiteral("«%1»").arg(key);
+    } else if (r.field == QLatin1String("time"))
+        t = QDateTime::currentDateTime().toString(r.fieldArg.isEmpty() ? QStringLiteral("HH:mm") : r.fieldArg);
+    else if (r.field == QLatin1String("cite") || r.field == QLatin1String("citation")) {
+        const QString key = r.fieldArg.isEmpty() ? r.text : r.fieldArg;
+        for (const auto &e : doc.bibliography) {
+            if (e.id == key || e.key == key) {
+                t = e.author;
+                if (!e.year.isEmpty())
+                    t += QStringLiteral(" (") + e.year + QLatin1Char(')');
+                break;
+            }
+        }
+        if (t.isEmpty())
+            t = QStringLiteral("[") + key + QLatin1Char(']');
     } else if (r.field == QLatin1String("xref")) {
         const Block *tgt = doc.findBlock(r.fieldArg);
-        if (tgt)
-            t = tgt->plainText().left(48);
-        else {
+        if (tgt) {
+            if (tgt->type == QLatin1String("image") || tgt->type == QLatin1String("table")
+                || tgt->type == QLatin1String("equation") || tgt->type == QLatin1String("chart"))
+                t = tgt->caption.isEmpty() ? tgt->id : tgt->caption;
+            else if (tgt->type == QLatin1String("list-item"))
+                t = tgt->plainText().left(48);
+            else
+                t = tgt->plainText().left(48);
+        } else {
             for (const auto &bm : doc.bookmarks) {
                 if (bm.id == r.fieldArg || bm.name == r.fieldArg) {
                     const Block *b = doc.findBlock(bm.blockId);
@@ -1135,6 +1376,12 @@ void applyFormatToRun(TextRun &r, const QJsonObject &fmt)
         r.lang = fmt.value(QStringLiteral("lang")).toString();
     if (fmt.contains(QStringLiteral("kerning")))
         r.kerning = fmt.value(QStringLiteral("kerning")).toDouble();
+    if (fmt.contains(QStringLiteral("ruby")))
+        r.ruby = fmt.value(QStringLiteral("ruby")).toString();
+    if (fmt.contains(QStringLiteral("redact")))
+        r.redact = fmt.value(QStringLiteral("redact")).toBool();
+    if (fmt.contains(QStringLiteral("show_if")))
+        r.showIf = fmt.value(QStringLiteral("show_if")).toString();
 }
 
 void clearRunFormat(TextRun &r)

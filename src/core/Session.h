@@ -121,6 +121,31 @@ public:
     QJsonObject tableFormulas(const QJsonObject &args);
     QJsonObject tableAutoWidth(const QJsonObject &args);
 
+    QJsonObject insertShape(const QJsonObject &args);
+    QJsonObject insertChart(const QJsonObject &args);
+    QJsonObject insertQr(const QJsonObject &args);
+    QJsonObject insertEquation(const QJsonObject &args);
+    QJsonObject insertForm(const QJsonObject &args);
+    QJsonObject bibliographySet(const QJsonObject &args);
+    QJsonObject insertCitation(const QJsonObject &args);
+    QJsonObject figureIndex(const QJsonObject &args);
+    QJsonObject autotextSet(const QJsonObject &args);
+    QJsonObject autotextInsert(const QJsonObject &args);
+    QJsonObject documentStats(const QJsonObject &args);
+    QJsonObject documentCompare(const QJsonObject &args);
+    QJsonObject documentA11y(const QJsonObject &args);
+    QJsonObject redactRuns(const QJsonObject &args);
+    QJsonObject snapshotSave(const QJsonObject &args);
+    QJsonObject snapshotList(const QJsonObject &args);
+    QJsonObject snapshotRestore(const QJsonObject &args);
+    QJsonObject setUserDic(const QJsonObject &args);
+    QJsonObject thesaurusGet(const QJsonObject &args);
+    QJsonObject thesaurusSet(const QJsonObject &args);
+    QJsonObject grammarCheck(const QJsonObject &args);
+    QJsonObject documentLinks(const QJsonObject &args);
+    QJsonObject alignObjects(const QJsonObject &args);
+    QJsonObject revisionView(const QJsonObject &args);
+
     QJsonObject validate(const QJsonObject &args);
     QJsonObject batch(const QJsonObject &args);
     QJsonObject checkpoint(const QJsonObject &args);
@@ -159,6 +184,7 @@ private:
     bool loadFrom(const QString &path, QString *error);
     Block *tableBlock(const QString &id);
     QVector<TextRun> *runsAt(Block &b, int row, int col);
+    QJsonObject dispatchTool(const QString &tool, const QJsonObject &args);
 
     Document doc_;
     Document baseline_;
@@ -175,6 +201,17 @@ private:
     QVector<Document> redo_;
     Selection sel_;
     ChangeCallback onChanged_;
+    QString lastTool_;
+    QJsonObject lastArgs_;
+    QString revisionView_;
+    struct Snap {
+        QString name;
+        Document doc;
+        QString path;
+        bool dirty = false;
+        Selection sel;
+    };
+    QVector<Snap> snaps_;
 };
 
 QJsonObject toolResultOk(const QJsonObject &extra = {});

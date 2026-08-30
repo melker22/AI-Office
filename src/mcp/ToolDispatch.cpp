@@ -46,7 +46,10 @@ QJsonArray toolDefinitions()
     a.append(tool(QStringLiteral("document_export_pdf"),
                   QStringLiteral("Export PDF natively (QPainter). pdfa=true writes PDF/A-1b. LibreOffice is not required."),
                   QJsonObject{{QStringLiteral("path"), prop(QStringLiteral("string"))},
-                              {QStringLiteral("pdfa"), prop(QStringLiteral("boolean"), QStringLiteral("PDF/A-1b via QPdfWriter"))}},
+                              {QStringLiteral("pdfa"), prop(QStringLiteral("boolean"), QStringLiteral("PDF/A-1b via QPdfWriter"))},
+                              {QStringLiteral("from"), prop(QStringLiteral("integer"))},
+                              {QStringLiteral("to"), prop(QStringLiteral("integer"))},
+                              {QStringLiteral("booklet"), prop(QStringLiteral("boolean"))}},
                   QJsonArray{QStringLiteral("path")}));
     a.append(tool(QStringLiteral("document_get"),
                   QStringLiteral("Return the full semantic JSON (stable block ids, styles, page layout)."),
@@ -91,7 +94,10 @@ QJsonArray toolDefinitions()
                               {QStringLiteral("hidden"), prop(QStringLiteral("boolean"))},
                               {QStringLiteral("char_style"), prop(QStringLiteral("string"))},
                               {QStringLiteral("lang"), prop(QStringLiteral("string"), QStringLiteral("BCP 47, e.g. pt-PT"))},
-                              {QStringLiteral("kerning"), prop(QStringLiteral("number"), QStringLiteral("Extra letter-spacing percent"))}}));
+                              {QStringLiteral("kerning"), prop(QStringLiteral("number"), QStringLiteral("Extra letter-spacing percent"))},
+                              {QStringLiteral("ruby"), prop(QStringLiteral("string"))},
+                              {QStringLiteral("redact"), prop(QStringLiteral("boolean"))},
+                              {QStringLiteral("show_if"), prop(QStringLiteral("string"))}}));
     a.append(tool(QStringLiteral("apply_paragraph_format"),
                   QStringLiteral("Set align, style, indents, spacing, line_height, keep_with_next, break_before, orphans/widows, drop_cap, tabs, border, list_restart, list_bullet, lang."),
                   QJsonObject{{QStringLiteral("ids"), prop(QStringLiteral("array"), QStringLiteral("Block ids; or pass id"))},
@@ -114,7 +120,12 @@ QJsonArray toolDefinitions()
                               {QStringLiteral("border_color"), prop(QStringLiteral("string"))},
                               {QStringLiteral("list_restart"), prop(QStringLiteral("boolean"))},
                               {QStringLiteral("list_bullet"), prop(QStringLiteral("string"))},
-                              {QStringLiteral("lang"), prop(QStringLiteral("string"))}}));
+                              {QStringLiteral("lang"), prop(QStringLiteral("string"))},
+                              {QStringLiteral("section_hidden"), prop(QStringLiteral("boolean"))},
+                              {QStringLiteral("writing_mode"), prop(QStringLiteral("string"))},
+                              {QStringLiteral("z_index"), prop(QStringLiteral("integer"))},
+                              {QStringLiteral("connect_to"), prop(QStringLiteral("string"))},
+                              {QStringLiteral("group_id"), prop(QStringLiteral("string"))}}));
     a.append(tool(QStringLiteral("apply_style"),
                   QStringLiteral("Apply a named style. Heading N also converts the block to a heading."),
                   QJsonObject{{QStringLiteral("ids"), prop(QStringLiteral("array"), QStringLiteral("Block ids; or pass id"))},
@@ -140,7 +151,7 @@ QJsonArray toolDefinitions()
                               {QStringLiteral("page_orientation"), prop(QStringLiteral("string"))}},
                   QJsonArray{QStringLiteral("name")}));
     a.append(tool(QStringLiteral("set_page_layout"),
-                  QStringLiteral("Set paper size, orientation, margins, columns, hyphenate, gutter, border, background, page numbers. style= applies a kind=page style."),
+                  QStringLiteral("Set paper size, orientation, margins, columns, hyphenate, gutter, border, background, page numbers, custom mm, tone, grid, booklet. style= applies a kind=page style."),
                   QJsonObject{{QStringLiteral("size"), prop(QStringLiteral("string"))},
                               {QStringLiteral("orientation"), prop(QStringLiteral("string"))},
                               {QStringLiteral("margins_mm"), prop(QStringLiteral("array"))},
@@ -155,7 +166,18 @@ QJsonArray toolDefinitions()
                               {QStringLiteral("style"), prop(QStringLiteral("string"), QStringLiteral("Named kind=page style"))},
                               {QStringLiteral("number_format"), prop(QStringLiteral("string"), QStringLiteral("arabic|roman|alpha"))},
                               {QStringLiteral("number_start"), prop(QStringLiteral("integer"))},
-                              {QStringLiteral("column_widths"), prop(QStringLiteral("array"), QStringLiteral("Relative column weights when columns>1"))}}));
+                              {QStringLiteral("column_widths"), prop(QStringLiteral("array"), QStringLiteral("Relative column weights when columns>1"))},
+                              {QStringLiteral("width_mm"), prop(QStringLiteral("number"))},
+                              {QStringLiteral("height_mm"), prop(QStringLiteral("number"))},
+                              {QStringLiteral("hyphen_zone_mm"), prop(QStringLiteral("number"))},
+                              {QStringLiteral("gutter_mirror"), prop(QStringLiteral("boolean"))},
+                              {QStringLiteral("line_numbers"), prop(QStringLiteral("boolean"))},
+                              {QStringLiteral("chapter_numbers"), prop(QStringLiteral("boolean"))},
+                              {QStringLiteral("note_restart"), prop(QStringLiteral("boolean"))},
+                              {QStringLiteral("tone"), prop(QStringLiteral("string"), QStringLiteral("sepia|night"))},
+                              {QStringLiteral("writing_mode"), prop(QStringLiteral("string"))},
+                              {QStringLiteral("grid_mm"), prop(QStringLiteral("number"))},
+                              {QStringLiteral("booklet"), prop(QStringLiteral("boolean"))}}));
     a.append(tool(QStringLiteral("insert_table"),
                   QStringLiteral("Insert a table after after_id. header_texts fill row 0 when header=true; cells fill data rows after the header."),
                   QJsonObject{{QStringLiteral("after_id"), prop(QStringLiteral("string"))},
@@ -180,11 +202,12 @@ QJsonArray toolDefinitions()
                               {QStringLiteral("restart"), prop(QStringLiteral("boolean"))}},
                   QJsonArray{QStringLiteral("items")}));
     a.append(tool(QStringLiteral("insert_break"),
-                  QStringLiteral("Insert a page or column break (kind=page|column|page_restart)."),
+                  QStringLiteral("Insert a page, column, or section break (kind=page|column|page_restart|section). hidden=true hides the following section."),
                   QJsonObject{{QStringLiteral("after_id"), prop(QStringLiteral("string"))},
                               {QStringLiteral("kind"), prop(QStringLiteral("string"))},
                               {QStringLiteral("page_restart"), prop(QStringLiteral("boolean"))},
-                              {QStringLiteral("page_number"), prop(QStringLiteral("integer"))}}));
+                              {QStringLiteral("page_number"), prop(QStringLiteral("integer"))},
+                              {QStringLiteral("hidden"), prop(QStringLiteral("boolean"))}}));
     a.append(tool(QStringLiteral("find_replace"),
                   QStringLiteral("Find/replace. regex=true uses QRegularExpression."),
                   QJsonObject{{QStringLiteral("find"), prop(QStringLiteral("string"))},
@@ -292,7 +315,8 @@ QJsonArray toolDefinitions()
                   QJsonObject{{QStringLiteral("ids"), prop(QStringLiteral("array"))},
                               {QStringLiteral("id"), prop(QStringLiteral("string"))},
                               {QStringLiteral("text"), prop(QStringLiteral("string"))},
-                              {QStringLiteral("author"), prop(QStringLiteral("string"))}},
+                              {QStringLiteral("author"), prop(QStringLiteral("string"))},
+                              {QStringLiteral("parent_id"), prop(QStringLiteral("string"))}},
                   QJsonArray{QStringLiteral("text")}));
     a.append(tool(QStringLiteral("comment_resolve"),
                   QStringLiteral("Mark a comment resolved."),
@@ -353,7 +377,7 @@ QJsonArray toolDefinitions()
                   QJsonObject{{QStringLiteral("target"), prop(QStringLiteral("string"))}},
                   QJsonArray{QStringLiteral("target")}));
     a.append(tool(QStringLiteral("insert_field"),
-                  QStringLiteral("Insert a field: page_number, page_count, date, title, author, xref, filename, word_count, custom, merge, chapter, var, input."),
+                  QStringLiteral("Insert a field: page_number, page_count, date, title, author, xref, filename, word_count, custom, merge, chapter, var, input, time, cite."),
                   QJsonObject{{QStringLiteral("kind"), prop(QStringLiteral("string"))},
                               {QStringLiteral("arg"), prop(QStringLiteral("string"))},
                               {QStringLiteral("id"), prop(QStringLiteral("string"))},
@@ -441,7 +465,7 @@ QJsonArray toolDefinitions()
                               {QStringLiteral("col"), prop(QStringLiteral("integer"))}},
                   QJsonArray{QStringLiteral("id")}));
     a.append(tool(QStringLiteral("set_image"),
-                  QStringLiteral("Set image width_mm, alt, caption, wrap, anchor, rotate degrees, opacity 0-1."),
+                  QStringLiteral("Set image width_mm, alt, caption, wrap, anchor, rotate, opacity, flip_h/v, crop[4], shadow_pt, z_index."),
                   QJsonObject{{QStringLiteral("id"), prop(QStringLiteral("string"))},
                               {QStringLiteral("width_mm"), prop(QStringLiteral("integer"))},
                               {QStringLiteral("alt"), prop(QStringLiteral("string"))},
@@ -449,7 +473,13 @@ QJsonArray toolDefinitions()
                               {QStringLiteral("wrap"), prop(QStringLiteral("string"))},
                               {QStringLiteral("anchor"), prop(QStringLiteral("string"))},
                               {QStringLiteral("rotate"), prop(QStringLiteral("integer"))},
-                              {QStringLiteral("opacity"), prop(QStringLiteral("number"))}},
+                              {QStringLiteral("opacity"), prop(QStringLiteral("number"))},
+                              {QStringLiteral("flip_h"), prop(QStringLiteral("boolean"))},
+                              {QStringLiteral("flip_v"), prop(QStringLiteral("boolean"))},
+                              {QStringLiteral("crop"), prop(QStringLiteral("array"))},
+                              {QStringLiteral("shadow_pt"), prop(QStringLiteral("number"))},
+                              {QStringLiteral("z_index"), prop(QStringLiteral("integer"))},
+                              {QStringLiteral("group_id"), prop(QStringLiteral("string"))}},
                   QJsonArray{QStringLiteral("id")}));
     a.append(tool(QStringLiteral("insert_caption"),
                   QStringLiteral("Set caption text on an image or table block."),
@@ -626,6 +656,127 @@ QJsonArray toolDefinitions()
                   QStringLiteral("Set col_widths_mm from cell text lengths."),
                   QJsonObject{{QStringLiteral("id"), prop(QStringLiteral("string"))}},
                   QJsonArray{QStringLiteral("id")}));
+    a.append(tool(QStringLiteral("insert_shape"),
+                  QStringLiteral("Insert a shape block (rect|ellipse|line) with fill, stroke, width_mm, height_mm."),
+                  QJsonObject{{QStringLiteral("after_id"), prop(QStringLiteral("string"))},
+                              {QStringLiteral("shape"), prop(QStringLiteral("string"))},
+                              {QStringLiteral("kind"), prop(QStringLiteral("string"))},
+                              {QStringLiteral("fill"), prop(QStringLiteral("string"))},
+                              {QStringLiteral("stroke"), prop(QStringLiteral("string"))},
+                              {QStringLiteral("width_mm"), prop(QStringLiteral("number"))},
+                              {QStringLiteral("height_mm"), prop(QStringLiteral("number"))},
+                              {QStringLiteral("connect_to"), prop(QStringLiteral("string"))},
+                              {QStringLiteral("z_index"), prop(QStringLiteral("integer"))}}));
+    a.append(tool(QStringLiteral("insert_chart"),
+                  QStringLiteral("Insert a bar chart. data=[{label,value}]."),
+                  QJsonObject{{QStringLiteral("after_id"), prop(QStringLiteral("string"))},
+                              {QStringLiteral("data"), prop(QStringLiteral("array"))},
+                              {QStringLiteral("width_mm"), prop(QStringLiteral("number"))},
+                              {QStringLiteral("height_mm"), prop(QStringLiteral("number"))}},
+                  QJsonArray{QStringLiteral("data")}));
+    a.append(tool(QStringLiteral("insert_qr"),
+                  QStringLiteral("Insert a QR preview (byte mode, short payload). qr=text."),
+                  QJsonObject{{QStringLiteral("after_id"), prop(QStringLiteral("string"))},
+                              {QStringLiteral("qr"), prop(QStringLiteral("string"))},
+                              {QStringLiteral("text"), prop(QStringLiteral("string"))},
+                              {QStringLiteral("width_mm"), prop(QStringLiteral("number"))}},
+                  QJsonArray{QStringLiteral("qr")}));
+    a.append(tool(QStringLiteral("insert_equation"),
+                  QStringLiteral("Insert a numbered equation line (plain text, not Math OLE)."),
+                  QJsonObject{{QStringLiteral("after_id"), prop(QStringLiteral("string"))},
+                              {QStringLiteral("text"), prop(QStringLiteral("string"))},
+                              {QStringLiteral("numbered"), prop(QStringLiteral("boolean"))}},
+                  QJsonArray{QStringLiteral("text")}));
+    a.append(tool(QStringLiteral("insert_form"),
+                  QStringLiteral("Insert a form control block: kind=text|checkbox|dropdown."),
+                  QJsonObject{{QStringLiteral("after_id"), prop(QStringLiteral("string"))},
+                              {QStringLiteral("kind"), prop(QStringLiteral("string"))},
+                              {QStringLiteral("text"), prop(QStringLiteral("string"))},
+                              {QStringLiteral("checked"), prop(QStringLiteral("boolean"))},
+                              {QStringLiteral("options"), prop(QStringLiteral("array"))}}));
+    a.append(tool(QStringLiteral("bibliography_set"),
+                  QStringLiteral("Set bibliography entries [{id,key,author,title,year}] and/or a single id+key+author."),
+                  QJsonObject{{QStringLiteral("entries"), prop(QStringLiteral("array"))},
+                              {QStringLiteral("id"), prop(QStringLiteral("string"))},
+                              {QStringLiteral("key"), prop(QStringLiteral("string"))},
+                              {QStringLiteral("author"), prop(QStringLiteral("string"))},
+                              {QStringLiteral("title"), prop(QStringLiteral("string"))},
+                              {QStringLiteral("year"), prop(QStringLiteral("string"))}}));
+    a.append(tool(QStringLiteral("insert_citation"),
+                  QStringLiteral("Insert a cite field. key or arg matches bibliography id/key."),
+                  QJsonObject{{QStringLiteral("key"), prop(QStringLiteral("string"))},
+                              {QStringLiteral("arg"), prop(QStringLiteral("string"))},
+                              {QStringLiteral("id"), prop(QStringLiteral("string"))}}));
+    a.append(tool(QStringLiteral("figure_index"),
+                  QStringLiteral("Insert an illustration index from image/chart/equation captions."),
+                  QJsonObject{{QStringLiteral("after_id"), prop(QStringLiteral("string"))},
+                              {QStringLiteral("title"), prop(QStringLiteral("string"))}}));
+    a.append(tool(QStringLiteral("autotext_set"),
+                  QStringLiteral("Store autotext snippets. snippets={name:text} and/or name+text."),
+                  QJsonObject{{QStringLiteral("snippets"), prop(QStringLiteral("object"))},
+                              {QStringLiteral("name"), prop(QStringLiteral("string"))},
+                              {QStringLiteral("text"), prop(QStringLiteral("string"))},
+                              {QStringLiteral("replace"), prop(QStringLiteral("boolean"))}}));
+    a.append(tool(QStringLiteral("autotext_insert"),
+                  QStringLiteral("Insert a named autotext snippet at the caret."),
+                  QJsonObject{{QStringLiteral("name"), prop(QStringLiteral("string"))}},
+                  QJsonArray{QStringLiteral("name")}));
+    a.append(tool(QStringLiteral("document_stats"),
+                  QStringLiteral("Word/char/paragraph/page/image/table counts."),
+                  {}));
+    a.append(tool(QStringLiteral("document_compare"),
+                  QStringLiteral("Diff the current document against another .aio.json path."),
+                  QJsonObject{{QStringLiteral("path"), prop(QStringLiteral("string"))}},
+                  QJsonArray{QStringLiteral("path")}));
+    a.append(tool(QStringLiteral("document_a11y"),
+                  QStringLiteral("Accessibility report: missing image alt, reading_order."),
+                  {}));
+    a.append(tool(QStringLiteral("redact"),
+                  QStringLiteral("Mark runs as redacted (█ in preview). Same targeting as apply_character_format."),
+                  QJsonObject{{QStringLiteral("ids"), prop(QStringLiteral("array"))},
+                              {QStringLiteral("id"), prop(QStringLiteral("string"))},
+                              {QStringLiteral("start"), prop(QStringLiteral("integer"))},
+                              {QStringLiteral("end"), prop(QStringLiteral("integer"))}}));
+    a.append(tool(QStringLiteral("repeat_last"),
+                  QStringLiteral("Repeat the last successful tool call (except itself)."),
+                  {}));
+    a.append(tool(QStringLiteral("snapshot_save"),
+                  QStringLiteral("Save a named version snapshot (beyond checkpoint)."),
+                  QJsonObject{{QStringLiteral("name"), prop(QStringLiteral("string"))}}));
+    a.append(tool(QStringLiteral("snapshot_list"),
+                  QStringLiteral("List named snapshots."),
+                  {}));
+    a.append(tool(QStringLiteral("snapshot_restore"),
+                  QStringLiteral("Restore a named snapshot."),
+                  QJsonObject{{QStringLiteral("name"), prop(QStringLiteral("string"))}},
+                  QJsonArray{QStringLiteral("name")}));
+    a.append(tool(QStringLiteral("set_user_dic"),
+                  QStringLiteral("Add extra spell-check words (user.dic). words[] and/or word."),
+                  QJsonObject{{QStringLiteral("words"), prop(QStringLiteral("array"))},
+                              {QStringLiteral("word"), prop(QStringLiteral("string"))},
+                              {QStringLiteral("replace"), prop(QStringLiteral("boolean"))}}));
+    a.append(tool(QStringLiteral("thesaurus_get"),
+                  QStringLiteral("Read the document thesaurus map. Optional word."),
+                  QJsonObject{{QStringLiteral("word"), prop(QStringLiteral("string"))}}));
+    a.append(tool(QStringLiteral("thesaurus_set"),
+                  QStringLiteral("Set thesaurus entries. map={word:synonyms} and/or word+synonyms."),
+                  QJsonObject{{QStringLiteral("map"), prop(QStringLiteral("object"))},
+                              {QStringLiteral("word"), prop(QStringLiteral("string"))},
+                              {QStringLiteral("synonyms"), prop(QStringLiteral("string"))}}));
+    a.append(tool(QStringLiteral("grammar_check"),
+                  QStringLiteral("Naive grammar: double spaces and repeated words."),
+                  {}));
+    a.append(tool(QStringLiteral("document_links"),
+                  QStringLiteral("List hyperlinks in runs."),
+                  {}));
+    a.append(tool(QStringLiteral("align_objects"),
+                  QStringLiteral("Align image/shape/frame objects: left|center|right|distribute."),
+                  QJsonObject{{QStringLiteral("ids"), prop(QStringLiteral("array"))},
+                              {QStringLiteral("id"), prop(QStringLiteral("string"))},
+                              {QStringLiteral("align"), prop(QStringLiteral("string"))}}));
+    a.append(tool(QStringLiteral("revision_view"),
+                  QStringLiteral("Set revision view: original|final|empty. Returned on document_get."),
+                  QJsonObject{{QStringLiteral("view"), prop(QStringLiteral("string"))}}));
     return a;
 }
 

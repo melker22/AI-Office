@@ -1,0 +1,45 @@
+[
+  {"tool": "document_new", "args": {"title": "Wave10", "force": true}},
+  {"tool": "set_page_layout", "args": {
+    "width_mm": 148, "height_mm": 210, "tone": "sepia",
+    "line_numbers": true, "chapter_numbers": true, "grid_mm": 8,
+    "hyphenate": true, "hyphen_zone_mm": 6, "gutter_mirror": true
+  }},
+  {"tool": "insert_blocks", "args": {"after_id": "p1", "blocks": [
+    {"type": "heading", "level": 1, "style": "Heading 1", "runs": [{"text": "Capitulo"}]},
+    {"type": "paragraph", "runs": [{"text": "the the  texto com ruby"}]}
+  ]}},
+  {"tool": "apply_character_format", "args": {"id": "p2", "ruby": "ル"}},
+  {"tool": "insert_shape", "args": {"after_id": "end", "shape": "rect", "fill": "#F3E0CC", "width_mm": 40, "height_mm": 20}},
+  {"tool": "insert_shape", "args": {"after_id": "end", "shape": "ellipse", "width_mm": 30, "height_mm": 20, "connect_to": "sh1"}},
+  {"tool": "insert_chart", "args": {"after_id": "end", "data": [{"label": "A", "value": 3}, {"label": "B", "value": 7}]}},
+  {"tool": "insert_qr", "args": {"after_id": "end", "qr": "AIOFFICE"}},
+  {"tool": "insert_equation", "args": {"after_id": "end", "text": "E=mc^2", "numbered": true}},
+  {"tool": "insert_form", "args": {"after_id": "end", "kind": "checkbox", "text": "Aceito"}},
+  {"tool": "insert_blocks", "args": {"after_id": "end", "blocks": [
+    {"type": "image", "width_mm": 40, "alt": "", "caption": "Figura um"}
+  ]}},
+  {"tool": "set_image", "args": {"id": "img1", "flip_h": true, "shadow_pt": 3, "crop": [0.05, 0.05, 0.05, 0.05], "alt": "foto"}},
+  {"tool": "bibliography_set", "args": {"id": "smith", "key": "smith", "author": "Smith", "year": "2020", "title": "Paper"}},
+  {"tool": "insert_citation", "args": {"key": "smith", "id": "p2"}},
+  {"tool": "autotext_set", "args": {"name": "sig", "text": " Equipa"}},
+  {"tool": "set_selection", "args": {"anchor_id": "p2", "focus_id": "p2", "anchor_off": 0, "focus_off": 0}},
+  {"tool": "autotext_insert", "args": {"name": "sig", "id": "p2", "offset": 0}},
+  {"tool": "comment_add", "args": {"id": "p2", "text": "pai"}},
+  {"tool": "redact", "args": {"id": "p1"}},
+  {"tool": "set_user_dic", "args": {"word": "AIOFFICE"}},
+  {"tool": "thesaurus_set", "args": {"word": "teste", "synonyms": "prova"}},
+  {"tool": "thesaurus_get", "args": {"word": "teste"}},
+  {"tool": "grammar_check", "args": {}},
+  {"tool": "document_stats", "args": {}},
+  {"tool": "document_a11y", "args": {}},
+  {"tool": "document_links", "args": {}},
+  {"tool": "figure_index", "args": {"after_id": "end"}},
+  {"tool": "align_objects", "args": {"align": "center"}},
+  {"tool": "snapshot_save", "args": {"name": "w10"}},
+  {"tool": "snapshot_list", "args": {}},
+  {"tool": "insert_shape", "args": {"after_id": "end", "shape": "line", "width_mm": 40, "height_mm": 8}},
+  {"tool": "repeat_last", "args": {}},
+  {"tool": "page_preview", "args": {"from": 1, "to": 1, "zoom": 1}},
+  {"tool": "validate", "args": {}}
+]

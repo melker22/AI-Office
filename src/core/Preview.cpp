@@ -1,8 +1,11 @@
 #include "core/Preview.h"
+#include "core/Qr.h"
 
 #include <QBuffer>
+#include <QJsonObject>
 #include <QFontMetricsF>
 #include <QMap>
+#include <QMarginsF>
 #include <QPageSize>
 #include <QPainter>
 #include <QPen>
@@ -12,6 +15,7 @@
 #include <QTextCharFormat>
 #include <QTextLayout>
 #include <QTextOption>
+#include <algorithm>
 
 namespace aioffice {
 namespace {
@@ -78,12 +82,13 @@ QFont fontFor(const Document &doc, const Block &b, const TextRun &r, qreal zoom)
     return f;
 }
 
-QString hyphenateDisplay(QString t)
+QString hyphenateDisplay(QString t, double zoneMm = 0)
 {
     QString out;
     QString word;
+    const int minLen = zoneMm > 0 ? 6 : 10;
     auto flush = [&]() {
-        if (word.size() > 10) {
+        if (word.size() > minLen) {
             for (int i = 0; i < word.size(); ++i) {
                 out += word[i];
                 if (i >= 3 && i + 3 < word.size() && ((i + 1) % 5 == 0))
@@ -226,7 +231,7 @@ qreal measureTextHeight(const Document &doc, const Block &b, const QVector<TextR
     if (dc.lines > 0 && dc.skip > 0 && dc.skip <= text.size())
         text = text.mid(dc.skip);
     if (doc.page.hyphenate)
-        text = hyphenateDisplay(text);
+        text = hyphenateDisplay(text, doc.page.hyphenZoneMm);
     if (text.isEmpty())
         text = QLatin1Char(' ');
     TextRun probe = runs.isEmpty() ? TextRun{} : runs.first();
@@ -369,12 +374,9 @@ void DocumentLayout::relayout(const Document &doc, double z)
         ? 22 * zoom
         : 0;
     int fnCount = 0;
-    int enCount = 0;
     for (const auto &b : doc.body) {
         if (b.type == QLatin1String("footnote"))
             ++fnCount;
-        else if (b.type == QLatin1String("endnote"))
-            ++enCount;
     }
     const qreal fnBand = fnCount > 0 ? qMin(qreal(120) * zoom, 28 * zoom * fnCount + 8) : 0;
     contentW = paperW - marginL - marginR;
@@ -412,6 +414,10 @@ void DocumentLayout::relayout(const Document &doc, double z)
         const StyleDef *st = styleNamed(doc, b.style);
         const qreal beforePt = b.spaceBeforePt >= 0 ? b.spaceBeforePt : (st ? st->spaceBeforePt : 0);
         m.before = beforePt * zoom * kDpi / 72.0;
+        if (b.sectionHidden) {
+            meas.push_back(m);
+            continue;
+        }
         if (b.type == QLatin1String("footnote") || b.type == QLatin1String("endnote")) {
             meas.push_back(m);
             continue;
@@ -447,6 +453,16 @@ void DocumentLayout::relayout(const Document &doc, double z)
                     h = w * img.height() / qMax(1, img.width());
             }
             m.height = h + 8 + (!b.caption.isEmpty() ? 16 * zoom : 0);
+            meas.push_back(m);
+            continue;
+        }
+        if (b.type == QLatin1String("shape") || b.type == QLatin1String("chart") || b.type == QLatin1String("qr")
+            || b.type == QLatin1String("equation") || b.type == QLatin1String("form")) {
+            const qreal wmm = b.imageWidthMm > 0 ? b.imageWidthMm : (b.type == QLatin1String("qr") ? 40.0 : 80.0);
+            const qreal hmm = b.heightMm > 0 ? b.heightMm : (b.type == QLatin1String("equation") || b.type == QLatin1String("form") ? 12.0 : 40.0);
+            m.height = mmToPx(hmm, zoom) + 8 + (!b.caption.isEmpty() ? 16 * zoom : 0);
+            if (b.type == QLatin1String("qr"))
+                m.height = mmToPx(wmm, zoom) + 8;
             meas.push_back(m);
             continue;
         }
@@ -491,8 +507,12 @@ void DocumentLayout::relayout(const Document &doc, double z)
             displayOf.resize(page + 1);
         displayOf[page] = display;
     };
+    QVector<int> pendingEn;
+    QSet<int> placedEn;
     for (int i = 0; i < doc.body.size(); ++i) {
         const Block &b = doc.body[i];
+        if (b.sectionHidden)
+            continue;
         if (b.type == QLatin1String("footnote") || b.type == QLatin1String("endnote"))
             continue;
         if (b.type == QLatin1String("break") && i > 0) {
@@ -504,6 +524,29 @@ void DocumentLayout::relayout(const Document &doc, double z)
                     advancePage(false, 0);
                 }
             } else {
+                if (b.breakKind == QLatin1String("section") && !pendingEn.isEmpty()) {
+                    if (y > 0) {
+                        col = 0;
+                        y = 0;
+                        advancePage(false, 0);
+                    }
+                    for (int ni : pendingEn) {
+                        if (placedEn.contains(ni))
+                            continue;
+                        const Block &en = doc.body[ni];
+                        const qreal h = qMax(qreal(16 * zoom),
+                                             measureTextHeight(doc, en, en.runs, contentW, zoom) + 8);
+                        LaidBlock elb;
+                        elb.id = en.id;
+                        elb.type = en.type;
+                        elb.page = page;
+                        elb.rect = QRectF(marginL, marginT + headerBand + y, contentW, h);
+                        blocks.push_back(elb);
+                        placedEn.insert(ni);
+                        y += h;
+                    }
+                    pendingEn.clear();
+                }
                 const bool restart = b.pageRestart || b.breakKind == QLatin1String("page_restart");
                 advancePage(restart, b.pageNumber);
                 col = 0;
@@ -629,8 +672,12 @@ void DocumentLayout::relayout(const Document &doc, double z)
             if (r.noteId.isEmpty())
                 continue;
             const int ni = doc.indexOf(r.noteId);
-            if (ni >= 0 && doc.body[ni].type == QLatin1String("footnote"))
+            if (ni < 0)
+                continue;
+            if (doc.body[ni].type == QLatin1String("footnote"))
                 fnByPage[page].push_back(ni);
+            else if (doc.body[ni].type == QLatin1String("endnote") && !pendingEn.contains(ni))
+                pendingEn.push_back(ni);
         }
         y += meas[i].height;
     }
@@ -648,13 +695,17 @@ void DocumentLayout::relayout(const Document &doc, double z)
             fnY += h;
         }
     }
-    if (enCount > 0) {
+    for (int i = 0; i < doc.body.size(); ++i) {
+        if (doc.body[i].type == QLatin1String("endnote") && !placedEn.contains(i) && !pendingEn.contains(i))
+            pendingEn.push_back(i);
+    }
+    if (!pendingEn.isEmpty()) {
         advancePage(false, 0);
         qreal ey = 0;
-        for (int i = 0; i < doc.body.size(); ++i) {
-            const Block &b = doc.body[i];
-            if (b.type != QLatin1String("endnote"))
+        for (int ni : pendingEn) {
+            if (placedEn.contains(ni))
                 continue;
+            const Block &b = doc.body[ni];
             const qreal h = qMax(qreal(16 * zoom), measureTextHeight(doc, b, b.runs, contentW, zoom) + 8);
             LaidBlock lb;
             lb.id = b.id;
@@ -662,6 +713,7 @@ void DocumentLayout::relayout(const Document &doc, double z)
             lb.page = page;
             lb.rect = QRectF(marginL, marginT + headerBand + ey, contentW, h);
             blocks.push_back(lb);
+            placedEn.insert(ni);
             ey += h;
         }
     }
@@ -767,9 +819,28 @@ void paintPage(QPainter *p, const Document &doc, const DocumentLayout &lay, int 
                const QString &selId, int selStart, int selEnd, int selRow, int selCol, bool caretOn,
                int caretOff)
 {
-    p->fillRect(0, 0, lay.paperW, lay.paperH,
-                QColor(doc.page.background.isEmpty() ? QStringLiteral("#FDFBF7") : doc.page.background));
+    QString paper = doc.page.background;
+    if (paper.isEmpty()) {
+        if (doc.page.tone == QLatin1String("sepia"))
+            paper = QStringLiteral("#F4E6D0");
+        else if (doc.page.tone == QLatin1String("night"))
+            paper = QStringLiteral("#1D1916");
+        else
+            paper = QStringLiteral("#FDFBF7");
+    }
+    p->fillRect(0, 0, lay.paperW, lay.paperH, QColor(paper));
     p->fillRect(0, 0, lay.paperW, 3, QColor(QStringLiteral("#B5651D")));
+    if (doc.page.gridMm > 0) {
+        const qreal step = mmToPx(doc.page.gridMm, lay.zoom);
+        p->setPen(QPen(QColor(QStringLiteral("#E8DFD2")), 1, Qt::DotLine));
+        for (qreal x = lay.marginL; x < lay.paperW - lay.marginR; x += step)
+            p->drawLine(QPointF(x, lay.marginT), QPointF(x, lay.paperH - lay.marginB));
+        for (qreal y = lay.marginT; y < lay.paperH - lay.marginB; y += step)
+            p->drawLine(QPointF(lay.marginL, y), QPointF(lay.paperW - lay.marginR, y));
+    }
+    const int shownEarly = lay.displayPage(page);
+    if (doc.page.gutterMirror && shownEarly % 2 == 0 && doc.page.gutterMm > 0)
+        p->translate(-mmToPx(doc.page.gutterMm, lay.zoom), 0);
     if (!doc.watermark.isEmpty()) {
         p->save();
         p->setOpacity(0.12);
@@ -847,11 +918,44 @@ void paintPage(QPainter *p, const Document &doc, const DocumentLayout &lay, int 
         }
     }
 
+    QMap<QString, QString> chapNo;
+    if (doc.page.chapterNumbers) {
+        int c[7] = {};
+        for (const auto &hb : doc.body) {
+            if (hb.type != QLatin1String("heading"))
+                continue;
+            const int lv = qBound(1, hb.level, 6);
+            ++c[lv];
+            for (int k = lv + 1; k < 7; ++k)
+                c[k] = 0;
+            QString s;
+            for (int k = 1; k <= lv; ++k) {
+                if (!s.isEmpty())
+                    s += QLatin1Char('.');
+                s += QString::number(qMax(1, c[k]));
+            }
+            chapNo[hb.id] = s;
+        }
+    }
+    int lineNo = 0;
+    bool fnSep = false;
+
+    QVector<LaidBlock> ordered;
     for (const auto &lb : lay.blocks) {
+        if (lb.page == page)
+            ordered.push_back(lb);
+    }
+    std::sort(ordered.begin(), ordered.end(), [&](const LaidBlock &a, const LaidBlock &b) {
+        const Block *ba = doc.findBlock(a.id);
+        const Block *bb = doc.findBlock(b.id);
+        return (ba ? ba->zIndex : 0) < (bb ? bb->zIndex : 0);
+    });
+
+    for (const auto &lb : ordered) {
         if (lb.page != page)
             continue;
         const Block *bp = doc.findBlock(lb.id);
-        if (!bp || bp->type == QLatin1String("break"))
+        if (!bp || bp->type == QLatin1String("break") || bp->sectionHidden)
             continue;
         const Block &b = *bp;
         if (b.type == QLatin1String("table")) {
@@ -941,8 +1045,23 @@ void paintPage(QPainter *p, const Document &doc, const DocumentLayout &lay, int 
             if (!b.caption.isEmpty())
                 box.adjust(0, 0, 0, -16 * lay.zoom);
             if (!img.isNull()) {
+                if (b.cropL > 0 || b.cropT > 0 || b.cropR > 0 || b.cropB > 0) {
+                    const QRect cr(int(img.width() * qBound(0.0, b.cropL, 0.9)),
+                                   int(img.height() * qBound(0.0, b.cropT, 0.9)),
+                                   int(img.width() * qBound(0.1, 1.0 - b.cropL - b.cropR, 1.0)),
+                                   int(img.height() * qBound(0.1, 1.0 - b.cropT - b.cropB, 1.0)));
+                    img = img.copy(cr);
+                }
+                if (b.flipH)
+                    img = img.flipped(Qt::Horizontal);
+                if (b.flipV)
+                    img = img.flipped(Qt::Vertical);
                 p->save();
                 p->setOpacity(qBound(0.05, b.opacity, 1.0));
+                if (b.shadowPt > 0) {
+                    const qreal sh = b.shadowPt * lay.zoom;
+                    p->fillRect(box.adjusted(sh, sh, sh, sh), QColor(42, 36, 32, 40));
+                }
                 QImage sc = img.scaled(box.size().toSize(), Qt::KeepAspectRatio, Qt::SmoothTransformation);
                 if (b.rotateDeg != 0) {
                     p->translate(box.center());
@@ -968,6 +1087,71 @@ void paintPage(QPainter *p, const Document &doc, const DocumentLayout &lay, int 
             }
             continue;
         }
+        if (b.type == QLatin1String("shape") || b.type == QLatin1String("chart") || b.type == QLatin1String("qr")
+            || b.type == QLatin1String("equation") || b.type == QLatin1String("form")) {
+            QRectF box = lb.rect.adjusted(0, 0, 0, -4);
+            if (b.shadowPt > 0) {
+                const qreal sh = b.shadowPt * lay.zoom;
+                p->fillRect(box.adjusted(sh, sh, sh, sh), QColor(42, 36, 32, 40));
+            }
+            if (b.type == QLatin1String("qr")) {
+                const QImage qr = encodeQr(b.qrText.isEmpty() ? b.plainText() : b.qrText, 3);
+                p->drawImage(box.toRect(), qr);
+            } else if (b.type == QLatin1String("shape")) {
+                QColor fill(b.fill.isEmpty() ? QStringLiteral("#F3E0CC") : b.fill);
+                QPen sp(QColor(b.stroke.isEmpty() ? QStringLiteral("#B5651D") : b.stroke), qMax(1.0, 0.75 * lay.zoom));
+                p->setPen(sp);
+                p->setBrush(fill);
+                const QString k = b.shapeKind.isEmpty() ? QStringLiteral("rect") : b.shapeKind;
+                if (k == QLatin1String("ellipse"))
+                    p->drawEllipse(box);
+                else if (k == QLatin1String("line"))
+                    p->drawLine(box.topLeft(), box.bottomRight());
+                else
+                    p->drawRect(box);
+            } else if (b.type == QLatin1String("chart")) {
+                p->setPen(QPen(QColor(QStringLiteral("#D2C8B8")), 1));
+                p->setBrush(QColor(QStringLiteral("#FDFBF7")));
+                p->drawRect(box);
+                double maxV = 1;
+                QVector<double> vals;
+                for (const auto &v : b.data) {
+                    const auto o = v.toObject();
+                    const double val = o.value(QStringLiteral("value")).toDouble();
+                    maxV = qMax(maxV, val);
+                    vals.push_back(val);
+                }
+                const qreal barW = box.width() / qMax(1, vals.size() * 2);
+                for (int i = 0; i < vals.size(); ++i) {
+                    const qreal h = (box.height() - 16) * vals[i] / maxV;
+                    const qreal x = box.left() + barW * (i * 2 + 0.5);
+                    p->fillRect(QRectF(x, box.bottom() - 8 - h, barW, h), QColor(QStringLiteral("#B5651D")));
+                }
+            } else if (b.type == QLatin1String("equation")) {
+                p->setPen(QPen(QColor(QStringLiteral("#C4B8A8")), 1));
+                p->setBrush(QColor(QStringLiteral("#FDFBF7")));
+                p->drawRect(box);
+                QFont ef(QStringLiteral("Liberation Serif"));
+                ef.setItalic(true);
+                ef.setPointSizeF(12 * lay.zoom);
+                p->setFont(ef);
+                p->setPen(QColor(QStringLiteral("#1A1F24")));
+                p->drawText(box.adjusted(8, 0, -28, 0), Qt::AlignVCenter | Qt::AlignLeft, b.plainText());
+                if (b.numbered)
+                    p->drawText(box.adjusted(0, 0, -8, 0), Qt::AlignVCenter | Qt::AlignRight,
+                                QStringLiteral("(%1)").arg(b.level > 0 ? b.level : 1));
+            } else {
+                p->setPen(QPen(QColor(QStringLiteral("#B5651D")), 1));
+                p->setBrush(QColor(QStringLiteral("#FDFBF7")));
+                p->drawRect(box);
+                QString label = b.plainText();
+                if (b.formKind == QLatin1String("checkbox"))
+                    label = (b.checked ? QStringLiteral("☑ ") : QStringLiteral("☐ ")) + label;
+                p->setPen(QColor(QStringLiteral("#1A1F24")));
+                p->drawText(box.adjusted(6, 0, -6, 0), Qt::AlignVCenter | Qt::AlignLeft, label);
+            }
+            continue;
+        }
         const qreal borderPt = b.borderPt > 0 ? b.borderPt
             : (b.type == QLatin1String("frame") ? 0.75 : 0);
         if (borderPt > 0) {
@@ -980,15 +1164,38 @@ void paintPage(QPainter *p, const Document &doc, const DocumentLayout &lay, int 
         QString raw;
         for (const auto &r : b.runs)
             raw += runDisplayText(doc, r, shown, lay.pages);
+        if (b.type == QLatin1String("heading") && chapNo.contains(b.id))
+            raw = chapNo.value(b.id) + QStringLiteral("  ") + raw;
         const DropCapInfo dc = dropCapInfo(doc, b, b.runs, lay.zoom);
         const int skip = dc.lines > 0 ? dc.skip : 0;
         QString text = raw.mid(skip);
         if (doc.page.hyphenate)
-            text = hyphenateDisplay(text);
+            text = hyphenateDisplay(text, doc.page.hyphenZoneMm);
+        if (b.type == QLatin1String("footnote") && !fnSep) {
+            p->setPen(QPen(QColor(QStringLiteral("#C4B8A8")), 1));
+            p->drawLine(QPointF(lb.rect.left(), lb.rect.top() - 4),
+                        QPointF(lb.rect.left() + qMin(lb.rect.width(), qreal(80 * lay.zoom)), lb.rect.top() - 4));
+            fnSep = true;
+        }
+        if (doc.page.lineNumbers
+            && (b.type == QLatin1String("paragraph") || b.type == QLatin1String("heading")
+                || b.type == QLatin1String("list-item"))) {
+            ++lineNo;
+            p->setPen(QColor(QStringLiteral("#A3988C")));
+            QFont lf(QStringLiteral("IBM Plex Sans"));
+            lf.setPointSizeF(7 * lay.zoom);
+            p->setFont(lf);
+            p->drawText(QRectF(4, lb.rect.top(), lay.marginL - 8, 14 * lay.zoom),
+                        Qt::AlignRight | Qt::AlignVCenter, QString::number(lineNo));
+        }
         TextRun probe = b.runs.isEmpty() ? TextRun{} : b.runs.first();
         QFont f = fontFor(doc, b, probe, lay.zoom);
+        if (b.lang.startsWith(QLatin1String("ar")) || probe.lang.startsWith(QLatin1String("ar")))
+            f.setLetterSpacing(QFont::PercentageSpacing, 112);
         p->setFont(f);
         QColor col(QStringLiteral("#1A1F24"));
+        if (doc.page.tone == QLatin1String("night"))
+            col = QColor(QStringLiteral("#FBF7F0"));
         if (const StyleDef *st = styleNamed(doc, b.style); st && !st->color.isEmpty())
             col = QColor(st->color);
         if (!probe.color.isEmpty())
@@ -1013,6 +1220,14 @@ void paintPage(QPainter *p, const Document &doc, const DocumentLayout &lay, int 
             p->setFont(f);
         }
         p->setPen(col);
+        const bool vert = b.writingMode == QLatin1String("vertical")
+            || doc.page.writingMode == QLatin1String("vertical");
+        if (vert) {
+            p->save();
+            p->translate(lb.rect.center());
+            p->rotate(90);
+            p->translate(-lb.rect.center());
+        }
         QTextLayout layout(text.isEmpty() ? QString() : text, f);
         QTextOption opt;
         opt.setWrapMode(QTextOption::WrapAtWordBoundaryOrAnywhere);
@@ -1032,7 +1247,7 @@ void paintPage(QPainter *p, const Document &doc, const DocumentLayout &lay, int 
             }
             disp = disp.mid(qMax(0, skip - rawPos));
             if (doc.page.hyphenate)
-                disp = hyphenateDisplay(disp);
+                disp = hyphenateDisplay(disp, doc.page.hyphenZoneMm);
             QTextLayout::FormatRange fr;
             fr.start = pos;
             fr.length = disp.size();
@@ -1064,6 +1279,21 @@ void paintPage(QPainter *p, const Document &doc, const DocumentLayout &lay, int 
             layout.setFormats(fmts);
         layoutLines(layout, lb.rect.width() - lb.markerWidth, dc.width, dc.lines);
         layout.draw(p, QPointF(lb.rect.left() + lb.markerWidth, lb.rect.top()));
+        {
+            qreal rx = lb.rect.left() + lb.markerWidth;
+            QFont rf = f;
+            rf.setPointSizeF(qMax(6.0, f.pointSizeF() * 0.45));
+            p->setFont(rf);
+            p->setPen(col);
+            for (const auto &r : b.runs) {
+                const QString d = runDisplayText(doc, r, shown, lay.pages);
+                if (!r.ruby.isEmpty())
+                    p->drawText(QPointF(rx, lb.rect.top() - 1), r.ruby);
+                rx += QFontMetricsF(f).horizontalAdvance(d);
+            }
+        }
+        if (vert)
+            p->restore();
         int openComments = 0;
         for (const auto &c : b.comments) {
             if (!c.resolved)
@@ -1081,6 +1311,19 @@ void paintPage(QPainter *p, const Document &doc, const DocumentLayout &lay, int 
             mf.setBold(true);
             p->setFont(mf);
             p->drawText(mark, Qt::AlignCenter, QString::number(openComments));
+        }
+    }
+
+    p->setPen(QPen(QColor(QStringLiteral("#B5651D")), qMax(1.0, 0.75 * lay.zoom), Qt::DashLine));
+    for (const auto &lb : ordered) {
+        const Block *bp = doc.findBlock(lb.id);
+        if (!bp || bp->connectTo.isEmpty())
+            continue;
+        for (const auto &other : ordered) {
+            if (other.id == bp->connectTo) {
+                p->drawLine(lb.rect.center(), other.rect.center());
+                break;
+            }
         }
     }
 
@@ -1120,12 +1363,40 @@ QByteArray renderPagePng(const Document &doc, int page, double zoom)
     return bytes;
 }
 
-bool exportNativePdf(const Document &doc, const QString &path, QString *error, bool pdfa)
+bool exportNativePdf(const Document &doc, const QString &path, QString *error, bool pdfa,
+                     int fromPage, int toPage, bool booklet)
 {
     double wMm = 0, hMm = 0;
     doc.page.pageSizeMm(wMm, hMm);
+    DocumentLayout lay;
+    lay.relayout(doc, 1.0);
+    int lo = fromPage > 0 ? fromPage : 1;
+    int hi = toPage > 0 ? toPage : lay.pages;
+    lo = qBound(1, lo, qMax(1, lay.pages));
+    hi = qBound(lo, hi, qMax(1, lay.pages));
+    QVector<int> seq;
+    for (int i = lo; i <= hi; ++i)
+        seq.push_back(i);
+    if (booklet) {
+        while (seq.size() % 4 != 0)
+            seq.push_back(0);
+        QVector<int> order;
+        const int n = seq.size();
+        for (int s = 0; s < n / 2; s += 2) {
+            order.push_back(seq[n - 1 - s]);
+            order.push_back(seq[s]);
+            if (s + 1 < n / 2) {
+                order.push_back(seq[s + 1]);
+                order.push_back(seq[n - 2 - s]);
+            }
+        }
+        seq = order;
+    }
     QPdfWriter writer(path);
-    writer.setPageSize(QPageSize(QSizeF(wMm, hMm), QPageSize::Millimeter));
+    if (booklet)
+        writer.setPageSize(QPageSize(QSizeF(wMm * 2, hMm), QPageSize::Millimeter));
+    else
+        writer.setPageSize(QPageSize(QSizeF(wMm, hMm), QPageSize::Millimeter));
     writer.setResolution(96);
     writer.setPageMargins(QMarginsF(0, 0, 0, 0));
     writer.setTitle(doc.title);
@@ -1138,17 +1409,34 @@ bool exportNativePdf(const Document &doc, const QString &path, QString *error, b
             *error = QStringLiteral("Cannot write PDF ") + path;
         return false;
     }
-    DocumentLayout lay;
-    lay.relayout(doc, 1.0);
-    for (int pg = 1; pg <= lay.pages; ++pg) {
-        if (pg > 1)
-            writer.newPage();
-        const qreal sx = writer.width() / qreal(qMax(1, lay.paperW));
-        const qreal sy = writer.height() / qreal(qMax(1, lay.paperH));
+    auto paintDocPage = [&](int pg, const QRectF &slot) {
+        if (pg < 1 || pg > lay.pages)
+            return;
         p.save();
+        p.translate(slot.topLeft());
+        const qreal sx = slot.width() / qreal(qMax(1, lay.paperW));
+        const qreal sy = slot.height() / qreal(qMax(1, lay.paperH));
         p.scale(sx, sy);
         paintPage(&p, doc, lay, pg);
         p.restore();
+    };
+    if (booklet) {
+        for (int i = 0; i < seq.size(); i += 2) {
+            if (i > 0)
+                writer.newPage();
+            const qreal half = writer.width() / 2.0;
+            const qreal hh = writer.height();
+            paintDocPage(seq.value(i), QRectF(0, 0, half, hh));
+            paintDocPage(seq.value(i + 1), QRectF(half, 0, half, hh));
+        }
+    } else {
+        bool first = true;
+        for (int pg : seq) {
+            if (!first)
+                writer.newPage();
+            first = false;
+            paintDocPage(pg, QRectF(0, 0, writer.width(), writer.height()));
+        }
     }
     p.end();
     return true;

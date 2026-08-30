@@ -88,6 +88,15 @@ QJsonArray spellCheckDocument(const Document &doc)
             const QByteArray utf = m.captured().toUtf8();
             if (Hunspell_spell(h, utf.constData()) != 0)
                 continue;
+            bool extra = false;
+            for (const auto &u : doc.userDic) {
+                if (u.compare(m.captured(), Qt::CaseInsensitive) == 0) {
+                    extra = true;
+                    break;
+                }
+            }
+            if (extra)
+                continue;
             QJsonObject o;
             o[QStringLiteral("id")] = b.id;
             o[QStringLiteral("start")] = int(m.capturedStart());

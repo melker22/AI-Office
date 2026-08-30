@@ -30,6 +30,7 @@ add_library(aioffice_core STATIC
     src/core/Preview.cpp
     src/core/Xml.cpp
     src/core/Spell.cpp
+    src/core/Qr.cpp
     src/lok/LokEngine.cpp
     src/mcp/ToolDispatch.cpp
     src/mcp/McpServer.cpp
