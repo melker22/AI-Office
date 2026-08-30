@@ -301,6 +301,54 @@ QVector<qreal> tableColWidths(const Block &b, qreal contentW)
     return w;
 }
 
+struct ColGeom {
+    int n = 1;
+    qreal gap = 0;
+    QVector<qreal> x;
+    QVector<qreal> w;
+    qreal minW = 0;
+};
+
+ColGeom columnGeom(const Document &doc, qreal marginL, qreal contentW, qreal zoom)
+{
+    ColGeom g;
+    g.n = qBound(1, doc.page.columns, 3);
+    g.gap = mmToPx(doc.page.columnGapMm > 0 ? doc.page.columnGapMm : 5, zoom);
+    g.x.resize(g.n);
+    g.w.resize(g.n);
+    const qreal usable = g.n <= 1 ? contentW : contentW - g.gap * (g.n - 1);
+    QVector<double> weights = doc.page.columnWeights;
+    while (weights.size() < g.n)
+        weights.push_back(1.0);
+    if (weights.size() > g.n)
+        weights.resize(g.n);
+    double sum = 0;
+    for (double x : weights)
+        sum += qMax(0.01, x);
+    qreal acc = marginL;
+    g.minW = usable;
+    for (int i = 0; i < g.n; ++i) {
+        g.x[i] = acc;
+        g.w[i] = usable * qMax(0.01, weights[i]) / sum;
+        g.minW = qMin(g.minW, g.w[i]);
+        acc += g.w[i] + g.gap;
+    }
+    return g;
+}
+
+QString chapterTitleOnPage(const Document &doc, const DocumentLayout &lay, int page)
+{
+    QString last;
+    for (const auto &lb : lay.blocks) {
+        if (lb.page > page)
+            break;
+        const Block *b = doc.findBlock(lb.id);
+        if (b && b->type == QLatin1String("heading") && b->level <= 1)
+            last = b->plainText().trimmed();
+    }
+    return last;
+}
+
 } // namespace
 
 void DocumentLayout::relayout(const Document &doc, double z)
@@ -331,9 +379,9 @@ void DocumentLayout::relayout(const Document &doc, double z)
     const qreal fnBand = fnCount > 0 ? qMin(qreal(120) * zoom, 28 * zoom * fnCount + 8) : 0;
     contentW = paperW - marginL - marginR;
     contentH = paperH - marginT - marginB - headerBand - footerBand - fnBand;
-    const int colN = qBound(1, doc.page.columns, 3);
-    const qreal colGap = mmToPx(doc.page.columnGapMm > 0 ? doc.page.columnGapMm : 5, zoom);
-    const qreal colWidth = colN <= 1 ? contentW : (contentW - colGap * (colN - 1)) / colN;
+    const ColGeom cols = columnGeom(doc, marginL, contentW, zoom);
+    const int colN = cols.n;
+    const qreal colWidth = cols.minW;
 
     QVector<int> numbers;
     int decimal = 0;
@@ -392,7 +440,11 @@ void DocumentLayout::relayout(const Document &doc, double z)
             qreal h = mmToPx(qMin(80.0, double(b.imageWidthMm > 0 ? b.imageWidthMm : 80)), zoom);
             if (!img.isNull()) {
                 const qreal w = qMin(colWidth, mmToPx(b.imageWidthMm > 0 ? b.imageWidthMm : 80, zoom));
-                h = w * img.height() / qMax(1, img.width());
+                const int rot = ((b.rotateDeg % 360) + 360) % 360;
+                if (rot == 90 || rot == 270)
+                    h = w * img.width() / qMax(1, img.height());
+                else
+                    h = w * img.height() / qMax(1, img.width());
             }
             m.height = h + 8 + (!b.caption.isEmpty() ? 16 * zoom : 0);
             meas.push_back(m);
@@ -427,7 +479,8 @@ void DocumentLayout::relayout(const Document &doc, double z)
     int display = displayOf[1];
     int col = 0;
     qreal y = 0;
-    auto colX = [&](int c) { return marginL + c * (colWidth + colGap); };
+    auto colX = [&](int c) { return cols.x.value(c, marginL); };
+    auto colW = [&](int c) { return cols.w.value(c, contentW); };
     auto advancePage = [&](bool restart, int restartTo) {
         ++page;
         if (restart)
@@ -468,6 +521,85 @@ void DocumentLayout::relayout(const Document &doc, double z)
             y = 0;
             advancePage(false, 0);
         }
+        if (b.type == QLatin1String("table")) {
+            y += meas[i].before;
+            const qreal indent = mmToPx(b.indentLeftMm, zoom);
+            const qreal indentR = mmToPx(b.indentRightMm, zoom);
+            const int nRows = b.table.size();
+            const bool repeatHdr = b.headerRow && nRows > 1;
+            int dataStart = 0;
+            auto rowH = [&](int r) { return meas[i].rowH.value(r, 22 * zoom); };
+            while (dataStart < nRows) {
+                const qreal availW = qMax(qreal(8), colW(col) - indent - indentR);
+                const auto tw = tableColWidths(b, availW);
+                const qreal remain = contentH - y;
+                const qreal headerExtra = (repeatHdr && dataStart > 0) ? rowH(0) : 0;
+                if (y > 0 && remain < headerExtra + rowH(dataStart)) {
+                    ++col;
+                    y = 0;
+                    if (col >= colN) {
+                        col = 0;
+                        advancePage(false, 0);
+                    }
+                    continue;
+                }
+                QVector<int> visRows;
+                qreal used = 0;
+                if (repeatHdr && dataStart > 0) {
+                    visRows.push_back(0);
+                    used += rowH(0);
+                }
+                int r = dataStart;
+                while (r < nRows) {
+                    const qreal rh = rowH(r);
+                    if (!visRows.isEmpty() && used + rh > remain)
+                        break;
+                    visRows.push_back(r);
+                    used += rh;
+                    ++r;
+                }
+                if (visRows.isEmpty()) {
+                    visRows.push_back(dataStart);
+                    used += rowH(dataStart);
+                    r = dataStart + 1;
+                }
+                if (r >= nRows)
+                    used += 8;
+                LaidBlock tlb;
+                tlb.id = b.id;
+                tlb.type = b.type;
+                tlb.page = page;
+                tlb.rect = QRectF(colX(col) + indent, marginT + headerBand + y, availW, used);
+                qreal ty = 0;
+                for (int vr : visRows) {
+                    if (vr < 0 || vr >= b.table.size())
+                        continue;
+                    qreal x = tlb.rect.left();
+                    for (int c = 0; c < b.table[vr].size(); ++c) {
+                        const qreal cw = c < tw.size() ? tw[c] : availW;
+                        CellGeom g;
+                        g.row = vr;
+                        g.col = c;
+                        g.rect = QRectF(x, tlb.rect.top() + ty, cw, rowH(vr));
+                        tlb.cells.push_back(g);
+                        x += cw;
+                    }
+                    ty += rowH(vr);
+                }
+                blocks.push_back(tlb);
+                y += used;
+                dataStart = r;
+                if (dataStart < nRows) {
+                    ++col;
+                    y = 0;
+                    if (col >= colN) {
+                        col = 0;
+                        advancePage(false, 0);
+                    }
+                }
+            }
+            continue;
+        }
         qreal need = meas[i].before + qMax(qreal(12), meas[i].height);
         if (b.keepWithNext && i + 1 < meas.size())
             need += meas[i + 1].before + meas[i + 1].height;
@@ -488,27 +620,10 @@ void DocumentLayout::relayout(const Document &doc, double z)
         lb.markerWidth = meas[i].markerW;
         const qreal indent = mmToPx(b.indentLeftMm, zoom);
         const qreal indentR = mmToPx(b.indentRightMm, zoom);
-        qreal blockW = colWidth - indent - indentR;
+        qreal blockW = colW(col) - indent - indentR;
         if (b.type == QLatin1String("frame") && b.imageWidthMm > 0)
             blockW = qMin(blockW, mmToPx(b.imageWidthMm, zoom));
         lb.rect = QRectF(colX(col) + indent, marginT + headerBand + y, blockW, meas[i].height);
-        if (b.type == QLatin1String("table")) {
-            const auto tw = tableColWidths(b, colWidth);
-            qreal ty = 0;
-            for (int r = 0; r < b.table.size(); ++r) {
-                qreal x = lb.rect.left();
-                for (int c = 0; c < b.table[r].size(); ++c) {
-                    const qreal cw = c < tw.size() ? tw[c] : colWidth;
-                    CellGeom g;
-                    g.row = r;
-                    g.col = c;
-                    g.rect = QRectF(x, lb.rect.top() + ty, cw, meas[i].rowH.value(r, 22 * zoom));
-                    lb.cells.push_back(g);
-                    x += cw;
-                }
-                ty += meas[i].rowH.value(r, 22 * zoom);
-            }
-        }
         blocks.push_back(lb);
         for (const auto &r : b.runs) {
             if (r.noteId.isEmpty())
@@ -636,6 +751,7 @@ CaretRect DocumentLayout::caret(const Document &doc, const QString &id, int offs
                     return c;
                 }
             }
+            continue;
         }
         const Block *b = doc.findBlock(id);
         const QString t = b ? b->plainText() : QString();
@@ -654,6 +770,20 @@ void paintPage(QPainter *p, const Document &doc, const DocumentLayout &lay, int 
     p->fillRect(0, 0, lay.paperW, lay.paperH,
                 QColor(doc.page.background.isEmpty() ? QStringLiteral("#FDFBF7") : doc.page.background));
     p->fillRect(0, 0, lay.paperW, 3, QColor(QStringLiteral("#B5651D")));
+    if (!doc.watermark.isEmpty()) {
+        p->save();
+        p->setOpacity(0.12);
+        QFont wf(QStringLiteral("IBM Plex Sans"));
+        wf.setPointSizeF(42 * lay.zoom);
+        wf.setBold(true);
+        p->setFont(wf);
+        p->setPen(QColor(QStringLiteral("#2A2420")));
+        p->translate(lay.paperW / 2.0, lay.paperH / 2.0);
+        p->rotate(-38);
+        p->drawText(QRectF(-lay.paperW, -50 * lay.zoom, lay.paperW * 2, 100 * lay.zoom),
+                    Qt::AlignCenter, doc.watermark);
+        p->restore();
+    }
     if (doc.page.borderPt > 0) {
         QPen bp(QColor(doc.page.borderColor.isEmpty() ? QStringLiteral("#B5651D") : doc.page.borderColor),
                 qMax(qreal(0.5), doc.page.borderPt * lay.zoom));
@@ -681,12 +811,27 @@ void paintPage(QPainter *p, const Document &doc, const DocumentLayout &lay, int 
     p->setFont(hf);
     if (hasHeader) {
         QString t = hdr.text;
+        const QString chapter = chapterTitleOnPage(doc, lay, page);
+        t.replace(QStringLiteral("{chapter}"), chapter);
+        if (hdr.chapter && !chapter.isEmpty())
+            t = t.isEmpty() ? chapter : t + QStringLiteral("  ·  ") + chapter;
         if (hdr.pageNumbers)
             t = t.isEmpty() ? pageLabel() : t + QStringLiteral("  ·  ") + pageLabel();
         p->drawText(QRectF(lay.marginL, 8 * lay.zoom, lay.contentW, 18 * lay.zoom), Qt::AlignLeft | Qt::AlignVCenter, t);
+        if (!hdr.imagePath.isEmpty()) {
+            QImage himg(hdr.imagePath);
+            if (!himg.isNull()) {
+                const QImage sc = himg.scaledToHeight(qMax(8, int(16 * lay.zoom)), Qt::SmoothTransformation);
+                p->drawImage(QPointF(lay.marginL + lay.contentW - sc.width(), 6 * lay.zoom), sc);
+            }
+        }
     }
     if (hasFooter) {
         QString t = ftr.text;
+        const QString chapter = chapterTitleOnPage(doc, lay, page);
+        t.replace(QStringLiteral("{chapter}"), chapter);
+        if (ftr.chapter && !chapter.isEmpty())
+            t = t.isEmpty() ? chapter : t + QStringLiteral("  ·  ") + chapter;
         if (ftr.pageNumbers)
             t = t.isEmpty() ? pageLabel() : t + QStringLiteral("  ·  ") + pageLabel();
         p->drawText(QRectF(lay.marginL, lay.paperH - lay.marginB + 2, lay.contentW, 18 * lay.zoom),
@@ -694,12 +839,10 @@ void paintPage(QPainter *p, const Document &doc, const DocumentLayout &lay, int 
     }
 
     if (doc.page.columnSeparator && doc.page.columns > 1) {
-        const int colN = qBound(1, doc.page.columns, 3);
-        const qreal colGap = mmToPx(doc.page.columnGapMm > 0 ? doc.page.columnGapMm : 5, lay.zoom);
-        const qreal colWidth = (lay.contentW - colGap * (colN - 1)) / colN;
+        const ColGeom cols = columnGeom(doc, lay.marginL, lay.contentW, lay.zoom);
         p->setPen(QPen(QColor(QStringLiteral("#C4B8A8")), 1));
-        for (int c = 1; c < colN; ++c) {
-            const qreal x = lay.marginL + c * (colWidth + colGap) - colGap / 2;
+        for (int c = 1; c < cols.n; ++c) {
+            const qreal x = cols.x[c] - cols.gap / 2;
             p->drawLine(QPointF(x, lay.marginT), QPointF(x, lay.paperH - lay.marginB));
         }
     }
@@ -718,6 +861,11 @@ void paintPage(QPainter *p, const Document &doc, const DocumentLayout &lay, int 
                     ? &b.table[g.row][g.col]
                     : nullptr;
                 QColor fill = head ? QColor(QStringLiteral("#FBF0E6")) : QColor(QStringLiteral("#FDFBF7"));
+                if (head) {
+                    if (const StyleDef *st = styleNamed(doc, b.style); st && !st->color.isEmpty()
+                        && st->kind == QLatin1String("table"))
+                        fill = QColor(st->color);
+                }
                 if (cellp && !cellp->background.isEmpty())
                     fill = QColor(cellp->background);
                 if (selId == lb.id && selRow == g.row && selCol == g.col)
@@ -790,15 +938,33 @@ void paintPage(QPainter *p, const Document &doc, const DocumentLayout &lay, int 
         if (b.type == QLatin1String("image")) {
             QImage img = loadBlockImage(b);
             QRectF box = lb.rect.adjusted(0, 0, 0, -8);
+            if (!b.caption.isEmpty())
+                box.adjust(0, 0, 0, -16 * lay.zoom);
             if (!img.isNull()) {
+                p->save();
+                p->setOpacity(qBound(0.05, b.opacity, 1.0));
                 QImage sc = img.scaled(box.size().toSize(), Qt::KeepAspectRatio, Qt::SmoothTransformation);
+                if (b.rotateDeg != 0) {
+                    p->translate(box.center());
+                    p->rotate(b.rotateDeg);
+                    p->translate(-box.center());
+                }
                 p->drawImage(box.topLeft(), sc);
+                p->restore();
             } else {
                 p->setPen(QPen(QColor(QStringLiteral("#C9C2B6")), 1, Qt::DashLine));
                 p->setBrush(QColor(QStringLiteral("#F3EDE3")));
                 p->drawRect(box);
                 p->setPen(QColor(QStringLiteral("#6B6258")));
                 p->drawText(box, Qt::AlignCenter, b.imagePath.isEmpty() ? QStringLiteral("imagem") : b.imagePath);
+            }
+            if (!b.caption.isEmpty()) {
+                p->setPen(QColor(QStringLiteral("#6B6258")));
+                QFont cf(QStringLiteral("IBM Plex Sans"));
+                cf.setPointSizeF(8 * lay.zoom);
+                p->setFont(cf);
+                p->drawText(QRectF(lb.rect.left(), box.bottom(), lb.rect.width(), 16 * lay.zoom),
+                            Qt::AlignHCenter | Qt::AlignVCenter, b.caption);
             }
             continue;
         }

@@ -1,0 +1,28 @@
+[
+  {"tool": "document_new", "args": {"title": "Wave9", "force": true}},
+  {"tool": "set_page_layout", "args": {"size": "A6", "columns": 2, "column_widths": [2, 1], "column_separator": true}},
+  {"tool": "document_set_title", "args": {"watermark": "CONFIDENCIAL", "subject": "fecho IA", "keywords": "writer,mcp"}},
+  {"tool": "set_vars", "args": {"vars": {"cliente": "Ana"}}},
+  {"tool": "set_header", "args": {"chapter": true, "page_numbers": true}},
+  {"tool": "insert_blocks", "args": {"after_id": "p1", "blocks": [
+    {"type": "heading", "level": 1, "style": "Heading 1", "runs": [{"text": "Capitulo um"}]},
+    {"type": "paragraph", "runs": [{"text": "Paragrafo Alfa na coluna larga."}]}
+  ]}},
+  {"tool": "insert_field", "args": {"kind": "var", "arg": "cliente", "id": "p2"}},
+  {"tool": "insert_footnote", "args": {"text": "nota para converter", "id": "p2"}},
+  {"tool": "convert_note", "args": {"id": "fn1"}},
+  {"tool": "insert_table", "args": {"after_id": "end", "rows": 16, "cols": 2, "header": true, "header_texts": ["Val", "Nome"], "cells": ["10","a","20","b","30","c","40","d","50","e","12","f","8","g","4","h"]}},
+  {"tool": "set_cell", "args": {"id": "t1", "row": 15, "col": 0, "formula": "sum:0"}},
+  {"tool": "table_formulas", "args": {"id": "t1"}},
+  {"tool": "create_style", "args": {"name": "TabelaCobre", "kind": "table", "color": "#F3E0CC"}},
+  {"tool": "apply_style", "args": {"id": "t1", "style": "TabelaCobre"}},
+  {"tool": "table_auto_width", "args": {"id": "t1"}},
+  {"tool": "toc_update", "args": {"min_level": 1, "max_level": 1}},
+  {"tool": "insert_index", "args": {"terms": ["Alfa", "Capitulo"], "after_id": "end"}},
+  {"tool": "export_html", "args": {}},
+  {"tool": "set_read_only", "args": {"on": true}},
+  {"tool": "document_get", "args": {}},
+  {"tool": "set_read_only", "args": {"on": false}},
+  {"tool": "page_preview", "args": {"from": 1, "to": 2, "zoom": 1}},
+  {"tool": "validate", "args": {}}
+]

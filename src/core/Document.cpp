@@ -152,6 +152,10 @@ QJsonObject HeaderFooter::toJson() const
     QJsonObject o;
     o[QStringLiteral("text")] = text;
     o[QStringLiteral("page_numbers")] = pageNumbers;
+    if (chapter)
+        o[QStringLiteral("chapter")] = true;
+    if (!imagePath.isEmpty())
+        o[QStringLiteral("image")] = imagePath;
     return o;
 }
 
@@ -160,6 +164,8 @@ HeaderFooter HeaderFooter::fromJson(const QJsonObject &o)
     HeaderFooter h;
     h.text = o.value(QStringLiteral("text")).toString();
     h.pageNumbers = o.value(QStringLiteral("page_numbers")).toBool();
+    h.chapter = o.value(QStringLiteral("chapter")).toBool();
+    h.imagePath = o.value(QStringLiteral("image")).toString();
     return h;
 }
 
@@ -279,6 +285,8 @@ QJsonObject Block::toJson() const
                     c[QStringLiteral("v_align")] = cell.vAlign;
                 if (cell.paddingMm > 0)
                     c[QStringLiteral("padding_mm")] = cell.paddingMm;
+                if (!cell.formula.isEmpty())
+                    c[QStringLiteral("formula")] = cell.formula;
                 if (!cell.nested.isEmpty())
                     c[QStringLiteral("nested")] = nestedToJson(cell.nested);
                 cells.append(c);
@@ -375,6 +383,10 @@ QJsonObject Block::toJson() const
         o[QStringLiteral("page_restart")] = true;
     if (pageNumber > 0)
         o[QStringLiteral("page_number")] = pageNumber;
+    if (rotateDeg != 0)
+        o[QStringLiteral("rotate")] = rotateDeg;
+    if (opacity != 1.0)
+        o[QStringLiteral("opacity")] = opacity;
     return o;
 }
 
@@ -412,6 +424,7 @@ Block Block::fromJson(const QJsonObject &o)
                 cell.background = cellV.toObject().value(QStringLiteral("background")).toString();
                 cell.vAlign = cellV.toObject().value(QStringLiteral("v_align")).toString();
                 cell.paddingMm = cellV.toObject().value(QStringLiteral("padding_mm")).toDouble();
+                cell.formula = cellV.toObject().value(QStringLiteral("formula")).toString();
                 cell.nested = nestedFromJson(cellV.toObject().value(QStringLiteral("nested")));
                 row.push_back(cell);
             }
@@ -460,6 +473,8 @@ Block Block::fromJson(const QJsonObject &o)
     b.lang = o.value(QStringLiteral("lang")).toString();
     b.pageRestart = o.value(QStringLiteral("page_restart")).toBool();
     b.pageNumber = o.value(QStringLiteral("page_number")).toInt();
+    b.rotateDeg = o.value(QStringLiteral("rotate")).toInt();
+    b.opacity = o.contains(QStringLiteral("opacity")) ? o.value(QStringLiteral("opacity")).toDouble() : 1.0;
     return b;
 }
 
@@ -569,6 +584,12 @@ QJsonObject PageLayout::toJson() const
         o[QStringLiteral("number_format")] = numberFormat;
     if (numberStart != 1)
         o[QStringLiteral("number_start")] = numberStart;
+    if (!columnWeights.isEmpty()) {
+        QJsonArray w;
+        for (double x : columnWeights)
+            w.append(x);
+        o[QStringLiteral("column_widths")] = w;
+    }
     return o;
 }
 
@@ -592,6 +613,8 @@ PageLayout PageLayout::fromJson(const QJsonObject &o)
     p.numberStart = o.contains(QStringLiteral("number_start"))
         ? o.value(QStringLiteral("number_start")).toInt(1)
         : 1;
+    for (const auto &w : o.value(QStringLiteral("column_widths")).toArray())
+        p.columnWeights.push_back(w.toDouble());
     return p;
 }
 
@@ -625,6 +648,21 @@ void PageLayout::pageSizeMm(double &w, double &h) const
     } else if (s == QLatin1String("c6")) {
         w = 114;
         h = 162;
+    } else if (s == QLatin1String("b4")) {
+        w = 250;
+        h = 353;
+    } else if (s == QLatin1String("b5")) {
+        w = 176;
+        h = 250;
+    } else if (s == QLatin1String("executive")) {
+        w = 184.2;
+        h = 266.7;
+    } else if (s == QLatin1String("folio")) {
+        w = 210;
+        h = 330;
+    } else if (s == QLatin1String("statement")) {
+        w = 139.7;
+        h = 215.9;
     } else {
         w = 210;
         h = 297;
@@ -712,8 +750,22 @@ QJsonObject Document::toJson() const
         meta[QStringLiteral("footer_first")] = footerFirst.toJson();
     if (trackChanges)
         meta[QStringLiteral("track_changes")] = true;
+    if (readOnly)
+        meta[QStringLiteral("read_only")] = true;
     if (!fileName.isEmpty())
         meta[QStringLiteral("file_name")] = fileName;
+    if (!subject.isEmpty())
+        meta[QStringLiteral("subject")] = subject;
+    if (!keywords.isEmpty())
+        meta[QStringLiteral("keywords")] = keywords;
+    if (!watermark.isEmpty())
+        meta[QStringLiteral("watermark")] = watermark;
+    if (!vars.isEmpty()) {
+        QJsonObject vo;
+        for (auto it = vars.begin(); it != vars.end(); ++it)
+            vo[it.key()] = it.value();
+        meta[QStringLiteral("vars")] = vo;
+    }
     root[QStringLiteral("meta")] = meta;
     QJsonArray st;
     for (const auto &s : styles)
@@ -792,7 +844,14 @@ Document Document::fromJson(const QJsonObject &o)
     d.headerFirst = HeaderFooter::fromJson(meta.value(QStringLiteral("header_first")).toObject());
     d.footerFirst = HeaderFooter::fromJson(meta.value(QStringLiteral("footer_first")).toObject());
     d.trackChanges = meta.value(QStringLiteral("track_changes")).toBool();
+    d.readOnly = meta.value(QStringLiteral("read_only")).toBool();
     d.fileName = meta.value(QStringLiteral("file_name")).toString();
+    d.subject = meta.value(QStringLiteral("subject")).toString();
+    d.keywords = meta.value(QStringLiteral("keywords")).toString();
+    d.watermark = meta.value(QStringLiteral("watermark")).toString();
+    const auto vo = meta.value(QStringLiteral("vars")).toObject();
+    for (auto it = vo.begin(); it != vo.end(); ++it)
+        d.vars.insert(it.key(), it.value().toString());
     for (const auto &s : o.value(QStringLiteral("styles")).toArray())
         d.styles.push_back(StyleDef::fromJson(s.toObject()));
     if (d.styles.isEmpty()) {
@@ -945,8 +1004,21 @@ QString runDisplayText(const Document &doc, const TextRun &r, int page, int page
         t = doc.fileName.isEmpty() ? doc.title : doc.fileName;
     else if (r.field == QLatin1String("word_count"))
         t = QString::number(doc.wordCount());
-    else if (r.field == QLatin1String("custom"))
-        t = r.fieldArg.isEmpty() ? r.text : r.fieldArg;
+    else if (r.field == QLatin1String("chapter")) {
+        for (const auto &b : doc.body) {
+            if (b.type == QLatin1String("heading") && b.level <= 1)
+                t = b.plainText();
+        }
+        if (t.isEmpty())
+            t = doc.title;
+    } else if (r.field == QLatin1String("var") || r.field == QLatin1String("variable")
+               || r.field == QLatin1String("custom")) {
+        if (r.field == QLatin1String("custom") && !doc.vars.contains(r.fieldArg))
+            t = r.fieldArg.isEmpty() ? r.text : r.fieldArg;
+        else
+            t = doc.vars.value(r.fieldArg, r.fieldArg.isEmpty() ? r.text : r.fieldArg);
+    } else if (r.field == QLatin1String("input"))
+        t = r.fieldArg.isEmpty() ? (r.text.isEmpty() ? QStringLiteral("[…]") : r.text) : r.fieldArg;
     else if (r.field == QLatin1String("merge") || r.field == QLatin1String("mail_merge")) {
         const QString key = r.fieldArg.isEmpty() ? r.text : r.fieldArg;
         t = key.isEmpty() ? QStringLiteral("«merge»") : QStringLiteral("«%1»").arg(key);

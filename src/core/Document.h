@@ -79,6 +79,7 @@ struct TableCell {
     QString background;
     QString vAlign; // top | middle | bottom
     double paddingMm = 0;
+    QString formula; // sum:0 | avg:1 | count:0
 };
 
 struct Comment {
@@ -133,6 +134,8 @@ struct Block {
     QString lang;
     bool pageRestart = false;
     int pageNumber = 0;
+    int rotateDeg = 0;
+    double opacity = 1.0;
 
     QJsonObject toJson() const;
     static Block fromJson(const QJsonObject &o);
@@ -149,7 +152,7 @@ struct StyleDef {
     QString align;
     double spaceBeforePt = 0;
     double spaceAfterPt = 8;
-    QString kind; // paragraph | character | list | page
+    QString kind; // paragraph | character | list | page | frame | table
     QString next;
     QString listKind;
     QString listBullet;
@@ -174,6 +177,7 @@ struct PageLayout {
     QString background;
     QString numberFormat; // arabic | roman | alpha
     int numberStart = 1;
+    QVector<double> columnWeights; // relative column widths when columns > 1
 
     QJsonObject toJson() const;
     static PageLayout fromJson(const QJsonObject &o);
@@ -183,8 +187,10 @@ struct PageLayout {
 struct HeaderFooter {
     QString text;
     bool pageNumbers = false;
+    bool chapter = false;
+    QString imagePath;
 
-    bool active() const { return pageNumbers || !text.isEmpty(); }
+    bool active() const { return pageNumbers || chapter || !text.isEmpty() || !imagePath.isEmpty(); }
     QJsonObject toJson() const;
     static HeaderFooter fromJson(const QJsonObject &o);
 };
@@ -217,8 +223,13 @@ struct Document {
     QVector<Bookmark> bookmarks;
     QVector<Revision> revisions;
     bool trackChanges = false;
+    bool readOnly = false;
     QString fileName;
+    QString subject;
+    QString keywords;
+    QString watermark;
     QMap<QString, QString> autocorrect;
+    QMap<QString, QString> vars;
 
     static Document blank(const QString &title = QString());
     QJsonObject toJson() const;

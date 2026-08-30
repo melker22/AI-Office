@@ -113,6 +113,13 @@ public:
     QJsonObject exportMarkdown(const QJsonObject &args);
     QJsonObject exportText(const QJsonObject &args);
     QJsonObject copyMarkdown(const QJsonObject &args);
+    QJsonObject exportHtml(const QJsonObject &args);
+    QJsonObject convertNote(const QJsonObject &args);
+    QJsonObject setVars(const QJsonObject &args);
+    QJsonObject setReadOnly(const QJsonObject &args);
+    QJsonObject insertConcordance(const QJsonObject &args);
+    QJsonObject tableFormulas(const QJsonObject &args);
+    QJsonObject tableAutoWidth(const QJsonObject &args);
 
     QJsonObject validate(const QJsonObject &args);
     QJsonObject batch(const QJsonObject &args);
