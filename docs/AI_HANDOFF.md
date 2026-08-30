@@ -41,7 +41,7 @@
 
 **Next suggested step:** PDF tagged (se houver API Qt), secções ímpar/par, promote heading, wrap_list, ou começar Fase Humano no chrome Tinta & Papel.
 
-**Commits:** (preencher após commit)
+**Commits:** `fbf879d` feat: add HTML paste, text frames, and odd/even headers
 
 ---
 
