@@ -68,11 +68,11 @@ The document is a JSON object with **stable block IDs**. Agents must address con
 
 ### Meta extras
 
-`header` / `footer`: `{ "text", "page_numbers" }`. Block `comments[]`: `{ "id", "author", "text", "resolved" }`.
+`header` / `footer`: `{ "text", "page_numbers", "chapter"?, "image"? }`. `meta.read_only`, `meta.watermark`, `meta.vars`, `meta.subject`, `meta.keywords`. Block `comments[]`: `{ "id", "author", "text", "resolved" }`. Page `column_widths` (relative weights). Cell `formula` (`sum:0` | `avg:1` | `count:0`). Image `rotate`, `opacity`.
 
 ### Text run fields
 
-`text`, `bold`, `italic`, `underline`, `strike`, `superscript`, `subscript`, `font` (optional), `size_pt` (0 = inherit), `color`, `highlight`, `link`, `field` (`page_number` | `page_count` | `date` | `title` | `author` | `xref`), `field_arg`, `note_id`.
+`text`, `bold`, `italic`, `underline`, `strike`, `superscript`, `subscript`, `font` (optional), `size_pt` (0 = inherit), `color`, `highlight`, `link`, `field` (`page_number` | `page_count` | `date` | `title` | `author` | `xref` | `filename` | `word_count` | `custom` | `merge` | `chapter` | `var` | `input`), `field_arg`, `note_id`.
 
 ### ID prefixes
 
@@ -163,8 +163,8 @@ Copies font/size/bold/italic/color (and list attrs) from the caret run into the 
 
 ### `set_page_layout`
 
-Args: `{ "size"?: "A4"|"Letter"|"Legal"|"A3"|"A5"|"A6"|"Tabloid"|"DL"|"C5"|"C6", "orientation"?: "portrait"|"landscape", "margins_mm"?: [t, r, b, l], "columns"?: 1|2|3, "hyphenate"?: bool, "gutter_mm"?: number, "column_gap_mm"?: number, "column_separator"?: bool, "border_pt"?: number, "border_color"?: string, "background"?: string, "style"?: string, "number_format"?: "arabic"|"roman"|"alpha", "number_start"?: int }`  
-`style` copies `page_size` / `page_orientation` from a `kind=page` style. `number_format` / `number_start` change the printed page label; `insert_break {page_restart:true, page_number?:n}` restarts the counter.
+Args: `{ "size"?: "A4"|"Letter"|"Legal"|"A3"|"A5"|"A6"|"Tabloid"|"DL"|"C5"|"C6"|"B4"|"B5"|"Executive"|"Folio"|"Statement", "orientation"?: "portrait"|"landscape", "margins_mm"?: [t, r, b, l], "columns"?: 1|2|3, "column_widths"?: [2, 1], "hyphenate"?: bool, "gutter_mm"?: number, "column_gap_mm"?: number, "column_separator"?: bool, "border_pt"?: number, "border_color"?: string, "background"?: string, "style"?: string, "number_format"?: "arabic"|"roman"|"alpha", "number_start"?: int }`  
+`style` copies `page_size` / `page_orientation` from a `kind=page` style. `number_format` / `number_start` change the printed page label; `insert_break {page_restart:true, page_number?:n}` restarts the counter. `column_widths` are relative weights when `columns` > 1.
 
 ### `insert_table`
 
@@ -222,7 +222,7 @@ Builds a table (no header) filled left-to-right, top-to-bottom.
 
 ### `set_cell` / `insert_row` / `insert_col` / `delete_row` / `delete_col`
 
-Table surgery on a table `id` (the selected table in the GUI). `set_cell`: `{id, row, col, text|runs, nested_row?, nested_col?, border_pt?, border_color?, background?, v_align?: top|middle|bottom, padding_mm?}`. `nested_*` writes into a nested table created by `nest_table`. Omit `text`/`runs` to change only cell format.
+Table surgery on a table `id` (the selected table in the GUI). `set_cell`: `{id, row, col, text|runs, nested_row?, nested_col?, border_pt?, border_color?, background?, v_align?: top|middle|bottom, padding_mm?, formula?: "sum:0"|"avg:1"|"count:0"}`. `nested_*` writes into a nested table created by `nest_table`. Omit `text`/`runs` to change only cell format. `table_formulas {id?}` evaluates formulas (skips other formula cells) and writes the result into the cell text. `table_auto_width {id}` sets `col_widths_mm` from text length. `create_style {kind:table, color}` + `apply_style` fills the header row. Tables taller than a page split across pages and **repeat row 0** when `header` is set.
 
 ### `selection_get` / `set_selection` / `insert_at_caret`
 
@@ -238,7 +238,7 @@ Args: `{ "id": "p1", "text": "...", "author"?: "IA" }` / `{ "comment_id": "..." 
 
 ### `document_set_title` / `set_header` / `set_footer`
 
-Title/author; header/footer `{text, page_numbers, even?: bool, first?: bool}`. `even` is the even-page variant; `first` is the first-page variant.
+Title/author/subject/keywords/watermark; header/footer `{text, page_numbers, chapter?: bool, image?: path, even?: bool, first?: bool}`. `chapter=true` appends the last Heading 1 on or before the page (also `{chapter}` in `text`). `set_vars {vars:{k:v}}` or `{name,value}`. `insert_field {kind:var, arg}` reads vars. `set_read_only {on}` blocks mutations except reads, export, `document_new`/`open`, and itself.
 
 ### `insert_html` / `insert_plain`
 
@@ -278,6 +278,7 @@ Args: `{ "id"?: string, "ids"?: [...], "delta"?: -1 }`
 
 `export_markdown {path?, ids?}` returns `{markdown}` and optionally writes UTF-8. Whole document if `ids` omitted.  
 `export_text` same with `{text}` (tables as tab-separated rows).  
+`export_html` same with `{html}` (simple semantic HTML).  
 `copy_markdown` is the selection (or `ids`) without a file.
 
 ### `document_diff`
@@ -304,7 +305,17 @@ Marca sobrescrita no caret + bloco `footnote`/`endnote` com id `fn*`/`en*`.
 
 ### `toc_update`
 
-Cria ou regenera o bloco `toc` a partir dos headings. `toc_targets` guarda os ids.
+Cria ou regenera o bloco `toc` a partir dos headings. Args: `{ min_level?: 1, max_level?: 6, styles?: ["Title"] }`. `toc_targets` guarda os ids.
+
+### `convert_note`
+
+Args: `{ "id": "fn1" }`  
+Alterna o bloco `footnote` ↔ `endnote`.
+
+### `insert_index`
+
+Args: `{ "terms": ["Alfa", "Beta"], "title"?: "Índice remissivo", "after_id"?: "end" }`  
+Insere um Heading 1 e um parágrafo por termo com números de página (`concordance` é alias).
 
 ### `spellcheck`
 
@@ -337,7 +348,7 @@ Clona o corpo por registo, substitui `{{chave}}` e campos `merge`, e insere queb
 
 ### `set_image` / `insert_caption`
 
-Alt, caption, wrap, âncora, `width_mm` no bloco imagem (ou caption em tabela).
+Alt, caption, wrap, âncora, `width_mm`, `rotate` (graus), `opacity` (0–1) no bloco imagem (ou caption em tabela).
 
 ### `undo` / `redo`
 

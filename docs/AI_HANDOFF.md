@@ -26,6 +26,27 @@
 
 ---
 
+## 2026-08-30 — Cursor — Fase IA fechada (onda final JSON+MCP)
+
+**Objective:** Implementar o que faltava da Fase IA (JSON + MCP + `page_preview`). Parar **antes** dos testes — o utilizador dá instruções à parte.
+
+**Done:**
+- Colunas desiguais (`column_widths`), capítulo no header, watermark, papéis extra (B4/B5/Executive/Folio/Statement).
+- Vars / read-only / subject / keywords; campos `chapter` / `var` / `input`.
+- Fórmulas de célula (`sum|avg|count`), estilos de tabela, `table_auto_width`, header de tabela repetido entre páginas.
+- `export_html`, `convert_note`, `toc_update` níveis, `insert_index`, imagem no header, `rotate`/`opacity`.
+- Alinhados no board itens já no motor (split/join, accept-all, caps, entrelinha, quebra de coluna, mail_merge, page PNG, wrap, filename, word_count).
+- Playbook: `AIOFFICE_HEADLESS=1 aioffice play qa/wave9-ia-close.json` (`valid: true`, fórmula 174, 3 páginas).
+- Notion: **126 Done / 17 Partial / 98 Todo**. Chrome = Humano; packaging/CRDT = Infra.
+
+**Decisions:** Fase IA = o que a IA usa via MCP. Sem QML novo. Tagged PDF, CSL, CJK, charts, CRDT ficam fora. **Não correr a bateria de testes** até o utilizador pedir.
+
+**Next suggested step:** Esperar instruções do utilizador para testes (golden PNG, round-trip, etc.). Depois Fase Humano no chrome Tinta & Papel.
+
+**Commits:** `b46b66f` feat: close Writer IA phase with columns, fields, and table tools
+
+---
+
 ## 2026-08-30 — Cursor — Fase IA wave 8: células, break-before, recuos, gutter
 
 **Objective:** Continuar JSON+MCP+`page_preview` após wave 7. Sem chrome QML. Sem push.

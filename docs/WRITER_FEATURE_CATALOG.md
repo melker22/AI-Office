@@ -1,6 +1,6 @@
 # Catálogo Writer — ideias do Guide, código nosso
 
-Espelho git do board **Roadmap para Produção** no Notion ([hub](https://app.notion.com/p/3cb46a79156b819daef5ea9d7c41385a)). Sync: **2026-08-30** (Fase IA wave 8: células, quebras, recuos, gutter). Totais: **100 Done**, **19 Partial**, **122 Todo**. Coluna **Fase** = `IA` | `Humano` | `Infra` | `Fora`.
+Espelho git do board **Roadmap para Produção** no Notion ([hub](https://app.notion.com/p/3cb46a79156b819daef5ea9d7c41385a)). Sync: **2026-08-30** (Fase IA **fechada**: JSON+MCP+`page_preview`). Totais: **126 Done**, **17 Partial**, **98 Todo**. Coluna **Fase** = `IA` | `Humano` | `Infra` | `Fora`.
 
 Fonte citável: The Document Foundation — [LibreOffice Writer Guide 26.2](https://books.libreoffice.org/en/WG262/WG262.html). Atribuição e limites: [`ATTRIBUTION.md`](ATTRIBUTION.md).
 
@@ -109,6 +109,35 @@ Camadas: `JSON+MCP+GUI` · `JSON+MCP` · `só JSON` · `infra`.
 | Padding de célula | Writer | WG 26.2 cap. 13 | JSON+MCP |
 | Recuos de parágrafo | Writer | WG 26.2 cap. 4 | JSON+MCP |
 | Margem de encadernação (gutter) | Writer | WG 26.2 cap. 5 | JSON+MCP |
+| Colunas de página 2–3 (desiguais) | Writer | WG 26.2 cap. 6 | JSON+MCP |
+| Capítulo no cabeçalho | Writer | WG 26.2 cap. 6 | JSON+MCP |
+| Marca d'água | Writer | WG 26.2 cap. 5 | JSON+MCP |
+| Variáveis de documento | Writer | WG 26.2 cap. 17 | JSON+MCP |
+| Campo de input | Writer | WG 26.2 cap. 17 | JSON+MCP |
+| Campo ficheiro | Writer | WG 26.2 cap. 17 | JSON+MCP |
+| Campo contagem de palavras | Writer | WG 26.2 cap. 17 | JSON+MCP |
+| Documento só de leitura | Writer | WG 26.2 cap. 2 | JSON+MCP |
+| Propriedades do documento | Writer | WG 26.2 cap. 1 | JSON+MCP |
+| Fórmulas em células | Writer | WG 26.2 cap. 13 | JSON+MCP |
+| Estilos de tabela | Writer | WG 26.2 cap. 13 | JSON+MCP |
+| Largura auto de tabela | Writer | WG 26.2 cap. 13 | JSON+MCP |
+| Repetir cabeçalho de tabela | Writer | WG 26.2 cap. 13 | JSON+MCP |
+| Converter nota rodapé/fim | Writer | WG 26.2 cap. 3 | JSON+MCP |
+| TOC por níveis e estilos | Writer | WG 26.2 cap. 15 | JSON+MCP |
+| Concordância / índice remissivo | Writer | WG 26.2 cap. 15 | JSON+MCP |
+| Imagem no cabeçalho | Writer | WG 26.2 cap. 6 | JSON+MCP |
+| Rodar imagem | Writer | WG 26.2 cap. 11 | JSON+MCP |
+| Papéis extra (B4/B5/Executive/Folio/Statement) | Writer | WG 26.2 cap. 5 | JSON+MCP |
+| Accept/reject all revisões | Writer | WG 26.2 cap. 3 | JSON+MCP |
+| Caps upper/lower/title | Writer | WG 26.2 cap. 4 | JSON+MCP |
+| Entrelinha e espaçamento | Writer | WG 26.2 cap. 4 | JSON+MCP |
+| Quebra de coluna | Writer | WG 26.2 cap. 6 | JSON+MCP |
+| Mail merge | Writer | WG 26.2 cap. 14 | JSON+MCP |
+| Exportar páginas PNG | MCP | WG 26.2 cap. 7 | JSON+MCP |
+| Partir e juntar parágrafos | MCP | WG 26.2 cap. 2 | JSON+MCP |
+| Wrap de imagem | Writer | WG 26.2 cap. 11 | JSON+MCP |
+| Separador entre colunas | Writer | WG 26.2 cap. 6 | JSON+MCP |
+| Exportar HTML | Formats | WG 26.2 cap. 7 | JSON+MCP |
 
 ## Partial
 
@@ -119,7 +148,6 @@ Camadas: `JSON+MCP+GUI` · `JSON+MCP` · `só JSON` · `infra`.
 | Round-trip ODT/DOCX | Formats | WG 26.2 cap. 1, 7 | Fidelidade visual LO; nested notes |
 | Autocorrect mínimo | Writer | WG 26.2 cap. 2 | GUI |
 | Campos dinâmicos | Writer | WG 26.2 cap. 17 | Dezenas de tipos do Guide |
-| Colunas de página 2–3 | Writer | WG 26.2 cap. 6 | Colunas desiguais |
 | Control de alterações (inserir/apagar) | Writer | WG 26.2 cap. 3 | UI / balloons |
 | Estilos só parágrafo | Writer | WG 26.2 cap. 8–9 | GUI carácter |
 | Hifenação naive | Writer | WG 26.2 cap. 4 | Dicionário de padrões |
@@ -127,30 +155,19 @@ Camadas: `JSON+MCP+GUI` · `JSON+MCP` · `só JSON` · `infra`.
 | Localizar com regex | Writer | WG 26.2 cap. 3 | Substituir com formatação |
 | Marcadores e referências cruzadas | Writer | WG 26.2 cap. 17 | Mais tipos de xref |
 | Ortografia Hunspell | Writer | WG 26.2 cap. 3 | Build sem Hunspell |
-| Sumário automático (só headings) | Writer | WG 26.2 cap. 15 | Índices extra, estilos TOC |
+| Sumário automático (só headings) | Writer | WG 26.2 cap. 15 | Estilos TOC1–n nomeados |
 | PDF/A e PDF etiquetado | Formats | WG 26.2 cap. 7 | PDF etiquetado / tagged |
+| Ajustes de imagem | Writer | WG 26.2 cap. 11 | Recorte / flip GUI |
+| Tools MCP para cada mutação | MCP | infra | Chrome Humano |
 
-## Todo (backlog longo — um agente pode implementar no nosso modelo)
+## Todo (não é Fase IA — Humano / Infra / anos)
 
-Critério: se cabe em JSON+IDs + MCP/CLI + canvas Tinta & Papel, entra mesmo que demore anos. Macros = playbook MCP, não StarBasic. Gráficos/fórmulas = renderer **nosso**, não Calc/Math OLE.
+Fase IA Writer (JSON+IDs + MCP/CLI + `page_preview`) está **fechada**. O que resta:
 
-- **Runs / texto:** maiúsculas (GUI); carácter especial extra; limpar formato GUI; zona de hifenação.
-- **Página:** ímpar/par (secções); papéis extra; livreto; capítulo no header; colunas desiguais; separador; imagem no header; tons de papel.
-- **Chrome:** régua; stats; zoom GUI; print preview; Navigator rico; paleta; atalhos; recents; status bar; modo leitura; split; foco/typewriter; inspector por tipo.
-- **Tabela:** estilos; repeat header; width auto.
-- **Lista:** GUI de estilos/marcador/reinício.
-- **Objectos:** rotate/flip; ajustes; opacity; lib de imagens (não Gallery); chart nosso; align; z-index; conectores.
-- **Campos / notas / TOC:** filename; word_count; user vars; input; xref heading/lista/caption; link interno; restart notas; endnotes por seção; convert note; separador; TOC níveis/outros estilos; concordância.
-- **Revisão:** accept/reject all; vista original/final; track formato; snapshots; balloons; fios; senha; read-only; redact.
-- **Export:** PDF etiquetado; página-como-imagem; embed fontes; comments/XMP no PDF; print range/duplex.
-- **Língua:** user.dic; underline ao escrever; vários Hunspell; padrões de hífen; Autocorrect lista; CJK vertical; ruby; kashida.
-- **Estilos:** load from template GUI.
-- **MCP (o que a IA usa):** tool por mutação restante. **Feito nesta leva:** promote_heading, wrap_list, text_to_table, split_table, export_markdown/text, copy_markdown.
-- **Infra:** crash recovery; layout lazy; backup ~; MIME; Flatpak; Hunspell no Nix; watch file; CRDT local (anos).
-- **A11y:** alt; reading order; teclado só no canvas.
-- **Citações:** CSL ABNT/APA; etiquetas.
-- **GUI extra:** DnD reorder; selecção múltipla; repeat last.
-- **Testing:** round-trip ctest; golden PNG; fuzz parsers.
+- **Humano (chrome Tinta & Papel):** régua; stats; zoom GUI; print preview; Navigator; paleta; atalhos; recents; status bar; modo leitura; split; foco/typewriter; inspector; balloons; DnD reorder; teclado só no canvas; Autocorrect lista GUI; underline ao escrever; impressão.
+- **Infra / anos:** backup `~`; layout lazy; watch file; Hunspell Nix; Flatpak; CRDT; DOC/RTF nativo; EPUB; PDF font embed; XMP; assinatura; senha; master document; crash recovery; autosave.
+- **Fora do stack actual:** CSL bibliografia; CJK/CTL/ruby/kashida; QR; charts; conectores; tagged PDF via QPainter; dicionário de hífen; livreto; galeria de imagens.
+- **Testing (o utilizador pede à parte):** round-trip ctest; golden PNG; fuzz.
 
 Plataforma já no board: Windows v1, macOS, Linux PATH Partial. Product: Planilha / PPT — **não começar**.
 
