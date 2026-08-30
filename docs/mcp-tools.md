@@ -61,22 +61,27 @@ The document is a JSON object with **stable block IDs**. Agents must address con
 | `heading` | `level` 1–6, `style`, `align`, `runs` |
 | `list-item` | `level`, `list_kind` (`bullet` \| `decimal`), `runs` |
 | `table` | `rows`: array of rows; each cell `{ "runs": [...] }` |
-| `image` | `path`, `image_b64`, `width_mm` (bytes are the source of truth) |
-| `break` | page break (`break_kind`: `page`) |
-| `footnote` / `endnote` | nota; âncora no run via `note_id` |
+| `image` | `path`, `image_b64`, `width_mm`, `rotate`, `opacity`, `flip_h`/`flip_v`, `crop` [L,T,R,B], `shadow_pt`, `z_index` |
+| `break` | `break_kind`: `page` \| `column` \| `section`; `hidden` esconde a secção seguinte |
+| `footnote` / `endnote` | nota; âncora no run via `note_id`; endnotes no fim da secção |
 | `toc` | sumário; `toc_targets` = ids dos headings |
+| `shape` | `shape` rect\|ellipse\|line, `fill`, `stroke`, `width_mm`, `height_mm`, `connect_to` |
+| `chart` | `data`: `[{label,value}]` |
+| `qr` | `qr` texto (preview byte-mode curto) |
+| `equation` | texto + `numbered` |
+| `form` | `form` text\|checkbox\|dropdown |
 
 ### Meta extras
 
-`header` / `footer`: `{ "text", "page_numbers", "chapter"?, "image"? }`. `meta.read_only`, `meta.watermark`, `meta.vars`, `meta.subject`, `meta.keywords`. Block `comments[]`: `{ "id", "author", "text", "resolved" }`. Page `column_widths` (relative weights). Cell `formula` (`sum:0` | `avg:1` | `count:0`). Image `rotate`, `opacity`.
+`header` / `footer`: `{ "text", "page_numbers", "chapter"?, "image"? }`. `meta.read_only`, `meta.watermark`, `meta.vars`, `meta.subject`, `meta.keywords`, `meta.bibliography`, `meta.autotext`, `meta.thesaurus`, `meta.user_dic`. Block `comments[]`: `{ "id", "author", "text", "resolved", "parent_id"? }`. Page `column_widths`, `width_mm`/`height_mm`, `tone`, `grid_mm`, `line_numbers`, `chapter_numbers`, `booklet`, `gutter_mirror`, `hyphen_zone_mm`. Cell `formula` (`sum:0` | `avg:1` | `count:0`). Image `rotate`, `opacity`, `flip_h`, `crop`.
 
 ### Text run fields
 
-`text`, `bold`, `italic`, `underline`, `strike`, `superscript`, `subscript`, `font` (optional), `size_pt` (0 = inherit), `color`, `highlight`, `link`, `field` (`page_number` | `page_count` | `date` | `title` | `author` | `xref` | `filename` | `word_count` | `custom` | `merge` | `chapter` | `var` | `input`), `field_arg`, `note_id`.
+`text`, `bold`, `italic`, `underline`, `strike`, `superscript`, `subscript`, `font` (optional), `size_pt` (0 = inherit), `color`, `highlight`, `link`, `field` (`page_number` | `page_count` | `date` | `time` | `title` | `author` | `xref` | `filename` | `word_count` | `custom` | `merge` | `chapter` | `var` | `input` | `cite`), `field_arg`, `note_id`, `ruby`, `redact`, `show_if`.
 
 ### ID prefixes
 
-Assigned by the editor: `h` headings, `p` paragraphs, `l` list items, `t` tables, `img` images, `br` breaks. Never invent colliding IDs; omit `id` on insert to let the editor assign one.
+Assigned by the editor: `h` headings, `p` paragraphs, `l` list items, `t` tables, `img` images, `br` breaks, `sh` shapes, `ch` charts, `qr` QR, `eq` equations, `fm` forms. Never invent colliding IDs; omit `id` on insert to let the editor assign one.
 
 ## Tools
 
@@ -99,8 +104,8 @@ Saves to `path` or the last opened/saved path. Format from extension.
 
 ### `document_export_pdf`
 
-Args: `{ "path": string, "pdfa"?: bool }`  
-Native `QPdfWriter` (no LibreOffice). `pdfa=true` requests PDF/A-1b. Tagged PDF is not produced. Falls back to soffice only if native write fails.
+Args: `{ "path": string, "pdfa"?: bool, "from"?: int, "to"?: int, "booklet"?: bool }`  
+Native `QPdfWriter` (no LibreOffice). `pdfa=true` requests PDF/A-1b. `from`/`to` are 1-based inclusive. `booklet` imprints 2-up in booklet order. Tagged PDF is not produced. Falls back to soffice only if native write fails.
 
 ### `document_get`
 
@@ -163,8 +168,8 @@ Copies font/size/bold/italic/color (and list attrs) from the caret run into the 
 
 ### `set_page_layout`
 
-Args: `{ "size"?: "A4"|"Letter"|"Legal"|"A3"|"A5"|"A6"|"Tabloid"|"DL"|"C5"|"C6"|"B4"|"B5"|"Executive"|"Folio"|"Statement", "orientation"?: "portrait"|"landscape", "margins_mm"?: [t, r, b, l], "columns"?: 1|2|3, "column_widths"?: [2, 1], "hyphenate"?: bool, "gutter_mm"?: number, "column_gap_mm"?: number, "column_separator"?: bool, "border_pt"?: number, "border_color"?: string, "background"?: string, "style"?: string, "number_format"?: "arabic"|"roman"|"alpha", "number_start"?: int }`  
-`style` copies `page_size` / `page_orientation` from a `kind=page` style. `number_format` / `number_start` change the printed page label; `insert_break {page_restart:true, page_number?:n}` restarts the counter. `column_widths` are relative weights when `columns` > 1.
+Args: `{ "size"?: "A4"|…, "orientation"?: "portrait"|"landscape", "margins_mm"?: [t, r, b, l], "columns"?: 1|2|3, "column_widths"?: [2, 1], "hyphenate"?: bool, "hyphen_zone_mm"?: number, "gutter_mm"?: number, "gutter_mirror"?: bool, "column_gap_mm"?: number, "column_separator"?: bool, "border_pt"?: number, "border_color"?: string, "background"?: string, "style"?: string, "number_format"?: "arabic"|"roman"|"alpha", "number_start"?: int, "width_mm"?: number, "height_mm"?: number, "tone"?: "sepia"|"night", "grid_mm"?: number, "line_numbers"?: bool, "chapter_numbers"?: bool, "booklet"?: bool, "writing_mode"?: "vertical", "note_restart"?: bool }`  
+`style` copies `page_size` / `page_orientation` from a `kind=page` style. `number_format` / `number_start` change the printed page label; `insert_break {page_restart:true, page_number?:n}` restarts the counter. `column_widths` are relative weights when `columns` > 1. `width_mm`+`height_mm` override named sizes.
 
 ### `insert_table`
 
@@ -316,6 +321,27 @@ Alterna o bloco `footnote` ↔ `endnote`.
 
 Args: `{ "terms": ["Alfa", "Beta"], "title"?: "Índice remissivo", "after_id"?: "end" }`  
 Insere um Heading 1 e um parágrafo por termo com números de página (`concordance` é alias).
+
+### Wave 10 — objectos, página, revisão
+
+- `insert_shape` `{shape: rect|ellipse|line, fill?, stroke?, width_mm?, height_mm?, connect_to?}`
+- `insert_chart` `{data: [{label, value}]}`
+- `insert_qr` `{qr: "texto"}` — matriz de preview (payload curto)
+- `insert_equation` `{text, numbered?}`
+- `insert_form` `{kind: text|checkbox|dropdown, text?}`
+- `bibliography_set` / `insert_citation` — citação mínima (não é processador CSL)
+- `figure_index` — índice de ilustrações (legendas)
+- `autotext_set` / `autotext_insert`
+- `document_stats`, `document_compare {path}`, `document_a11y`, `document_links`, `grammar_check`
+- `redact`, `repeat_last`, `snapshot_save` / `list` / `restore`
+- `set_user_dic`, `thesaurus_get` / `thesaurus_set`
+- `align_objects {align: left|center|right|distribute}`
+- `revision_view {view: original|final}`
+- `set_page_layout` extra: `width_mm`, `height_mm`, `tone`, `grid_mm`, `line_numbers`, `chapter_numbers`, `gutter_mirror`, `hyphen_zone_mm`, `booklet`, `writing_mode`
+- `document_export_pdf` extra: `from`, `to`, `booklet` (2-up)
+- `set_image` extra: `flip_h`, `flip_v`, `crop`, `shadow_pt`, `z_index`
+- `comment_add` extra: `parent_id`
+- `insert_field` extra: `time`, `cite`
 
 ### `spellcheck`
 

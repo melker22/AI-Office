@@ -1,6 +1,6 @@
 # Catálogo Writer — ideias do Guide, código nosso
 
-Espelho git do board **Roadmap para Produção** no Notion ([hub](https://app.notion.com/p/3cb46a79156b819daef5ea9d7c41385a)). Sync: **2026-08-30** (Fase IA **fechada**: JSON+MCP+`page_preview`). Totais: **126 Done**, **17 Partial**, **98 Todo**. Coluna **Fase** = `IA` | `Humano` | `Infra` | `Fora`.
+Espelho git do board **Roadmap para Produção** no Notion ([hub](https://app.notion.com/p/3cb46a79156b819daef5ea9d7c41385a)). Sync: **2026-08-30** (Fase IA **onda 10**: objectos, página, revisão). Totais: **175 Done**, **20 Partial**, **46 Todo**. Coluna **Fase** = `IA` | `Humano` | `Infra` | `Fora`.
 
 Fonte citável: The Document Foundation — [LibreOffice Writer Guide 26.2](https://books.libreoffice.org/en/WG262/WG262.html). Atribuição e limites: [`ATTRIBUTION.md`](ATTRIBUTION.md).
 
@@ -127,6 +127,21 @@ Camadas: `JSON+MCP+GUI` · `JSON+MCP` · `só JSON` · `infra`.
 | Concordância / índice remissivo | Writer | WG 26.2 cap. 15 | JSON+MCP |
 | Imagem no cabeçalho | Writer | WG 26.2 cap. 6 | JSON+MCP |
 | Rodar imagem | Writer | WG 26.2 cap. 11 | JSON+MCP |
+| Recorte, flip e sombra de imagem | Writer | WG 26.2 cap. 11 | JSON+MCP |
+| Formas (rect/ellipse/line) | Writer | WG 26.2 cap. 11 | JSON+MCP |
+| Gráfico de barras | Writer | WG 26.2 cap. 11 | JSON+MCP |
+| QR no texto | Writer | WG 26.2 cap. 11 | JSON+MCP |
+| Equação numerada | Writer | WG 26.2 cap. 17 | JSON+MCP |
+| Formulário no texto | Writer | WG 26.2 cap. 13 | JSON+MCP |
+| Numeração de capítulos e linhas | Writer | WG 26.2 cap. 6 | JSON+MCP |
+| Tom de papel, grelha, tamanho mm | Writer | WG 26.2 cap. 5 | JSON+MCP |
+| Livreto PDF 2-up | Formats | WG 26.2 cap. 7 | JSON+MCP |
+| Citação e base bibliográfica (JSON) | Writer | WG 26.2 cap. 15 | JSON+MCP |
+| Índice de ilustrações | Writer | WG 26.2 cap. 15 | JSON+MCP |
+| AutoText, redact, repeat last | Writer | WG 26.2 cap. 2–3 | JSON+MCP |
+| Estatísticas, comparar, a11y | Writer | WG 26.2 cap. 3 | JSON+MCP |
+| Ruby, texto vertical, kashida | Writer | WG 26.2 cap. 4 | JSON+MCP |
+| Tesauro e user.dic | Writer | WG 26.2 cap. 3 | JSON+MCP |
 | Papéis extra (B4/B5/Executive/Folio/Statement) | Writer | WG 26.2 cap. 5 | JSON+MCP |
 | Accept/reject all revisões | Writer | WG 26.2 cap. 3 | JSON+MCP |
 | Caps upper/lower/title | Writer | WG 26.2 cap. 4 | JSON+MCP |
@@ -157,16 +172,20 @@ Camadas: `JSON+MCP+GUI` · `JSON+MCP` · `só JSON` · `infra`.
 | Ortografia Hunspell | Writer | WG 26.2 cap. 3 | Build sem Hunspell |
 | Sumário automático (só headings) | Writer | WG 26.2 cap. 15 | Estilos TOC1–n nomeados |
 | PDF/A e PDF etiquetado | Formats | WG 26.2 cap. 7 | PDF etiquetado / tagged |
-| Ajustes de imagem | Writer | WG 26.2 cap. 11 | Recorte / flip GUI |
+| Citação CSL | Writer | WG 26.2 cap. 15 | Processador CSL completo; há cite+JSON |
+| CTL/CJK completo | Writer | WG 26.2 cap. 4 | Ruby/vertical/kashida; sem shaping completo |
+| Órfãs e viúvas | Writer | WG 26.2 cap. 4 | Parágrafo não parte entre páginas |
+| Índice bibliográfico | Writer | WG 26.2 cap. 15 | Entradas JSON; sem lista formatada CSL |
+| Notas: reinício por página | Writer | WG 26.2 cap. 3 | Flag no JSON; marcador ainda estático |
 | Tools MCP para cada mutação | MCP | infra | Chrome Humano |
 
-## Todo (não é Fase IA — Humano / Infra / anos)
+## Todo (Humano / Infra — IA continua na próxima onda se restar JSON+MCP)
 
-Fase IA Writer (JSON+IDs + MCP/CLI + `page_preview`) está **fechada**. O que resta:
+Fase IA Writer **não** está encerrada: o board ainda tem Todos de chrome, packaging e limites honestos. O motor JSON+MCP+`page_preview` da onda 10 cobre formas, QR, gráficos, ruby, livreto, stats, etc.
 
-- **Humano (chrome Tinta & Papel):** régua; stats; zoom GUI; print preview; Navigator; paleta; atalhos; recents; status bar; modo leitura; split; foco/typewriter; inspector; balloons; DnD reorder; teclado só no canvas; Autocorrect lista GUI; underline ao escrever; impressão.
-- **Infra / anos:** backup `~`; layout lazy; watch file; Hunspell Nix; Flatpak; CRDT; DOC/RTF nativo; EPUB; PDF font embed; XMP; assinatura; senha; master document; crash recovery; autosave.
-- **Fora do stack actual:** CSL bibliografia; CJK/CTL/ruby/kashida; QR; charts; conectores; tagged PDF via QPainter; dicionário de hífen; livreto; galeria de imagens.
+- **Humano (chrome Tinta & Papel):** régua; stats GUI; zoom GUI; print preview; Navigator; paleta; atalhos; recents; status bar; modo leitura; split; foco/typewriter; inspector; balloons; DnD reorder; teclado só no canvas; Autocorrect lista GUI; underline ao escrever; impressão.
+- **Infra:** backup `~`; layout lazy; watch file; Hunspell Nix; Flatpak; CRDT; DOC/RTF nativo; EPUB; PDF font embed; XMP; assinatura; senha; master document; crash recovery; autosave.
+- **Limites honestos (Partial):** tagged PDF via QPainter; dicionário de padrões de hífen; processador CSL; round-trip visual ODT/DOCX.
 - **Testing (o utilizador pede à parte):** round-trip ctest; golden PNG; fuzz.
 
 Plataforma já no board: Windows v1, macOS, Linux PATH Partial. Product: Planilha / PPT — **não começar**.

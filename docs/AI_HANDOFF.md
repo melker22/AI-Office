@@ -26,6 +26,25 @@
 
 ---
 
+## 2026-08-30 — Cursor — Fase IA wave 10: objectos, página, revisão
+
+**Objective:** Continuar a Fase IA (JSON+IDs + MCP + `page_preview`). Não descartar formas/QR/ruby/livreto por serem “grandes”. Sem QML novo.
+
+**Done:**
+- Modelo: `shape`/`chart`/`qr`/`equation`/`form`; flip/crop/sombra; ruby; `show_if`; redact; bibliografia JSON.
+- Preview: QR, barras, formas, conectores, z-order, numeração de capítulos/linhas, tom/grelha, endnotes de secção, PDF `from`/`to`/`booklet`.
+- MCP: insert_*, stats, compare, a11y, autotext, snapshots, repeat_last, thesaurus, user.dic, grammar, align, cite, figure_index, revision_view.
+- Playbook: `AIOFFICE_HEADLESS=1 aioffice play qa/wave10-ia-continue.json` (`valid: true`, 3 páginas).
+- Notion: **175 Done / 20 Partial / 46 Todo**. CSL completo, tagged PDF, órfãs reais = Partial.
+
+**Decisions:** QR é preview byte-mode curto (não ISO-scanner). Sem chrome QML. Sem push. Testes golden só quando o utilizador pedir.
+
+**Next suggested step:** Onda 11 no que ainda for IA no board (galeria, track format, reinício vivo de notas) ou Fase Humano no chrome. Testes à parte.
+
+**Commits:** `b045fd1` feat: add Writer objects, page extras, and review MCP tools
+
+---
+
 ## 2026-08-30 — Cursor — Fase IA fechada (onda final JSON+MCP)
 
 **Objective:** Implementar o que faltava da Fase IA (JSON + MCP + `page_preview`). Parar **antes** dos testes — o utilizador dá instruções à parte.
