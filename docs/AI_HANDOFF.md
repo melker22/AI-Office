@@ -26,6 +26,23 @@
 
 ---
 
+## 2026-08-30 — Cursor — Página GitHub e README Tinta & Papel
+
+**Objective:** Deixar o repositório apresentável (About, topics, README) sem o tornar público.
+
+**Done:**
+- About + 20 topics + labels (API GitHub; repo **privado**).
+- README reescrito: banner SVG, badges cobre/tinta, MCP, build, licença.
+- Banner: `docs/github/banner.svg`.
+
+**Decisions:** Sem git tags/Releases (ainda incompleto). Topics em inglês (pesquisa GitHub); README em português. Repo continua privado.
+
+**Next suggested step:** Social preview PNG 1280×640 quando quiserem um cartão para Discord/Twitter.
+
+**Commits:** `3af42aa` docs: present Writer on GitHub with a readable Tinta e Papel README
+
+---
+
 ## 2026-08-30 — Cursor — Fase IA wave 11: órfãs, biblioteca, notas, mestre
 
 **Objective:** Regra always-apply «implementar, não descartar» + continuar a Fase IA (JSON+IDs + MCP + `page_preview`). Sem QML novo.
