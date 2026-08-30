@@ -26,6 +26,25 @@
 
 ---
 
+## 2026-08-30 — Cursor — Fase IA wave 6: HTML, molduras, ímpar/par, AutoFormat
+
+**Objective:** Continuar waves 3–6 (JSON+MCP+`page_preview`). Sem chrome QML. Sem push.
+
+**Done:**
+- Cabeçalho/rodapé ímpar, par e primeira página (`set_header`/`set_footer` `even`/`first`).
+- `insert_html` (HTML sanitizado via QTextDocument) e `insert_plain`.
+- `insert_frame` + `create_style kind=frame`; `autoformat` (aspas, `--`, fracções, URL).
+- `join_blocks`; `load_styles {path}`.
+- Playbook: `AIOFFICE_HEADLESS=1 aioffice play qa/wave6-html-frames.json`.
+
+**Decisions:** PDF tagged continua Partial (QPainter não gera árvore de estrutura). AutoFormat é MCP de documento, não GUI. Sem QML.
+
+**Next suggested step:** PDF tagged (se houver API Qt), secções ímpar/par, promote heading, wrap_list, ou começar Fase Humano no chrome Tinta & Papel.
+
+**Commits:** (preencher após commit)
+
+---
+
 ## 2026-08-29 — Cursor — Fase IA wave 5: kerning, idioma, find, estilos, etiquetas
 
 **Objective:** Continuar waves 3–6 (JSON+MCP+`page_preview`). Sem chrome QML. Sem push.

@@ -1,6 +1,6 @@
 # Catálogo Writer — ideias do Guide, código nosso
 
-Espelho git do board **Roadmap para Produção** no Notion ([hub](https://app.notion.com/p/3cb46a79156b819daef5ea9d7c41385a)). Sync: **2026-08-29** (Fase IA wave 5: kerning, idioma, find, estilos, etiquetas). Totais: **76 Done**, **19 Partial**, **146 Todo**. Coluna **Fase** = `IA` | `Humano` | `Infra` | `Fora`.
+Espelho git do board **Roadmap para Produção** no Notion ([hub](https://app.notion.com/p/3cb46a79156b819daef5ea9d7c41385a)). Sync: **2026-08-30** (Fase IA wave 6: HTML, molduras, ímpar/par, AutoFormat). Totais: **85 Done**, **19 Partial**, **137 Todo**. Coluna **Fase** = `IA` | `Humano` | `Infra` | `Fora`.
 
 Fonte citável: The Document Foundation — [LibreOffice Writer Guide 26.2](https://books.libreoffice.org/en/WG262/WG262.html). Atribuição e limites: [`ATTRIBUTION.md`](ATTRIBUTION.md).
 
@@ -85,6 +85,15 @@ Camadas: `JSON+MCP+GUI` · `JSON+MCP` · `só JSON` · `infra`.
 | Actualizar estilo a partir da selecção | Writer | WG 26.2 cap. 8 | JSON+MCP |
 | Campo data/hora com formato | Writer | WG 26.2 cap. 17 | JSON+MCP |
 | Envelopes e etiquetas | Writer | WG 26.2 cap. 14 | JSON+MCP |
+| Cabeçalho e rodapé ímpar/par | Writer | WG 26.2 cap. 6 | JSON+MCP |
+| Primeira página diferente | Writer | WG 26.2 cap. 6 | JSON+MCP |
+| Colar HTML sanitizado | Writer | WG 26.2 cap. 3 | JSON+MCP |
+| Colar sem formatação | Writer | WG 26.2 cap. 3 | JSON+MCP |
+| AutoFormat (aspas, fracções) | Writer | WG 26.2 cap. 2 | JSON+MCP |
+| Aspas tipográficas por locale | Writer | WG 26.2 cap. 2 | JSON+MCP |
+| Moldura / caixa de texto | Writer | WG 26.2 cap. 11 | JSON+MCP |
+| Estilos de moldura | Writer | WG 26.2 cap. 8 | JSON+MCP |
+| Carregar estilos de um template | Writer | WG 26.2 cap. 8 | JSON+MCP |
 
 ## Partial
 
@@ -97,7 +106,7 @@ Camadas: `JSON+MCP+GUI` · `JSON+MCP` · `só JSON` · `infra`.
 | Campos dinâmicos | Writer | WG 26.2 cap. 17 | Dezenas de tipos do Guide |
 | Colunas de página 2–3 | Writer | WG 26.2 cap. 6 | Colunas desiguais |
 | Control de alterações (inserir/apagar) | Writer | WG 26.2 cap. 3 | UI / balloons |
-| Estilos só parágrafo | Writer | WG 26.2 cap. 8–9 | Frame; GUI carácter |
+| Estilos só parágrafo | Writer | WG 26.2 cap. 8–9 | GUI carácter |
 | Hifenação naive | Writer | WG 26.2 cap. 4 | Dicionário de padrões |
 | Hiperlink | Writer | WG 26.2 cap. 3 | Visita + export |
 | Localizar com regex | Writer | WG 26.2 cap. 3 | Substituir com formatação |
@@ -110,8 +119,8 @@ Camadas: `JSON+MCP+GUI` · `JSON+MCP` · `só JSON` · `infra`.
 
 Critério: se cabe em JSON+IDs + MCP/CLI + canvas Tinta & Papel, entra mesmo que demore anos. Macros = playbook MCP, não StarBasic. Gráficos/fórmulas = renderer **nosso**, não Calc/Math OLE.
 
-- **Runs / texto:** maiúsculas (GUI); carácter especial extra; limpar formato GUI; colar plain/HTML; aspas por locale; zona de hifenação.
-- **Página:** ímpar/par; gutter; papéis extra; livreto; capítulo no header; colunas desiguais; separador; imagem no header; break-before; keep-with-next; tons de papel.
+- **Runs / texto:** maiúsculas (GUI); carácter especial extra; limpar formato GUI; zona de hifenação.
+- **Página:** ímpar/par (secções); gutter; papéis extra; livreto; capítulo no header; colunas desiguais; separador; imagem no header; break-before; keep-with-next; tons de papel.
 - **Chrome:** régua; stats; zoom GUI; print preview; Navigator rico; paleta; atalhos; recents; status bar; modo leitura; split; foco/typewriter; inspector por tipo.
 - **Tabela:** estilos; sort; texto↔tabela; repeat header; bordas de célula; v_align; split; width auto; padding.
 - **Lista:** GUI de estilos/marcador/reinício.
@@ -119,9 +128,9 @@ Critério: se cabe em JSON+IDs + MCP/CLI + canvas Tinta & Papel, entra mesmo que
 - **Campos / notas / TOC:** filename; word_count; user vars; input; xref heading/lista/caption; link interno; restart notas; endnotes por seção; convert note; separador; TOC níveis/outros estilos; concordância.
 - **Revisão:** accept/reject all; vista original/final; track formato; snapshots; balloons; fios; senha; read-only; redact.
 - **Export:** Markdown; txt; PDF etiquetado; página-como-imagem; copy MD; embed fontes; comments/XMP no PDF; print range/duplex.
-- **Língua:** user.dic; underline ao escrever; vários Hunspell; padrões de hífen; Autocorrect lista; AutoFormat; CJK vertical; ruby; kashida.
-- **Estilos:** moldura; load from template.
-- **MCP (o que a IA usa):** tool por mutação restante; promote heading; join; wrap_list. **Feito nesta leva:** goto, select_by_style, update_style, split_block, insert_labels.
+- **Língua:** user.dic; underline ao escrever; vários Hunspell; padrões de hífen; Autocorrect lista; CJK vertical; ruby; kashida.
+- **Estilos:** load from template GUI.
+- **MCP (o que a IA usa):** tool por mutação restante; promote heading; wrap_list. **Feito nesta leva:** insert_html, insert_plain, insert_frame, autoformat, join_blocks, load_styles.
 - **Infra:** crash recovery; layout lazy; backup ~; MIME; Flatpak; Hunspell no Nix; watch file; CRDT local (anos).
 - **A11y:** alt; reading order; teclado só no canvas.
 - **Citações:** CSL ABNT/APA; etiquetas.
