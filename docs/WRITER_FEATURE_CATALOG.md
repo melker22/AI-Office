@@ -1,6 +1,6 @@
 # Catálogo Writer — ideias do Guide, código nosso
 
-Espelho git do board **Roadmap para Produção** no Notion ([hub](https://app.notion.com/p/3cb46a79156b819daef5ea9d7c41385a)). Sync: **2026-08-30** (Fase IA wave 7: estrutura, tabela, export MD/txt). Totais: **93 Done**, **19 Partial**, **129 Todo**. Coluna **Fase** = `IA` | `Humano` | `Infra` | `Fora`.
+Espelho git do board **Roadmap para Produção** no Notion ([hub](https://app.notion.com/p/3cb46a79156b819daef5ea9d7c41385a)). Sync: **2026-08-30** (Fase IA wave 8: células, quebras, recuos, gutter). Totais: **100 Done**, **19 Partial**, **122 Todo**. Coluna **Fase** = `IA` | `Humano` | `Infra` | `Fora`.
 
 Fonte citável: The Document Foundation — [LibreOffice Writer Guide 26.2](https://books.libreoffice.org/en/WG262/WG262.html). Atribuição e limites: [`ATTRIBUTION.md`](ATTRIBUTION.md).
 
@@ -102,6 +102,13 @@ Camadas: `JSON+MCP+GUI` · `JSON+MCP` · `só JSON` · `infra`.
 | Exportar Markdown | Formats | WG 26.2 cap. 7 | JSON+MCP |
 | Exportar texto plano | Formats | WG 26.2 cap. 7 | JSON+MCP |
 | Copiar seleção como Markdown | Formats | infra | JSON+MCP |
+| Manter com o seguinte | Writer | WG 26.2 cap. 4 | JSON+MCP |
+| Quebra de página antes do parágrafo | Writer | WG 26.2 cap. 5 | JSON+MCP |
+| Bordas e sombreado de célula | Writer | WG 26.2 cap. 13 | JSON+MCP |
+| Alinhamento vertical na célula | Writer | WG 26.2 cap. 13 | JSON+MCP |
+| Padding de célula | Writer | WG 26.2 cap. 13 | JSON+MCP |
+| Recuos de parágrafo | Writer | WG 26.2 cap. 4 | JSON+MCP |
+| Margem de encadernação (gutter) | Writer | WG 26.2 cap. 5 | JSON+MCP |
 
 ## Partial
 
@@ -128,9 +135,9 @@ Camadas: `JSON+MCP+GUI` · `JSON+MCP` · `só JSON` · `infra`.
 Critério: se cabe em JSON+IDs + MCP/CLI + canvas Tinta & Papel, entra mesmo que demore anos. Macros = playbook MCP, não StarBasic. Gráficos/fórmulas = renderer **nosso**, não Calc/Math OLE.
 
 - **Runs / texto:** maiúsculas (GUI); carácter especial extra; limpar formato GUI; zona de hifenação.
-- **Página:** ímpar/par (secções); gutter; papéis extra; livreto; capítulo no header; colunas desiguais; separador; imagem no header; break-before; keep-with-next; tons de papel.
+- **Página:** ímpar/par (secções); papéis extra; livreto; capítulo no header; colunas desiguais; separador; imagem no header; tons de papel.
 - **Chrome:** régua; stats; zoom GUI; print preview; Navigator rico; paleta; atalhos; recents; status bar; modo leitura; split; foco/typewriter; inspector por tipo.
-- **Tabela:** estilos; repeat header; bordas de célula; v_align; width auto; padding.
+- **Tabela:** estilos; repeat header; width auto.
 - **Lista:** GUI de estilos/marcador/reinício.
 - **Objectos:** rotate/flip; ajustes; opacity; lib de imagens (não Gallery); chart nosso; align; z-index; conectores.
 - **Campos / notas / TOC:** filename; word_count; user vars; input; xref heading/lista/caption; link interno; restart notas; endnotes por seção; convert note; separador; TOC níveis/outros estilos; concordância.

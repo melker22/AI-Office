@@ -26,6 +26,25 @@
 
 ---
 
+## 2026-08-30 — Cursor — Fase IA wave 8: células, break-before, recuos, gutter
+
+**Objective:** Continuar JSON+MCP+`page_preview` após wave 7. Sem chrome QML. Sem push.
+
+**Done:**
+- `break_before` no bloco + `apply_paragraph_format`; layout começa página nova.
+- `keep_with_next` (já no motor) alinhado no board; recuos left/right/first no preview.
+- Célula: `border_pt`/`border_color`/`background`/`v_align`/`padding_mm` via `set_cell`.
+- `gutter_mm` (margem esquerda) alinhado no board.
+- Playbook: `AIOFFICE_HEADLESS=1 aioffice play qa/wave8-cells-breaks.json`.
+
+**Decisions:** Gutter sem mirror ímpar/par. Órfãs/viúvas ficam (parágrafos não partem entre páginas). Sem QML.
+
+**Next suggested step:** repeat header de tabela, estilos de tabela, secções ímpar/par, ou começar Fase Humano no chrome Tinta & Papel.
+
+**Commits:** `ed9f9cc` feat: add cell format, break-before, and paragraph indents
+
+---
+
 ## 2026-08-30 — Cursor — Fase IA wave 7: promote, listas, tabela, export MD/txt
 
 **Objective:** Continuar JSON+MCP+`page_preview` após wave 6. Sem chrome QML. Sem push.
