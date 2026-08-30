@@ -1,0 +1,16 @@
+[
+  {"tool": "document_new", "args": {"title": "Wave7", "force": true}},
+  {"tool": "insert_plain", "args": {"after_id": "p1", "text": "Capitulo\nitem um\nitem dois\nA\tB\nC\tD"}},
+  {"tool": "promote_heading", "args": {"id": "p2"}},
+  {"tool": "demote_heading", "args": {"id": "p2"}},
+  {"tool": "promote_heading", "args": {"id": "p2"}},
+  {"tool": "wrap_list", "args": {"ids": ["p3", "p4"], "kind": "bullet"}},
+  {"tool": "unwrap_list", "args": {"id": "p4"}},
+  {"tool": "text_to_table", "args": {"ids": ["p5", "p6"], "header": true}},
+  {"tool": "split_table", "args": {"id": "t1", "row": 1}},
+  {"tool": "copy_markdown", "args": {"ids": ["p2", "p3"]}},
+  {"tool": "export_markdown", "args": {}},
+  {"tool": "export_text", "args": {}},
+  {"tool": "page_preview", "args": {"from": 1, "to": 1, "zoom": 1}},
+  {"tool": "validate", "args": {}}
+]

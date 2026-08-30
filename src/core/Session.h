@@ -104,6 +104,15 @@ public:
     QJsonObject insertFrame(const QJsonObject &args);
     QJsonObject autoFormat(const QJsonObject &args);
     QJsonObject loadStyles(const QJsonObject &args);
+    QJsonObject promoteHeading(const QJsonObject &args);
+    QJsonObject wrapList(const QJsonObject &args);
+    QJsonObject unwrapList(const QJsonObject &args);
+    QJsonObject textToTable(const QJsonObject &args);
+    QJsonObject tableToText(const QJsonObject &args);
+    QJsonObject splitTable(const QJsonObject &args);
+    QJsonObject exportMarkdown(const QJsonObject &args);
+    QJsonObject exportText(const QJsonObject &args);
+    QJsonObject copyMarkdown(const QJsonObject &args);
 
     QJsonObject validate(const QJsonObject &args);
     QJsonObject batch(const QJsonObject &args);
@@ -137,6 +146,8 @@ private:
     int insertIndex(const QString &afterId, QString *err) const;
     QVector<int> indexesFor(const QJsonArray &ids) const;
     QJsonArray idList(const QJsonObject &args) const;
+    QJsonArray idListOrCaret(const QJsonObject &args, bool spanSelection) const;
+    QJsonObject writeExport(const QJsonObject &args, const QString &payload, const QString &key);
     bool saveTo(const QString &path, QString *error);
     bool loadFrom(const QString &path, QString *error);
     Block *tableBlock(const QString &id);

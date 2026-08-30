@@ -259,6 +259,27 @@ Args: `{ "lang"?: "pt-PT"|"en" }`
 
 `join_blocks {id}` merges with the previous block. `load_styles {path}` copies named styles from another `.aio.json`.
 
+### `promote_heading` / `demote_heading`
+
+Args: `{ "id"?: string, "ids"?: [...], "delta"?: -1 }`  
+`promote_heading` turns a paragraph into Heading 1, or H2→H1 (delta default **-1**). `demote_heading` uses delta **+1** (H1→H2; demote past 1 becomes Normal). Caret if `id` omitted.
+
+### `wrap_list` / `unwrap_list`
+
+`wrap_list {ids, kind?: "bullet"|"decimal"|"checkbox"}` converts paragraphs into `list-item`. `unwrap_list` restores Normal paragraphs.
+
+### `text_to_table` / `table_to_text` / `split_table`
+
+`text_to_table {ids, separator?: "\\t"|"," , header?: false}` — each line is a row.  
+`table_to_text {id, separator?}` — one paragraph per row.  
+`split_table {id, row}` — second table starts at `row` (not 0); header row is copied when `headerRow` is set.
+
+### `export_markdown` / `export_text` / `copy_markdown`
+
+`export_markdown {path?, ids?}` returns `{markdown}` and optionally writes UTF-8. Whole document if `ids` omitted.  
+`export_text` same with `{text}` (tables as tab-separated rows).  
+`copy_markdown` is the selection (or `ids`) without a file.
+
 ### `document_diff`
 
 Ids `added` / `removed` / `changed` / `moved` vs the document at last **save**, **open**, **new**, or **template** (not vs the last undo frame).

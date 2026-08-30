@@ -16,6 +16,7 @@
 #include <QMap>
 #include <QRegularExpression>
 #include <QSet>
+#include <QStringList>
 #include <QTemporaryDir>
 #include <QTextBlock>
 #include <QTextDocument>
@@ -1746,6 +1747,150 @@ static QVector<Block> blocksFromMarkdown(const QString &md)
     return out;
 }
 
+static QString escapeMarkdown(QString s)
+{
+    s.replace(QLatin1Char('\\'), QStringLiteral("\\\\"));
+    s.replace(QLatin1Char('*'), QStringLiteral("\\*"));
+    s.replace(QLatin1Char('_'), QStringLiteral("\\_"));
+    s.replace(QLatin1Char('['), QStringLiteral("\\["));
+    s.replace(QLatin1Char(']'), QStringLiteral("\\]"));
+    return s;
+}
+
+static QString runsToMarkdown(const QVector<TextRun> &runs)
+{
+    QString out;
+    for (const auto &r : runs) {
+        if (r.hidden)
+            continue;
+        QString t = escapeMarkdown(r.text);
+        if (r.bold && r.italic)
+            t = QStringLiteral("***%1***").arg(t);
+        else if (r.bold)
+            t = QStringLiteral("**%1**").arg(t);
+        else if (r.italic)
+            t = QStringLiteral("*%1*").arg(t);
+        if (!r.link.isEmpty())
+            t = QStringLiteral("[%1](%2)").arg(t, r.link);
+        out += t;
+    }
+    return out;
+}
+
+static QString cellPlain(const TableCell &cell)
+{
+    QString t;
+    for (const auto &r : cell.runs)
+        t += r.text;
+    return t;
+}
+
+static QString blockToMarkdown(const Block &b)
+{
+    if (b.type == QLatin1String("heading")) {
+        const int lv = qBound(1, b.level > 0 ? b.level : 1, 6);
+        return QString(lv, QLatin1Char('#')) + QLatin1Char(' ') + runsToMarkdown(b.runs);
+    }
+    if (b.type == QLatin1String("list-item")) {
+        const QString indent(qMax(0, b.level - 1) * 2, QLatin1Char(' '));
+        QString mark = QStringLiteral("- ");
+        if (b.listKind == QLatin1String("decimal") || b.listKind == QLatin1String("number"))
+            mark = QStringLiteral("1. ");
+        else if (b.listKind == QLatin1String("checkbox") || b.listKind == QLatin1String("task"))
+            mark = b.checked ? QStringLiteral("- [x] ") : QStringLiteral("- [ ] ");
+        return indent + mark + runsToMarkdown(b.runs);
+    }
+    if (b.type == QLatin1String("table")) {
+        if (b.table.isEmpty())
+            return {};
+        int cols = 0;
+        for (const auto &row : b.table)
+            cols = qMax(cols, row.size());
+        auto emitRow = [cols](const QVector<TableCell> &row) {
+            QString line = QStringLiteral("|");
+            for (int c = 0; c < cols; ++c) {
+                QString cell = c < row.size() ? cellPlain(row[c]) : QString();
+                cell.replace(QLatin1Char('|'), QStringLiteral("\\|"));
+                cell.replace(QLatin1Char('\n'), QLatin1Char(' '));
+                line += QLatin1Char(' ') + cell + QStringLiteral(" |");
+            }
+            return line;
+        };
+        QStringList lines;
+        lines.push_back(emitRow(b.table.first()));
+        if (b.headerRow || b.table.size() > 1) {
+            QString sep = QStringLiteral("|");
+            for (int c = 0; c < cols; ++c)
+                sep += QStringLiteral(" --- |");
+            lines.push_back(sep);
+            for (int r = 1; r < b.table.size(); ++r)
+                lines.push_back(emitRow(b.table[r]));
+        }
+        return lines.join(QLatin1Char('\n'));
+    }
+    if (b.type == QLatin1String("image")) {
+        const QString alt = b.altText.isEmpty() ? QStringLiteral("image") : b.altText;
+        const QString src = b.imagePath.isEmpty() ? QStringLiteral("#") : b.imagePath;
+        return QStringLiteral("![%1](%2)").arg(alt, src);
+    }
+    if (b.type == QLatin1String("break"))
+        return QStringLiteral("---");
+    if (b.type == QLatin1String("frame"))
+        return QStringLiteral("> ") + runsToMarkdown(b.runs);
+    if (b.type == QLatin1String("toc") || b.type == QLatin1String("footnote")
+        || b.type == QLatin1String("endnote"))
+        return runsToMarkdown(b.runs);
+    return runsToMarkdown(b.runs);
+}
+
+static QString blocksToMarkdown(const QVector<Block> &blocks, const QVector<int> &idx)
+{
+    QStringList lines;
+    for (int i : idx) {
+        if (i < 0 || i >= blocks.size())
+            continue;
+        const QString md = blockToMarkdown(blocks[i]);
+        if (!md.isEmpty() || blocks[i].type == QLatin1String("paragraph"))
+            lines.push_back(md);
+    }
+    return lines.join(QStringLiteral("\n\n"));
+}
+
+static QString blocksToPlain(const QVector<Block> &blocks, const QVector<int> &idx)
+{
+    QStringList lines;
+    for (int i : idx) {
+        if (i < 0 || i >= blocks.size())
+            continue;
+        const auto &b = blocks[i];
+        if (b.type == QLatin1String("table")) {
+            for (const auto &row : b.table) {
+                QStringList cells;
+                for (const auto &cell : row)
+                    cells.push_back(cellPlain(cell));
+                lines.push_back(cells.join(QLatin1Char('\t')));
+            }
+        } else if (b.type == QLatin1String("break")) {
+            lines.push_back({});
+        } else {
+            lines.push_back(b.plainText());
+        }
+    }
+    return lines.join(QLatin1Char('\n'));
+}
+
+static QChar tableSeparator(const QJsonObject &args)
+{
+    const QString s = args.value(QStringLiteral("separator")).toString();
+    if (s == QLatin1String("comma") || s == QLatin1String(","))
+        return QLatin1Char(',');
+    if (s == QLatin1String("semicolon") || s == QLatin1String(";"))
+        return QLatin1Char(';');
+    if (s.size() == 1)
+        return s[0];
+    return QLatin1Char('\t');
+}
+
 static QVector<Block> blocksFromHtml(const QString &html)
 {
     QTextDocument td;
@@ -2860,6 +3005,293 @@ QJsonObject Session::loadStyles(const QJsonObject &args)
     return r;
 }
 
+QJsonArray Session::idListOrCaret(const QJsonObject &args, bool spanSelection) const
+{
+    QJsonArray ids = idList(args);
+    if (!ids.isEmpty())
+        return ids;
+    if (spanSelection && !sel_.anchorId.isEmpty() && sel_.anchorId != sel_.focusId) {
+        int a = doc_.indexOf(sel_.anchorId);
+        int b = doc_.indexOf(sel_.focusId);
+        if (a >= 0 && b >= 0) {
+            if (a > b)
+                std::swap(a, b);
+            for (int i = a; i <= b; ++i)
+                ids.append(doc_.body[i].id);
+            return ids;
+        }
+    }
+    if (!sel_.focusId.isEmpty())
+        ids.append(sel_.focusId);
+    return ids;
+}
+
+QJsonObject Session::writeExport(const QJsonObject &args, const QString &payload, const QString &key)
+{
+    auto r = ok();
+    r[key] = payload;
+    const QString path = args.value(QStringLiteral("path")).toString();
+    if (!path.isEmpty()) {
+        QFile f(path);
+        if (!f.open(QIODevice::WriteOnly | QIODevice::Truncate))
+            return fail(QStringLiteral("cannot write path"));
+        f.write(payload.toUtf8());
+        r[QStringLiteral("path")] = path;
+    }
+    return r;
+}
+
+static bool isStructuralSkip(const Block &b)
+{
+    return b.type == QLatin1String("table") || b.type == QLatin1String("image")
+        || b.type == QLatin1String("break") || b.type == QLatin1String("toc");
+}
+
+QJsonObject Session::promoteHeading(const QJsonObject &args)
+{
+    const auto idx = indexesFor(idListOrCaret(args, true));
+    if (idx.isEmpty())
+        return fail(QStringLiteral("no matching ids"));
+    const int delta = args.contains(QStringLiteral("delta"))
+        ? args.value(QStringLiteral("delta")).toInt()
+        : -1;
+    pushUndo();
+    for (int i : idx) {
+        auto &b = doc_.body[i];
+        if (isStructuralSkip(b))
+            continue;
+        if (b.type != QLatin1String("heading")) {
+            if (delta < 0) {
+                b.type = QStringLiteral("heading");
+                b.level = 1;
+                b.style = QStringLiteral("Heading 1");
+                b.listKind.clear();
+            }
+            continue;
+        }
+        const int level = b.level > 0 ? b.level : 1;
+        const int next = level + delta;
+        if (next < 1) {
+            b.type = QStringLiteral("paragraph");
+            b.level = 0;
+            b.style = QStringLiteral("Normal");
+        } else {
+            b.level = qMin(next, 6);
+            if (b.style != QLatin1String("Title") || b.level != 1)
+                b.style = QStringLiteral("Heading %1").arg(b.level);
+        }
+    }
+    markChanged();
+    return ok();
+}
+
+QJsonObject Session::wrapList(const QJsonObject &args)
+{
+    const auto idx = indexesFor(idListOrCaret(args, true));
+    if (idx.isEmpty())
+        return fail(QStringLiteral("no matching ids"));
+    QString kind = args.value(QStringLiteral("kind")).toString(QStringLiteral("bullet"));
+    if (kind == QLatin1String("number") || kind == QLatin1String("decimal"))
+        kind = QStringLiteral("decimal");
+    else if (kind == QLatin1String("checkbox") || kind == QLatin1String("task"))
+        kind = QStringLiteral("checkbox");
+    else
+        kind = QStringLiteral("bullet");
+    pushUndo();
+    for (int i : idx) {
+        auto &b = doc_.body[i];
+        if (isStructuralSkip(b) || b.type == QLatin1String("footnote")
+            || b.type == QLatin1String("endnote"))
+            continue;
+        b.type = QStringLiteral("list-item");
+        b.listKind = kind;
+        if (b.level < 1)
+            b.level = 1;
+        b.style.clear();
+    }
+    markChanged();
+    return ok();
+}
+
+QJsonObject Session::unwrapList(const QJsonObject &args)
+{
+    const auto idx = indexesFor(idListOrCaret(args, true));
+    if (idx.isEmpty())
+        return fail(QStringLiteral("no matching ids"));
+    pushUndo();
+    for (int i : idx) {
+        auto &b = doc_.body[i];
+        if (b.type != QLatin1String("list-item"))
+            continue;
+        b.type = QStringLiteral("paragraph");
+        b.style = QStringLiteral("Normal");
+        b.listKind.clear();
+        b.listBullet.clear();
+        b.level = 0;
+        b.checked = false;
+        b.listRestart = false;
+    }
+    markChanged();
+    return ok();
+}
+
+QJsonObject Session::textToTable(const QJsonObject &args)
+{
+    const auto idx = indexesFor(idListOrCaret(args, true));
+    if (idx.isEmpty())
+        return fail(QStringLiteral("no matching ids"));
+    const QChar sep = tableSeparator(args);
+    Block t;
+    t.type = QStringLiteral("table");
+    t.headerRow = args.value(QStringLiteral("header")).toBool(false);
+    for (int i : idx) {
+        const auto &b = doc_.body[i];
+        if (b.type == QLatin1String("table")) {
+            for (const auto &row : b.table)
+                t.table.push_back(row);
+            continue;
+        }
+        for (const QString &line : b.plainText().split(QLatin1Char('\n'))) {
+            QVector<TableCell> row;
+            for (const QString &part : line.split(sep)) {
+                TableCell c;
+                TextRun r;
+                r.text = part;
+                c.runs.push_back(r);
+                row.push_back(c);
+            }
+            if (row.isEmpty())
+                row.push_back(TableCell{});
+            t.table.push_back(row);
+        }
+    }
+    if (t.table.isEmpty())
+        return fail(QStringLiteral("no rows"));
+    int cols = 0;
+    for (const auto &row : t.table)
+        cols = qMax(cols, row.size());
+    for (auto &row : t.table) {
+        while (row.size() < cols)
+            row.push_back(TableCell{});
+    }
+    pushUndo();
+    const int first = idx.first();
+    for (int i = idx.size() - 1; i >= 0; --i)
+        doc_.body.removeAt(idx[i]);
+    doc_.assignId(t);
+    doc_.body.insert(first, t);
+    selectInserted(t.id);
+    markChanged();
+    auto r = ok();
+    r[QStringLiteral("id")] = t.id;
+    r[QStringLiteral("rows")] = t.table.size();
+    r[QStringLiteral("cols")] = cols;
+    return r;
+}
+
+QJsonObject Session::tableToText(const QJsonObject &args)
+{
+    QString id = args.value(QStringLiteral("id")).toString();
+    if (id.isEmpty())
+        id = sel_.focusId;
+    const int at = doc_.indexOf(id);
+    if (at < 0 || doc_.body[at].type != QLatin1String("table"))
+        return fail(QStringLiteral("table not found"));
+    const QChar sep = tableSeparator(args);
+    const Block table = doc_.body[at];
+    pushUndo();
+    doc_.body.removeAt(at);
+    QJsonArray ids;
+    int insertAt = at;
+    for (const auto &row : table.table) {
+        Block p;
+        p.type = QStringLiteral("paragraph");
+        p.style = QStringLiteral("Normal");
+        TextRun r;
+        QStringList cells;
+        for (const auto &cell : row)
+            cells.push_back(cellPlain(cell));
+        r.text = cells.join(sep);
+        p.runs.push_back(r);
+        doc_.assignId(p);
+        doc_.body.insert(insertAt++, p);
+        ids.append(p.id);
+    }
+    if (ids.isEmpty()) {
+        Block p;
+        p.type = QStringLiteral("paragraph");
+        doc_.assignId(p);
+        doc_.body.insert(at, p);
+        ids.append(p.id);
+    }
+    selectInserted(ids.last().toString());
+    markChanged();
+    auto r = ok();
+    r[QStringLiteral("ids")] = ids;
+    return r;
+}
+
+QJsonObject Session::splitTable(const QJsonObject &args)
+{
+    QString id = args.value(QStringLiteral("id")).toString();
+    if (id.isEmpty())
+        id = sel_.focusId;
+    Block *b = tableBlock(id);
+    if (!b)
+        return fail(QStringLiteral("table not found"));
+    const int at = doc_.indexOf(id);
+    const int row = args.value(QStringLiteral("row")).toInt(-1);
+    if (row <= 0 || row >= b->table.size())
+        return fail(QStringLiteral("row must be inside the table (not first row)"));
+    pushUndo();
+    Block extra;
+    extra.type = QStringLiteral("table");
+    extra.headerRow = b->headerRow;
+    extra.colWidthsMm = b->colWidthsMm;
+    if (b->headerRow)
+        extra.table.push_back(b->table.first());
+    for (int r = row; r < b->table.size(); ++r)
+        extra.table.push_back(b->table[r]);
+    b->table.resize(row);
+    doc_.assignId(extra);
+    doc_.body.insert(at + 1, extra);
+    markChanged();
+    auto r = ok();
+    r[QStringLiteral("id")] = extra.id;
+    r[QStringLiteral("from_id")] = id;
+    return r;
+}
+
+QJsonObject Session::exportMarkdown(const QJsonObject &args)
+{
+    auto idx = indexesFor(idList(args));
+    if (idx.isEmpty()) {
+        for (int i = 0; i < doc_.body.size(); ++i)
+            idx.push_back(i);
+    }
+    return writeExport(args, blocksToMarkdown(doc_.body, idx), QStringLiteral("markdown"));
+}
+
+QJsonObject Session::exportText(const QJsonObject &args)
+{
+    auto idx = indexesFor(idList(args));
+    if (idx.isEmpty()) {
+        for (int i = 0; i < doc_.body.size(); ++i)
+            idx.push_back(i);
+    }
+    return writeExport(args, blocksToPlain(doc_.body, idx), QStringLiteral("text"));
+}
+
+QJsonObject Session::copyMarkdown(const QJsonObject &args)
+{
+    auto idx = indexesFor(idListOrCaret(args, true));
+    if (idx.isEmpty())
+        return fail(QStringLiteral("no matching ids"));
+    auto r = ok();
+    r[QStringLiteral("markdown")] = blocksToMarkdown(doc_.body, idx);
+    return r;
+}
+
 QJsonObject Session::validate(const QJsonObject &)
 {
     QJsonArray errors;
@@ -3182,6 +3614,31 @@ QJsonObject Session::call(const QString &tool, const QJsonObject &args)
         return autoFormat(args);
     if (tool == QLatin1String("load_styles"))
         return loadStyles(args);
+    if (tool == QLatin1String("promote_heading") || tool == QLatin1String("promote"))
+        return promoteHeading(args);
+    if (tool == QLatin1String("demote_heading") || tool == QLatin1String("demote")) {
+        QJsonObject a = args;
+        if (!a.contains(QStringLiteral("delta")))
+            a[QStringLiteral("delta")] = 1;
+        return promoteHeading(a);
+    }
+    if (tool == QLatin1String("wrap_list"))
+        return wrapList(args);
+    if (tool == QLatin1String("unwrap_list"))
+        return unwrapList(args);
+    if (tool == QLatin1String("text_to_table"))
+        return textToTable(args);
+    if (tool == QLatin1String("table_to_text"))
+        return tableToText(args);
+    if (tool == QLatin1String("split_table"))
+        return splitTable(args);
+    if (tool == QLatin1String("export_markdown") || tool == QLatin1String("document_export_markdown"))
+        return exportMarkdown(args);
+    if (tool == QLatin1String("export_text") || tool == QLatin1String("document_export_text")
+        || tool == QLatin1String("export_txt"))
+        return exportText(args);
+    if (tool == QLatin1String("copy_markdown") || tool == QLatin1String("selection_markdown"))
+        return copyMarkdown(args);
     if (tool == QLatin1String("insert_line_break")) {
         QJsonObject a = args;
         a[QStringLiteral("text")] = QString(QChar::LineFeed);

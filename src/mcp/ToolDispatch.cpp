@@ -527,6 +527,53 @@ QJsonArray toolDefinitions()
                   QStringLiteral("Merge named styles from another .aio.json (replace same names)."),
                   QJsonObject{{QStringLiteral("path"), prop(QStringLiteral("string"))}},
                   QJsonArray{QStringLiteral("path")}));
+    a.append(tool(QStringLiteral("promote_heading"),
+                  QStringLiteral("Promote heading level (H2→H1; paragraph→Heading 1). delta default -1."),
+                  QJsonObject{{QStringLiteral("id"), prop(QStringLiteral("string"))},
+                              {QStringLiteral("ids"), prop(QStringLiteral("array"))},
+                              {QStringLiteral("delta"), prop(QStringLiteral("integer"))}}));
+    a.append(tool(QStringLiteral("demote_heading"),
+                  QStringLiteral("Demote heading level (H1→H2; H6 stays; heading→paragraph at 0)."),
+                  QJsonObject{{QStringLiteral("id"), prop(QStringLiteral("string"))},
+                              {QStringLiteral("ids"), prop(QStringLiteral("array"))},
+                              {QStringLiteral("delta"), prop(QStringLiteral("integer"))}}));
+    a.append(tool(QStringLiteral("wrap_list"),
+                  QStringLiteral("Turn paragraphs into list-item blocks (kind: bullet, decimal, checkbox)."),
+                  QJsonObject{{QStringLiteral("id"), prop(QStringLiteral("string"))},
+                              {QStringLiteral("ids"), prop(QStringLiteral("array"))},
+                              {QStringLiteral("kind"), prop(QStringLiteral("string"))}}));
+    a.append(tool(QStringLiteral("unwrap_list"),
+                  QStringLiteral("Turn list-item blocks back into Normal paragraphs."),
+                  QJsonObject{{QStringLiteral("id"), prop(QStringLiteral("string"))},
+                              {QStringLiteral("ids"), prop(QStringLiteral("array"))}}));
+    a.append(tool(QStringLiteral("text_to_table"),
+                  QStringLiteral("Replace paragraphs with a table. Each line is a row; split cells by separator (default tab)."),
+                  QJsonObject{{QStringLiteral("id"), prop(QStringLiteral("string"))},
+                              {QStringLiteral("ids"), prop(QStringLiteral("array"))},
+                              {QStringLiteral("separator"), prop(QStringLiteral("string"))},
+                              {QStringLiteral("header"), prop(QStringLiteral("boolean"))}}));
+    a.append(tool(QStringLiteral("table_to_text"),
+                  QStringLiteral("Replace a table with one paragraph per row (cells joined by separator)."),
+                  QJsonObject{{QStringLiteral("id"), prop(QStringLiteral("string"))},
+                              {QStringLiteral("separator"), prop(QStringLiteral("string"))}}));
+    a.append(tool(QStringLiteral("split_table"),
+                  QStringLiteral("Split a table at row (0-based). The second table starts at that row; header is copied if set."),
+                  QJsonObject{{QStringLiteral("id"), prop(QStringLiteral("string"))},
+                              {QStringLiteral("row"), prop(QStringLiteral("integer"))}}));
+    a.append(tool(QStringLiteral("export_markdown"),
+                  QStringLiteral("Serialize the document (or ids) as Markdown. Optional path writes a file."),
+                  QJsonObject{{QStringLiteral("path"), prop(QStringLiteral("string"))},
+                              {QStringLiteral("id"), prop(QStringLiteral("string"))},
+                              {QStringLiteral("ids"), prop(QStringLiteral("array"))}}));
+    a.append(tool(QStringLiteral("export_text"),
+                  QStringLiteral("Serialize the document (or ids) as plain text. Optional path writes a file."),
+                  QJsonObject{{QStringLiteral("path"), prop(QStringLiteral("string"))},
+                              {QStringLiteral("id"), prop(QStringLiteral("string"))},
+                              {QStringLiteral("ids"), prop(QStringLiteral("array"))}}));
+    a.append(tool(QStringLiteral("copy_markdown"),
+                  QStringLiteral("Return Markdown for the selection or ids without writing a file."),
+                  QJsonObject{{QStringLiteral("id"), prop(QStringLiteral("string"))},
+                              {QStringLiteral("ids"), prop(QStringLiteral("array"))}}));
     return a;
 }
 
