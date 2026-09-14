@@ -9,12 +9,19 @@ version: 2.1
 # qa/wave1-foundation.json is a template playbook (its document_open path is a literal
 # "PLACEHOLDER" meant to be substituted with a real file before running) and is intentionally
 # excluded from the automatic sweep below.
+#
+# resource_class: large — with a *warm* Nix store cache (so download time is no longer a factor),
+# a medium (2 vCPU) runner still got cut off mid-build every time, consistently around the
+# 8-minute mark regardless of the no_output_timeout value set on the step — pointing at a fixed
+# wall-clock ceiling on this plan/tier rather than a silence timeout. More real cores is the lever
+# that actually reduces wall-clock time for a fixed amount of compilation work against a fixed
+# ceiling like that, so this trades resource-class cost for a real chance of finishing in time.
 
 jobs:
   build-and-test:
     docker:
       - image: nixos/nix:2.24.9
-    resource_class: medium
+    resource_class: large
     steps:
       - checkout
 
