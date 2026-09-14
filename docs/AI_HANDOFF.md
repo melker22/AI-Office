@@ -41,7 +41,7 @@
 
 **Next suggested step:** Onda 14 (processador CSL) ou onda 15 (CTL/CJK completo) — ou uma onda de packaging (Hunspell sempre disponível no build Nix), se o utilizador preferir.
 
-**Commits:** (pendente)
+**Commits:** `8d8d2c5` feat: real PDF comment annotations and page-level tagged PDF
 
 ---
 
