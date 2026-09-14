@@ -45,7 +45,7 @@
 
 **Next suggested step:** Onda 13 (fidelidade de PDF: tagged + anotações reais via pós-processador), depois onda 14 (CSL) e onda 15 (CTL/CJK). Ou, se o utilizador preferir, uma onda de packaging (Hunspell sempre disponível no build Nix).
 
-**Commits:** nenhum ainda (usuário não pediu)
+**Commits:** `66b1576` feat: real ODT/DOCX markup for bookmarks/revisions, hyperlinks, fields, crossref kinds, and real hyphenation
 
 ---
 
