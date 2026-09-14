@@ -342,7 +342,7 @@ Insere um Heading 1 e um parágrafo por termo com números de página (`concorda
 - `align_objects {align: left|center|right|distribute}`
 - `revision_view {view: original|final}`
 - `set_page_layout` extra: `width_mm`, `height_mm`, `tone`, `grid_mm`, `line_numbers`, `chapter_numbers`, `gutter_mirror`, `hyphen_zone_mm`, `booklet`, `writing_mode`
-- `document_export_pdf` extra: `from`, `to`, `booklet` (2-up), `copies`, `comments` (página extra, não anotações PDF)
+- `document_export_pdf` extra: `from`, `to`, `booklet` (2-up), `copies`, `comments` (onda 13: anotações PDF reais, ver abaixo — página extra só no modo `booklet`)
 - `set_image` extra: `flip_h`, `flip_v`, `crop`, `shadow_pt`, `z_index`
 - `comment_add` extra: `parent_id`
 - `insert_field` extra: `time`, `cite`, `filepath`
@@ -357,6 +357,13 @@ Insere um Heading 1 e um parágrafo por termo com números de página (`concorda
 - `track_changes` + `apply_character_format` grava `Revision.payload` (JSON do formato)
 - `set_page_layout` `note_restart` numera notas por página no `page_preview`
 - Órfãs/viúvas: o parágrafo parte entre páginas (default 2 linhas)
+
+### Wave 13 — fidelidade de PDF (anotações reais + tagged PDF de página)
+
+`QPdfWriter` (Qt 6.11, confirmado via documentação oficial: sem `/StructTreeRoot`, sem API de anotação) não dá nenhum gancho pra isso — a solução é um pós-processador próprio (`src/core/PdfPostProcess.h/.cpp`) que faz uma **atualização incremental de PDF** no arquivo já escrito: acrescenta objetos novos + uma seção xref nova + trailer no fim do ficheiro, sem tocar nos bytes originais (mecanismo padrão do formato PDF, não é um hack nosso). Validado com `qpdf --check` e `qpdf --show-object` (resolve corretamente através da cadeia `/Prev`).
+
+- **`document_export_pdf {comments:true}`** agora produz **anotações PDF reais** (`/Subtype /Text`, sticky note clicável, com `/Contents` e `/T` do autor) posicionadas na página e no bloco certos — `QPdfWriter` já aloca um `/Annots` vazio por página; só redefinimos esse array. Substitui a página extra "Comentários" de texto simples. Funciona com `copies` (a mesma anotação é repetida em cada cópia física) e com intervalos `from`/`to`. **Não funciona em `booklet`** (duas páginas lógicas por folha física tornam a posição ambígua) — nesse caso cai de volta pra página extra de texto, como antes.
+- **Tagged PDF de granularidade de página.** Todo PDF nativo agora sai com `/MarkInfo <</Marked true>>` + `/StructTreeRoot` (`/Document` → um `/StructElem /Part` por página, ligado via `/Pg`). Isto é **tagging real e válido**, mas de granularidade de página, não de parágrafo/heading: `QPainter`/`QPdfWriter` não dão nenhum jeito de injetar operadores de conteúdo marcado (`BDC`/`EMC` + `MCID`) nos content streams que geram, então os elementos de estrutura não referenciam nenhum `/K` de conteúdo — só a página. Tagging por elemento exigiria ou suporte que o Qt não tem, ou um gerador de content stream próprio no lugar do `QPdfWriter` (fora de escopo). Documentado como limite honesto.
 
 ### Wave 12 — fidelidade de round-trip, hiperlinks, campos, crossref, hifenação real
 

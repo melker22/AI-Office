@@ -1,5 +1,6 @@
 #include "core/Preview.h"
 #include "core/Hyphenation.h"
+#include "core/PdfPostProcess.h"
 #include "core/Qr.h"
 
 #include <QBuffer>
@@ -1527,6 +1528,7 @@ bool exportNativePdf(const Document &doc, const QString &path, QString *error, b
         p.restore();
     };
     bool first = true;
+    QVector<int> physPageDocPage; // physical PDF page index -> doc page number (0 = n/a, e.g. booklet halves)
     auto emitSeq = [&]() {
         if (booklet) {
             for (int i = 0; i < seq.size(); i += 2) {
@@ -1537,6 +1539,7 @@ bool exportNativePdf(const Document &doc, const QString &path, QString *error, b
                 const qreal hh = writer.height();
                 paintDocPage(seq.value(i), QRectF(0, 0, half, hh));
                 paintDocPage(seq.value(i + 1), QRectF(half, 0, half, hh));
+                physPageDocPage.push_back(0); // two logical pages share one physical page: ambiguous
             }
         } else {
             for (int pg : seq) {
@@ -1544,13 +1547,14 @@ bool exportNativePdf(const Document &doc, const QString &path, QString *error, b
                     writer.newPage();
                 first = false;
                 paintDocPage(pg, QRectF(0, 0, writer.width(), writer.height()));
+                physPageDocPage.push_back(pg);
             }
         }
     };
     const int nCopies = qMax(1, copies);
     for (int c = 0; c < nCopies; ++c)
         emitSeq();
-    if (comments) {
+    if (comments && booklet) {
         QStringList lines;
         for (const auto &b : doc.body) {
             for (const auto &cm : b.comments) {
@@ -1582,6 +1586,41 @@ bool exportNativePdf(const Document &doc, const QString &path, QString *error, b
         }
     }
     p.end();
+
+    const double pageWidthPt = wMm * 72.0 / 25.4;
+    const double pageHeightPt = hMm * 72.0 / 25.4;
+    QVector<PdfCommentAnnot> annots;
+    if (comments && !booklet) {
+        QSet<QString> seen;
+        for (const auto &lb : lay.blocks) {
+            if (seen.contains(lb.id))
+                continue;
+            const Block *b = doc.findBlock(lb.id);
+            if (!b || b->comments.isEmpty())
+                continue;
+            seen.insert(lb.id);
+            const double xPt = (lb.rect.left() / qMax(1, lay.paperW)) * pageWidthPt;
+            const double yTopDownPt = (lb.rect.top() / qMax(1, lay.paperH)) * pageHeightPt;
+            const double uryPt = pageHeightPt - yTopDownPt;
+            for (const auto &cm : b->comments) {
+                if (cm.resolved)
+                    continue;
+                for (int phys = 0; phys < physPageDocPage.size(); ++phys) {
+                    if (physPageDocPage[phys] != lb.page)
+                        continue;
+                    PdfCommentAnnot a;
+                    a.physicalPage = phys;
+                    a.xPt = xPt;
+                    a.yPt = uryPt;
+                    a.author = cm.author;
+                    a.text = cm.text;
+                    annots.push_back(a);
+                }
+            }
+        }
+    }
+    QString postErr;
+    pdfPostProcessAddExtras(path, annots, physPageDocPage.size(), /*addStructureTree=*/true, &postErr);
     return true;
 }
 

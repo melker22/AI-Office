@@ -26,6 +26,25 @@
 
 ---
 
+## 2026-09-14 — Claude Code — Fase IA onda 13: anotações PDF reais + tagged PDF de página
+
+**Objective:** Onda 13, mapeada no fim da onda 12: fidelidade de PDF — anotações reais para comentários (substituindo a página extra de texto) e PDF etiquetado, via pós-processador de PDF (confirmado antes de começar: `QPdfWriter` não tem API pra nenhum dos dois). Sem chrome QML novo. Sem push.
+
+**Done:**
+- `src/core/PdfPostProcess.h/.cpp`: pós-processador que aplica uma **atualização incremental de PDF** (mecanismo padrão do formato — acrescenta objetos + xref + trailer no fim do ficheiro já escrito pelo `QPdfWriter`, sem tocar nos bytes originais) para injetar anotações e a árvore de estrutura.
+- `document_export_pdf {comments:true}` agora produz anotações `/Subtype /Text` reais (clicáveis, com autor e texto), posicionadas no bloco/página certos, reaproveitando o `/Annots` vazio que o `QPdfWriter` já aloca por página. Funciona com `copies` (repete a anotação em cada cópia física, testado com 2 cópias × 2 páginas = 4 anotações corretamente pareadas) e com `from`/`to`. Em `booklet` cai de volta pra página extra de texto (posição ambígua com 2 páginas lógicas por folha física).
+- Todo PDF nativo sai com `/MarkInfo <</Marked true>>` + `/StructTreeRoot` (`/Document` → um `/StructElem /Part` por página) — tagging real e válido, mas de granularidade de **página**, não de parágrafo/heading: `QPainter`/`QPdfWriter` não dão nenhum jeito de injetar `BDC`/`EMC`+`MCID` nos content streams que geram, então os elementos de estrutura não têm `/K` de conteúdo. Documentado como limite honesto (não silenciado).
+- Validação: `qpdf --check` (biblioteca PDF independente, não é código nosso) confirma "No syntax or stream encoding errors" nos 4 cenários testados (comentário simples, multi-página com `copies=2`, `pdfa=true`, `booklet=true`). `qpdf --show-object` resolve corretamente a cadeia `/Prev` e mostra o Catalog/Annots/StructTreeRoot mesclados como esperado.
+- Playbook `qa/wave13-pdf-fidelity.json`. Regressão: waves 3–12 continuam `ok:true`.
+
+**Decisions:** Tagging de granularidade de parágrafo fica fora — exigiria ou suporte que o Qt não tem, ou um gerador de content stream PDF próprio no lugar do `QPdfWriter` (substituir a engine de PDF é grande demais pra caber aqui, mapeado como possibilidade futura, não prometido). Anotações não funcionam em `booklet` por ambiguidade de posição — fallback pra página extra mantido só nesse caso.
+
+**Next suggested step:** Onda 14 (processador CSL) ou onda 15 (CTL/CJK completo) — ou uma onda de packaging (Hunspell sempre disponível no build Nix), se o utilizador preferir.
+
+**Commits:** (pendente)
+
+---
+
 ## 2026-09-14 — Claude Code — Fase IA onda 12: round-trip real, crossref kind, hifenação real
 
 **Objective:** Continuar a Fase IA na Onda 12 (backlog puxado do Notion + `docs/WRITER_FEATURE_CATALOG.md`): bookmarks/revisões/hiperlinks/campos com fidelidade real de round-trip ODT/DOCX, `insert_crossref` com `kind`, e hifenação real (Knuth-Liang) no lugar da heurística. Sem chrome QML novo. Sem push.

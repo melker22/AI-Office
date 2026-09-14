@@ -33,6 +33,7 @@ add_library(aioffice_core STATIC
     src/core/Qr.cpp
     src/core/Hyphenation.cpp
     src/core/hyphen/hyphen.qrc
+    src/core/PdfPostProcess.cpp
     src/lok/LokEngine.cpp
     src/mcp/ToolDispatch.cpp
     src/mcp/McpServer.cpp

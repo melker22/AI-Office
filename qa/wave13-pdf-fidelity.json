@@ -1,0 +1,14 @@
+[
+  {"tool": "document_new", "args": {"title": "Wave13 PDF Fidelity"}},
+  {"tool": "insert_blocks", "args": {"after_id": "start", "blocks": [
+    {"type": "heading", "level": 1, "runs": [{"text": "Titulo"}]},
+    {"type": "paragraph", "runs": [{"text": "Paragrafo um."}]},
+    {"type": "break", "breakKind": "page"},
+    {"type": "heading", "level": 1, "runs": [{"text": "Segunda pagina"}]},
+    {"type": "paragraph", "runs": [{"text": "Paragrafo dois."}]}
+  ]}},
+  {"tool": "comment_add", "args": {"id": "p2", "author": "IA", "text": "Comentario pagina um"}},
+  {"tool": "comment_add", "args": {"id": "p3", "author": "IA", "text": "Comentario pagina dois"}},
+  {"tool": "document_export_pdf", "args": {"path": "/tmp/wave13-fidelity.pdf", "comments": true, "copies": 2}},
+  {"tool": "validate", "args": {}}
+]
