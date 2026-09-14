@@ -166,6 +166,8 @@ struct IncrementalUpdate {
         return num;
     }
 
+    int reserveObj() { return nextObj++; }
+
     void redefineObj(int num, const QByteArray &body)
     {
         newOffset[num] = data.size() + appended.size();
@@ -173,8 +175,8 @@ struct IncrementalUpdate {
         nextObj = qMax(nextObj, num + 1);
     }
 
-    // Appends the new xref section + trailer (chaining back via /Prev) and writes the file.
-    // No-op (returns true without touching the file) if nothing was appended.
+    // Appends the new xref section + trailer (chaining back via /Prev) and writes only the
+    // increment — original bytes stay untouched. No-op if nothing was appended.
     bool finish(const QString &path, QString *errorOut)
     {
         if (newOffset.isEmpty())
@@ -190,14 +192,19 @@ struct IncrementalUpdate {
         appended += "trailer\n<< /Size " + QByteArray::number(newSize) + " /Root " + QByteArray::number(rootNum)
             + " 0 R /Prev " + QByteArray::number(oldStartXref) + " >>\nstartxref\n"
             + QByteArray::number(xrefOffset) + "\n%%EOF\n";
-        data += appended;
         QFile out(path);
-        if (!out.open(QIODevice::WriteOnly)) {
+        if (!out.open(QIODevice::Append)) {
             if (errorOut)
                 *errorOut = QStringLiteral("Cannot rewrite PDF: ") + path;
             return false;
         }
-        out.write(data);
+        const qint64 n = out.write(appended);
+        if (n != appended.size() || !out.flush()) {
+            if (errorOut)
+                *errorOut = QStringLiteral("Short write while appending PDF update: ") + path;
+            return false;
+        }
+        data += appended;
         return true;
     }
 };
@@ -500,6 +507,9 @@ bool pdfPostProcessTagStructure(const QString &path, const QVector<QVector<PdfTa
     // per-page: array of struct-elem object numbers indexed by mcid, for /ParentTree
     QVector<QPair<int, QVector<int>>> parentTreeEntries; // (page's StructParents index, mcid->elem array)
 
+    const int structRootNum = u.reserveObj();
+    const int docElemNum = u.reserveObj();
+
     for (int pi = 0; pi < pageNums.size(); ++pi) {
         const int pageObjNum = pageNums[pi];
         const QByteArray pageBody = findObjBody(u.data, pageObjNum, &ok);
@@ -568,9 +578,10 @@ bool pdfPostProcessTagStructure(const QString &path, const QVector<QVector<PdfTa
                                       "<< /Length " + QByteArray::number(compressed.size()) + " /Filter /FlateDecode >>\nstream\n"
                                           + compressed + "\nendstream");
 
-                        // one StructElem per non-empty block, /K = its mcids, /Pg = this page
+                        // one StructElem per non-empty block, /K = its mcids, /Pg = this page, /P = parent
                         QVector<int> kids;
                         mcidToElem.resize(mcid, -1);
+                        const int partNum = u.reserveObj();
                         for (int bi = 0; bi < expected.size(); ++bi) {
                             if (blockMcids[bi].mcids.isEmpty())
                                 continue;
@@ -578,9 +589,11 @@ bool pdfPostProcessTagStructure(const QString &path, const QVector<QVector<PdfTa
                             for (int m : blockMcids[bi].mcids)
                                 kArr += QByteArray::number(m) + " ";
                             kArr += "]";
-                            const int elemNum = u.appendObj("<< /Type /StructElem /S /" + expected[bi].structTag.toUtf8()
-                                                             + " /Pg " + QByteArray::number(pageObjNum) + " 0 R /K " + kArr
-                                                             + " >>");
+                            const int elemNum = u.reserveObj();
+                            u.redefineObj(elemNum,
+                                          "<< /Type /StructElem /S /" + expected[bi].structTag.toUtf8() + " /P "
+                                              + QByteArray::number(partNum) + " 0 R /Pg "
+                                              + QByteArray::number(pageObjNum) + " 0 R /K " + kArr + " >>");
                             kids.push_back(elemNum);
                             for (int m : blockMcids[bi].mcids)
                                 mcidToElem[m] = elemNum;
@@ -590,8 +603,14 @@ bool pdfPostProcessTagStructure(const QString &path, const QVector<QVector<PdfTa
                             for (int k : kids)
                                 kidsArr += QByteArray::number(k) + " 0 R ";
                             kidsArr += "]";
-                            partElem = u.appendObj("<< /Type /StructElem /S /Part /Pg " + QByteArray::number(pageObjNum)
-                                                    + " 0 R /K " + kidsArr + " >>");
+                            u.redefineObj(partNum, "<< /Type /StructElem /S /Part /P " + QByteArray::number(docElemNum)
+                                                       + " 0 R /Pg " + QByteArray::number(pageObjNum) + " 0 R /K "
+                                                       + kidsArr + " >>");
+                            partElem = partNum;
+                        } else {
+                            u.redefineObj(partNum, "<< /Type /StructElem /S /Part /P " + QByteArray::number(docElemNum)
+                                                       + " 0 R /Pg " + QByteArray::number(pageObjNum) + " 0 R >>");
+                            partElem = partNum;
                         }
                     }
                 }
@@ -601,7 +620,8 @@ bool pdfPostProcessTagStructure(const QString &path, const QVector<QVector<PdfTa
         if (partElem < 0) {
             // Fallback: page-level tag only, same as wave 13, when content-stream correlation
             // wasn't possible (unsupported block types on the page, or an unexpected mismatch).
-            partElem = u.appendObj("<< /Type /StructElem /S /Part /Pg " + QByteArray::number(pageObjNum) + " 0 R >>");
+            partElem = u.appendObj("<< /Type /StructElem /S /Part /P " + QByteArray::number(docElemNum) + " 0 R /Pg "
+                                   + QByteArray::number(pageObjNum) + " 0 R >>");
         }
         partOrLeafNums.push_back(partElem);
 
@@ -618,13 +638,14 @@ bool pdfPostProcessTagStructure(const QString &path, const QVector<QVector<PdfTa
             parentTreeEntries.push_back({structParentsIdx, mcidToElem});
     }
 
-    const int docElemNum = [&]() {
+    {
         QByteArray kids = "[ ";
         for (int n : partOrLeafNums)
             kids += QByteArray::number(n) + " 0 R ";
         kids += "]";
-        return u.appendObj("<< /Type /StructElem /S /Document /K " + kids + " >>");
-    }();
+        u.redefineObj(docElemNum, "<< /Type /StructElem /S /Document /P " + QByteArray::number(structRootNum)
+                                      + " 0 R /K " + kids + " >>");
+    }
 
     int parentTreeNum = -1;
     if (!parentTreeEntries.isEmpty()) {
@@ -643,7 +664,7 @@ bool pdfPostProcessTagStructure(const QString &path, const QVector<QVector<PdfTa
     if (parentTreeNum >= 0)
         structRoot += " /ParentTree " + QByteArray::number(parentTreeNum) + " 0 R";
     structRoot += " >>";
-    const int structRootNum = u.appendObj(structRoot);
+    u.redefineObj(structRootNum, structRoot);
 
     QByteArray newCatalog = catalogBody.trimmed();
     if (newCatalog.endsWith(">>"))

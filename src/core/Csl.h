@@ -23,5 +23,8 @@ QString inText(const BiblioEntry &e, const QString &style);
 // e.g. Author, A. (2020). *Title*. Publisher.
 QVector<TextRun> bibliographyEntry(const BiblioEntry &e, const QString &style);
 
+// First author's surname (case-folded) + year, so "Silva, Ana" and "Ana Silva" sort together.
+QString bibliographySortKey(const BiblioEntry &e);
+
 } // namespace csl
 } // namespace aioffice

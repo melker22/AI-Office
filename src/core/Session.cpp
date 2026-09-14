@@ -2498,10 +2498,15 @@ QJsonObject Session::revisionReject(const QJsonObject &args)
     if (idx < 0)
         return fail(QStringLiteral("revision not found"));
     pushUndo();
-    if (found.kind == QLatin1String("insert")) {
-        Block *b = doc_.findBlock(found.blockId);
-        if (b)
+    Block *b = doc_.findBlock(found.blockId);
+    if (b) {
+        if (found.kind == QLatin1String("insert")) {
             b->runs = spliceRuns(b->runs, found.start, found.end, TextRun{});
+        } else if (found.kind == QLatin1String("delete") && !found.text.isEmpty()) {
+            TextRun ins;
+            ins.text = found.text;
+            b->runs = spliceRuns(b->runs, found.start, found.start, ins);
+        }
     }
     doc_.revisions.removeAt(idx);
     markChanged();
@@ -2520,11 +2525,17 @@ QJsonObject Session::revisionRejectAll(const QJsonObject &)
 {
     pushUndo();
     const auto revs = doc_.revisions;
-    for (const auto &found : revs) {
+    for (int i = revs.size() - 1; i >= 0; --i) {
+        const Revision &found = revs[i];
+        Block *b = doc_.findBlock(found.blockId);
+        if (!b)
+            continue;
         if (found.kind == QLatin1String("insert")) {
-            Block *b = doc_.findBlock(found.blockId);
-            if (b)
-                b->runs = spliceRuns(b->runs, found.start, found.end, TextRun{});
+            b->runs = spliceRuns(b->runs, found.start, found.end, TextRun{});
+        } else if (found.kind == QLatin1String("delete") && !found.text.isEmpty()) {
+            TextRun ins;
+            ins.text = found.text;
+            b->runs = spliceRuns(b->runs, found.start, found.start, ins);
         }
     }
     doc_.revisions.clear();
@@ -3921,7 +3932,9 @@ QJsonObject Session::insertForm(const QJsonObject &args)
 QJsonObject Session::bibliographySet(const QJsonObject &args)
 {
     pushUndo();
-    doc_.bibliography.clear();
+    const bool replaceEntries = args.contains(QStringLiteral("entries")) || args.contains(QStringLiteral("id"));
+    if (replaceEntries)
+        doc_.bibliography.clear();
     for (const auto &v : args.value(QStringLiteral("entries")).toArray())
         doc_.bibliography.push_back(BiblioEntry::fromJson(v.toObject()));
     if (args.contains(QStringLiteral("id"))) {
@@ -4408,9 +4421,7 @@ QJsonObject Session::insertBibliography(const QJsonObject &args)
     // sorted by first author's surname (then year), matching every style's convention
     QVector<BiblioEntry> sorted = doc_.bibliography;
     std::sort(sorted.begin(), sorted.end(), [](const BiblioEntry &a, const BiblioEntry &b) {
-        if (a.author != b.author)
-            return a.author < b.author;
-        return a.year < b.year;
+        return csl::bibliographySortKey(a) < csl::bibliographySortKey(b);
     });
     for (const auto &e : sorted) {
         Block para;

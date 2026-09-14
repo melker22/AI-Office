@@ -1,7 +1,9 @@
 #!/usr/bin/env python3
+import glob
 import json
 import os
 import sys
+import zipfile
 
 base = sys.argv[1] if len(sys.argv) > 1 else "/tmp/aioffice-qa2"
 
@@ -38,3 +40,27 @@ if base_bm or base_rev:
         if base_rev and nrev != base_rev:
             raise SystemExit(f"{name} revision count mismatch: {nrev} vs {base_rev}")
     print("round-trip bookmarks/revisions OK")
+
+    def native_xml(path, member):
+        with zipfile.ZipFile(path) as z:
+            return z.read(member).decode("utf-8", "replace")
+
+    for path in glob.glob(os.path.join(base, "*.odt")) + glob.glob("/tmp/wave12-roundtrip.odt"):
+        if not os.path.isfile(path):
+            continue
+        xml = native_xml(path, "content.xml")
+        if base_bm and "text:bookmark-start" not in xml:
+            raise SystemExit(f"{path} missing native ODT bookmark markup")
+        if base_rev and "text:change-start" not in xml and "text:changed-region" not in xml:
+            raise SystemExit(f"{path} missing native ODT revision markup")
+        print("native ODT markup OK", path)
+
+    for path in glob.glob(os.path.join(base, "*.docx")) + glob.glob("/tmp/wave12-roundtrip.docx"):
+        if not os.path.isfile(path):
+            continue
+        xml = native_xml(path, "word/document.xml")
+        if base_bm and "w:bookmarkStart" not in xml:
+            raise SystemExit(f"{path} missing native DOCX bookmark markup")
+        if base_rev and "<w:ins" not in xml:
+            raise SystemExit(f"{path} missing native DOCX revision markup")
+        print("native DOCX markup OK", path)

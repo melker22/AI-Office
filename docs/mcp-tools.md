@@ -104,8 +104,8 @@ Saves to `path` or the last opened/saved path. Format from extension.
 
 ### `document_export_pdf`
 
-Args: `{ "path": string, "pdfa"?: bool, "from"?: int, "to"?: int, "booklet"?: bool }`  
-Native `QPdfWriter` (no LibreOffice). `pdfa=true` requests PDF/A-1b. `from`/`to` are 1-based inclusive. `booklet` imprints 2-up in booklet order. Tagged PDF is not produced. Falls back to soffice only if native write fails.
+Args: `{ "path": string, "pdfa"?: bool, "from"?: int, "to"?: int, "booklet"?: bool, "comments"?: bool }`  
+Native `QPdfWriter` (no LibreOffice). `pdfa=true` requests PDF/A-1b. `from`/`to` are 1-based inclusive. `booklet` imprints 2-up in booklet order. Tagged PDF is always produced: paragraph/heading/list-item structure when the content stream lines up, otherwise a page-level `/Part` fallback. `comments:true` writes real PDF sticky-note annotations. Falls back to soffice only if native write fails.
 
 ### `document_get`
 
@@ -383,7 +383,7 @@ Pesquisei antes de começar: não existe biblioteca CSL C/C++ embutível com lic
 `QPdfWriter` (Qt 6.11, confirmado via documentação oficial: sem `/StructTreeRoot`, sem API de anotação) não dá nenhum gancho pra isso — a solução é um pós-processador próprio (`src/core/PdfPostProcess.h/.cpp`) que faz uma **atualização incremental de PDF** no arquivo já escrito: acrescenta objetos novos + uma seção xref nova + trailer no fim do ficheiro, sem tocar nos bytes originais (mecanismo padrão do formato PDF, não é um hack nosso). Validado com `qpdf --check` e `qpdf --show-object` (resolve corretamente através da cadeia `/Prev`).
 
 - **`document_export_pdf {comments:true}`** agora produz **anotações PDF reais** (`/Subtype /Text`, sticky note clicável, com `/Contents` e `/T` do autor) posicionadas na página e no bloco certos — `QPdfWriter` já aloca um `/Annots` vazio por página; só redefinimos esse array. Substitui a página extra "Comentários" de texto simples. Funciona com `copies` (a mesma anotação é repetida em cada cópia física) e com intervalos `from`/`to`. **Não funciona em `booklet`** (duas páginas lógicas por folha física tornam a posição ambígua) — nesse caso cai de volta pra página extra de texto, como antes.
-- **Tagged PDF de granularidade de página.** Todo PDF nativo agora sai com `/MarkInfo <</Marked true>>` + `/StructTreeRoot` (`/Document` → um `/StructElem /Part` por página, ligado via `/Pg`). Isto é **tagging real e válido**, mas de granularidade de página, não de parágrafo/heading: `QPainter`/`QPdfWriter` não dão nenhum jeito de injetar operadores de conteúdo marcado (`BDC`/`EMC` + `MCID`) nos content streams que geram, então os elementos de estrutura não referenciam nenhum `/K` de conteúdo — só a página. Tagging por elemento exigiria ou suporte que o Qt não tem, ou um gerador de content stream próprio no lugar do `QPdfWriter` (fora de escopo). Documentado como limite honesto.
+- **Tagged PDF de granularidade de página (fallback).** Quando o tagging fino da onda 15 não consegue correlacionar o content stream (tabela, imagem, mismatch), a página cai neste fallback: `/MarkInfo <</Marked true>>` + `/StructTreeRoot` (`/Document` → um `/StructElem /Part` por página, ligado via `/Pg`). Não é o caminho principal — ver onda 15 acima.
 
 ### Wave 12 — fidelidade de round-trip, hiperlinks, campos, crossref, hifenação real
 

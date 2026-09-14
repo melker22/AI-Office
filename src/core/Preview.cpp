@@ -1632,7 +1632,11 @@ bool exportNativePdf(const Document &doc, const QString &path, QString *error, b
         }
     }
     QString postErr;
-    pdfPostProcessAddExtras(path, annots, physPageDocPage.size(), &postErr);
+    if (!pdfPostProcessAddExtras(path, annots, physPageDocPage.size(), &postErr)) {
+        if (error)
+            *error = postErr;
+        return false;
+    }
 
     // Paragraph/heading-granularity tagging (wave 15): expected text-bearing blocks per physical
     // page, in the exact same order paintPage paints them (orderedBlocksForPage) — the post-
@@ -1658,7 +1662,11 @@ bool exportNativePdf(const Document &doc, const QString &path, QString *error, b
         }
     }
     QString tagErr;
-    pdfPostProcessTagStructure(path, perPageBlocks, &tagErr);
+    if (!pdfPostProcessTagStructure(path, perPageBlocks, &tagErr)) {
+        if (error)
+            *error = tagErr;
+        return false;
+    }
     return true;
 }
 

@@ -1258,6 +1258,10 @@ static QString headingNumberOf(const Document &doc, const QString &blockId)
             continue;
         const int lvl = qBound(1, b.level > 0 ? b.level : 1, 9);
         ++counters[lvl - 1];
+        for (int i = 0; i < lvl - 1; ++i) {
+            if (counters[i] == 0)
+                counters[i] = 1;
+        }
         for (int i = lvl; i < 9; ++i)
             counters[i] = 0;
         if (b.id == blockId) {

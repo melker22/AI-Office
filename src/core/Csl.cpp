@@ -138,15 +138,22 @@ struct RunBuilder {
 
 QStringList supportedStyles() { return {QStringLiteral("apa"), QStringLiteral("abnt"), QStringLiteral("mla"), QStringLiteral("chicago")}; }
 
+QString bibliographySortKey(const BiblioEntry &e)
+{
+    const auto names = parseAuthors(e.author);
+    const QString last = names.isEmpty() ? e.author.trimmed() : names.first().last;
+    return last.toCaseFolded() + QLatin1Char('\n') + e.year;
+}
+
 QString inText(const BiblioEntry &e, const QString &styleArg)
 {
     const QString style = supportedStyles().contains(styleArg) ? styleArg : QStringLiteral("apa");
     const auto names = parseAuthors(e.author);
     const QString who = names.isEmpty() ? e.title : inTextAuthors(names, style);
     if (style == QLatin1String("mla")) {
-        // MLA cites by page, not year; without a locator we fall back to just the author.
-        return QStringLiteral("(") + (who.isEmpty() ? QStringLiteral("s.a.") : who)
-            + (e.pages.isEmpty() ? QString() : QStringLiteral(" ") + e.pages) + QLatin1Char(')');
+        // MLA in-text is author (and a locator when the citation supplies one). e.pages is the
+        // publication page range on the bibliography entry, not a citation locator — don't use it.
+        return QStringLiteral("(") + (who.isEmpty() ? QStringLiteral("s.a.") : who) + QLatin1Char(')');
     }
     QString y = e.year.isEmpty() ? QStringLiteral("s.d.") : e.year;
     if (who.isEmpty())
