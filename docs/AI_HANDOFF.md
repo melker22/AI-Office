@@ -26,6 +26,27 @@
 
 ---
 
+## 2026-09-14 — Claude Code — Fase IA onda 14: formatador CSL real + CircleCI
+
+**Objective:** Onda 14 (processador CSL). Aproveitando, escrever e configurar CI no CircleCI para o projeto. Sem chrome QML novo. Sem push.
+
+**Done:**
+- Pesquisado antes de começar: não existe biblioteca CSL C/C++ embutível com licença compatível (`citeproc-rs` do Zotero é Rust sem FFI-C viável; `citeproc-java` é JVM). Decisão: formatador real (não CSL-XML genérico), `src/core/Csl.h/.cpp`.
+- `BiblioEntry` (Document.h) ganhou campos reais: `type`, `container_title`, `publisher`, `city`, `volume`, `issue`, `pages`, `edition`, `editor`, `doi`, `url`, `accessed`. `Document.citeStyle` (apa\|abnt\|mla\|chicago), documento-wide.
+- 4 estilos × 4 tipos de referência (book/article-journal/webpage/chapter), citação in-text (`insert_citation`, via `csl::inText`, recalculada a cada leitura tal como `page_number`) e bibliografia (`insert_bibliography`, via `csl::bibliographyEntry`, agora em múltiplos runs com itálico real, recuo hanging, ordenada por autor+ano). Regras conferidas contra convenções reais de cada estilo — 2 bugs achados e corrigidos durante o teste: separador `&`/`and` errado com 2 autores, e ponto duplicado (`"R.."`) no Chicago quando iniciais já terminam em ponto.
+- `bibliography_set` aceita `cite_style` e todos os campos novos.
+- Reforçada a documentação do compromisso da onda 13 (tagging de parágrafo em PDF): linha própria no Notion ("PDF etiquetado — tagging de parágrafo", Fase IA, Todo, onda 15) + nota explícita em `WRITER_FEATURE_CATALOG.md` deixando claro que é compromisso, não "se der".
+- `.circleci/config.yml`: builda com o mesmo `nix-shell` do README, corre todos os `qa/wave*.json` (exceto o template `wave1-foundation.json`) como suíte de fumo headless. Validado com `mcp__circleci__validate_config` (`valid: true`). Projeto ainda não tem pipeline no CircleCI (`list_runs` confirma "project not found") — falta o utilizador clicar "Set Up Project" no dashboard (repo privado, ação única ligada à conta).
+- Playbook `qa/wave14-csl.json`. Regressão: ondas 3–13 continuam `ok:true`.
+
+**Decisions:** Arquivo `.csl` arbitrário fica fora (sem biblioteca C/C++ pronta) — ampliar pra mais estilos/tipos só quando o utilizador pedir, não é compromisso como o tagging de parágrafo. `insert_citation` muda de formato (antes `Autor (Ano)` sem vírgula/parênteses externos, que não era um formato real de nenhum estilo — agora `(Autor, Ano)` de verdade).
+
+**Next suggested step:** Onda 15 (gerador de content stream PDF próprio, tagging de parágrafo — já compromissado) ou onda 16 (CTL/CJK completo). Utilizador precisa clicar "Set Up Project" no CircleCI antes do primeiro pipeline rodar.
+
+**Commits:** `7c34200` feat: real CSL citation formatter for APA, ABNT, MLA, and Chicago · `b7b1518` ci: add CircleCI build + qa/wave*.json smoke-suite pipeline
+
+---
+
 ## 2026-09-14 — Claude Code — Fase IA onda 13: anotações PDF reais + tagged PDF de página
 
 **Objective:** Onda 13, mapeada no fim da onda 12: fidelidade de PDF — anotações reais para comentários (substituindo a página extra de texto) e PDF etiquetado, via pós-processador de PDF (confirmado antes de começar: `QPdfWriter` não tem API pra nenhum dos dois). Sem chrome QML novo. Sem push.
