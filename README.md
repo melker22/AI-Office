@@ -72,6 +72,8 @@ cmake --build --preset linux
 
 Noutras distros: `qt6-base`, `qt6-declarative`, `cmake`, `ninja`, `zlib`, o mesmo preset.
 
+**CI:** [`.circleci/config.yml`](.circleci/config.yml) — builda com o mesmo `nix-shell` deste README e corre todos os `qa/wave*.json` como suíte de fumo (as mesmas tools MCP que a tua IA usaria). [CircleCI](https://app.circleci.com/pipelines/github/melker22/AI-Office) (repo privado — pede "Set Up Project" uma vez no dashboard).
+
 **Windows:** Qt 6 (MSVC ou MinGW), CMake, Ninja, zlib (`vcpkg`). No *Qt command prompt*:
 
 ```bat

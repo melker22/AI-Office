@@ -1,0 +1,73 @@
+version: 2.1
+
+# AI Office CI: builds with the exact same Nix dev shell the README tells contributors to use
+# (shell.nix — Qt 6, CMake, Ninja, zlib, Hunspell dicts), then runs every qa/wave*.json playbook
+# headlessly as an integration smoke suite: each one is a recorded sequence of the real MCP tool
+# calls an AI agent would make (document_new, insert_*, document_save, page_preview, validate...),
+# so a green build means the AI-facing tool surface actually works end to end, not just "compiles".
+#
+# qa/wave1-foundation.json is a template playbook (its document_open path is a literal
+# "PLACEHOLDER" meant to be substituted with a real file before running) and is intentionally
+# excluded from the automatic sweep below.
+
+jobs:
+  build-and-test:
+    docker:
+      - image: nixos/nix:2.24.9
+    resource_class: medium
+    steps:
+      - checkout
+
+      - run:
+          name: Enable Nix flakes (harmless if unused) and disable the sandbox for the CI container
+          command: |
+            mkdir -p /etc/nix
+            {
+              echo "experimental-features = nix-command flakes"
+              echo "sandbox = false"
+            } >> /etc/nix/nix.conf
+
+      - restore_cache:
+          keys:
+            - aioffice-nix-store-v1-{{ checksum "shell.nix" }}
+            - aioffice-nix-store-v1-
+
+      - run:
+          name: Configure + build (cmake --preset linux, inside nix-shell)
+          command: nix-shell --run "cmake --preset linux && cmake --build --preset linux"
+
+      - save_cache:
+          key: aioffice-nix-store-v1-{{ checksum "shell.nix" }}
+          paths:
+            - /nix
+
+      - run:
+          name: Run qa/wave*.json playbooks (headless MCP tool smoke suite)
+          command: |
+            export AIOFFICE_HEADLESS=1
+            status=0
+            for f in qa/wave*.json; do
+              case "$f" in
+                qa/wave1-foundation.json) continue ;; # template, needs a real path substituted first
+              esac
+              echo "=== $f ==="
+              if ! nix-shell --run "./build/linux/aioffice play $f" > /tmp/last-playbook-output.json; then
+                echo "--- FAILED: $f ---"
+                cat /tmp/last-playbook-output.json
+                status=1
+              fi
+            done
+            exit $status
+
+      - run:
+          name: aioffice tools (sanity check the tool catalog still parses)
+          command: nix-shell --run "./build/linux/aioffice tools" > /tmp/tools.json
+
+      - store_artifacts:
+          path: /tmp/last-playbook-output.json
+          destination: last-playbook-output.json
+
+workflows:
+  build:
+    jobs:
+      - build-and-test
