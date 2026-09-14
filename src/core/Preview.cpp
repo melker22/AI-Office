@@ -1165,9 +1165,9 @@ void paintPage(QPainter *p, const Document &doc, const DocumentLayout &lay, int 
                     img = img.copy(cr);
                 }
                 if (b.flipH)
-                    img = img.flipped(Qt::Horizontal);
+                    img = img.mirrored(true, false);
                 if (b.flipV)
-                    img = img.flipped(Qt::Vertical);
+                    img = img.mirrored(false, true);
                 p->save();
                 p->setOpacity(qBound(0.05, b.opacity, 1.0));
                 if (b.shadowPt > 0) {

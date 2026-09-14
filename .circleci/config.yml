@@ -69,8 +69,14 @@ jobs:
           # higher than what this container's resource_class actually gets — over-subscribing
           # parallel GCC invocations on a couple of real cores causes thrashing that can silently
           # stall a build for a long time. Pinning -j to the container's own nproc avoids that.
+          # -k 0: keep going past a failed file instead of stopping at the first error. CI-only —
+          # the point is to surface every independent compile error from a single run (this is how
+          # we found the QImage::flipped() Qt-version mismatch below: local dev uses whatever Nix
+          # channel resolves on this machine, currently Qt 6.11; CircleCI's image resolves an older
+          # channel, Qt 6.7.2 — an API added after 6.7 compiles locally but not in CI) rather than
+          # trickling out one error per push.
           no_output_timeout: 20m
-          command: nix-shell --run "cmake --build --preset linux -- -j\$(nproc)"
+          command: nix-shell --run "cmake --build --preset linux -- -j\$(nproc) -k 0"
 
       - run:
           name: Run qa/wave*.json playbooks (headless MCP tool smoke suite)
