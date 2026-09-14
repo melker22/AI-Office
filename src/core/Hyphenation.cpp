@@ -5,6 +5,15 @@
 #include <QTextStream>
 #include <QVector>
 
+// hyphen.qrc lives in static aioffice_core. GNU ld drops unreferenced archive
+// members, including rcc's static initializer, unless something the executable
+// already pulls in references qInitResources_hyphen. Q_INIT_RESOURCE cannot
+// sit inside a namespace.
+static void initHyphenResource()
+{
+    Q_INIT_RESOURCE(hyphen);
+}
+
 namespace aioffice {
 namespace {
 
@@ -33,6 +42,7 @@ void parsePatternLine(const QString &line, QString &key, QVector<int> &vals)
 
 PatternSet loadPatternSet(const QString &resourcePath)
 {
+    initHyphenResource();
     PatternSet ps;
     QFile f(resourcePath);
     if (!f.open(QIODevice::ReadOnly | QIODevice::Text))

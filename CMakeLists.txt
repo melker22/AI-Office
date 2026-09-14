@@ -8,6 +8,11 @@ set(CMAKE_AUTOMOC ON)
 set(CMAKE_AUTORCC ON)
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
+find_program(CCACHE_PROGRAM ccache)
+if(CCACHE_PROGRAM AND NOT CMAKE_CXX_COMPILER_LAUNCHER)
+    set(CMAKE_CXX_COMPILER_LAUNCHER "${CCACHE_PROGRAM}")
+endif()
+
 if(NOT CMAKE_BUILD_TYPE AND NOT CMAKE_CONFIGURATION_TYPES)
     set(CMAKE_BUILD_TYPE RelWithDebInfo CACHE STRING "Build type" FORCE)
 endif()
@@ -61,6 +66,17 @@ target_compile_definitions(aioffice_core PUBLIC
 if(UNIX AND NOT APPLE)
     target_link_libraries(aioffice_core PUBLIC ${CMAKE_DL_LIBS})
 endif()
+
+# CLI/MCP binary with no QML — what CI compiles and what `aioffice play` needs.
+# The GUI target below still exists; it is not the smoke-suite gate.
+add_executable(aioffice_cli
+    src/cli/HeadlessMain.cpp
+)
+target_link_libraries(aioffice_cli PRIVATE aioffice_core)
+set_target_properties(aioffice_cli PROPERTIES
+    OUTPUT_NAME aioffice-cli
+    WIN32_EXECUTABLE FALSE
+)
 
 qt_add_executable(aioffice
     src/app/main.cpp

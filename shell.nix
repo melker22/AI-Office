@@ -1,10 +1,23 @@
-{ pkgs ? import <nixpkgs> {} }:
+# Dev shell used by the README (`nix-shell`) and by CircleCI.
+# Nixpkgs is the revision locked in flake.lock — not `<nixpkgs>` — so local
+# and CI resolve the same Qt instead of drifting (CI used to compile 6.7
+# against APIs that only existed on the contributor's 6.11 channel).
+let
+  lock = builtins.fromJSON (builtins.readFile ./flake.lock);
+  nixpkgs = lock.nodes.nixpkgs.locked;
+  pinned = fetchTarball {
+    url = "https://github.com/${nixpkgs.owner}/${nixpkgs.repo}/archive/${nixpkgs.rev}.tar.gz";
+    sha256 = nixpkgs.narHash;
+  };
+in
+{ pkgs ? import pinned {} }:
 pkgs.mkShell {
   nativeBuildInputs = with pkgs; [
     cmake
     ninja
     gcc
     pkg-config
+    ccache
     qt6.wrapQtAppsHook
   ];
   buildInputs = with pkgs; [
@@ -20,7 +33,7 @@ pkgs.mkShell {
     jetbrains-mono
   ];
   shellHook = ''
-    echo "AI Office dev shell — cmake --preset linux && cmake --build --preset linux"
+    echo "AI Office dev shell — cmake --preset linux && cmake --build --preset linux" >&2
     export DICPATH="${pkgs.hunspellDicts.pt_BR}/share/hunspell:${pkgs.hunspellDicts.en_US}/share/hunspell''${DICPATH:+:}$DICPATH"
   '';
 }
