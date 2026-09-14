@@ -10,20 +10,20 @@ version: 2.1
 # "PLACEHOLDER" meant to be substituted with a real file before running) and is intentionally
 # excluded from the automatic sweep below.
 #
-# resource_class: xlarge — with a *warm* Nix store cache (download time no longer a factor) and a
-# real fix for the one compile error there was (QImage::flipped(), see the Build step below), a
-# `large` (4 vCPU) runner still got cut off mid-build, though it got much further this time: 77/108
-# targets done, zero errors, just out of time. This project's GUI target pulls in a genuinely large
-# amount of Qt/QML codegen (qmlimportscanner, per-file QML caching, rcc, moc across 23 QML files on
-# top of the C++ sources) — xlarge (8 vCPU) buys more headroom for that, and pairs with the
-# build/linux cache below: once *one* full build completes and gets cached, later runs with no or
-# small source changes only recompile what changed, which is fast regardless of resource_class.
+# resource_class: large — xlarge was tried and rejected outright by this account/plan ("Task
+# information unavailable", failed before the environment even spun up — not a build problem, an
+# entitlement one), so large (4 vCPU) is the ceiling available here. With a warm Nix store cache
+# (download time no longer a factor) and the one real compile error fixed (QImage::flipped(), see
+# the Build step below), large got to 77/108 targets with zero errors, just out of time — that's
+# what the build/linux cache below is for: once *one* full build completes and gets cached, any run
+# with no or small source changes only recompiles what actually changed, fast regardless of
+# resource_class, so the wall-clock ceiling stops mattering once the cache is warm.
 
 jobs:
   build-and-test:
     docker:
       - image: nixos/nix:2.24.9
-    resource_class: xlarge
+    resource_class: large
     steps:
       - checkout
 
