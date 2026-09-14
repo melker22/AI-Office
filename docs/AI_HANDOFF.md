@@ -26,6 +26,28 @@
 
 ---
 
+## 2026-09-14 — Claude Code — Fase IA onda 15: tagged PDF real de parágrafo (cumprindo a onda 13)
+
+**Objective:** Onda 15 — cumprir o compromisso deixado explícito na onda 13/catálogo: tagging de PDF de granularidade de parágrafo/heading, não mais só de página. Push pedido pelo utilizador antes desta onda (feito, `a33af05`). Sem chrome QML novo.
+
+**Done:**
+- Descartei a ideia inicial de "gerador de PDF do zero com fonte embutida própria" (viável mas enorme — precisaria reimplementar font embedding via `QRawFont::fontTable()`) depois de descobrir, testando empiricamente (`/tmp/tag_probe*.json` + inspeção do content stream decodificado), que dá pra recuperar os limites de cada bloco **de volta do content stream que o próprio `QPdfWriter` já escreve**: cada bloco passa por exatamente um `p->setClipRect(lb.rect...)` (`Preview.cpp`), que o Qt sempre traduz numa sequência `m...l...l...l h W* n` que não aparece em mais nada (tabelas/imagens usam outros operadores — confirmado testando um documento misto).
+- `src/core/PdfPostProcess.cpp` ganhou: tokenizador de content stream (`tokenize`), busca de limites de bloco (`findClipBoundaries`) e de objetos de texto (`findTextSpans`), correlação bloco↔BT/ET por ordem (usando a mesma função `orderedBlocksForPage` que `paintPage` usa, extraída pra ficar impossível as duas ordens divergirem), inflate/deflate de content stream via zlib direto (`inflateObjStream`/`flateCompress`).
+- Cada `BT...ET` embrulhado com `/<Tag> <</MCID n>> BDC ... EMC`; parágrafos com várias linhas (várias `BT...ET`) viram **um** elemento de estrutura com várias entradas em `/K` — confirmado com `qpdf --show-object`.
+- **Rede de segurança**: só aplica o tagging fino numa página se a contagem de limites de bloco encontrados bater exatamente com a contagem esperada; senão cai pro `/Part` de página inteira da onda 13, nunca arriscando uma tag errada. Testado com um documento heading+parágrafos+tabela+lista: a tabela foi corretamente ignorada (não gera limite de bloco), sem quebrar nada.
+- Refatorada a função de post-processing da onda 13 (`pdfPostProcessAddExtras`) pra tirar a responsabilidade de structure tree (agora só cuida de anotações) — a nova `pdfPostProcessTagStructure` cuida de tudo relacionado a `/MarkInfo`/`/StructTreeRoot`/`/StructParents`/`/ParentTree`.
+- Validação extensa com `qpdf --check` + `qpdf --show-object` (biblioteca independente, não é código nosso): parágrafo simples (3 elementos, MCIDs corretos), parágrafo com quebra de linha (1 elemento, `/K [0 1 2]`), documento misto com tabela (5 elementos corretos, tabela ignorada), regressão completa das ondas 3–14.
+- Catálogo e Notion atualizados: item "PDF etiquetado — tagging de parágrafo" (criado na onda 13 como Todo explícito) marcado Done.
+- Playbook `qa/wave15-pdf-tagging.json`.
+
+**Decisions:** Cobertura fica em parágrafo/heading/item de lista (a maioria do conteúdo de prosa) — tabelas/imagens/notas/TOC ficam pro fallback de página por enquanto, não é regressão (mesmo comportamento da onda 13), só ainda sem granularidade. Gerador de PDF do zero fica como caminho reservado, não usado, caso cobrir tabelas/imagens algum dia exija.
+
+**Next suggested step:** Onda 16 (CTL/CJK completo) ou ampliar a cobertura de tagging pra tabelas/imagens/notas, conforme o utilizador priorizar.
+
+**Commits:** `b580c38` feat: real paragraph/heading PDF tagging, fulfilling the wave 13 commitment
+
+---
+
 ## 2026-09-14 — Claude Code — Fase IA onda 14: formatador CSL real + CircleCI
 
 **Objective:** Onda 14 (processador CSL). Aproveitando, escrever e configurar CI no CircleCI para o projeto. Sem chrome QML novo. Sem push.
