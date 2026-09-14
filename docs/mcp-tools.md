@@ -358,6 +358,17 @@ Insere um Heading 1 e um parágrafo por termo com números de página (`concorda
 - `set_page_layout` `note_restart` numera notas por página no `page_preview`
 - Órfãs/viúvas: o parágrafo parte entre páginas (default 2 linhas)
 
+### Wave 15 — tagged PDF real de parágrafo/heading (cumprindo o compromisso da onda 13)
+
+Todo `document_export_pdf` nativo agora sai com tagging real de granularidade de **parágrafo/heading**, não mais só de página. Como `QPainter`/`QPdfWriter` não dão nenhum gancho para injetar `BDC`/`EMC`+`MCID` durante o desenho, a solução foi recuperar os limites de cada bloco de volta do content stream que o `QPdfWriter` já escreveu: cada bloco de texto é pintado através de exatamente uma chamada `p->setClipRect(lb.rect...)` (`Preview.cpp`), que o motor de PDF do Qt sempre traduz numa sequência de operadores `x y m ... l ... l ... l h W* n` distintiva — verificada empiricamente contra a saída real antes de confiar nela — que não aparece em mais nenhum lugar (tabelas/imagens/formas usam outros operadores). Cada `BT...ET` (objeto de texto) entre um desses limites e o próximo pertence exatamente a um bloco, na mesma ordem em que foi pintado.
+
+- Cada `BT...ET` é embrulhado com `/<Tag> <</MCID n>> BDC ... EMC`; parágrafos que quebram em várias linhas (várias `BT...ET`) viram **um único** elemento de estrutura com várias entradas em `/K` — testado e confirmado via `qpdf --show-object`.
+- Elementos de estrutura reais: `/H1`–`/H6` para heading (pelo nível), `/P` para parágrafo/item de lista, com `/Pg` e `/ParentTree` corretos (MCID → elemento).
+- **Segurança em primeiro lugar**: por página, só prossegue com o tagging fino se a contagem de limites de bloco encontrados no content stream bater exatamente com a contagem de blocos esperados (calculada do nosso próprio `lay.blocks`) — qualquer coisa fora do esperado (tipo de bloco não coberto, mudança futura na renderização) cai de volta pro `/Part` de página inteira, sem nunca arriscar uma tag errada/desalinhada.
+- **Cobertura atual**: parágrafo, heading, item de lista (a maioria do conteúdo de prosa). Tabelas, imagens, formas, notas de rodapé/fim e TOC ainda não emitem o padrão de `setClipRect` usado aqui, então caem no fallback — testado com um documento heading+parágrafos+tabela+lista: a tabela foi corretamente ignorada, sem quebrar nada.
+- Validado com `qpdf --check` e `qpdf --show-object` (biblioteca PDF independente, não é código nosso) em vários cenários: parágrafo simples, parágrafo com quebra de linha (múltiplas linhas → um elemento com `/K` de vários MCIDs), documento misto com tabela.
+- `src/core/PdfPostProcess.cpp` ganhou um tokenizador de content stream PDF (`tokenize`, `findClipBoundaries`, `findTextSpans`) e compressão FlateDecode própria (`flateCompress`/`inflateObjStream`, via zlib direto) — reaproveitado o mesmo mecanismo de atualização incremental da onda 13.
+
 ### Wave 14 — formatador CSL real (APA/ABNT/MLA/Chicago)
 
 Pesquisei antes de começar: não existe biblioteca CSL C/C++ embutível com licença compatível (`citeproc-rs`, do Zotero, é Rust e não tem FFI-C viável; `citeproc-java` é JVM; os outros processadores conhecidos são Haskell/Emacs Lisp). A solução foi escrever um formatador real (`src/core/Csl.h/.cpp`), não um interpretador genérico de arquivo `.csl` — cobre 4 estilos × 4 tipos de referência com regras verificadas contra os manuais de cada estilo (não é "Autor (Ano). Título." fixo como antes).

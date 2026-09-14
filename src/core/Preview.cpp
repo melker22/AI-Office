@@ -894,6 +894,27 @@ CaretRect DocumentLayout::caret(const Document &doc, const QString &id, int offs
     return c;
 }
 
+// Shared by paintPage (painting order) and exportNativePdf's tag-correlation gathering (expected
+// order) — both MUST agree, since Wave 15's paragraph-tagging post-process assumes the Nth
+// text-bearing block painted is the Nth block in this same list. std::sort isn't guaranteed
+// stable for equal zIndex, but calling the identical sort on the identical input is deterministic
+// within one run, which is all that's required here — this shared function is what keeps the two
+// call sites from ever silently drifting apart.
+static QVector<LaidBlock> orderedBlocksForPage(const Document &doc, const DocumentLayout &lay, int page)
+{
+    QVector<LaidBlock> ordered;
+    for (const auto &lb : lay.blocks) {
+        if (lb.page == page)
+            ordered.push_back(lb);
+    }
+    std::sort(ordered.begin(), ordered.end(), [&](const LaidBlock &a, const LaidBlock &b) {
+        const Block *ba = doc.findBlock(a.id);
+        const Block *bb = doc.findBlock(b.id);
+        return (ba ? ba->zIndex : 0) < (bb ? bb->zIndex : 0);
+    });
+    return ordered;
+}
+
 static QString liveDisplayText(const Document &doc, const TextRun &r, int page, int pages,
                                 const DocumentLayout &lay)
 {
@@ -1040,16 +1061,7 @@ void paintPage(QPainter *p, const Document &doc, const DocumentLayout &lay, int 
     int lineNo = 0;
     bool fnSep = false;
 
-    QVector<LaidBlock> ordered;
-    for (const auto &lb : lay.blocks) {
-        if (lb.page == page)
-            ordered.push_back(lb);
-    }
-    std::sort(ordered.begin(), ordered.end(), [&](const LaidBlock &a, const LaidBlock &b) {
-        const Block *ba = doc.findBlock(a.id);
-        const Block *bb = doc.findBlock(b.id);
-        return (ba ? ba->zIndex : 0) < (bb ? bb->zIndex : 0);
-    });
+    const QVector<LaidBlock> ordered = orderedBlocksForPage(doc, lay, page);
 
     for (const auto &lb : ordered) {
         if (lb.page != page)
@@ -1620,7 +1632,33 @@ bool exportNativePdf(const Document &doc, const QString &path, QString *error, b
         }
     }
     QString postErr;
-    pdfPostProcessAddExtras(path, annots, physPageDocPage.size(), /*addStructureTree=*/true, &postErr);
+    pdfPostProcessAddExtras(path, annots, physPageDocPage.size(), &postErr);
+
+    // Paragraph/heading-granularity tagging (wave 15): expected text-bearing blocks per physical
+    // page, in the exact same order paintPage paints them (orderedBlocksForPage) — the post-
+    // processor correlates this against the real content stream and silently falls back to a
+    // page-level tag if anything doesn't line up. Tables/images/shapes aren't covered yet.
+    QVector<QVector<PdfTaggedBlock>> perPageBlocks(physPageDocPage.size());
+    static const QSet<QString> kTaggableTypes = {QStringLiteral("paragraph"), QStringLiteral("heading"),
+                                                  QStringLiteral("list-item")};
+    for (int phys = 0; phys < physPageDocPage.size(); ++phys) {
+        const int docPage = physPageDocPage[phys];
+        if (docPage < 1)
+            continue; // booklet halves: ambiguous mapping, skip fine-grained tagging for this page
+        for (const auto &lb : orderedBlocksForPage(doc, lay, docPage)) {
+            const Block *b = doc.findBlock(lb.id);
+            if (!b || !kTaggableTypes.contains(b->type))
+                continue;
+            PdfTaggedBlock tb;
+            if (b->type == QLatin1String("heading"))
+                tb.structTag = QStringLiteral("H%1").arg(qBound(1, b->level > 0 ? b->level : 1, 6));
+            else
+                tb.structTag = QStringLiteral("P");
+            perPageBlocks[phys].push_back(tb);
+        }
+    }
+    QString tagErr;
+    pdfPostProcessTagStructure(path, perPageBlocks, &tagErr);
     return true;
 }
 

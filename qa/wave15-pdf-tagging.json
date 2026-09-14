@@ -1,0 +1,15 @@
+[
+  {"tool": "document_new", "args": {"title": "Wave15 PDF Tagging"}},
+  {"tool": "insert_blocks", "args": {"after_id": "start", "blocks": [
+    {"type": "heading", "level": 1, "runs": [{"text": "Titulo"}]},
+    {"type": "paragraph", "runs": [{"text": "Este e um paragrafo bem mais longo que deveria quebrar em varias linhas dentro da pagina para testar se a marcacao de conteudo cobre um paragrafo com varias linhas corretamente num unico elemento de estrutura."}]},
+    {"type": "heading", "level": 2, "runs": [{"text": "Secao com tabela"}]},
+    {"type": "paragraph", "runs": [{"text": "Texto antes da tabela."}]},
+    {"type": "table", "header": true, "rows": 2, "cols": 2},
+    {"type": "paragraph", "runs": [{"text": "Texto depois da tabela."}]},
+    {"type": "list-item", "listKind": "bullet", "runs": [{"text": "Item um"}]},
+    {"type": "list-item", "listKind": "bullet", "runs": [{"text": "Item dois"}]}
+  ]}},
+  {"tool": "document_export_pdf", "args": {"path": "/tmp/wave15-tagging.pdf"}},
+  {"tool": "validate", "args": {}}
+]
