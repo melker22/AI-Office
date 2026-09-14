@@ -26,6 +26,55 @@
 
 ---
 
+## 2026-09-14 — Grok — Branch+PR workflow as project rule; land CI/CodeRabbit work via PR
+
+**Objective:** Tornar branch→PR→`main` a regra do repo, deixar um guia copiável, e enviar as alterações da CI/CodeRabbit pela forma recomendada (não push no `main`).
+
+**Done:**
+- Regra `.cursor/rules/pr-not-direct-push.mdc` (`alwaysApply`); `ai-commit-protocol.mdc` e `project-context.mdc` apontam para ela.
+- Guia portátil `docs/GIT_PR_WORKFLOW.md` (PT-BR, para copiar a outros projetos).
+- Envio: branch `fix/ci-cli-and-coderabbit` + PR para `main`.
+
+**Decisions:** A PR #1 (`main` → `pre-wave12-baseline`) continua sendo um recorte histórico, não o fluxo normal.
+
+**Next suggested step:** Esperar CI + CodeRabbit nesta PR; merge quando verde.
+
+**Commits:** `fade1bd` ci: pin nixpkgs, add aioffice-cli, run smoke tests headless · `ceae108` fix: address CodeRabbit findings on CSL, PDF, and round-trip · (este commit) docs: require feature-branch PRs instead of pushing main
+
+---
+
+## 2026-09-14 — Grok — CI: pin nixpkgs, offscreen, hyphen resource, cli target
+
+**Objective:** Fazer a CircleCI passar de verdade. O X vermelho depois do `a33af05` não era um segundo bug escondido nas ondas 12–15 — era Qt local 6.11 vs CI 6.7 (`QImage::flipped()`, já corrigido) + o job nunca terminar o alvo GUI (108 targets) no `large`, então a suíte de fumo nunca rodava. CodeRabbit apontou o `hyphen.qrc` em lib estática.
+
+**Done:**
+- `flake.nix` / `shell.nix` pinados no mesmo `flake.lock` (nixpkgs `2c423e03bbaf…`, Qt 6.11.1). Sem `<nixpkgs>` solto.
+- `Q_INIT_RESOURCE(hyphen)` em `Hyphenation.cpp` (puxa o rcc da lib estática) e em `main.cpp`.
+- `QT_QPA_PLATFORM=offscreen` quando `AIOFFICE_HEADLESS` ou Linux sem DISPLAY/Wayland, **antes** do `QGuiApplication`.
+- Alvo `aioffice_cli` (`aioffice-cli`): core + main headless, sem QML. A CI builda só isso, cacheia `build/linux` + ccache, e corre os playbooks. GUI continua local.
+
+**Decisions:** A CI não tenta mais o alvo GUI — era o que o plano matava (~8 min) antes do `save_cache`. O gate é o mesmo `play` que a IA usa.
+
+**Next suggested step:** Push para a CircleCI confirmar o job verde. GUI compile check, se quiser, é um job à parte depois.
+
+**Commits:** nenhum (usuário não pediu)
+
+---
+
+## 2026-09-14 — Grok — CodeRabbit follow-ups (waves 12–15)
+
+**Objective:** Corrigir os achados relevantes da review da PR #1.
+
+**Done:** `bibliography_set` não zera entradas no `cite_style` só; sort da biblio por sobrenome parseado; MLA in-text sem `e.pages`; heading number sem componente 0; PDF append+check write, `/P` na estrutura, export propaga erro de pós-processo; ODT `field:arg`; DOCX `w:id` numérico, nomes de bookmark no REF/anchor, PAGEREF, merge nativo+json; `revision_reject` restaura delete; `mcp-tools.md` e `check_roundtrip.py` nativo.
+
+**Decisions:** Markup `w:del` sintético (reinserir texto apagado no export) continua fora — o modelo tira o texto de `runs` na hora. Docstring 80% ignorado.
+
+**Next suggested step:** Merge da PR desta branch quando a CI estiver verde.
+
+**Commits:** `ceae108` (CodeRabbit follow-ups; CI commits na entrada acima)
+
+---
+
 ## 2026-09-14 — Claude Code — Fase IA onda 15: tagged PDF real de parágrafo (cumprindo a onda 13)
 
 **Objective:** Onda 15 — cumprir o compromisso deixado explícito na onda 13/catálogo: tagging de PDF de granularidade de parágrafo/heading, não mais só de página. Push pedido pelo utilizador antes desta onda (feito, `a33af05`). Sem chrome QML novo.

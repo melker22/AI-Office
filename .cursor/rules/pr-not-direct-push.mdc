@@ -1,0 +1,33 @@
+---
+description: Never push straight to main; land work through a feature-branch pull request
+alwaysApply: true
+---
+
+# Branch + PR, not a direct push to main
+
+This repo uses pull requests even though it is a solo project. CodeRabbit and CircleCI must see the diff **before** `main` moves.
+
+## Required
+
+- New work goes on a feature branch (`fix/…`, `feat/…`, `ci/…`, `docs/…`).
+- Send to GitHub with `git push -u origin <branch>` and open a PR **into `main`**.
+- Wait for CI (and CodeRabbit, when enabled). Fix on the **same** branch; the PR updates itself.
+- Merge only when the PR is the intended landing. Do not `git push origin main`.
+
+## Allowed exceptions
+
+Direct push to `main` only if the user **explicitly** says so, and only for a trivial docs typo. Features, CI, round-trip, PDF, or anything that compiles: PR.
+
+## How this differs from PR #1
+
+PR #1 (`main` → `pre-wave12-baseline`) was a review snapshot of history already on `main`. That is **not** the normal flow. Normal PRs are `feature-branch` → `main`.
+
+## Agent checklist when the user says "send this to GitHub"
+
+1. `git status` / `git diff` — do not include `build/` or secrets.
+2. `git checkout -b <type>/<short-name>` from up-to-date `main`.
+3. Commit (English, `feat:`/`fix:`/`ci:`/`docs:`). Record hashes in `docs/AI_HANDOFF.md`.
+4. `git push -u origin HEAD`.
+5. Open the PR against `main`. Give the user the URL.
+
+Human-readable copy for other repos: [`docs/GIT_PR_WORKFLOW.md`](docs/GIT_PR_WORKFLOW.md).

@@ -42,4 +42,4 @@ Hyprland: classe da janela `aioffice`; notebook eDP-1 = workspace 1.
 - Não pôr tipos C++ em `qt_add_qml_module SOURCES`
 - Não nomear propriedades QML `onX` (vira handler de sinal)
 - Não editar markdown não solicitado (exceto `docs/AI_HANDOFF.md` e docs pedidos)
-- Commits conforme `ai-commit-protocol.mdc`; push só com permissão
+- Commits conforme `ai-commit-protocol.mdc`; push só com permissão, e **nunca direto no `main`** — ver `pr-not-direct-push.mdc`
