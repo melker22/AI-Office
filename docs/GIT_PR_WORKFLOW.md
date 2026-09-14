@@ -35,7 +35,7 @@ main  (só recebe merge)
 
 ## Exceção
 
-Typo minúsculo em README, se você não liga de pular review: push no `main` é aceitável. Fora isso, PR.
+Push direto no `main` **somente** se o usuário pedir explicitamente, e só para typo trivial em docs. Fora isso, PR.
 
 ## Como copiar para outro projeto
 

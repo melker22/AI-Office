@@ -1475,6 +1475,13 @@ bool Session::deleteBackward(const QString &id, int offset, int row, int col)
         auto *runs = runsAt(*b, row, col);
         if (!runs)
             return false;
+        QString gone;
+        for (const auto &r : *runs)
+            gone += r.text;
+        if (offset > 0 && offset <= gone.size())
+            gone = gone.mid(offset - 1, 1);
+        else
+            gone.clear();
         *runs = spliceRuns(*runs, offset - 1, offset, TextRun{});
         if (doc_.trackChanges) {
             Revision rev;
@@ -1484,7 +1491,7 @@ bool Session::deleteBackward(const QString &id, int offset, int row, int col)
             rev.blockId = id;
             rev.start = offset - 1;
             rev.end = offset;
-            rev.text = QStringLiteral("?");
+            rev.text = gone;
             rev.timestamp = QDateTime::currentMSecsSinceEpoch();
             doc_.revisions.push_back(rev);
         }

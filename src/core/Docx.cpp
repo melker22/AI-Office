@@ -35,6 +35,8 @@ struct DocxOut {
     QMap<QString, QString> linkRels;
     int relN = 2;
     QMap<QString, QString> bmNames; // original id/blockId/name -> exported w:name
+    QSet<QString> exportedNames;    // w:name values actually written
+    QSet<QString> syntheticBmBlockIds;
     QMap<QString, int> revWId;
     int nextWId = 1;
 
@@ -54,21 +56,42 @@ struct DocxOut {
     }
 };
 
+QString exportedBookmarkName(const QString &raw, int idx)
+{
+    QString name = raw;
+    name.replace(QRegularExpression(QStringLiteral("[^A-Za-z0-9_]")), QStringLiteral("_"));
+    if (name.isEmpty() || name[0].isDigit())
+        name.prepend(QLatin1Char('_'));
+    return name.left(40) + QStringLiteral("_%1").arg(idx);
+}
+
 void fillBookmarkNames(DocxOut &o, const Document &doc)
 {
     int idx = 0;
+    auto remember = [&](const QString &key, const QString &name) {
+        if (!key.isEmpty())
+            o.bmNames.insert(key, name);
+    };
     for (const auto &bm : doc.bookmarks) {
         ++idx;
-        QString name = bm.name.isEmpty() ? bm.id : bm.name;
-        name.replace(QRegularExpression(QStringLiteral("[^A-Za-z0-9_]")), QStringLiteral("_"));
-        if (name.isEmpty() || name[0].isDigit())
-            name.prepend(QLatin1Char('_'));
-        name = name.left(40) + QStringLiteral("_%1").arg(idx);
-        o.bmNames.insert(bm.id, name);
-        if (!bm.blockId.isEmpty())
-            o.bmNames.insert(bm.blockId, name);
-        if (!bm.name.isEmpty())
-            o.bmNames.insert(bm.name, name);
+        const QString name = exportedBookmarkName(bm.name.isEmpty() ? bm.id : bm.name, idx);
+        o.exportedNames.insert(name);
+        remember(bm.id, name);
+        remember(bm.blockId, name);
+        remember(bm.name, name);
+    }
+    for (const auto &b : doc.body) {
+        for (const auto &r : b.runs) {
+            if (r.field != QLatin1String("xref") || r.fieldArg.isEmpty())
+                continue;
+            if (o.bmNames.contains(r.fieldArg))
+                continue;
+            ++idx;
+            const QString name = exportedBookmarkName(r.fieldArg, idx);
+            o.exportedNames.insert(name);
+            remember(r.fieldArg, name);
+            o.syntheticBmBlockIds.insert(r.fieldArg);
+        }
     }
 }
 
@@ -263,16 +286,24 @@ QString revisedRunsToWml(const QString &blockId, const QVector<TextRun> &runs, c
 QString bookmarksAroundWml(const Document &doc, const QString &blockId, const QString &inner, DocxOut &o)
 {
     QString out = inner;
+    QSet<QString> done;
     int idx = 0;
-    for (const auto &bm : doc.bookmarks) {
+    auto wrap = [&](const QString &key) {
+        const QString name = o.bm(key);
+        if (name.isEmpty() || done.contains(name))
+            return;
+        done.insert(name);
         ++idx;
-        if (bm.blockId != blockId)
-            continue;
-        const QString name = o.bm(bm.id);
         out = QStringLiteral("<w:bookmarkStart w:id=\"%1\" w:name=\"%2\"/>%3<w:bookmarkEnd w:id=\"%1\"/>")
                   .arg(idx)
                   .arg(xmlEscape(name), out);
+    };
+    for (const auto &bm : doc.bookmarks) {
+        if (bm.blockId == blockId)
+            wrap(bm.id);
     }
+    if (o.syntheticBmBlockIds.contains(blockId))
+        wrap(blockId);
     return out;
 }
 
@@ -456,23 +487,6 @@ bool saveDocx(const Document &doc, const QString &path, QString *error)
         "<w:num w:numId=\"2\"><w:abstractNumId w:val=\"1\"/></w:num>"
         "</w:numbering>");
 
-    QString contentTypes = QStringLiteral(
-        "<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?>"
-        "<Types xmlns=\"http://schemas.openxmlformats.org/package/2006/content-types\">"
-        "<Default Extension=\"rels\" ContentType=\"application/vnd.openxmlformats-package.relationships+xml\"/>"
-        "<Default Extension=\"xml\" ContentType=\"application/xml\"/>"
-        "%1"
-        "<Override PartName=\"/word/document.xml\" "
-        "ContentType=\"application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml\"/>"
-        "<Override PartName=\"/word/styles.xml\" "
-        "ContentType=\"application/vnd.openxmlformats-officedocument.wordprocessingml.styles+xml\"/>"
-        "<Override PartName=\"/word/numbering.xml\" "
-        "ContentType=\"application/vnd.openxmlformats-officedocument.wordprocessingml.numbering+xml\"/>"
-        "<Override PartName=\"/docProps/core.xml\" "
-        "ContentType=\"application/vnd.openxmlformats-package.core-properties+xml\"/>"
-        "</Types>")
-                               .arg(extraTypes);
-
     const QString rels = QStringLiteral(
         "<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?>"
         "<Relationships xmlns=\"http://schemas.openxmlformats.org/package/2006/relationships\">"
@@ -502,6 +516,23 @@ bool saveDocx(const Document &doc, const QString &path, QString *error)
     }
     extraTypes += QLatin1String(
         "<Override PartName=\"/word/aioffice.json\" ContentType=\"application/json\"/>");
+
+    const QString contentTypes = QStringLiteral(
+        "<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?>"
+        "<Types xmlns=\"http://schemas.openxmlformats.org/package/2006/content-types\">"
+        "<Default Extension=\"rels\" ContentType=\"application/vnd.openxmlformats-package.relationships+xml\"/>"
+        "<Default Extension=\"xml\" ContentType=\"application/xml\"/>"
+        "%1"
+        "<Override PartName=\"/word/document.xml\" "
+        "ContentType=\"application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml\"/>"
+        "<Override PartName=\"/word/styles.xml\" "
+        "ContentType=\"application/vnd.openxmlformats-officedocument.wordprocessingml.styles+xml\"/>"
+        "<Override PartName=\"/word/numbering.xml\" "
+        "ContentType=\"application/vnd.openxmlformats-officedocument.wordprocessingml.numbering+xml\"/>"
+        "<Override PartName=\"/docProps/core.xml\" "
+        "ContentType=\"application/vnd.openxmlformats-package.core-properties+xml\"/>"
+        "</Types>")
+                               .arg(extraTypes);
 
     const QString docRels = QStringLiteral(
         "<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?>"
@@ -707,6 +738,10 @@ bool loadDocx(const QByteArray &zipData, Document &doc, QString *error)
     QString blipRid;
     bool skipEmptyP = false;
     auto hasBookmarkNamed = [&](const QString &name) {
+        DocxOut names;
+        fillBookmarkNames(names, doc);
+        if (names.exportedNames.contains(name))
+            return true;
         for (const auto &bm : doc.bookmarks) {
             if (bm.name == name || bm.id == name)
                 return true;
@@ -775,8 +810,23 @@ bool loadDocx(const QByteArray &zipData, Document &doc, QString *error)
             doc.assignId(b);
             for (int idx : pendingBookmarkIdx)
                 doc.bookmarks[idx].blockId = b.id;
-            for (int idx : pendingRevisionIdx)
+            QVector<int> dropRev;
+            for (int idx : pendingRevisionIdx) {
                 doc.revisions[idx].blockId = b.id;
+                const Revision &rv = doc.revisions[idx];
+                for (int j = 0; j < doc.revisions.size(); ++j) {
+                    if (j == idx)
+                        continue;
+                    const Revision &ex = doc.revisions[j];
+                    if (ex.blockId == rv.blockId && ex.kind == rv.kind && ex.start == rv.start && ex.end == rv.end) {
+                        dropRev.push_back(idx);
+                        break;
+                    }
+                }
+            }
+            std::sort(dropRev.begin(), dropRev.end());
+            for (int i = dropRev.size() - 1; i >= 0; --i)
+                doc.revisions.removeAt(dropRev[i]);
             doc.body.push_back(b);
         }
         pendingBookmarkIdx.clear();
@@ -953,26 +1003,16 @@ bool loadDocx(const QByteArray &zipData, Document &doc, QString *error)
             } else if (n == QLatin1String("hyperlink")) {
                 curLinkHref.clear();
             } else if ((n == QLatin1String("ins") || n == QLatin1String("del")) && curRevStartOff >= 0) {
-                bool dup = false;
-                const int endOff = curLen();
-                for (const auto &ex : doc.revisions) {
-                    if (ex.kind == curRevKind && ex.start == curRevStartOff && ex.end == endOff) {
-                        dup = true;
-                        break;
-                    }
-                }
-                if (!dup) {
-                    Revision rv;
-                    rv.id = QStringLiteral("rev%1").arg(doc.revisions.size() + 1);
-                    rv.kind = curRevKind;
-                    rv.author = curRevAuthor;
-                    rv.timestamp = curRevDate;
-                    rv.blockId = QStringLiteral("pending");
-                    rv.start = curRevStartOff;
-                    rv.end = endOff;
-                    doc.revisions.push_back(rv);
-                    pendingRevisionIdx.push_back(doc.revisions.size() - 1);
-                }
+                Revision rv;
+                rv.id = QStringLiteral("rev%1").arg(doc.revisions.size() + 1);
+                rv.kind = curRevKind;
+                rv.author = curRevAuthor;
+                rv.timestamp = curRevDate;
+                rv.blockId = QStringLiteral("pending");
+                rv.start = curRevStartOff;
+                rv.end = curLen();
+                doc.revisions.push_back(rv);
+                pendingRevisionIdx.push_back(doc.revisions.size() - 1);
                 curRevStartOff = -1;
             } else if (n == QLatin1String("drawing") && !blipRid.isEmpty()) {
                 QString target = rels.value(blipRid);

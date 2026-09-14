@@ -30,7 +30,10 @@ print("round-trip types OK")
 # wave12: bookmarks/revisions must survive ODT/DOCX round-trip as real markup, not just internally
 # (see Odf.cpp/Docx.cpp bookmarkStart/End, text:change-*/w:ins). Only checked if the source has any.
 base_bm = len(docs["from_json"].get("bookmarks") or [])
-base_rev = len(docs["from_json"].get("revisions") or [])
+base_revs = docs["from_json"].get("revisions") or []
+base_rev = len(base_revs)
+need_ins = any(r.get("kind") == "insert" for r in base_revs)
+need_del = any(r.get("kind") == "delete" for r in base_revs)
 if base_bm or base_rev:
     for name in ("from_odt", "from_docx"):
         nbm = len(docs[name].get("bookmarks") or [])
@@ -45,22 +48,28 @@ if base_bm or base_rev:
         with zipfile.ZipFile(path) as z:
             return z.read(member).decode("utf-8", "replace")
 
-    for path in glob.glob(os.path.join(base, "*.odt")) + glob.glob("/tmp/wave12-roundtrip.odt"):
-        if not os.path.isfile(path):
-            continue
-        xml = native_xml(path, "content.xml")
-        if base_bm and "text:bookmark-start" not in xml:
-            raise SystemExit(f"{path} missing native ODT bookmark markup")
-        if base_rev and "text:change-start" not in xml and "text:changed-region" not in xml:
-            raise SystemExit(f"{path} missing native ODT revision markup")
-        print("native ODT markup OK", path)
+    office_files = []
+    office_files += glob.glob(os.path.join(base, "*.odt"))
+    office_files += glob.glob(os.path.join(base, "*.docx"))
+    for extra in sys.argv[2:]:
+        office_files.append(extra)
 
-    for path in glob.glob(os.path.join(base, "*.docx")) + glob.glob("/tmp/wave12-roundtrip.docx"):
+    for path in office_files:
         if not os.path.isfile(path):
             continue
-        xml = native_xml(path, "word/document.xml")
-        if base_bm and "w:bookmarkStart" not in xml:
-            raise SystemExit(f"{path} missing native DOCX bookmark markup")
-        if base_rev and "<w:ins" not in xml:
-            raise SystemExit(f"{path} missing native DOCX revision markup")
-        print("native DOCX markup OK", path)
+        if path.endswith(".odt"):
+            xml = native_xml(path, "content.xml")
+            if base_bm and "text:bookmark-start" not in xml:
+                raise SystemExit(f"{path} missing native ODT bookmark markup")
+            if need_ins and "text:change-start" not in xml and "text:changed-region" not in xml:
+                raise SystemExit(f"{path} missing native ODT insert markup")
+            print("native ODT markup OK", path)
+        elif path.endswith(".docx"):
+            xml = native_xml(path, "word/document.xml")
+            if base_bm and "w:bookmarkStart" not in xml:
+                raise SystemExit(f"{path} missing native DOCX bookmark markup")
+            if need_ins and "<w:ins" not in xml:
+                raise SystemExit(f"{path} missing native DOCX insert markup")
+            if need_del and "<w:del" not in xml:
+                raise SystemExit(f"{path} missing native DOCX delete markup")
+            print("native DOCX markup OK", path)

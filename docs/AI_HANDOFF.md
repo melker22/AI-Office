@@ -26,6 +26,27 @@
 
 ---
 
+## 2026-09-14 — Grok — PR #2 CodeRabbit follow-up (same branch)
+
+**Objective:** Consertar os Majors da review da PR #2 na mesma branch.
+
+**Done:**
+- `[Content_Types].xml` montado depois dos overrides de footnotes/endnotes.
+- Dedup de bookmark compara o `w:name` normalizado da exportação.
+- Dedup de revisão no `flushP` usa `blockId+kind+start+end`.
+- `insert_crossref` sem Bookmark ganha bookmark sintético no DOCX (REF/PAGEREF).
+- Backspace com track changes grava o caractere real, não `"?"`.
+- `check_roundtrip.py` exige `w:ins` só se houver insert; `w:del` se houver delete.
+- Guia de PR: push no `main` só com pedido explícito.
+
+**Decisions:** `w:del` sintético no export continua fora (texto já saiu de `runs`).
+
+**Next suggested step:** Esperar CI + re-review na PR #2; merge quando verde.
+
+**Commits:** `c853456` fix: CodeRabbit PR #2 follow-up on DOCX round-trip and delete text
+
+---
+
 ## 2026-09-14 — Grok — Branch+PR workflow as project rule; land CI/CodeRabbit work via PR
 
 **Objective:** Tornar branch→PR→`main` a regra do repo, deixar um guia copiável, e enviar as alterações da CI/CodeRabbit pela forma recomendada (não push no `main`).
@@ -39,7 +60,7 @@
 
 **Next suggested step:** Esperar CI + CodeRabbit nesta PR; merge quando verde.
 
-**Commits:** `fade1bd` ci: pin nixpkgs, add aioffice-cli, run smoke tests headless · `ceae108` fix: address CodeRabbit findings on CSL, PDF, and round-trip · (este commit) docs: require feature-branch PRs instead of pushing main
+**Commits:** `fade1bd` ci: pin nixpkgs, add aioffice-cli, run smoke tests headless · `ceae108` fix: address CodeRabbit findings on CSL, PDF, and round-trip · `ff892b6` docs: require feature-branch PRs instead of pushing main
 
 ---
 
