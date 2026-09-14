@@ -1,4 +1,5 @@
 #include "core/Preview.h"
+#include "core/Hyphenation.h"
 #include "core/Qr.h"
 
 #include <QBuffer>
@@ -83,39 +84,12 @@ QFont fontFor(const Document &doc, const Block &b, const TextRun &r, qreal zoom)
     return f;
 }
 
-QString hyphenateDisplay(QString t, double zoneMm = 0)
+QString hyphenateDisplay(QString t, double zoneMm = 0, const QString &lang = QString())
 {
+    Q_UNUSED(zoneMm); // real pattern-based hyphenation always applies leftMin/rightMin from the dictionary.
     QString out;
     QString word;
-    const int minLen = zoneMm > 0 ? 6 : 10;
-    auto flush = [&]() {
-        if (word.size() > minLen) {
-            static const QStringList tails = {
-                QStringLiteral("mente"), QStringLiteral("ção"), QStringLiteral("ções"),
-                QStringLiteral("dade"), QStringLiteral("dades"), QStringLiteral("ismo"),
-                QStringLiteral("tion"), QStringLiteral("ness"), QStringLiteral("ing"),
-                QStringLiteral("mente"), QStringLiteral("ável"), QStringLiteral("ível"),
-            };
-            int cut = -1;
-            const QString low = word.toLower();
-            for (const auto &tail : tails) {
-                if (low.size() > tail.size() + 3 && low.endsWith(tail)) {
-                    cut = word.size() - tail.size();
-                    break;
-                }
-            }
-            for (int i = 0; i < word.size(); ++i) {
-                out += word[i];
-                if (i + 1 == cut)
-                    out += QChar(0x00AD);
-                else if (cut < 0 && i >= 3 && i + 3 < word.size() && ((i + 1) % 5 == 0))
-                    out += QChar(0x00AD);
-            }
-        } else {
-            out += word;
-        }
-        word.clear();
-    };
+    auto flush = [&]() { out += hyphenateWord(word, lang); word.clear(); };
     for (const QChar ch : t) {
         if (ch.isLetter()) {
             word += ch;
@@ -248,7 +222,7 @@ qreal measureTextHeight(const Document &doc, const Block &b, const QVector<TextR
     if (dc.lines > 0 && dc.skip > 0 && dc.skip <= text.size())
         text = text.mid(dc.skip);
     if (doc.page.hyphenate)
-        text = hyphenateDisplay(text, doc.page.hyphenZoneMm);
+        text = hyphenateDisplay(text, doc.page.hyphenZoneMm, b.lang);
     if (text.isEmpty())
         text = QLatin1Char(' ');
     TextRun probe = runs.isEmpty() ? TextRun{} : runs.first();
@@ -919,6 +893,16 @@ CaretRect DocumentLayout::caret(const Document &doc, const QString &id, int offs
     return c;
 }
 
+static QString liveDisplayText(const Document &doc, const TextRun &r, int page, int pages,
+                                const DocumentLayout &lay)
+{
+    if (r.field == QLatin1String("xref") && r.xrefKind == QLatin1String("page")) {
+        const int physical = lay.pageOf(r.fieldArg);
+        return formatPageNumber(lay.displayPage(physical), doc.page.numberFormat);
+    }
+    return runDisplayText(doc, r, page, pages);
+}
+
 void paintPage(QPainter *p, const Document &doc, const DocumentLayout &lay, int page,
                const QString &selId, int selStart, int selEnd, int selRow, int selCol, bool caretOn,
                int caretOff)
@@ -1278,7 +1262,7 @@ void paintPage(QPainter *p, const Document &doc, const DocumentLayout &lay, int 
         }
         QString raw;
         for (const auto &r : b.runs)
-            raw += runDisplayText(doc, r, shown, lay.pages);
+            raw += liveDisplayText(doc, r, shown, lay.pages, lay);
         if (b.type == QLatin1String("footnote") && doc.page.noteRestart && pageNoteNo.contains(b.id))
             raw = QString::number(pageNoteNo.value(b.id)) + QStringLiteral("  ") + raw;
         if (b.type == QLatin1String("heading") && chapNo.contains(b.id))
@@ -1287,7 +1271,7 @@ void paintPage(QPainter *p, const Document &doc, const DocumentLayout &lay, int 
         const int skip = dc.lines > 0 ? dc.skip : 0;
         QString text = raw.mid(skip);
         if (doc.page.hyphenate)
-            text = hyphenateDisplay(text, doc.page.hyphenZoneMm);
+            text = hyphenateDisplay(text, doc.page.hyphenZoneMm, b.lang);
         if (b.type == QLatin1String("footnote") && !fnSep) {
             p->setPen(QPen(QColor(QStringLiteral("#C4B8A8")), 1));
             p->drawLine(QPointF(lb.rect.left(), lb.rect.top() - 4),
@@ -1356,7 +1340,7 @@ void paintPage(QPainter *p, const Document &doc, const DocumentLayout &lay, int 
         int pos = 0;
         int rawPos = 0;
         for (const auto &r : b.runs) {
-            QString disp = runDisplayText(doc, r, shown, lay.pages);
+            QString disp = liveDisplayText(doc, r, shown, lay.pages, lay);
             if (!r.noteId.isEmpty() && doc.page.noteRestart && pageNoteNo.contains(r.noteId))
                 disp = QString::number(pageNoteNo.value(r.noteId));
             const int rawLen = disp.size();
@@ -1366,7 +1350,7 @@ void paintPage(QPainter *p, const Document &doc, const DocumentLayout &lay, int 
             }
             disp = disp.mid(qMax(0, skip - rawPos));
             if (doc.page.hyphenate)
-                disp = hyphenateDisplay(disp, doc.page.hyphenZoneMm);
+                disp = hyphenateDisplay(disp, doc.page.hyphenZoneMm, r.lang.isEmpty() ? b.lang : r.lang);
             QTextLayout::FormatRange fr;
             fr.start = pos;
             fr.length = disp.size();
@@ -1408,7 +1392,7 @@ void paintPage(QPainter *p, const Document &doc, const DocumentLayout &lay, int 
             p->setFont(rf);
             p->setPen(col);
             for (const auto &r : b.runs) {
-                const QString d = runDisplayText(doc, r, shown, lay.pages);
+                const QString d = liveDisplayText(doc, r, shown, lay.pages, lay);
                 if (!r.ruby.isEmpty())
                     p->drawText(QPointF(rx, lb.rect.top() - 1), r.ruby);
                 rx += QFontMetricsF(f).horizontalAdvance(d);

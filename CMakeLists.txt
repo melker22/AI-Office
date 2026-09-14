@@ -31,6 +31,8 @@ add_library(aioffice_core STATIC
     src/core/Xml.cpp
     src/core/Spell.cpp
     src/core/Qr.cpp
+    src/core/Hyphenation.cpp
+    src/core/hyphen/hyphen.qrc
     src/lok/LokEngine.cpp
     src/mcp/ToolDispatch.cpp
     src/mcp/McpServer.cpp

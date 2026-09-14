@@ -1,0 +1,19 @@
+[
+  {"tool": "document_new", "args": {"title": "Wave12 Fields"}},
+  {"tool": "insert_blocks", "args": {"after_id": "start", "blocks": [
+    {"type": "paragraph", "runs": [{"text": ""}]}
+  ]}},
+  {"tool": "insert_field", "args": {"id": "p1", "offset": 0, "kind": "merge", "arg": "nome"}},
+  {"tool": "insert_field", "args": {"id": "p1", "offset": 0, "kind": "var", "arg": "meuvar"}},
+  {"tool": "insert_field", "args": {"id": "p1", "offset": 0, "kind": "input", "arg": "digite aqui"}},
+  {"tool": "insert_field", "args": {"id": "p1", "offset": 0, "kind": "time"}},
+  {"tool": "insert_field", "args": {"id": "p1", "offset": 0, "kind": "cite", "arg": "cite1"}},
+  {"tool": "insert_field", "args": {"id": "p1", "offset": 0, "kind": "page_number"}},
+  {"tool": "document_save", "args": {"path": "/tmp/wave12-fields.odt"}},
+  {"tool": "document_open", "args": {"path": "/tmp/wave12-fields.odt"}},
+  {"tool": "document_get", "args": {}},
+  {"tool": "document_save", "args": {"path": "/tmp/wave12-fields.docx"}},
+  {"tool": "document_open", "args": {"path": "/tmp/wave12-fields.docx"}},
+  {"tool": "document_get", "args": {}},
+  {"tool": "validate", "args": {}}
+]

@@ -3,6 +3,7 @@
 #include "core/Xml.h"
 #include "core/Zip.h"
 
+#include <QDateTime>
 #include <QFile>
 #include <QImage>
 #include <QJsonArray>
@@ -11,6 +12,7 @@
 #include <QMap>
 #include <QSet>
 #include <QXmlStreamReader>
+#include <algorithm>
 
 namespace aioffice {
 namespace {
@@ -144,6 +146,63 @@ QString spansXml(SpanCounter &sc, const QVector<TextRun> &runs, const Document &
     return xml;
 }
 
+using RevSegment = QPair<QVector<TextRun>, const Revision *>;
+
+// Slices `runs` into segments so insert revisions targeting this block can be wrapped in real ODF
+// tracked-change markup. Only "insert" is handled: our edit model removes deleted text from `runs`
+// immediately (Session::deleteBackward/insertAtCaret), keeping just an audit-log Revision with the
+// removed text in `rev.text` — there is nothing left in `runs` at that offset range to wrap in
+// text:change. A real deletion mark would mean re-inserting `rev.text` synthetically at export
+// time; left as a documented gap for a future wave. kind=format also has no clean ODF mapping.
+// Both still round-trip losslessly through the aioffice:extra JSON fallback.
+QVector<RevSegment> revisionSegments(const Document &doc, const QString &blockId, const QVector<TextRun> &runs)
+{
+    QVector<const Revision *> revs;
+    for (const auto &rv : doc.revisions) {
+        if (rv.blockId == blockId && rv.kind == QLatin1String("insert"))
+            revs.push_back(&rv);
+    }
+    QVector<RevSegment> segs;
+    if (revs.isEmpty()) {
+        segs.push_back({runs, nullptr});
+        return segs;
+    }
+    std::sort(revs.begin(), revs.end(), [](const Revision *a, const Revision *b) { return a->start < b->start; });
+    int total = 0;
+    for (const auto &r : runs)
+        total += r.text.size();
+    int pos = 0;
+    for (const Revision *rv : revs) {
+        const int s = qBound(0, rv->start, total);
+        const int e = qBound(s, rv->end, total);
+        if (s > pos)
+            segs.push_back({splitRuns(runs, pos, s), nullptr});
+        if (e > s)
+            segs.push_back({splitRuns(runs, s, e), rv});
+        pos = qMax(pos, e);
+    }
+    if (pos < total)
+        segs.push_back({splitRuns(runs, pos, total), nullptr});
+    return segs;
+}
+
+QString revisedSpansXml(SpanCounter &sc, const QString &blockId, const QVector<TextRun> &runs,
+                         const Document &doc, QVector<const Revision *> &usedRevisions)
+{
+    QString out;
+    for (const auto &seg : revisionSegments(doc, blockId, runs)) {
+        const QString inner = spansXml(sc, seg.first, doc);
+        if (!seg.second) {
+            out += inner;
+            continue;
+        }
+        usedRevisions.push_back(seg.second);
+        out += QStringLiteral("<text:change-start text:change-id=\"%1\"/>%2<text:change-end text:change-id=\"%1\"/>")
+                   .arg(xmlEscape(seg.second->id), inner);
+    }
+    return out;
+}
+
 QString imageExt(const Block &b)
 {
     if (b.imageMime.contains(QLatin1String("jpeg")) || b.imagePath.endsWith(QLatin1String(".jpg"), Qt::CaseInsensitive)
@@ -207,6 +266,7 @@ bool saveOdt(const Document &doc, const QString &path, QString *error)
     SpanCounter sc;
     QString bodyXml;
     QVector<ZipEntry> pictures;
+    QVector<const Revision *> usedRevisions;
     int imgN = 0;
     int i = 0;
     const auto &body = doc.body;
@@ -233,7 +293,8 @@ bool saveOdt(const Document &doc, const QString &path, QString *error)
             bodyXml += QLatin1String("<text:list>");
             while (i < body.size() && body[i].type == QLatin1String("list-item") && body[i].listKind == kind) {
                 QString inner = QStringLiteral("<text:p text:style-name=\"%1\">%2</text:p>")
-                                    .arg(odfStyleName(styleForBlock(body[i])), spansXml(sc, body[i].runs, doc));
+                                    .arg(odfStyleName(styleForBlock(body[i])),
+                                         revisedSpansXml(sc, body[i].id, body[i].runs, doc, usedRevisions));
                 const int lv = qMax(1, body[i].level);
                 for (int n = 1; n < lv; ++n)
                     inner = QStringLiteral("<text:list><text:list-item>%1</text:list-item></text:list>").arg(inner);
@@ -248,7 +309,7 @@ bool saveOdt(const Document &doc, const QString &path, QString *error)
                 QStringLiteral("<text:h text:style-name=\"%1\" text:outline-level=\"%2\">%3</text:h>")
                     .arg(st)
                     .arg(b.level > 0 ? b.level : 1)
-                    .arg(spansXml(sc, b.runs, doc)));
+                    .arg(revisedSpansXml(sc, b.id, b.runs, doc, usedRevisions)));
         } else if (b.type == QLatin1String("break")) {
             bodyXml += b.breakKind == QLatin1String("column")
                 ? QLatin1String("<text:p text:style-name=\"PColBreak\"/>")
@@ -304,9 +365,28 @@ bool saveOdt(const Document &doc, const QString &path, QString *error)
         } else {
             bodyXml += bookmarksAround(b.id,
                 QStringLiteral("<text:p text:style-name=\"%1\">%2</text:p>")
-                    .arg(st, spansXml(sc, b.runs, doc)));
+                    .arg(st, revisedSpansXml(sc, b.id, b.runs, doc, usedRevisions)));
         }
         ++i;
+    }
+    QString trackedChangesXml;
+    if (!usedRevisions.isEmpty()) {
+        QSet<QString> seen;
+        trackedChangesXml = QLatin1String("<text:tracked-changes>");
+        for (const Revision *rv : usedRevisions) {
+            if (seen.contains(rv->id))
+                continue;
+            seen.insert(rv->id);
+            const QString dateStr = QDateTime::fromMSecsSinceEpoch(rv->timestamp).toString(Qt::ISODate);
+            const QString tag = rv->kind == QLatin1String("delete") ? QStringLiteral("deletion")
+                                                                     : QStringLiteral("insertion");
+            trackedChangesXml += QStringLiteral(
+                "<text:changed-region text:id=\"%1\"><text:%2><office:change-info>"
+                "<dc:creator>%3</dc:creator><dc:date>%4</dc:date></office:change-info></text:%2>"
+                "</text:changed-region>")
+                                      .arg(xmlEscape(rv->id), tag, xmlEscape(rv->author), dateStr);
+        }
+        trackedChangesXml += QLatin1String("</text:tracked-changes>");
     }
     QSet<QString> referencedNotes;
     for (const auto &b : body) {
@@ -356,10 +436,11 @@ bool saveOdt(const Document &doc, const QString &path, QString *error)
         "xmlns:table=\"urn:oasis:names:tc:opendocument:xmlns:table:1.0\" "
         "xmlns:draw=\"urn:oasis:names:tc:opendocument:xmlns:drawing:1.0\" "
         "xmlns:svg=\"urn:oasis:names:tc:opendocument:xmlns:svg-compatible:1.0\" "
-        "xmlns:xlink=\"http://www.w3.org/1999/xlink\" office:version=\"1.3\">"
+        "xmlns:xlink=\"http://www.w3.org/1999/xlink\" "
+        "xmlns:dc=\"http://purl.org/dc/elements/1.1/\" office:version=\"1.3\">"
         "<office:automatic-styles>%1</office:automatic-styles>"
-        "<office:body><office:text>%2</office:text></office:body></office:document-content>")
-                                   .arg(sc.stylesXml, bodyXml);
+        "<office:body><office:text>%2%3</office:text></office:body></office:document-content>")
+                                   .arg(sc.stylesXml, trackedChangesXml, bodyXml);
 
     QString manifest = QStringLiteral(
         "<?xml version=\"1.0\" encoding=\"UTF-8\"?>"
@@ -558,8 +639,22 @@ bool loadOdt(const QByteArray &zipData, Document &doc, QString *error)
     QVector<TableCell> tableRow;
     double pendingFrameWidthMm = 0;
     const bool importNativeBm = doc.bookmarks.isEmpty();
+    const bool importNativeRev = doc.revisions.isEmpty();
+    QVector<int> pendingBookmarkIdx;  // doc.bookmarks[] entries opened in the block being built
+    QVector<int> pendingRevisionIdx;  // doc.revisions[] entries opened in the block being built
+    QMap<QString, QString> changeKind;   // change-id -> insert|delete
+    QMap<QString, QString> changeAuthor; // change-id -> author
+    QMap<QString, int> changeStartOff;   // change-id -> offset at change-start, within current block
+    QString curLinkHref; // set while inside <text:a>, applied to runs started within it
 
-    auto startRun = [&]() { spanRun = TextRun{}; };
+    auto startRun = [&]() { spanRun = TextRun{}; spanRun.link = curLinkHref; };
+    auto curLen = [&]() {
+        int n = 0;
+        for (const auto &rr : runs)
+            n += rr.text.size();
+        n += spanRun.text.size();
+        return n;
+    };
     auto flushPara = [&]() {
         if (!inText && currentType != QLatin1String("table"))
             return;
@@ -576,6 +671,12 @@ bool loadOdt(const QByteArray &zipData, Document &doc, QString *error)
         if (b.type == QLatin1String("list-item") && b.level <= 0)
             b.level = qMax(1, listLevel);
         doc.assignId(b);
+        for (int idx : pendingBookmarkIdx)
+            doc.bookmarks[idx].blockId = b.id;
+        for (int idx : pendingRevisionIdx)
+            doc.revisions[idx].blockId = b.id;
+        pendingBookmarkIdx.clear();
+        pendingRevisionIdx.clear();
         doc.body.push_back(b);
         runs.clear();
         startRun();
@@ -729,7 +830,53 @@ bool loadOdt(const QByteArray &zipData, Document &doc, QString *error)
                 bm.name = xml.attributes().value(QStringLiteral("text:name")).toString();
                 bm.id = QStringLiteral("bm%1").arg(doc.bookmarks.size() + 1);
                 bm.blockId = QStringLiteral("pending");
+                bm.offset = curLen();
                 doc.bookmarks.push_back(bm);
+                pendingBookmarkIdx.push_back(doc.bookmarks.size() - 1);
+            } else if (n == QLatin1String("change-start") && importNativeRev) {
+                changeStartOff[xml.attributes().value(QStringLiteral("text:change-id")).toString()] = curLen();
+            } else if (n == QLatin1String("change-end") && importNativeRev) {
+                const QString cid = xml.attributes().value(QStringLiteral("text:change-id")).toString();
+                if (changeStartOff.contains(cid)) {
+                    Revision rv;
+                    rv.id = cid;
+                    rv.kind = changeKind.value(cid, QStringLiteral("insert"));
+                    rv.author = changeAuthor.value(cid);
+                    rv.blockId = QStringLiteral("pending");
+                    rv.start = changeStartOff.take(cid);
+                    rv.end = curLen();
+                    doc.revisions.push_back(rv);
+                    pendingRevisionIdx.push_back(doc.revisions.size() - 1);
+                }
+            } else if (n == QLatin1String("tracked-changes")) {
+                QString curId, curKind, curCreator;
+                while (!xml.atEnd()) {
+                    xml.readNext();
+                    if (xml.isEndElement() && xml.name() == QLatin1String("tracked-changes"))
+                        break;
+                    if (xml.isStartElement()) {
+                        const auto nn = xml.name();
+                        if (nn == QLatin1String("changed-region")) {
+                            curId = xml.attributes().value(QStringLiteral("text:id")).toString();
+                            curKind.clear();
+                            curCreator.clear();
+                        } else if (nn == QLatin1String("insertion")) {
+                            curKind = QStringLiteral("insert");
+                        } else if (nn == QLatin1String("deletion")) {
+                            curKind = QStringLiteral("delete");
+                        } else if (nn == QLatin1String("creator")) {
+                            curCreator = xml.readElementText();
+                        }
+                    } else if (xml.isEndElement() && xml.name() == QLatin1String("changed-region") && !curId.isEmpty()) {
+                        changeKind[curId] = curKind;
+                        changeAuthor[curId] = curCreator;
+                    }
+                }
+            } else if (n == QLatin1String("a")) {
+                if (!spanRun.text.isEmpty())
+                    runs.push_back(spanRun);
+                curLinkHref = xml.attributes().value(QStringLiteral("xlink:href")).toString();
+                startRun();
             } else if (n == QLatin1String("frame")) {
                 QString w = xml.attributes().value(QStringLiteral("svg:width")).toString();
                 if (w.isEmpty())
@@ -777,6 +924,11 @@ bool loadOdt(const QByteArray &zipData, Document &doc, QString *error)
             if (n == QLatin1String("span")) {
                 if (!spanRun.text.isEmpty())
                     runs.push_back(spanRun);
+                startRun();
+            } else if (n == QLatin1String("a")) {
+                if (!spanRun.text.isEmpty())
+                    runs.push_back(spanRun);
+                curLinkHref.clear();
                 startRun();
             } else if (n == QLatin1String("table-cell") && inTable) {
                 if (!spanRun.text.isEmpty())

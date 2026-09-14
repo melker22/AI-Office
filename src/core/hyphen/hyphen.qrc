@@ -1,0 +1,6 @@
+<RCC>
+    <qresource prefix="/hyphen">
+        <file alias="hyph_en_US.dic">hyph_en_US.dic</file>
+        <file alias="hyph_pt_BR.dic">hyph_pt_BR.dic</file>
+    </qresource>
+</RCC>

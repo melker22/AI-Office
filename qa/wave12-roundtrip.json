@@ -1,0 +1,20 @@
+[
+  {"tool": "document_new", "args": {"title": "Wave12 Round-trip"}},
+  {"tool": "insert_blocks", "args": {"after_id": "start", "blocks": [
+    {"type": "heading", "level": 1, "runs": [{"text": "Titulo"}]},
+    {"type": "paragraph", "runs": [{"text": "Este e um paragrafo com texto normal e um link."}]}
+  ]}},
+  {"tool": "bookmark_add", "args": {"id": "h1", "name": "marcaA"}},
+  {"tool": "link_set", "args": {"id": "p2", "start": 0, "end": 4, "url": "https://example.com/pagina"}},
+  {"tool": "track_changes", "args": {"on": true}},
+  {"tool": "insert_at_caret", "args": {"id": "p2", "offset": 48, "text": " INSERIDO"}},
+  {"tool": "document_save", "args": {"path": "/tmp/wave12-roundtrip.odt"}},
+  {"tool": "document_open", "args": {"path": "/tmp/wave12-roundtrip.odt"}},
+  {"tool": "validate", "args": {}},
+  {"tool": "document_get", "args": {}},
+  {"tool": "document_save", "args": {"path": "/tmp/wave12-roundtrip.docx"}},
+  {"tool": "document_open", "args": {"path": "/tmp/wave12-roundtrip.docx"}},
+  {"tool": "validate", "args": {}},
+  {"tool": "document_get", "args": {}},
+  {"tool": "page_preview", "args": {"page": 1}}
+]

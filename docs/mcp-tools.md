@@ -298,10 +298,14 @@ Markdown → blocks. Inline: `**bold**`, `*italic*`, `[text](url)`. Nested lists
 
 Hiperlink na seleção (`url`). Marcador nomeado no bloco (`name`, `id` opcional). Referência cruzada (`target` = id de bloco ou bookmark) como campo `xref`.
 
+`insert_crossref` args: `{ "target": string, "kind"?: "text"|"page"|"heading_number"|"above_below"|"category_number"|"footnote_number"|"endnote_number", "id"?, "offset"? }`. `text` (default) insere o texto/legenda do alvo — comportamento de antes. `page` mostra o **número de página vivo** do alvo (recalculado a cada `page_preview`/export; sem layout — ex. round-trip ODT/DOCX — cai de volta no texto do alvo). `heading_number` mostra o número de contorno do heading alvo (`1.2`). `category_number` mostra o ordinal do alvo entre blocos do mesmo tipo (image/table/chart/equation/qr/form). `footnote_number`/`endnote_number` mostram a ordem da nota entre as notas referenciadas. `above_below` é resolvido **uma vez**, no momento do insert (compara a posição do alvo com `id`/caret atual) e vira texto "acima"/"abaixo" fixo — não é um campo vivo (simplificação documentada, `Session::insertCrossref`).
+
 ### `insert_field`
 
 Args: `{ "kind": "page_number"|"page_count"|"date"|"title"|"author"|"xref"|"filename"|"word_count"|"custom"|"merge", "arg"?: string }`  
 Insere no caret. `xref`/`custom`/`merge` usam `arg`. Campo `merge` mostra `«arg»` até `mail_merge`. `date` usa `arg` como formato Qt (`dd/MM/yyyy` por omissão; `yyyy-MM-dd hh:mm` para data/hora).
+
+**Fidelidade de round-trip ODT/DOCX (onda 12):** `page_number, page_count, date, title, author, filename, word_count, xref` mapeiam para elementos de campo nativos nos dois formatos e são lidos de volta ao reabrir. `merge, var, custom, input, time, cite` agora também mapeiam para instruções DOCX reais (`MERGEFIELD`, `DOCVARIABLE`, `FILLIN`, `TIME`, instr próprio para `cite`) e são lidos de volta; em ODT continuam via `text:user-field-get` genérico (nome do campo preservado, funcional mas não um elemento ODF dedicado). `chapter` vira `STYLEREF` no DOCX (aproximação — Word não tem equivalente exato).
 
 ### `insert_footnote` / `insert_endnote`
 
@@ -353,6 +357,14 @@ Insere um Heading 1 e um parágrafo por termo com números de página (`concorda
 - `track_changes` + `apply_character_format` grava `Revision.payload` (JSON do formato)
 - `set_page_layout` `note_restart` numera notas por página no `page_preview`
 - Órfãs/viúvas: o parágrafo parte entre páginas (default 2 linhas)
+
+### Wave 12 — fidelidade de round-trip, hiperlinks, campos, crossref, hifenação real
+
+- **Bookmarks e revisões (insert) → marcação real em ODT e DOCX**, não só o blob `aioffice:extra`/`word/aioffice.json` (que continua existindo como *fallback* de merge, preferindo a marcação nativa quando presente). ODT: `<text:bookmark-start/end>` por bloco; `<text:change-start/end>` + `<text:tracked-changes>` para revisões `insert`. DOCX: `<w:bookmarkStart/End>`; `<w:ins w:author w:date>` para revisões `insert`. **Revisões `delete` continuam só no blob JSON** — o modelo de edição remove o texto apagado imediatamente de `runs` (só fica um registo em `Revision.text`), então não há span vivo para embrulhar num `<w:del>`/`<text:change>` real; recriar isso exigiria reinserir `rev.text` sinteticamente na exportação, deixado para uma onda futura. Revisões `format` também continuam só no blob (sem mapeamento limpo em ODF/OOXML).
+- **Hiperlink corrigido nos dois sentidos e nos dois formatos.** Antes: DOCX escrevia `w:anchor` para toda âncora (inclusive URL externa, que não funciona assim) e nenhum dos dois formatos lia `text:a`/`w:hyperlink` de volta — todo hiperlink se perdia ao reabrir. Agora: link interno (`#id`) usa `w:anchor`/`xlink:href` local; link externo aloca uma relationship (`r:id` + `_rels/document.xml.rels`, `TargetMode="External"`) no DOCX. Leitura implementada nos dois formatos.
+- `insert_at_caret` agora grava `Revision` (insert/delete) quando `track_changes` está ligado — antes só a digitação ao vivo no canvas (IPC) e `apply_character_format` gravavam revisão; a tool MCP mais usada para editar texto não gravava nada.
+- Hifenação real Knuth-Liang (`src/core/Hyphenation.h/.cpp`, dicionários `.dic` em `src/core/hyphen/`, proveniência e licenças em `hyphen/NOTICE.md`) substitui a heurística de sufixos. `hyph_en_US.dic` (GPL-2.0/LGPL-2.1/MPL-1.1 tri-license, usado sob LGPL-2.1) e `hyph_pt_BR.dic` (LGPLv3/MPL) — ambos compatíveis com GPL-3.0-or-later. Idioma por `TextRun.lang`/`Block.lang` (prefixo `en` = inglês, resto = português).
+- Correção de doc desatualizada: `Revision.payload` (formato JSON de track changes) e `document_export_pdf` `from`/`to`/`copies` já estavam implementados desde a onda 9/11 — só o catálogo estava desatualizado.
 
 ### `spellcheck`
 

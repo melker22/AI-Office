@@ -1,0 +1,18 @@
+[
+  {"tool": "document_new", "args": {"title": "Wave12 Crossref"}},
+  {"tool": "insert_blocks", "args": {"after_id": "start", "blocks": [
+    {"type": "heading", "level": 1, "runs": [{"text": "Introducao"}]},
+    {"type": "paragraph", "runs": [{"text": "texto"}]},
+    {"type": "heading", "level": 1, "runs": [{"text": "Capitulo Dois"}]},
+    {"type": "image", "imagePath": "x.png"}
+  ]}},
+  {"tool": "insert_footnote", "args": {"id": "p2", "offset": 0, "text": "nota um"}},
+  {"tool": "insert_crossref", "args": {"id": "p2", "offset": 0, "target": "h2", "kind": "heading_number"}},
+  {"tool": "insert_crossref", "args": {"id": "p2", "offset": 0, "target": "h1", "kind": "above_below"}},
+  {"tool": "insert_crossref", "args": {"id": "p2", "offset": 0, "target": "img1", "kind": "category_number"}},
+  {"tool": "insert_crossref", "args": {"id": "p2", "offset": 0, "target": "fn1", "kind": "footnote_number"}},
+  {"tool": "insert_crossref", "args": {"id": "p2", "offset": 0, "target": "h2", "kind": "page"}},
+  {"tool": "page_preview", "args": {"page": 1}},
+  {"tool": "document_get", "args": {}},
+  {"tool": "validate", "args": {}}
+]

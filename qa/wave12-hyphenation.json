@@ -1,0 +1,10 @@
+[
+  {"tool": "document_new", "args": {"title": "Wave12 Hyphenation"}},
+  {"tool": "set_page_layout", "args": {"hyphenate": true}},
+  {"tool": "insert_blocks", "args": {"after_id": "start", "blocks": [
+    {"type": "paragraph", "lang": "pt", "runs": [{"text": "desenvolvimento extraordinariamente comunicacao"}]},
+    {"type": "paragraph", "lang": "en", "runs": [{"text": "hyphenation extraordinarily beautiful"}]}
+  ]}},
+  {"tool": "page_preview", "args": {"page": 1}},
+  {"tool": "validate", "args": {}}
+]

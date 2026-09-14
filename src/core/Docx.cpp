@@ -3,13 +3,16 @@
 #include "core/Xml.h"
 #include "core/Zip.h"
 
+#include <QDateTime>
 #include <QFile>
 #include <QJsonArray>
 #include <QJsonDocument>
 #include <QJsonObject>
 #include <QMap>
 #include <QSet>
+#include <QRegularExpression>
 #include <QXmlStreamReader>
+#include <algorithm>
 #include <cmath>
 
 namespace aioffice {
@@ -26,7 +29,8 @@ QString wAlign(const QString &a)
     return QStringLiteral("left");
 }
 
-QString runsToWml(const QVector<TextRun> &runs, const Document &doc, QMap<QString, int> &fnIds, QMap<QString, int> &enIds)
+QString runsToWml(const QVector<TextRun> &runs, const Document &doc, QMap<QString, int> &fnIds, QMap<QString, int> &enIds,
+                   QMap<QString, QString> &linkRels, int &relN)
 {
     QString xml;
     for (const auto &r : runs) {
@@ -73,6 +77,19 @@ QString runsToWml(const QVector<TextRun> &runs, const Document &doc, QMap<QStrin
                 instr = QStringLiteral(" NUMWORDS ");
             else if (r.field == QLatin1String("xref"))
                 instr = QStringLiteral(" REF %1 ").arg(r.fieldArg);
+            else if (r.field == QLatin1String("merge") || r.field == QLatin1String("mail_merge"))
+                instr = QStringLiteral(" MERGEFIELD %1 ").arg(r.fieldArg);
+            else if (r.field == QLatin1String("chapter"))
+                instr = QStringLiteral(" STYLEREF 1 ");
+            else if (r.field == QLatin1String("var") || r.field == QLatin1String("variable")
+                     || r.field == QLatin1String("custom"))
+                instr = QStringLiteral(" DOCVARIABLE %1 ").arg(r.fieldArg);
+            else if (r.field == QLatin1String("input"))
+                instr = QStringLiteral(" FILLIN \"%1\" ").arg(xmlEscape(r.fieldArg));
+            else if (r.field == QLatin1String("time"))
+                instr = QStringLiteral(" TIME ");
+            else if (r.field == QLatin1String("cite") || r.field == QLatin1String("citation"))
+                instr = QStringLiteral(" AIOFFICE_CITE %1 ").arg(r.fieldArg);
             const QString vis = xmlEscape(runDisplayText(doc, r));
             xml += QStringLiteral("<w:fldSimple w:instr=\"%1\"><w:r><w:t>%2</w:t></w:r></w:fldSimple>")
                        .arg(xmlEscape(instr), vis);
@@ -85,8 +102,20 @@ QString runsToWml(const QVector<TextRun> &runs, const Document &doc, QMap<QStrin
             if (!rPr.isEmpty())
                 runXml += QStringLiteral("<w:rPr>%1</w:rPr>").arg(rPr);
             runXml += QStringLiteral("<w:t%1>%2</w:t></w:r>").arg(space, t);
-            if (!r.link.isEmpty())
-                runXml = QStringLiteral("<w:hyperlink w:anchor=\"%1\">%2</w:hyperlink>").arg(xmlEscape(r.link), runXml);
+            if (!r.link.isEmpty()) {
+                if (r.link.startsWith(QLatin1Char('#'))) {
+                    runXml = QStringLiteral("<w:hyperlink w:anchor=\"%1\">%2</w:hyperlink>")
+                                 .arg(xmlEscape(r.link.mid(1)), runXml);
+                } else {
+                    QString relId = linkRels.value(r.link);
+                    if (relId.isEmpty()) {
+                        ++relN;
+                        relId = QStringLiteral("rId%1").arg(relN);
+                        linkRels[r.link] = relId;
+                    }
+                    runXml = QStringLiteral("<w:hyperlink r:id=\"%1\">%2</w:hyperlink>").arg(relId, runXml);
+                }
+            }
             xml += runXml;
         }
         if (!r.noteId.isEmpty()) {
@@ -113,6 +142,96 @@ QString runsToWml(const QVector<TextRun> &runs, const Document &doc, QMap<QStrin
         }
     }
     return xml;
+}
+
+using RevSegment = QPair<QVector<TextRun>, const Revision *>;
+
+// Mirrors Odf.cpp's revisionSegments: slices `runs` so insert revisions can be wrapped in real
+// w:ins markup. Only "insert" is handled: our edit model removes deleted text from `runs`
+// immediately (Session::deleteBackward/insertAtCaret), keeping just an audit-log Revision with the
+// removed text in `rev.text` — there is nothing left in `runs` at that offset range to wrap in
+// w:del. Emitting real w:del would mean re-inserting `rev.text` synthetically at export time; left
+// as a documented gap for a future wave. kind=format also has no OOXML equivalent. Both kinds still
+// round-trip losslessly through our own word/aioffice.json fallback.
+QVector<RevSegment> revisionSegments(const Document &doc, const QString &blockId, const QVector<TextRun> &runs)
+{
+    QVector<const Revision *> revs;
+    for (const auto &rv : doc.revisions) {
+        if (rv.blockId == blockId && rv.kind == QLatin1String("insert"))
+            revs.push_back(&rv);
+    }
+    QVector<RevSegment> segs;
+    if (revs.isEmpty()) {
+        segs.push_back({runs, nullptr});
+        return segs;
+    }
+    std::sort(revs.begin(), revs.end(), [](const Revision *a, const Revision *b) { return a->start < b->start; });
+    int total = 0;
+    for (const auto &r : runs)
+        total += r.text.size();
+    int pos = 0;
+    for (const Revision *rv : revs) {
+        const int s = qBound(0, rv->start, total);
+        const int e = qBound(s, rv->end, total);
+        if (s > pos)
+            segs.push_back({splitRuns(runs, pos, s), nullptr});
+        if (e > s)
+            segs.push_back({splitRuns(runs, s, e), rv});
+        pos = qMax(pos, e);
+    }
+    if (pos < total)
+        segs.push_back({splitRuns(runs, pos, total), nullptr});
+    return segs;
+}
+
+QString revisedRunsToWml(const QString &blockId, const QVector<TextRun> &runs, const Document &doc,
+                          QMap<QString, int> &fnIds, QMap<QString, int> &enIds, QMap<QString, QString> &linkRels,
+                          int &relN)
+{
+    QString out;
+    for (const auto &seg : revisionSegments(doc, blockId, runs)) {
+        QString inner = runsToWml(seg.first, doc, fnIds, enIds, linkRels, relN);
+        if (!seg.second) {
+            out += inner;
+            continue;
+        }
+        const QString dateStr = QDateTime::fromMSecsSinceEpoch(seg.second->timestamp).toString(Qt::ISODate);
+        const QString author = xmlEscape(seg.second->author);
+        if (seg.second->kind == QLatin1String("delete")) {
+            inner.replace(QLatin1String("<w:t"), QLatin1String("<w:delText"));
+            inner.replace(QLatin1String("</w:t>"), QLatin1String("</w:delText>"));
+            out += QStringLiteral("<w:del w:id=\"%1\" w:author=\"%2\" w:date=\"%3\">%4</w:del>")
+                       .arg(xmlEscape(seg.second->id), author, dateStr, inner);
+        } else {
+            out += QStringLiteral("<w:ins w:id=\"%1\" w:author=\"%2\" w:date=\"%3\">%4</w:ins>")
+                       .arg(xmlEscape(seg.second->id), author, dateStr, inner);
+        }
+    }
+    return out;
+}
+
+QString bookmarkName(const Bookmark &bm, int idx)
+{
+    QString name = bm.name.isEmpty() ? bm.id : bm.name;
+    name.replace(QRegularExpression(QStringLiteral("[^A-Za-z0-9_]")), QStringLiteral("_"));
+    if (name.isEmpty() || name[0].isDigit())
+        name.prepend(QLatin1Char('_'));
+    return name.left(40) + QStringLiteral("_%1").arg(idx);
+}
+
+QString bookmarksAroundWml(const Document &doc, const QString &blockId, const QString &inner)
+{
+    QString out = inner;
+    int idx = 0;
+    for (const auto &bm : doc.bookmarks) {
+        ++idx;
+        if (bm.blockId != blockId)
+            continue;
+        const QString name = bookmarkName(bm, idx);
+        out = QStringLiteral("<w:bookmarkStart w:id=\"%1\" w:name=\"%2\"/>%3<w:bookmarkEnd w:id=\"%1\"/>")
+                  .arg(idx).arg(xmlEscape(name), out);
+    }
+    return out;
 }
 
 QString pPr(const Block &b)
@@ -166,6 +285,7 @@ bool saveDocx(const Document &doc, const QString &path, QString *error)
     int relN = 2;
     QMap<QString, int> fnIds;
     QMap<QString, int> enIds;
+    QMap<QString, QString> linkRels;
     for (const auto &b : doc.body) {
         if (b.type == QLatin1String("footnote") || b.type == QLatin1String("endnote"))
             continue;
@@ -174,7 +294,8 @@ bool saveDocx(const Document &doc, const QString &path, QString *error)
             for (const auto &row : b.table) {
                 body += QLatin1String("<w:tr>");
                 for (const auto &cell : row)
-                    body += QStringLiteral("<w:tc><w:p>%1</w:p></w:tc>").arg(runsToWml(cell.runs, doc, fnIds, enIds));
+                    body += QStringLiteral("<w:tc><w:p>%1</w:p></w:tc>")
+                                .arg(runsToWml(cell.runs, doc, fnIds, enIds, linkRels, relN));
                 body += QLatin1String("</w:tr>");
             }
             body += QLatin1String("</w:tbl>");
@@ -234,7 +355,9 @@ bool saveDocx(const Document &doc, const QString &path, QString *error)
                         .arg(rid);
             continue;
         }
-        body += QStringLiteral("<w:p>%1%2</w:p>").arg(pPr(b), runsToWml(b.runs, doc, fnIds, enIds));
+        body += bookmarksAroundWml(doc, b.id,
+            QStringLiteral("<w:p>%1%2</w:p>")
+                .arg(pPr(b), revisedRunsToWml(b.id, b.runs, doc, fnIds, enIds, linkRels, relN)));
     }
     QSet<QString> referencedNotes;
     for (const auto &b : doc.body) {
@@ -247,7 +370,7 @@ bool saveDocx(const Document &doc, const QString &path, QString *error)
             && !referencedNotes.contains(b.id)) {
             TextRun fake;
             fake.noteId = b.id;
-            body += QStringLiteral("<w:p>%1</w:p>").arg(runsToWml({fake}, doc, fnIds, enIds));
+            body += QStringLiteral("<w:p>%1</w:p>").arg(runsToWml({fake}, doc, fnIds, enIds, linkRels, relN));
         }
     }
     QString colsSect;
@@ -265,6 +388,13 @@ bool saveDocx(const Document &doc, const QString &path, QString *error)
                 .arg(mb)
                 .arg(ml)
                 .arg(colsSect);
+
+    for (auto it = linkRels.constBegin(); it != linkRels.constEnd(); ++it) {
+        extraRels += QStringLiteral(
+            "<Relationship Id=\"%1\" Type=\"http://schemas.openxmlformats.org/officeDocument/2006/relationships/hyperlink\" "
+            "Target=\"%2\" TargetMode=\"External\"/>")
+                          .arg(it.value(), xmlEscape(it.key()));
+    }
 
     const QString documentXml = QStringLiteral(
         "<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?>"
@@ -536,6 +666,21 @@ bool loadDocx(const QByteArray &zipData, Document &doc, QString *error)
     bool inCell = false;
     QString blipRid;
     bool skipEmptyP = false;
+    const bool importNativeBm = doc.bookmarks.isEmpty();
+    const bool importNativeRev = doc.revisions.isEmpty();
+    QVector<int> pendingBookmarkIdx;
+    QVector<int> pendingRevisionIdx;
+    QString curLinkHref;
+    QString curRevKind;
+    QString curRevAuthor;
+    qint64 curRevDate = 0;
+    int curRevStartOff = -1;
+    auto curLen = [&]() {
+        int n = 0;
+        for (const auto &r : runs)
+            n += r.text.size();
+        return n;
+    };
 
     auto flushP = [&]() {
         bool empty = true;
@@ -583,8 +728,14 @@ bool loadDocx(const QByteArray &zipData, Document &doc, QString *error)
             tableRow.push_back(cell);
         } else {
             doc.assignId(b);
+            for (int idx : pendingBookmarkIdx)
+                doc.bookmarks[idx].blockId = b.id;
+            for (int idx : pendingRevisionIdx)
+                doc.revisions[idx].blockId = b.id;
             doc.body.push_back(b);
         }
+        pendingBookmarkIdx.clear();
+        pendingRevisionIdx.clear();
         runs.clear();
         pStyle.clear();
         align.clear();
@@ -637,11 +788,34 @@ bool loadDocx(const QByteArray &zipData, Document &doc, QString *error)
                 run.subscript = (v == QLatin1String("subscript"));
             } else if (n == QLatin1String("highlight") && inR) {
                 run.highlight = QStringLiteral("#FFF59D");
-            } else if (n == QLatin1String("t") && inR) {
+            } else if ((n == QLatin1String("t") || n == QLatin1String("delText")) && inR) {
                 run.text += xml.readElementText();
+            } else if (n == QLatin1String("hyperlink")) {
+                const QString anchor = xml.attributes().value(QStringLiteral("w:anchor")).toString();
+                const QString rid = xml.attributes().value(QStringLiteral("r:id")).toString();
+                if (!anchor.isEmpty())
+                    curLinkHref = QLatin1Char('#') + anchor;
+                else if (!rid.isEmpty())
+                    curLinkHref = rels.value(rid);
+            } else if (n == QLatin1String("bookmarkStart") && importNativeBm) {
+                Bookmark bm;
+                bm.name = xml.attributes().value(QStringLiteral("w:name")).toString();
+                bm.id = QStringLiteral("bm%1").arg(doc.bookmarks.size() + 1);
+                bm.blockId = QStringLiteral("pending");
+                bm.offset = curLen();
+                doc.bookmarks.push_back(bm);
+                pendingBookmarkIdx.push_back(doc.bookmarks.size() - 1);
+            } else if ((n == QLatin1String("ins") || n == QLatin1String("del")) && importNativeRev) {
+                curRevKind = n == QLatin1String("ins") ? QStringLiteral("insert") : QStringLiteral("delete");
+                curRevAuthor = xml.attributes().value(QStringLiteral("w:author")).toString();
+                curRevDate = QDateTime::fromString(xml.attributes().value(QStringLiteral("w:date")).toString(),
+                                                    Qt::ISODate)
+                                 .toMSecsSinceEpoch();
+                curRevStartOff = curLen();
             } else if (n == QLatin1String("fldSimple")) {
                 TextRun fr;
-                const QString instr = xml.attributes().value(QStringLiteral("w:instr")).toString().toUpper();
+                const QString instrRaw = xml.attributes().value(QStringLiteral("w:instr")).toString().trimmed();
+                const QString instr = instrRaw.toUpper();
                 if (instr.contains(QLatin1String("PAGE")) && !instr.contains(QLatin1String("NUMPAGES")))
                     fr.field = QStringLiteral("page_number");
                 else if (instr.contains(QLatin1String("NUMPAGES")))
@@ -656,9 +830,24 @@ bool loadDocx(const QByteArray &zipData, Document &doc, QString *error)
                     fr.field = QStringLiteral("filename");
                 else if (instr.contains(QLatin1String("NUMWORDS")))
                     fr.field = QStringLiteral("word_count");
-                else if (instr.contains(QLatin1String("REF"))) {
+                else if (instr.contains(QLatin1String("MERGEFIELD"))) {
+                    fr.field = QStringLiteral("merge");
+                    fr.fieldArg = instrRaw.section(QLatin1Char(' '), 1, 1);
+                } else if (instr.contains(QLatin1String("STYLEREF"))) {
+                    fr.field = QStringLiteral("chapter");
+                } else if (instr.contains(QLatin1String("DOCVARIABLE"))) {
+                    fr.field = QStringLiteral("var");
+                    fr.fieldArg = instrRaw.section(QLatin1Char(' '), 1, 1);
+                } else if (instr.contains(QLatin1String("FILLIN"))) {
+                    fr.field = QStringLiteral("input");
+                } else if (instr.contains(QLatin1String("AIOFFICE_CITE"))) {
+                    fr.field = QStringLiteral("cite");
+                    fr.fieldArg = instrRaw.section(QLatin1Char(' '), 1, 1);
+                } else if (instr.contains(QLatin1String("TIME"))) {
+                    fr.field = QStringLiteral("time");
+                } else if (instr.contains(QLatin1String("REF"))) {
                     fr.field = QStringLiteral("xref");
-                    fr.fieldArg = instr.section(QLatin1Char(' '), 1, 1);
+                    fr.fieldArg = instrRaw.section(QLatin1Char(' '), 1, 1);
                 }
                 fr.text = xml.readElementText(QXmlStreamReader::IncludeChildElements);
                 runs.push_back(fr);
@@ -704,9 +893,26 @@ bool loadDocx(const QByteArray &zipData, Document &doc, QString *error)
         } else if (xml.isEndElement()) {
             const auto n = xml.name();
             if (n == QLatin1String("r") && inR) {
+                if (!curLinkHref.isEmpty())
+                    run.link = curLinkHref;
                 if (!run.text.isEmpty() || run.bold || run.italic || !run.noteId.isEmpty() || !run.field.isEmpty())
                     runs.push_back(run);
                 inR = false;
+            } else if (n == QLatin1String("hyperlink")) {
+                curLinkHref.clear();
+            } else if ((n == QLatin1String("ins") || n == QLatin1String("del")) && importNativeRev
+                       && curRevStartOff >= 0) {
+                Revision rv;
+                rv.id = QStringLiteral("rev%1").arg(doc.revisions.size() + 1);
+                rv.kind = curRevKind;
+                rv.author = curRevAuthor;
+                rv.timestamp = curRevDate;
+                rv.blockId = QStringLiteral("pending");
+                rv.start = curRevStartOff;
+                rv.end = curLen();
+                doc.revisions.push_back(rv);
+                pendingRevisionIdx.push_back(doc.revisions.size() - 1);
+                curRevStartOff = -1;
             } else if (n == QLatin1String("drawing") && !blipRid.isEmpty()) {
                 QString target = rels.value(blipRid);
                 if (target.startsWith(QLatin1String("media/")))

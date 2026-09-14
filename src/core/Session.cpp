@@ -1398,6 +1398,36 @@ QJsonObject Session::insertAtCaret(const QJsonObject &args)
         undo_.removeLast();
         return fail(QStringLiteral("cannot insert"));
     }
+    if (doc_.trackChanges) {
+        if (hasRange && endOff > startOff) {
+            QString replaced;
+            for (const auto &r : *runs)
+                replaced += r.text;
+            replaced = replaced.mid(startOff, endOff - startOff);
+            Revision del;
+            del.id = QStringLiteral("rev%1").arg(doc_.revisions.size() + 1);
+            del.author = doc_.author.isEmpty() ? QStringLiteral("IA") : doc_.author;
+            del.kind = QStringLiteral("delete");
+            del.blockId = id;
+            del.start = startOff;
+            del.end = endOff;
+            del.text = replaced;
+            del.timestamp = QDateTime::currentMSecsSinceEpoch();
+            doc_.revisions.push_back(del);
+        }
+        if (!text.isEmpty()) {
+            Revision ins;
+            ins.id = QStringLiteral("rev%1").arg(doc_.revisions.size() + 1);
+            ins.author = doc_.author.isEmpty() ? QStringLiteral("IA") : doc_.author;
+            ins.kind = QStringLiteral("insert");
+            ins.blockId = id;
+            ins.start = startOff;
+            ins.end = startOff + text.size();
+            ins.text = text;
+            ins.timestamp = QDateTime::currentMSecsSinceEpoch();
+            doc_.revisions.push_back(ins);
+        }
+    }
     TextRun ins;
     ins.text = text;
     *runs = spliceRuns(*runs, startOff, endOff, ins);
@@ -2204,9 +2234,41 @@ QJsonObject Session::insertCrossref(const QJsonObject &args)
     const QString target = args.value(QStringLiteral("target")).toString();
     if (target.isEmpty())
         return fail(QStringLiteral("target is required"));
+    const QStringList okXrefKinds = {QStringLiteral("text"), QStringLiteral("page"),
+                                      QStringLiteral("heading_number"), QStringLiteral("above_below"),
+                                      QStringLiteral("category_number"), QStringLiteral("footnote_number"),
+                                      QStringLiteral("endnote_number")};
+    QString xrefKind = args.value(QStringLiteral("kind")).toString(QStringLiteral("text"));
+    if (!okXrefKinds.contains(xrefKind))
+        return fail(QStringLiteral("kind must be text, page, heading_number, above_below, category_number, footnote_number, or endnote_number"));
+    if (xrefKind == QLatin1String("above_below")) {
+        // Resolved once at insert time (document position), not a live field — documented simplification.
+        QString hostId = args.value(QStringLiteral("id")).toString();
+        if (hostId.isEmpty())
+            hostId = sel_.focusId;
+        const int hostIdx = doc_.indexOf(hostId);
+        const int tgtIdx = doc_.indexOf(target);
+        QString word = QStringLiteral("?");
+        if (hostIdx >= 0 && tgtIdx >= 0)
+            word = tgtIdx < hostIdx ? QStringLiteral("acima") : QStringLiteral("abaixo");
+        QJsonObject field;
+        field[QStringLiteral("kind")] = QStringLiteral("custom");
+        field[QStringLiteral("arg")] = word;
+        if (!hostId.isEmpty())
+            field[QStringLiteral("id")] = hostId;
+        if (args.contains(QStringLiteral("offset")))
+            field[QStringLiteral("offset")] = args.value(QStringLiteral("offset"));
+        return insertField(field);
+    }
     QJsonObject field;
     field[QStringLiteral("kind")] = QStringLiteral("xref");
     field[QStringLiteral("arg")] = target;
+    if (xrefKind != QLatin1String("text"))
+        field[QStringLiteral("xref_kind")] = xrefKind;
+    if (args.contains(QStringLiteral("id")))
+        field[QStringLiteral("id")] = args.value(QStringLiteral("id"));
+    if (args.contains(QStringLiteral("offset")))
+        field[QStringLiteral("offset")] = args.value(QStringLiteral("offset"));
     return insertField(field);
 }
 
@@ -2240,6 +2302,8 @@ QJsonObject Session::insertField(const QJsonObject &args)
     TextRun ins;
     ins.field = kind;
     ins.fieldArg = args.value(QStringLiteral("arg")).toString();
+    if (kind == QLatin1String("xref"))
+        ins.xrefKind = args.value(QStringLiteral("xref_kind")).toString();
     ins.text = runDisplayText(doc_, ins, 1, 1);
     const int at = off < 0 ? b->plainText().size() : off;
     b->runs = spliceRuns(b->runs, at, at, ins);

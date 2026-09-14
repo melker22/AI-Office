@@ -4,6 +4,7 @@
 #include <QJsonArray>
 #include <QJsonDocument>
 #include <QRegularExpression>
+#include <QSet>
 #include <algorithm>
 
 namespace aioffice {
@@ -47,6 +48,8 @@ QJsonObject TextRun::toJson() const
         o[QStringLiteral("field")] = field;
     if (!fieldArg.isEmpty())
         o[QStringLiteral("field_arg")] = fieldArg;
+    if (!xrefKind.isEmpty())
+        o[QStringLiteral("xref_kind")] = xrefKind;
     if (!noteId.isEmpty())
         o[QStringLiteral("note_id")] = noteId;
     if (!ruby.isEmpty())
@@ -81,6 +84,7 @@ TextRun TextRun::fromJson(const QJsonObject &o)
     r.subscript = o.value(QStringLiteral("subscript")).toBool();
     r.field = o.value(QStringLiteral("field")).toString();
     r.fieldArg = o.value(QStringLiteral("field_arg")).toString();
+    r.xrefKind = o.value(QStringLiteral("xref_kind")).toString();
     r.noteId = o.value(QStringLiteral("note_id")).toString();
     r.ruby = o.value(QStringLiteral("ruby")).toString();
     r.redact = o.value(QStringLiteral("redact")).toBool();
@@ -1206,6 +1210,68 @@ QString formatPageNumber(int n, const QString &format)
     return QString::number(n);
 }
 
+static QString headingNumberOf(const Document &doc, const QString &blockId)
+{
+    int counters[9] = {0, 0, 0, 0, 0, 0, 0, 0, 0};
+    for (const auto &b : doc.body) {
+        if (b.type != QLatin1String("heading"))
+            continue;
+        const int lvl = qBound(1, b.level > 0 ? b.level : 1, 9);
+        ++counters[lvl - 1];
+        for (int i = lvl; i < 9; ++i)
+            counters[i] = 0;
+        if (b.id == blockId) {
+            QStringList parts;
+            for (int i = 0; i < lvl; ++i)
+                parts << QString::number(counters[i]);
+            return parts.join(QLatin1Char('.'));
+        }
+    }
+    return {};
+}
+
+static int noteOrdinalOf(const Document &doc, const QString &noteId, bool endnote)
+{
+    int n = 0;
+    for (const auto &b : doc.body) {
+        for (const auto &run : b.runs) {
+            if (run.noteId.isEmpty())
+                continue;
+            const Block *nb = doc.findBlock(run.noteId);
+            if (!nb)
+                continue;
+            const bool isEnd = nb->type == QLatin1String("endnote");
+            if (isEnd != endnote)
+                continue;
+            ++n;
+            if (run.noteId == noteId)
+                return n;
+        }
+    }
+    return 0;
+}
+
+static int categoryOrdinalOf(const Document &doc, const QString &blockId)
+{
+    const Block *target = doc.findBlock(blockId);
+    if (!target)
+        return 0;
+    static const QSet<QString> kCategories = {QStringLiteral("image"), QStringLiteral("table"),
+                                               QStringLiteral("chart"), QStringLiteral("equation"),
+                                               QStringLiteral("qr"), QStringLiteral("form")};
+    if (!kCategories.contains(target->type))
+        return 0;
+    int n = 0;
+    for (const auto &b : doc.body) {
+        if (b.type != target->type)
+            continue;
+        ++n;
+        if (b.id == blockId)
+            return n;
+    }
+    return 0;
+}
+
 QString runDisplayText(const Document &doc, const TextRun &r, int page, int pages)
 {
     if (r.hidden)
@@ -1268,25 +1334,41 @@ QString runDisplayText(const Document &doc, const TextRun &r, int page, int page
         if (t.isEmpty())
             t = QStringLiteral("[") + key + QLatin1Char(']');
     } else if (r.field == QLatin1String("xref")) {
-        const Block *tgt = doc.findBlock(r.fieldArg);
-        if (tgt) {
-            if (tgt->type == QLatin1String("image") || tgt->type == QLatin1String("table")
-                || tgt->type == QLatin1String("equation") || tgt->type == QLatin1String("chart"))
-                t = tgt->caption.isEmpty() ? tgt->id : tgt->caption;
-            else if (tgt->type == QLatin1String("list-item"))
-                t = tgt->plainText().left(48);
-            else
-                t = tgt->plainText().left(48);
-        } else {
-            for (const auto &bm : doc.bookmarks) {
-                if (bm.id == r.fieldArg || bm.name == r.fieldArg) {
-                    const Block *b = doc.findBlock(bm.blockId);
-                    t = b ? b->plainText().left(48) : bm.name;
-                    break;
+        if (r.xrefKind == QLatin1String("heading_number")) {
+            t = headingNumberOf(doc, r.fieldArg);
+        } else if (r.xrefKind == QLatin1String("footnote_number")) {
+            const int n = noteOrdinalOf(doc, r.fieldArg, false);
+            t = n > 0 ? QString::number(n) : QString();
+        } else if (r.xrefKind == QLatin1String("endnote_number")) {
+            const int n = noteOrdinalOf(doc, r.fieldArg, true);
+            t = n > 0 ? QString::number(n) : QString();
+        } else if (r.xrefKind == QLatin1String("category_number")) {
+            const int n = categoryOrdinalOf(doc, r.fieldArg);
+            t = n > 0 ? QString::number(n) : QString();
+        }
+        // "page" is resolved by the layout-aware caller (Preview.cpp); falls through to the
+        // target-text lookup below as a placeholder when no layout is available (export, insert time).
+        if (t.isEmpty()) {
+            const Block *tgt = doc.findBlock(r.fieldArg);
+            if (tgt) {
+                if (tgt->type == QLatin1String("image") || tgt->type == QLatin1String("table")
+                    || tgt->type == QLatin1String("equation") || tgt->type == QLatin1String("chart"))
+                    t = tgt->caption.isEmpty() ? tgt->id : tgt->caption;
+                else if (tgt->type == QLatin1String("list-item"))
+                    t = tgt->plainText().left(48);
+                else
+                    t = tgt->plainText().left(48);
+            } else {
+                for (const auto &bm : doc.bookmarks) {
+                    if (bm.id == r.fieldArg || bm.name == r.fieldArg) {
+                        const Block *b = doc.findBlock(bm.blockId);
+                        t = b ? b->plainText().left(48) : bm.name;
+                        break;
+                    }
                 }
+                if (t.isEmpty())
+                    t = r.fieldArg;
             }
-            if (t.isEmpty())
-                t = r.fieldArg;
         }
     } else {
         t = r.text;

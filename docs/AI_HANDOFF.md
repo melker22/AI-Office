@@ -26,6 +26,29 @@
 
 ---
 
+## 2026-09-14 — Claude Code — Fase IA onda 12: round-trip real, crossref kind, hifenação real
+
+**Objective:** Continuar a Fase IA na Onda 12 (backlog puxado do Notion + `docs/WRITER_FEATURE_CATALOG.md`): bookmarks/revisões/hiperlinks/campos com fidelidade real de round-trip ODT/DOCX, `insert_crossref` com `kind`, e hifenação real (Knuth-Liang) no lugar da heurística. Sem chrome QML novo. Sem push.
+
+**Done:**
+- Verificação de código (não só a nota do catálogo) antes de planear: `Revision.payload` e `document_export_pdf` `from/to/copies` já estavam implementados desde as ondas 9/11 — só o catálogo estava desatualizado, corrigido.
+- Bookmarks e revisões `insert` → marcação real: ODT `<text:bookmark-start/end>` + `<text:change-start/end>`/`<text:tracked-changes>`; DOCX `<w:bookmarkStart/End>` + `<w:ins w:author w:date>`. Blob `aioffice:extra`/`word/aioffice.json` vira fallback de merge (id não achado na marcação real ainda é recuperado dele). Revisões `delete`/`format` continuam só no blob — limite honesto documentado (o modelo remove o texto apagado de `runs` na hora, só fica log em `Revision.text`).
+- Hiperlink corrigido nos dois sentidos e formatos: DOCX escrevia `w:anchor` para toda âncora (quebrava URL externa) e nenhum formato lia `text:a`/`w:hyperlink` de volta — hiperlink se perdia sempre ao reabrir. Agora link interno usa âncora/`#id`, externo aloca relationship (`r:id`, `TargetMode=External`); leitura implementada nos dois formatos.
+- Campos: `merge/var/custom/input/time/cite` agora mapeiam para `MERGEFIELD/DOCVARIABLE/FILLIN/TIME/instr próprio` no DOCX (antes só 6 tipos clássicos mapeavam) e são lidos de volta; corrigido bug de extração do argumento do campo no load DOCX (`instr.section` pegava a palavra errada e forçava maiúsculas, quebrando ids como `h2`).
+- `insert_crossref` ganhou `kind`: `page` (nº de página vivo do alvo via `DocumentLayout::pageOf`), `heading_number`, `category_number`, `footnote_number`, `endnote_number` (dinâmicos, recalculados a cada `page_preview`), `above_below` (resolvido uma vez no insert, documentado como não-vivo).
+- `insert_at_caret` passou a gravar `Revision` insert/delete quando `track_changes` está ligado — antes só a digitação ao vivo no canvas e `apply_character_format` gravavam; a tool MCP mais usada para editar texto não gravava nada.
+- Hifenação real Knuth-Liang (`src/core/Hyphenation.h/.cpp`) com dicionários `hyph_en_US.dic` (tri-license GPL-2.0/LGPL-2.1/MPL-1.1, usado sob LGPL-2.1) e `hyph_pt_BR.dic` (LGPLv3/MPL) — ambos verificados compatíveis com GPL-3.0-or-later antes de vendorizar (`src/core/hyphen/NOTICE.md`). `pt_PT` avaliado e descartado por licença ambígua ("GNU GPL" sem versão). Substitui a heurística de sufixos/5-em-5; validado manualmente (`desenvolvimento`→`de-sen-vol-vi-mento`, `hyphenation`→`hy-phen-ation`).
+- Playbooks: `qa/wave12-roundtrip.json`, `qa/wave12-fields.json`, `qa/wave12-crossref.json`, `qa/wave12-hyphenation.json`; `qa/check_roundtrip.py` estendido para conferir contagem de bookmarks/revisões. Regressão: ondas 9/10/11 continuam `ok:true`.
+- Notion: nova linha Todo/Infra registando a sugestão de um bridge HTTP opcional (`aioffice mcp --http`) para IA hospedada sem MCP nativo nem acesso a processo local — fora de escopo desta onda, mapeado para onda futura de Platform/Infra.
+
+**Decisions:** Bookmarks continuam de granularidade "bloco inteiro" (não offset preciso) — consistente com o que já existia no save ODT. Revisão `delete`/`format` fica só no blob JSON até uma onda dedicada decidir reinserir texto apagado sinteticamente na exportação. `above_below` é deliberadamente não-vivo (resolvido no insert). `pt_BR` escolhido sobre `pt_PT` por clareza de licença. Onda 13 (PDF tagged + anotações) já tem o caminho técnico confirmado via docs do Qt: sem API nativa, precisa de pós-processador de PDF.
+
+**Next suggested step:** Onda 13 (fidelidade de PDF: tagged + anotações reais via pós-processador), depois onda 14 (CSL) e onda 15 (CTL/CJK). Ou, se o utilizador preferir, uma onda de packaging (Hunspell sempre disponível no build Nix).
+
+**Commits:** nenhum ainda (usuário não pediu)
+
+---
+
 ## 2026-08-30 — Cursor — Página GitHub e README Tinta & Papel
 
 **Objective:** Deixar o repositório apresentável (About, topics, README) sem o tornar público.

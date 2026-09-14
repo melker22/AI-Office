@@ -1,6 +1,6 @@
 # Catálogo Writer — ideias do Guide, código nosso
 
-Espelho git do board **Roadmap para Produção** no Notion ([hub](https://app.notion.com/p/3cb46a79156b819daef5ea9d7c41385a)). Sync: **2026-08-30** (Fase IA **onda 11**: órfãs, biblioteca, notas, mestre). Totais: **183 Done**, **18 Partial**, **40 Todo**. Coluna **Fase** = `IA` | `Humano` | `Infra` | `Fora`.
+Espelho git do board **Roadmap para Produção** no Notion ([hub](https://app.notion.com/p/3cb46a79156b819daef5ea9d7c41385a)). Sync: **2026-09-14** (Fase IA **onda 12**: bookmarks/revisões/hiperlinks/campos → marcação real ODT/DOCX, crossref com `kind`, hifenação real Knuth-Liang). Totais: **189 Done**, **12 Partial**, **40 Todo**. Coluna **Fase** = `IA` | `Humano` | `Infra` | `Fora`.
 
 Fonte citável: The Document Foundation — [LibreOffice Writer Guide 26.2](https://books.libreoffice.org/en/WG262/WG262.html). Atribuição e limites: [`ATTRIBUTION.md`](ATTRIBUTION.md).
 
@@ -161,6 +161,11 @@ Camadas: `JSON+MCP+GUI` · `JSON+MCP` · `só JSON` · `infra`.
 | Sumário automático (só headings) | Writer | WG 26.2 cap. 15 | JSON+MCP |
 | Documento mestre | Writer | WG 26.2 cap. 16 | JSON+MCP |
 | Track changes de formatação | Writer | WG 26.2 cap. 3 | JSON+MCP |
+| Controle de alterações (inserir/apagar) | Writer | WG 26.2 cap. 3 | JSON+MCP |
+| Hiperlink | Writer | WG 26.2 cap. 3 | JSON+MCP |
+| Marcadores e referências cruzadas | Writer | WG 26.2 cap. 17 | JSON+MCP |
+| Hifenação real (Knuth-Liang) | Writer | WG 26.2 cap. 4 | JSON+MCP |
+| Impressão: intervalo, cópias | Writer | WG 26.2 cap. 7 | JSON+MCP |
 
 ## Partial
 
@@ -168,26 +173,20 @@ Camadas: `JSON+MCP+GUI` · `JSON+MCP` · `só JSON` · `infra`.
 |------|------|-------|-------------|
 | Shell Tinta & Papel | Design | UX Pilot | Zero vazamento Qt |
 | Linux packaging / PATH | Platform | infra | PATH global NixOS |
-| Round-trip ODT/DOCX | Formats | WG 26.2 cap. 1, 7 | Fidelidade visual LO; nested notes |
+| Round-trip ODT/DOCX | Formats | WG 26.2 cap. 1, 7 | Bookmarks/revisões-insert/hiperlinks/campos já viram marcação nativa (onda 12); falta revisão `delete` real (o texto apagado já sai de `runs`, só fica log em `Revision.text` — recriar `w:del`/`text:change` exigiria reinserção sintética), `format`, nested notes |
 | Autocorrect mínimo | Writer | WG 26.2 cap. 2 | GUI |
-| Campos dinâmicos | Writer | WG 26.2 cap. 17 | Dezenas de tipos do Guide; há filepath |
-| Control de alterações (inserir/apagar) | Writer | WG 26.2 cap. 3 | UI / balloons; format JSON no payload |
+| Campos dinâmicos | Writer | WG 26.2 cap. 17 | Fidelidade melhorou (onda 12: merge/var/input/time/cite mapeiam para instr DOCX reais); ainda faltam dezenas de tipos do Guide (sender, doc statistics, condicional IF) |
 | Estilos só parágrafo | Writer | WG 26.2 cap. 8–9 | GUI carácter |
-| Hifenação naive | Writer | WG 26.2 cap. 4 | Dicionário TeX de padrões |
-| Dicionário de hifenação | Writer | WG 26.2 cap. 4 | Sufixos PT/EN; não é .dic TeX |
-| Hiperlink | Writer | WG 26.2 cap. 3 | Visita + export |
-| Marcadores e referências cruzadas | Writer | WG 26.2 cap. 17 | Mais tipos de xref |
 | Ortografia Hunspell | Writer | WG 26.2 cap. 3 | Build sem Hunspell |
-| PDF/A e PDF etiquetado | Formats | WG 26.2 cap. 7 | PDF etiquetado / tagged |
-| Comentários no PDF | Formats | WG 26.2 cap. 7 | Página extra; QPainter não emite anotações |
-| Impressão: intervalo, cópias, duplex | Writer | WG 26.2 cap. 7 | from/to/copies no PDF; duplex é o SO |
+| PDF/A e PDF etiquetado | Formats | WG 26.2 cap. 7 | PDF etiquetado / tagged — confirmado: `QPdfWriter` não expõe API de structure tree; caminho viável é pós-processador que injeta `/StructTreeRoot` no PDF já gerado (onda 13) |
+| Comentários no PDF | Formats | WG 26.2 cap. 7 | Página extra; QPainter não emite anotações — mesmo pós-processador da onda 13 resolve os dois |
 | Citação CSL | Writer | WG 26.2 cap. 15 | Processador CSL completo; há cite+JSON |
 | CTL/CJK completo | Writer | WG 26.2 cap. 4 | Ruby/vertical/kashida; sem shaping completo |
 | Tools MCP para cada mutação | MCP | infra | Chrome Humano |
 
 ## Todo (Humano / Infra — IA continua na próxima onda se restar JSON+MCP)
 
-Fase IA Writer **não** está encerrada: o board ainda tem Todos de chrome, packaging e limites honestos. A onda 11 cobre órfãs reais, biblioteca, índice biblio, notas por página, include, track de formato.
+Fase IA Writer **não** está encerrada: o board ainda tem Todos de chrome, packaging e limites honestos. A onda 12 cobre bookmarks/revisões/hiperlinks/campos → marcação real ODT/DOCX, `insert_crossref` com `kind` (page/heading_number/above_below/category_number/footnote_number/endnote_number), hifenação real Knuth-Liang, e `insert_at_caret` gravando track changes. Próximas ondas mapeadas: **13** fidelidade de PDF (tagged + anotações reais, via pós-processador de PDF), **14** processador CSL completo, **15** CTL/CJK completo (bidi + métricas).
 
 - **Humano (chrome Tinta & Papel):** régua; stats GUI; zoom GUI; print preview; Navigator; paleta; atalhos; recents; status bar; modo leitura; split; foco/typewriter; inspector; balloons; DnD reorder; teclado só no canvas; Autocorrect lista GUI; underline ao escrever; impressão.
 - **Infra:** backup `~`; layout lazy; watch file; Hunspell Nix; Flatpak; CRDT; DOC/RTF nativo; EPUB; PDF font embed; XMP; assinatura; senha; crash recovery; autosave.

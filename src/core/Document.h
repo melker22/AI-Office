@@ -32,6 +32,7 @@ struct TextRun {
     QString link;
     QString field;    // page_number | page_count | date | title | author | xref
     QString fieldArg; // xref target id
+    QString xrefKind; // xref only: text (default) | page | heading_number | footnote_number | endnote_number | category_number
     QString noteId;   // footnote/endnote block id
     QString ruby;
     bool redact = false;

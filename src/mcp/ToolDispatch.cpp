@@ -376,8 +376,11 @@ QJsonArray toolDefinitions()
                               {QStringLiteral("offset"), prop(QStringLiteral("integer"))}},
                   QJsonArray{QStringLiteral("name")}));
     a.append(tool(QStringLiteral("insert_crossref"),
-                  QStringLiteral("Insert a cross-reference field to a block or bookmark id."),
-                  QJsonObject{{QStringLiteral("target"), prop(QStringLiteral("string"))}},
+                  QStringLiteral("Insert a cross-reference field to a block or bookmark id. kind: text (default, target's text/caption) | page (target's live page number) | heading_number (target heading's outline number, e.g. 1.2) | above_below (resolved once at insert time to \"acima\"/\"abaixo\") | category_number (target's ordinal among same-type figures/tables) | footnote_number | endnote_number."),
+                  QJsonObject{{QStringLiteral("target"), prop(QStringLiteral("string"))},
+                              {QStringLiteral("kind"), prop(QStringLiteral("string"))},
+                              {QStringLiteral("id"), prop(QStringLiteral("string"))},
+                              {QStringLiteral("offset"), prop(QStringLiteral("integer"))}},
                   QJsonArray{QStringLiteral("target")}));
     a.append(tool(QStringLiteral("insert_field"),
                   QStringLiteral("Insert a field: page_number, page_count, date, title, author, xref, filename, word_count, custom, merge, chapter, var, input, time, cite, filepath."),
