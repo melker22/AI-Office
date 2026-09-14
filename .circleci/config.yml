@@ -33,8 +33,28 @@ jobs:
             - aioffice-nix-store-v1-
 
       - run:
-          name: Configure + build (cmake --preset linux, inside nix-shell)
-          command: nix-shell --run "cmake --preset linux && cmake --build --preset linux"
+          name: Configure (cmake --preset linux, inside nix-shell — pulls the whole Qt 6 toolchain from cache.nixos.org on a cold cache)
+          # Generous timeout: an *uncached* nix-shell here pulls the entire Qt 6 closure (Qt itself
+          # plus its transitive deps — GTK, systemd, cups, icu4c, harfbuzz, pango... — a couple of
+          # hundred packages) from the binary cache; that alone was seen to eat several minutes
+          # before a single line of cmake output appears. Once /nix is cached (see save_cache
+          # below), subsequent runs skip almost all of this.
+          no_output_timeout: 30m
+          command: nix-shell --run "cmake --preset linux"
+
+      - run:
+          name: Build (cmake --build --preset linux, inside nix-shell)
+          # -j$(nproc): ninja auto-detects parallelism from the *host* CPU count, which can be
+          # higher than what this container's resource_class actually gets — over-subscribing
+          # parallel GCC invocations on a couple of real cores causes thrashing that can silently
+          # stall a build for a long time. Pinning -j to the container's own nproc avoids that.
+          # Some single translation units here (Session.cpp, ToolDispatch.cpp — both host large,
+          # generated-schema-heavy functions) take 1-2 minutes each locally and print nothing to
+          # stdout while compiling, so this also gets a generous no_output_timeout rather than
+          # CircleCI's 10m default, which is what killed the first CI runs (outcome: "canceled")
+          # even though the build was progressing normally, just silently.
+          no_output_timeout: 20m
+          command: nix-shell --run "cmake --build --preset linux -- -j\$(nproc)"
 
       - save_cache:
           key: aioffice-nix-store-v1-{{ checksum "shell.nix" }}
