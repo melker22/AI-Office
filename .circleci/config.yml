@@ -33,13 +33,27 @@ jobs:
             - aioffice-nix-store-v1-
 
       - run:
-          name: Configure (cmake --preset linux, inside nix-shell — pulls the whole Qt 6 toolchain from cache.nixos.org on a cold cache)
-          # Generous timeout: an *uncached* nix-shell here pulls the entire Qt 6 closure (Qt itself
-          # plus its transitive deps — GTK, systemd, cups, icu4c, harfbuzz, pango... — a couple of
-          # hundred packages) from the binary cache; that alone was seen to eat several minutes
-          # before a single line of cmake output appears. Once /nix is cached (see save_cache
-          # below), subsequent runs skip almost all of this.
+          name: Warm up the Nix store (pulls the whole Qt 6 toolchain from cache.nixos.org on a cold cache)
+          # A cold nix-shell here pulls the entire Qt 6 closure (Qt itself plus its transitive
+          # deps — GTK, systemd, cups, icu4c, harfbuzz, pango, X11/Wayland... several hundred
+          # packages, since the GUI target pulls in the full desktop stack) from the binary cache.
+          # Kept as its OWN step, saved to cache immediately below regardless of whether the build
+          # itself later succeeds — every run so far has had the actual compile get cut off
+          # (see the "Build" step below), which meant save_cache was never reached and every
+          # single run kept paying this cold-download cost from scratch. Splitting it out breaks
+          # that cycle: once this step succeeds once, every later run — including one whose build
+          # is still too slow — restores a warm store and skips straight to compiling.
           no_output_timeout: 30m
+          command: nix-shell --run "true"
+
+      - save_cache:
+          key: aioffice-nix-store-v1-{{ checksum "shell.nix" }}
+          paths:
+            - /nix
+
+      - run:
+          name: Configure (cmake --preset linux, inside nix-shell)
+          no_output_timeout: 10m
           command: nix-shell --run "cmake --preset linux"
 
       - run:
@@ -48,18 +62,8 @@ jobs:
           # higher than what this container's resource_class actually gets — over-subscribing
           # parallel GCC invocations on a couple of real cores causes thrashing that can silently
           # stall a build for a long time. Pinning -j to the container's own nproc avoids that.
-          # Some single translation units here (Session.cpp, ToolDispatch.cpp — both host large,
-          # generated-schema-heavy functions) take 1-2 minutes each locally and print nothing to
-          # stdout while compiling, so this also gets a generous no_output_timeout rather than
-          # CircleCI's 10m default, which is what killed the first CI runs (outcome: "canceled")
-          # even though the build was progressing normally, just silently.
           no_output_timeout: 20m
           command: nix-shell --run "cmake --build --preset linux -- -j\$(nproc)"
-
-      - save_cache:
-          key: aioffice-nix-store-v1-{{ checksum "shell.nix" }}
-          paths:
-            - /nix
 
       - run:
           name: Run qa/wave*.json playbooks (headless MCP tool smoke suite)
