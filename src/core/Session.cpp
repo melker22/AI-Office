@@ -1,5 +1,6 @@
 #include "core/Session.h"
 
+#include "core/Csl.h"
 #include "core/Docx.h"
 #include "core/Odf.h"
 #include "core/Preview.h"
@@ -3924,13 +3925,15 @@ QJsonObject Session::bibliographySet(const QJsonObject &args)
     for (const auto &v : args.value(QStringLiteral("entries")).toArray())
         doc_.bibliography.push_back(BiblioEntry::fromJson(v.toObject()));
     if (args.contains(QStringLiteral("id"))) {
-        BiblioEntry e;
+        BiblioEntry e = BiblioEntry::fromJson(args);
         e.id = args.value(QStringLiteral("id")).toString();
         e.key = args.value(QStringLiteral("key")).toString(e.id);
-        e.author = args.value(QStringLiteral("author")).toString();
-        e.title = args.value(QStringLiteral("title")).toString();
-        e.year = args.value(QStringLiteral("year")).toString();
         doc_.bibliography.push_back(e);
+    }
+    if (args.contains(QStringLiteral("cite_style"))) {
+        const QString st = args.value(QStringLiteral("cite_style")).toString();
+        if (csl::supportedStyles().contains(st))
+            doc_.citeStyle = st;
     }
     markChanged();
     auto r = ok();
@@ -4383,7 +4386,9 @@ QJsonObject Session::insertBibliography(const QJsonObject &args)
 {
     if (doc_.bibliography.isEmpty())
         return fail(QStringLiteral("bibliography is empty"));
-    const QString style = args.value(QStringLiteral("style")).toString(QStringLiteral("apa")).toLower();
+    QString style = args.value(QStringLiteral("style")).toString(doc_.citeStyle).toLower();
+    if (!csl::supportedStyles().contains(style))
+        style = QStringLiteral("apa");
     QString err;
     int at = insertIndex(args.value(QStringLiteral("after_id")).toString(QStringLiteral("end")), &err);
     if (at < 0)
@@ -4400,32 +4405,22 @@ QJsonObject Session::insertBibliography(const QJsonObject &args)
     doc_.body.insert(at++, heading);
     QJsonArray ids;
     ids.append(heading.id);
-    for (const auto &e : doc_.bibliography) {
+    // sorted by first author's surname (then year), matching every style's convention
+    QVector<BiblioEntry> sorted = doc_.bibliography;
+    std::sort(sorted.begin(), sorted.end(), [](const BiblioEntry &a, const BiblioEntry &b) {
+        if (a.author != b.author)
+            return a.author < b.author;
+        return a.year < b.year;
+    });
+    for (const auto &e : sorted) {
         Block para;
         para.type = QStringLiteral("paragraph");
         para.style = QStringLiteral("Normal");
-        TextRun r;
-        if (style == QLatin1String("abnt")) {
-            r.text = e.author.toUpper();
-            if (!r.text.isEmpty())
-                r.text += QStringLiteral(". ");
-            r.text += e.title;
-            if (!e.title.isEmpty() && !e.year.isEmpty())
-                r.text += QStringLiteral(". ");
-            r.text += e.year;
-            if (!e.year.isEmpty())
-                r.text += QLatin1Char('.');
-        } else {
-            r.text = e.author;
-            if (!e.year.isEmpty())
-                r.text += QStringLiteral(" (") + e.year + QStringLiteral("). ");
-            else if (!r.text.isEmpty())
-                r.text += QStringLiteral(". ");
-            r.text += e.title;
-            if (!e.title.isEmpty())
-                r.text += QLatin1Char('.');
-        }
-        para.runs.push_back(r);
+        para.indentLeftMm = 10;
+        para.indentFirstMm = -10; // hanging indent, standard for reference lists
+        para.runs = csl::bibliographyEntry(e, style);
+        if (para.runs.isEmpty())
+            para.runs.push_back(TextRun{});
         doc_.assignId(para);
         doc_.body.insert(at++, para);
         ids.append(para.id);

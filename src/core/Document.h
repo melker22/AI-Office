@@ -237,9 +237,21 @@ struct HeaderFooter {
 struct BiblioEntry {
     QString id;
     QString key;
-    QString author;
+    QString author; // "Last, First" or "First Last"; multiple authors separated by ';'
     QString title;
     QString year;
+    QString type = QStringLiteral("book"); // book | article-journal | webpage | chapter | thesis
+    QString containerTitle;                // journal name / parent book title / site name
+    QString publisher;
+    QString city;
+    QString volume;
+    QString issue;
+    QString pages;
+    QString edition;
+    QString editor;
+    QString doi;
+    QString url;
+    QString accessed; // access date for webpages, free text (WG has no full-date field yet)
 
     QJsonObject toJson() const;
     static BiblioEntry fromJson(const QJsonObject &o);
@@ -286,6 +298,7 @@ struct Document {
     QStringList userDic;
     QStringList imageLibrary;
     QVector<BiblioEntry> bibliography;
+    QString citeStyle = QStringLiteral("apa"); // apa | abnt | mla | chicago
     QStringList readingOrder;
 
     static Document blank(const QString &title = QString());

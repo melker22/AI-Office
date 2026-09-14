@@ -1,6 +1,6 @@
 # Catálogo Writer — ideias do Guide, código nosso
 
-Espelho git do board **Roadmap para Produção** no Notion ([hub](https://app.notion.com/p/3cb46a79156b819daef5ea9d7c41385a)). Sync: **2026-09-14** (Fase IA **onda 13**: PDF — anotações reais + tagged PDF de página via pós-processador). Totais: **190 Done**, **11 Partial**, **40 Todo**. Coluna **Fase** = `IA` | `Humano` | `Infra` | `Fora`.
+Espelho git do board **Roadmap para Produção** no Notion ([hub](https://app.notion.com/p/3cb46a79156b819daef5ea9d7c41385a)). Sync: **2026-09-14** (Fase IA **onda 14**: formatador CSL real para 4 estilos × 4 tipos de referência). Totais: **190 Done**, **11 Partial**, **41 Todo** (novo item rastreado: gerador de content stream PDF próprio para tagging de parágrafo, onda 15). Coluna **Fase** = `IA` | `Humano` | `Infra` | `Fora`.
 
 Fonte citável: The Document Foundation — [LibreOffice Writer Guide 26.2](https://books.libreoffice.org/en/WG262/WG262.html). Atribuição e limites: [`ATTRIBUTION.md`](ATTRIBUTION.md).
 
@@ -179,18 +179,21 @@ Camadas: `JSON+MCP+GUI` · `JSON+MCP` · `só JSON` · `infra`.
 | Campos dinâmicos | Writer | WG 26.2 cap. 17 | Fidelidade melhorou (onda 12: merge/var/input/time/cite mapeiam para instr DOCX reais); ainda faltam dezenas de tipos do Guide (sender, doc statistics, condicional IF) |
 | Estilos só parágrafo | Writer | WG 26.2 cap. 8–9 | GUI carácter |
 | Ortografia Hunspell | Writer | WG 26.2 cap. 3 | Build sem Hunspell |
-| PDF/A e PDF etiquetado | Formats | WG 26.2 cap. 7 | Tagged PDF de granularidade de **página** já sai (onda 13: `/MarkInfo` + `/StructTreeRoot`, um `/Part` por página, via pós-processador `src/core/PdfPostProcess.cpp`); falta granularidade de parágrafo/heading — exigiria injetar `BDC`/`EMC`+`MCID` nos content streams, que `QPainter`/`QPdfWriter` não permitem, ou um gerador de content stream próprio |
-| Citação CSL | Writer | WG 26.2 cap. 15 | Processador CSL completo; há cite+JSON |
+| PDF/A e PDF etiquetado | Formats | WG 26.2 cap. 7 | Tagged PDF de granularidade de **página** já sai (onda 13: `/MarkInfo` + `/StructTreeRoot`, um `/Part` por página, via pós-processador `src/core/PdfPostProcess.cpp`). Falta granularidade de parágrafo/heading — **planeado para a onda 15, não descartado**: exige um gerador de content stream PDF próprio (injetar `BDC`/`EMC`+`MCID`, que `QPainter`/`QPdfWriter` não permitem) |
+| Citação CSL | Writer | WG 26.2 cap. 15 | Onda 14: formatador real (não genérico) para 4 estilos — APA/ABNT/MLA/Chicago — × 4 tipos de referência (book/article-journal/webpage/chapter), citação in-text e bibliografia com itálico real, `src/core/Csl.cpp`. Falta suporte a arquivo `.csl` arbitrário (processador CSL-XML genérico) — pesquisado antes de começar: não existe biblioteca C/C++ embutível com licença compatível (citeproc-rs é Rust sem FFI-C; citeproc-java é JVM) |
 | CTL/CJK completo | Writer | WG 26.2 cap. 4 | Ruby/vertical/kashida; sem shaping completo |
 | Tools MCP para cada mutação | MCP | infra | Chrome Humano |
 
 ## Todo (Humano / Infra — IA continua na próxima onda se restar JSON+MCP)
 
-Fase IA Writer **não** está encerrada: o board ainda tem Todos de chrome, packaging e limites honestos. A onda 12 cobre bookmarks/revisões/hiperlinks/campos → marcação real ODT/DOCX, `insert_crossref` com `kind` (page/heading_number/above_below/category_number/footnote_number/endnote_number), hifenação real Knuth-Liang, e `insert_at_caret` gravando track changes. A onda 13 cobre anotações PDF reais e tagged PDF de página, via um pós-processador de PDF por atualização incremental (`src/core/PdfPostProcess.cpp`), validado com `qpdf --check`. Próximas ondas mapeadas: **14** processador CSL completo, **15** CTL/CJK completo (bidi + métricas), e — se algum dia fizer sentido priorizar — tagging de granularidade de parágrafo exigiria um gerador de content stream PDF próprio (fora do `QPdfWriter`).
+Fase IA Writer **não** está encerrada: o board ainda tem Todos de chrome, packaging e limites honestos. A onda 12 cobre bookmarks/revisões/hiperlinks/campos → marcação real ODT/DOCX, `insert_crossref` com `kind` (page/heading_number/above_below/category_number/footnote_number/endnote_number), hifenação real Knuth-Liang, e `insert_at_caret` gravando track changes. A onda 13 cobre anotações PDF reais e tagged PDF de página, via um pós-processador de PDF por atualização incremental (`src/core/PdfPostProcess.cpp`), validado com `qpdf --check`. A onda 14 cobre um formatador CSL real (não genérico) para 4 estilos (APA/ABNT/MLA/Chicago) × 4 tipos de referência, ver `src/core/Csl.cpp`.
+
+**Compromisso explícito, não "se der":** tagging de granularidade de parágrafo/heading no PDF (para além do tagging por página já entregue na onda 13) **vai ser implementado**, não é opcional — só está sequenciado para depois porque exige escrever um gerador de content stream PDF próprio (substituindo o `QPdfWriter` nesse ponto, já que `QPainter`/`QPdfWriter` não dão nenhum gancho para operadores `BDC`/`EMC`+`MCID`), trabalho grande demais para caber dentro da onda 13. Rastreado como item próprio no Notion (`PDF etiquetado — tagging de parágrafo` / "Gerador de content stream PDF próprio") e nesta nota, para não ser esquecido. Próximas ondas mapeadas: **15** processador de tagging de parágrafo (gerador de content stream próprio), **16** CTL/CJK completo (bidi + métricas), **17**+ ampliar o CSL para mais estilos/tipos de referência se o utilizador pedir.
 
 - **Humano (chrome Tinta & Papel):** régua; stats GUI; zoom GUI; print preview; Navigator; paleta; atalhos; recents; status bar; modo leitura; split; foco/typewriter; inspector; balloons; DnD reorder; teclado só no canvas; Autocorrect lista GUI; underline ao escrever; impressão.
 - **Infra:** backup `~`; layout lazy; watch file; Hunspell Nix; Flatpak; CRDT; DOC/RTF nativo; EPUB; PDF font embed; XMP; assinatura; senha; crash recovery; autosave.
-- **Limites honestos (Partial):** tagged PDF via QPainter; dicionário TeX de hífen; processador CSL; round-trip visual ODT/DOCX; anotações PDF nativas.
+- **Fase IA, planeado e rastreado (não "se der"):** **onda 15 — gerador de content stream PDF próprio**, para tagging de parágrafo/heading (hoje só página, onda 13) — item Notion "PDF etiquetado — tagging de parágrafo".
+- **Limites honestos restantes (Partial):** revisão `delete`/`format` no round-trip ODT/DOCX real (fica no JSON); nested notes; processador CSL genérico para arquivo `.csl` arbitrário (hoje 4 estilos fixos, onda 14).
 - **Testing (o utilizador pede à parte):** round-trip ctest; golden PNG; fuzz.
 
 Plataforma já no board: Windows v1, macOS, Linux PATH Partial. Product: Planilha / PPT — **não começar**.

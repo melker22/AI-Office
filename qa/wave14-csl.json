@@ -1,0 +1,14 @@
+[
+  {"tool": "document_new", "args": {"title": "Wave14 CSL"}},
+  {"tool": "bibliography_set", "args": {"entries": [
+    {"id": "b1", "key": "silva2020", "author": "Silva, Joao; Souza, Maria", "title": "Introducao a Linguistica", "year": "2020", "type": "book", "publisher": "Editora Alfa", "city": "Sao Paulo", "edition": "2"},
+    {"id": "b2", "key": "jones2019", "author": "Jones, Robert", "title": "Deep Learning Advances", "year": "2019", "type": "article-journal", "container_title": "Journal of AI", "volume": "12", "issue": "3", "pages": "45-60"},
+    {"id": "b3", "key": "site2021", "author": "Costa, Ana", "title": "Guia rapido", "year": "2021", "type": "webpage", "container_title": "Blog Exemplo", "url": "https://exemplo.com/guia", "accessed": "10 jan. 2026"}
+  ], "cite_style": "apa"}},
+  {"tool": "insert_blocks", "args": {"after_id": "start", "blocks": [{"type": "paragraph", "runs": [{"text": ""}]}]}},
+  {"tool": "insert_citation", "args": {"id": "p1", "offset": 0, "key": "silva2020"}},
+  {"tool": "insert_bibliography", "args": {"style": "apa"}},
+  {"tool": "page_preview", "args": {"page": 1}},
+  {"tool": "document_get", "args": {}},
+  {"tool": "validate", "args": {}}
+]

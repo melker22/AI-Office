@@ -1,5 +1,6 @@
 #include "core/Document.h"
 
+#include "core/Csl.h"
 #include <QDateTime>
 #include <QJsonArray>
 #include <QJsonDocument>
@@ -124,6 +125,30 @@ QJsonObject BiblioEntry::toJson() const
     o[QStringLiteral("author")] = author;
     o[QStringLiteral("title")] = title;
     o[QStringLiteral("year")] = year;
+    if (!type.isEmpty() && type != QLatin1String("book"))
+        o[QStringLiteral("type")] = type;
+    if (!containerTitle.isEmpty())
+        o[QStringLiteral("container_title")] = containerTitle;
+    if (!publisher.isEmpty())
+        o[QStringLiteral("publisher")] = publisher;
+    if (!city.isEmpty())
+        o[QStringLiteral("city")] = city;
+    if (!volume.isEmpty())
+        o[QStringLiteral("volume")] = volume;
+    if (!issue.isEmpty())
+        o[QStringLiteral("issue")] = issue;
+    if (!pages.isEmpty())
+        o[QStringLiteral("pages")] = pages;
+    if (!edition.isEmpty())
+        o[QStringLiteral("edition")] = edition;
+    if (!editor.isEmpty())
+        o[QStringLiteral("editor")] = editor;
+    if (!doi.isEmpty())
+        o[QStringLiteral("doi")] = doi;
+    if (!url.isEmpty())
+        o[QStringLiteral("url")] = url;
+    if (!accessed.isEmpty())
+        o[QStringLiteral("accessed")] = accessed;
     return o;
 }
 
@@ -135,6 +160,18 @@ BiblioEntry BiblioEntry::fromJson(const QJsonObject &o)
     e.author = o.value(QStringLiteral("author")).toString();
     e.title = o.value(QStringLiteral("title")).toString();
     e.year = o.value(QStringLiteral("year")).toString();
+    e.type = o.value(QStringLiteral("type")).toString(QStringLiteral("book"));
+    e.containerTitle = o.value(QStringLiteral("container_title")).toString();
+    e.publisher = o.value(QStringLiteral("publisher")).toString();
+    e.city = o.value(QStringLiteral("city")).toString();
+    e.volume = o.value(QStringLiteral("volume")).toString();
+    e.issue = o.value(QStringLiteral("issue")).toString();
+    e.pages = o.value(QStringLiteral("pages")).toString();
+    e.edition = o.value(QStringLiteral("edition")).toString();
+    e.editor = o.value(QStringLiteral("editor")).toString();
+    e.doi = o.value(QStringLiteral("doi")).toString();
+    e.url = o.value(QStringLiteral("url")).toString();
+    e.accessed = o.value(QStringLiteral("accessed")).toString();
     return e;
 }
 
@@ -993,6 +1030,8 @@ QJsonObject Document::toJson() const
             ba.append(e.toJson());
         root[QStringLiteral("bibliography")] = ba;
     }
+    if (citeStyle != QLatin1String("apa"))
+        root[QStringLiteral("cite_style")] = citeStyle;
     return root;
 }
 
@@ -1089,6 +1128,7 @@ Document Document::fromJson(const QJsonObject &o)
         d.thesaurus.insert(it.key(), it.value().toString());
     for (const auto &e : o.value(QStringLiteral("bibliography")).toArray())
         d.bibliography.push_back(BiblioEntry::fromJson(e.toObject()));
+    d.citeStyle = o.value(QStringLiteral("cite_style")).toString(QStringLiteral("apa"));
     return d;
 }
 
@@ -1325,9 +1365,7 @@ QString runDisplayText(const Document &doc, const TextRun &r, int page, int page
         const QString key = r.fieldArg.isEmpty() ? r.text : r.fieldArg;
         for (const auto &e : doc.bibliography) {
             if (e.id == key || e.key == key) {
-                t = e.author;
-                if (!e.year.isEmpty())
-                    t += QStringLiteral(" (") + e.year + QLatin1Char(')');
+                t = csl::inText(e, doc.citeStyle);
                 break;
             }
         }

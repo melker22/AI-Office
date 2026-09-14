@@ -701,15 +701,32 @@ QJsonArray toolDefinitions()
                               {QStringLiteral("checked"), prop(QStringLiteral("boolean"))},
                               {QStringLiteral("options"), prop(QStringLiteral("array"))}}));
     a.append(tool(QStringLiteral("bibliography_set"),
-                  QStringLiteral("Set bibliography entries [{id,key,author,title,year}] and/or a single id+key+author."),
+                  QStringLiteral("Set bibliography entries and/or a single one, plus the document's cite_style (apa|abnt|mla|chicago). "
+                                 "Entry fields: id, key, author (\"Last, First\", multiple ';'-separated), title, year, "
+                                 "type (book|article-journal|webpage|chapter, default book), container_title (journal/parent book/site), "
+                                 "publisher, city, volume, issue, pages, edition, editor, doi, url, accessed."),
                   QJsonObject{{QStringLiteral("entries"), prop(QStringLiteral("array"))},
                               {QStringLiteral("id"), prop(QStringLiteral("string"))},
                               {QStringLiteral("key"), prop(QStringLiteral("string"))},
                               {QStringLiteral("author"), prop(QStringLiteral("string"))},
                               {QStringLiteral("title"), prop(QStringLiteral("string"))},
-                              {QStringLiteral("year"), prop(QStringLiteral("string"))}}));
+                              {QStringLiteral("year"), prop(QStringLiteral("string"))},
+                              {QStringLiteral("type"), prop(QStringLiteral("string"))},
+                              {QStringLiteral("container_title"), prop(QStringLiteral("string"))},
+                              {QStringLiteral("publisher"), prop(QStringLiteral("string"))},
+                              {QStringLiteral("city"), prop(QStringLiteral("string"))},
+                              {QStringLiteral("volume"), prop(QStringLiteral("string"))},
+                              {QStringLiteral("issue"), prop(QStringLiteral("string"))},
+                              {QStringLiteral("pages"), prop(QStringLiteral("string"))},
+                              {QStringLiteral("edition"), prop(QStringLiteral("string"))},
+                              {QStringLiteral("editor"), prop(QStringLiteral("string"))},
+                              {QStringLiteral("doi"), prop(QStringLiteral("string"))},
+                              {QStringLiteral("url"), prop(QStringLiteral("string"))},
+                              {QStringLiteral("accessed"), prop(QStringLiteral("string"))},
+                              {QStringLiteral("cite_style"), prop(QStringLiteral("string"), QStringLiteral("apa|abnt|mla|chicago, document-wide"))}}));
     a.append(tool(QStringLiteral("insert_citation"),
-                  QStringLiteral("Insert a cite field. key or arg matches bibliography id/key."),
+                  QStringLiteral("Insert a cite field. key or arg matches bibliography id/key. Rendered in-text per the document's "
+                                 "cite_style (set via bibliography_set); re-renders live if cite_style changes later."),
                   QJsonObject{{QStringLiteral("key"), prop(QStringLiteral("string"))},
                               {QStringLiteral("arg"), prop(QStringLiteral("string"))},
                               {QStringLiteral("id"), prop(QStringLiteral("string"))}}));
@@ -797,7 +814,10 @@ QJsonArray toolDefinitions()
                               {QStringLiteral("after_id"), prop(QStringLiteral("string"))},
                               {QStringLiteral("width_mm"), prop(QStringLiteral("number"))}}));
     a.append(tool(QStringLiteral("insert_bibliography"),
-                  QStringLiteral("Insert a bibliography list from document entries. style=apa|abnt (lite, not CSL)."),
+                  QStringLiteral("Insert a bibliography list from document entries, formatted per style: apa|abnt|mla|chicago "
+                                 "(default: document cite_style). Covers book/article-journal/webpage/chapter entry types with "
+                                 "real per-style rules (author list format, title italics, container/volume/issue/pages), sorted "
+                                 "by author then year. Not a generic CSL-file interpreter (no arbitrary custom .csl styles)."),
                   QJsonObject{{QStringLiteral("after_id"), prop(QStringLiteral("string"))},
                               {QStringLiteral("title"), prop(QStringLiteral("string"))},
                               {QStringLiteral("style"), prop(QStringLiteral("string"))}}));
