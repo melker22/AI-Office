@@ -67,36 +67,51 @@ jobs:
       # off) instead of redoing all 108 targets from scratch every single time. Keyed on the commit
       # so a retry of the exact same commit gets an exact hit; falls back to the branch's most
       # recent build otherwise.
+      # Two distinct cache generations (full build preferred, core-only as a fallback) because
+      # save_cache silently no-ops on a key that already exists in this run — reusing one key for
+      # both saves below would mean the second (full) save never actually lands.
       - restore_cache:
           keys:
-            - aioffice-build-v1-{{ .Branch }}-{{ .Revision }}
-            - aioffice-build-v1-{{ .Branch }}-
-            - aioffice-build-v1-
+            - aioffice-build-full-v1-{{ .Branch }}-{{ .Revision }}
+            - aioffice-build-full-v1-{{ .Branch }}-
+            - aioffice-build-core-v1-{{ .Branch }}-{{ .Revision }}
+            - aioffice-build-core-v1-{{ .Branch }}-
+            - aioffice-build-core-v1-
 
       - run:
           name: Configure (cmake --preset linux, inside nix-shell)
           no_output_timeout: 10m
           command: nix-shell --run "cmake --preset linux"
 
+      # Split into two targets instead of one "build everything" step. A whole-job external
+      # cancellation (see the note above the Build-core step) skips every step after it, including
+      # a `when: always` save_cache — so if the single combined build got cut off, *nothing* was
+      # ever preserved between runs, and every run redid all 108 targets from zero. Building
+      # aioffice_core (all of this project's own C++ — Session.cpp, ToolDispatch.cpp, Odf.cpp,
+      # Docx.cpp, Csl.cpp, PdfPostProcess.cpp... no QML/rcc/moc overhead of its own) first, as its
+      # own step with its own save_cache right after, means that part's cache survives even if the
+      # second step (aioffice: qmlimportscanner + per-file QML caching/rcc across 23 QML files +
+      # the final link, the part that measured slow) times out again.
       - run:
-          name: Build (cmake --build --preset linux, inside nix-shell)
-          # -j$(nproc): ninja auto-detects parallelism from the *host* CPU count, which can be
-          # higher than what this container's resource_class actually gets — over-subscribing
-          # parallel GCC invocations on a couple of real cores causes thrashing that can silently
-          # stall a build for a long time. Pinning -j to the container's own nproc avoids that.
-          # -k 0: keep going past a failed file instead of stopping at the first error. CI-only —
-          # the point is to surface every independent compile error from a single run (this is how
-          # we found the QImage::flipped() Qt-version mismatch below: local dev uses whatever Nix
-          # channel resolves on this machine, currently Qt 6.11; CircleCI's image resolves an older
-          # channel, Qt 6.7.2 — an API added after 6.7 compiles locally but not in CI) rather than
-          # trickling out one error per push.
-          no_output_timeout: 20m
+          name: Build aioffice_core (this project's own code — Session/ToolDispatch/Odf/Docx/Csl/PdfPostProcess/...)
+          no_output_timeout: 15m
+          command: nix-shell --run "cmake --build --preset linux --target aioffice_core -- -j\$(nproc) -k 0"
+
+      - save_cache:
+          key: aioffice-build-core-v1-{{ .Branch }}-{{ .Revision }}
+          paths:
+            - build/linux
+
+      - run:
+          name: Build aioffice (GUI/QML target — qmlimportscanner, per-file QML caching, rcc, final link)
+          no_output_timeout: 15m
           command: nix-shell --run "cmake --build --preset linux -- -j\$(nproc) -k 0"
 
-      # when: always — save whatever got built even if the step above timed out/failed, so a
-      # cut-off run still leaves the *next* run something to resume from instead of starting over.
+      # when: always — save whatever got built even on an ordinary (non-cancellation) failure here;
+      # a genuine external cancellation still skips this, same caveat as above, but the core-target
+      # save above already banked the expensive part regardless.
       - save_cache:
-          key: aioffice-build-v1-{{ .Branch }}-{{ .Revision }}
+          key: aioffice-build-full-v1-{{ .Branch }}-{{ .Revision }}
           paths:
             - build/linux
           when: always
