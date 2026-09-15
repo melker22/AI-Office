@@ -189,6 +189,7 @@ private:
     bool loadFrom(const QString &path, QString *error);
     Block *tableBlock(const QString &id);
     QVector<TextRun> *runsAt(Block &b, int row, int col);
+    void shiftRevisionOffsets(const QString &blockId, int atOffset, int delta, const QString &excludeId = QString());
     QJsonObject dispatchTool(const QString &tool, const QJsonObject &args);
 
     Document doc_;

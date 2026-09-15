@@ -1400,6 +1400,7 @@ QJsonObject Session::insertAtCaret(const QJsonObject &args)
         return fail(QStringLiteral("cannot insert"));
     }
     if (doc_.trackChanges) {
+        shiftRevisionOffsets(id, endOff, text.size() - (endOff - startOff));
         if (hasRange && endOff > startOff) {
             QString replaced;
             for (const auto &r : *runs)
@@ -1451,6 +1452,7 @@ bool Session::insertTextAt(const QString &id, int offset, const QString &text, i
     ins.text = text;
     *runs = spliceRuns(*runs, offset, offset, ins);
     if (doc_.trackChanges) {
+        shiftRevisionOffsets(id, offset, text.size());
         Revision rev;
         rev.id = QStringLiteral("rev") + QString::number(doc_.nextCounter(QStringLiteral("rev")));
         // nextCounter only scans body ids; use revisions size
@@ -1488,6 +1490,7 @@ bool Session::deleteBackward(const QString &id, int offset, int row, int col)
             goneRuns = splitRuns(*runs, offset - 1, offset);
         *runs = spliceRuns(*runs, offset - 1, offset, TextRun{});
         if (doc_.trackChanges) {
+            shiftRevisionOffsets(id, offset, -1);
             Revision rev;
             rev.id = QStringLiteral("rev%1").arg(doc_.revisions.size() + 1);
             rev.author = doc_.author.isEmpty() ? QStringLiteral("IA") : doc_.author;
@@ -2495,6 +2498,22 @@ QJsonObject Session::revisionAccept(const QJsonObject &args)
     return fail(QStringLiteral("revision not found"));
 }
 
+void Session::shiftRevisionOffsets(const QString &blockId, int pivot, int delta, const QString &excludeId)
+{
+    if (delta == 0)
+        return;
+    for (auto &other : doc_.revisions) {
+        if (other.blockId != blockId || other.id == excludeId)
+            continue;
+        if (other.start >= pivot) {
+            other.start += delta;
+            other.end += delta;
+        } else if (other.end > pivot) {
+            other.end = pivot;
+        }
+    }
+}
+
 QJsonObject Session::revisionReject(const QJsonObject &args)
 {
     const QString id = args.value(QStringLiteral("id")).toString();
@@ -2533,18 +2552,7 @@ QJsonObject Session::revisionReject(const QJsonObject &args)
         }
     }
     doc_.revisions.removeAt(idx);
-    if (delta != 0) {
-        for (auto &other : doc_.revisions) {
-            if (other.blockId != found.blockId)
-                continue;
-            if (other.start >= pivot) {
-                other.start += delta;
-                other.end += delta;
-            } else if (other.end > pivot) {
-                other.end = pivot;
-            }
-        }
-    }
+    shiftRevisionOffsets(found.blockId, pivot, delta);
     markChanged();
     return ok();
 }

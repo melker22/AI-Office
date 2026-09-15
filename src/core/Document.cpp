@@ -229,8 +229,19 @@ Revision Revision::fromJson(const QJsonObject &o)
     r.text = o.value(QStringLiteral("text")).toString();
     r.timestamp = qint64(o.value(QStringLiteral("timestamp")).toDouble());
     r.payload = o.value(QStringLiteral("payload")).toString();
-    for (const auto &rr : o.value(QStringLiteral("deleted_runs")).toArray())
-        r.deletedRuns.push_back(TextRun::fromJson(rr.toObject()));
+    QString reconstructed;
+    bool allObjects = true;
+    for (const auto &rr : o.value(QStringLiteral("deleted_runs")).toArray()) {
+        if (!rr.isObject()) {
+            allObjects = false;
+            break;
+        }
+        const TextRun run = TextRun::fromJson(rr.toObject());
+        reconstructed += run.text;
+        r.deletedRuns.push_back(run);
+    }
+    if (!allObjects || (!r.deletedRuns.isEmpty() && reconstructed != r.text))
+        r.deletedRuns.clear();
     return r;
 }
 

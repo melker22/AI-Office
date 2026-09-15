@@ -1,6 +1,6 @@
 # Semantic document + MCP/CLI contract
 
-All tools are available as MCP `tools/call` and as `aioffice call <name> '<json args>'`. Playbooks: `aioffice play script.json` (JSON array of `{tool, args}`, runs `batch`).
+All tools are available as MCP `tools/call` and as `aioffice call <name> '<json args>'`. Playbooks: `aioffice play script.json` (JSON array of `{tool, args}`, runs `batch`). A call entry may add `"expect": {"dot.path": value, ...}` to assert a field of that call's own JSON result (dot-path, numeric segments index arrays, e.g. `document.body.0.runs.1.bold`); a mismatch fails the playbook the same way `ok:false` does, printing what was expected vs. what came back.
 
 The document is a JSON object with **stable block IDs**. Agents must address content by `id`, never by pixel or mouse.
 
