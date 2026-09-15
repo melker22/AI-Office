@@ -38,9 +38,29 @@
 
 **Decisions:** `deletedRuns` é campo novo só de persistência nativa (JSON), não é exportado para markup ODT/DOCX — o objetivo é fidelidade do reject, não fidelidade de formato externo (esse gap de "w:del sintético" continua documentado como fora de escopo, decisão da entrada anterior).
 
-**Next suggested step:** PR #2 pronta para merge (CI verde, os 9 achados do CodeRabbit todos resolvidos e conferidos). Nova QA `qa/revision-reject-fidelity.json` cobre o caso — rodar em CI junto dos outros `qa/wave*.json`.
+**Next suggested step:** ~~PR #2 pronta para merge~~ — **corrigido na entrada seguinte**: CodeRabbit rodou de novo em cima deste commit e apontou mais 4 achados (a validação e a re-review ainda não tinham terminado quando esta linha foi escrita originalmente).
 
 **Commits:** `26f3fb6` fix: preserve formatting and offsets on revision reject (CodeRabbit PR #2 round 2)
+
+---
+
+## 2026-09-14 — Claude — PR #2 CodeRabbit follow-up round 3 (same branch)
+
+**Objective:** A entrada anterior declarou "CI verde, PR pronta para merge" antes da CI/CodeRabbit terminarem de rodar em cima do commit `ad638fb` — o CodeRabbit apontou isso (não declarar pronto antes da validação terminar) e mais 3 achados reais na 3ª review. Corrigir os 4.
+
+**Done:**
+- `docs/AI_HANDOFF.md`: linha "Next suggested step" da entrada anterior corrigida (não afirmar mais "pronta para merge" antes da validação real terminar).
+- `qa/revision-reject-fidelity.json` → renomeado para `qa/wave16-revision-reject-fidelity.json` (o glob da CI é `qa/wave*.json`; o arquivo antigo nunca teria rodado na suíte automática). Playbook ganhou `expect` de verdade (texto final `abc`/bold em `b`, `revision_list` final vazio após `revision_accept_all`) em vez de só confiar no `ok` de cada chamada.
+- `aioffice play` (`src/cli/Cli.cpp`) ganhou suporte real a asserção: uma chamada pode incluir `"expect": {"dot.path": valor}`; falha do mesmo jeito que `ok:false` se o valor não bater. Documentado em `docs/mcp-tools.md`. Sem isso o achado do CodeRabbit sobre "só checa ok" não tinha como ser corrigido de verdade nesse playbook nem em nenhum outro.
+- `Revision::fromJson` (`Document.cpp`): `deleted_runs` só aceita elementos que são objeto JSON; se a reconstrução do texto dos fragmentos não bater com `Revision.text` (arquivo antigo/corrompido), `deletedRuns` é limpo e o fallback de texto plano em `revisionReject`/`revisionRejectAll` continua funcionando.
+- Achado mais profundo (Major, "heavy lift"): o ajuste de offset que adicionei na rodada anterior só corrigia revisões **depois** de um reject; uma revisão ainda não rejeitada podia ficar desatualizada por causa de uma edição **posterior** (ex.: rev1 insere "X" em 0, rev2 insere depois "Y" também em 0 — rejeitar rev1 removia "Y", não "X"). Resolvido na raiz: `Session::shiftRevisionOffsets(blockId, pivot, delta)` (novo, privado) agora roda em **todo** ponto de mutação rastreada (`insertAtCaret`, `insertTextAt`, `deleteBackward`, e o próprio `revisionReject`), não só no reject — toda revisão existente no mesmo bloco fica sempre com offset válido em relação ao documento atual, eliminando a necessidade de "rebasear" nada na hora do reject.
+- Testado manualmente o cenário exato do CodeRabbit (rev1 insere X em 0, rev2 insere Y em 0, reject rev1 → sobra "Yabc", não "Xabc" invertido) via playbook solto — confirma a correção.
+
+**Decisions:** Não estendi o ajuste de offset ao `commitCaretInsert`/autocorrect do lado GUI (path de digitação ao vivo) — esse caminho já não gravava revisão nenhuma pro replace do autocorrect antes desta rodada, é um gap pré-existente e separado, não foi um dos achados do CodeRabbit.
+
+**Next suggested step:** Esperar a 4ª rodada de CI + CodeRabbit no commit deste fix. Se limpo, PR #2 finalmente pronta para merge.
+
+**Commits:** `a21b733` fix: rebase revision offsets on every tracked edit, harden deleted_runs parsing, add real playbook assertions (CodeRabbit PR #2 round 3)
 
 ---
 
