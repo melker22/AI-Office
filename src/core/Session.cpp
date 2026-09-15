@@ -1413,6 +1413,7 @@ QJsonObject Session::insertAtCaret(const QJsonObject &args)
             del.start = startOff;
             del.end = endOff;
             del.text = replaced;
+            del.deletedRuns = splitRuns(*runs, startOff, endOff);
             del.timestamp = QDateTime::currentMSecsSinceEpoch();
             doc_.revisions.push_back(del);
         }
@@ -1478,10 +1479,13 @@ bool Session::deleteBackward(const QString &id, int offset, int row, int col)
         QString gone;
         for (const auto &r : *runs)
             gone += r.text;
+        QVector<TextRun> goneRuns;
         if (offset > 0 && offset <= gone.size())
             gone = gone.mid(offset - 1, 1);
         else
             gone.clear();
+        if (!gone.isEmpty())
+            goneRuns = splitRuns(*runs, offset - 1, offset);
         *runs = spliceRuns(*runs, offset - 1, offset, TextRun{});
         if (doc_.trackChanges) {
             Revision rev;
@@ -1492,6 +1496,7 @@ bool Session::deleteBackward(const QString &id, int offset, int row, int col)
             rev.start = offset - 1;
             rev.end = offset;
             rev.text = gone;
+            rev.deletedRuns = goneRuns;
             rev.timestamp = QDateTime::currentMSecsSinceEpoch();
             doc_.revisions.push_back(rev);
         }
@@ -2506,16 +2511,40 @@ QJsonObject Session::revisionReject(const QJsonObject &args)
         return fail(QStringLiteral("revision not found"));
     pushUndo();
     Block *b = doc_.findBlock(found.blockId);
+    int delta = 0;
+    int pivot = found.start;
     if (b) {
         if (found.kind == QLatin1String("insert")) {
             b->runs = spliceRuns(b->runs, found.start, found.end, TextRun{});
+            delta = -(found.end - found.start);
+            pivot = found.end;
         } else if (found.kind == QLatin1String("delete") && !found.text.isEmpty()) {
-            TextRun ins;
-            ins.text = found.text;
-            b->runs = spliceRuns(b->runs, found.start, found.start, ins);
+            QVector<TextRun> restored = found.deletedRuns;
+            if (restored.isEmpty()) {
+                TextRun fallback;
+                fallback.text = found.text;
+                restored.push_back(fallback);
+            }
+            QVector<TextRun> before = splitRuns(b->runs, 0, found.start);
+            QVector<TextRun> after = splitRuns(b->runs, found.start, b->plainText().size());
+            b->runs = before + restored + after;
+            delta = found.end - found.start;
+            pivot = found.start;
         }
     }
     doc_.revisions.removeAt(idx);
+    if (delta != 0) {
+        for (auto &other : doc_.revisions) {
+            if (other.blockId != found.blockId)
+                continue;
+            if (other.start >= pivot) {
+                other.start += delta;
+                other.end += delta;
+            } else if (other.end > pivot) {
+                other.end = pivot;
+            }
+        }
+    }
     markChanged();
     return ok();
 }
@@ -2540,9 +2569,15 @@ QJsonObject Session::revisionRejectAll(const QJsonObject &)
         if (found.kind == QLatin1String("insert")) {
             b->runs = spliceRuns(b->runs, found.start, found.end, TextRun{});
         } else if (found.kind == QLatin1String("delete") && !found.text.isEmpty()) {
-            TextRun ins;
-            ins.text = found.text;
-            b->runs = spliceRuns(b->runs, found.start, found.start, ins);
+            QVector<TextRun> restored = found.deletedRuns;
+            if (restored.isEmpty()) {
+                TextRun fallback;
+                fallback.text = found.text;
+                restored.push_back(fallback);
+            }
+            QVector<TextRun> before = splitRuns(b->runs, 0, found.start);
+            QVector<TextRun> after = splitRuns(b->runs, found.start, b->plainText().size());
+            b->runs = before + restored + after;
         }
     }
     doc_.revisions.clear();

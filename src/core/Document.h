@@ -60,6 +60,7 @@ struct Revision {
     int start = 0;
     int end = 0;
     QString text;
+    QVector<TextRun> deletedRuns; // kind=delete: original run fragments (formatting), for reject-restore
     QString payload; // format JSON when kind=format
     qint64 timestamp = 0;
 

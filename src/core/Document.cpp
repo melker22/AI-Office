@@ -208,6 +208,12 @@ QJsonObject Revision::toJson() const
     o[QStringLiteral("timestamp")] = double(timestamp);
     if (!payload.isEmpty())
         o[QStringLiteral("payload")] = payload;
+    if (!deletedRuns.isEmpty()) {
+        QJsonArray runs;
+        for (const auto &r : deletedRuns)
+            runs.push_back(r.toJson());
+        o[QStringLiteral("deleted_runs")] = runs;
+    }
     return o;
 }
 
@@ -223,6 +229,8 @@ Revision Revision::fromJson(const QJsonObject &o)
     r.text = o.value(QStringLiteral("text")).toString();
     r.timestamp = qint64(o.value(QStringLiteral("timestamp")).toDouble());
     r.payload = o.value(QStringLiteral("payload")).toString();
+    for (const auto &rr : o.value(QStringLiteral("deleted_runs")).toArray())
+        r.deletedRuns.push_back(TextRun::fromJson(rr.toObject()));
     return r;
 }
 
