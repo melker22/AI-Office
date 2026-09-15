@@ -26,6 +26,24 @@
 
 ---
 
+## 2026-09-14 — Claude — PR #2 CodeRabbit follow-up round 2 (same branch)
+
+**Objective:** Verificar todos os achados do CodeRabbit na PR #2 (2 reviews, 9 comentários) contra o código atual e resolver os 2 que ainda não tinham commit corretivo (achados na review do commit `3b86267`, sem review seguinte).
+
+**Done:**
+- Conferido nos arquivos reais (não só na mensagem "✅ Addressed"): os 7 achados da 1ª review (hash em `AI_HANDOFF.md`, exceção de push só com pedido explícito, `check_roundtrip.py` w:ins/w:del separados, bookmark sintético para `insert_crossref`, `[Content_Types].xml` após footnote/endnote, dedup de bookmark por nome normalizado, dedup de revisão com `blockId`) — todos genuinamente corrigidos em `3b86267`.
+- Os 2 achados da 2ª review (ainda sem commit corretivo) eram reais e foram corrigidos agora:
+  - `Revision` ganhou campo `deletedRuns` (fragmentos `TextRun` originais, com formatação) preenchido em `insertAtCaret`/`deleteBackward` quando `track_changes` está ligado; `revisionReject`/`revisionRejectAll` restauram esses fragmentos (preservando bold/itálico/etc.) em vez de um `TextRun` genérico só com o texto.
+  - `revisionReject` (rejeição individual) agora ajusta `start`/`end` das revisões remanescentes do mesmo bloco pelo delta da rejeição — corrige o exemplo do CodeRabbit (inserir "X" em 0, apagar "b" em 2, rejeitar o insert e depois o delete dava "acb"; agora dá "abc"). `revisionRejectAll` não precisava do mesmo ajuste (já é consistente por processar em ordem cronológica reversa).
+
+**Decisions:** `deletedRuns` é campo novo só de persistência nativa (JSON), não é exportado para markup ODT/DOCX — o objetivo é fidelidade do reject, não fidelidade de formato externo (esse gap de "w:del sintético" continua documentado como fora de escopo, decisão da entrada anterior).
+
+**Next suggested step:** PR #2 pronta para merge (CI verde, os 9 achados do CodeRabbit todos resolvidos e conferidos). Nova QA `qa/revision-reject-fidelity.json` cobre o caso — rodar em CI junto dos outros `qa/wave*.json`.
+
+**Commits:** `26f3fb6` fix: preserve formatting and offsets on revision reject (CodeRabbit PR #2 round 2)
+
+---
+
 ## 2026-09-14 — Grok — PR #2 CodeRabbit follow-up (same branch)
 
 **Objective:** Consertar os Majors da review da PR #2 na mesma branch.
