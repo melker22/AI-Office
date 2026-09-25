@@ -74,7 +74,7 @@ nodes:
 
   # ── Fase 2: ligar RTL (Cursor Grok) ∥ round-trip (Composer) ──────────────────
   t4-wire-rtl:
-    title: T4 RTL no layout + GUI (Cursor Grok)
+    title: T4 RTL no layout + caret_move (Cursor Grok)
     needs: [build-1]
     model: cursor-grok-4.6-high
     workspace: isolated
@@ -88,8 +88,9 @@ nodes:
          Qt::LayoutDirectionAuto) e mapeia align start/end conforme a direção resolvida.
       2. Ruby posicionado com cursorToX do início/fim do run na linha certa.
       3. DocumentLayout expõe movimento visual (leftCursorPosition/rightCursorPosition) e por
-         grafema; src/app/DocumentCanvas.cpp usa isso em Key_Left/Key_Right e no Backspace/
-         Delete (não partir pares substitutos nem clusters).
+         grafema (next/previousCursorPosition), e a tool MCP `caret_move {id, offset, move:
+         left|right|next|prev}` → {offset} o usa (docs/mcp-tools.md). NÃO altere
+         src/app/ (GUI é Fase Humano; ligar as teclas do DocumentCanvas fica para lá).
       4. Verifique se o Qt insere kashida ao justificar árabe (QTextEngine::justify). Não
          implemente kashida à mão; reporte o que observou.
       Verifique com `scripts/qa-all.sh --gui`. Commit em inglês, sem push.
@@ -235,7 +236,7 @@ nodes:
     needs: [handoff]
     ask: |
       Onda 16 (CTL/CJK: caret/hit-test reais via QTextLayout, direção de parágrafo RTL,
-      setas por grafema, round-trip DOCX/ODT de bidi, playbooks novos) está pronta num branch
+      movimento por grafema no core/MCP, round-trip DOCX/ODT de bidi, playbooks novos) está pronta num branch
       da Fleet, com scripts/qa-all.sh --gui verde e revisão Sonnet concluída.
       Aprovar = fazer push do branch e abrir PR para main no GitHub (CI + CodeRabbit rodam lá).
       Rejeitar = nada sai da máquina; o branch fica local.
@@ -250,7 +251,7 @@ nodes:
     prompt: |
       Faça push deste branch para origin (nunca para main) e abra PR para `main` em
       melker22/AI-Office (use a tool MCP do GitHub; `gh` não está instalado). Título em inglês
-      `feat: wave 16 — CTL/CJK caret, bidi paragraphs, grapheme navigation`. Corpo: resumo da
+      `feat: wave 16 — CTL/CJK caret geometry, bidi paragraphs, grapheme movement`. Corpo: resumo da
       spec docs/waves/wave16-ctl-cjk.md, test plan (scripts/qa-all.sh --gui, playbooks novos)
       e o relatório do handoff: {{needs.handoff.report}}
       Reporte a URL da PR.

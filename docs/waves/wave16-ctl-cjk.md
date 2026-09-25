@@ -20,11 +20,11 @@
 | D1 | Continuar com `QTextLayout`; zero dependências novas | Já faz shaping/bidi/line-break; Nix e Windows ficam simples |
 | D2 | **Uma** função constrói o layout de texto de um bloco (`BlockTextLayout`), usada por pintura, medição, caret, hit-test e ruby | Hoje há 2 construções duplicadas (medir ~l.231 e pintar ~l.1345) + interpolação; a divergência é a origem dos bugs |
 | D3 | `BlockTextLayout` carrega um **mapa offset-modelo ↔ offset-display** | O texto exibido ≠ `plainText()` (soft hyphens da hifenação, campos renderizados, `skip` de blocos partidos entre páginas) |
-| D4 | Caret = `QTextLine::cursorToX`; hit = `QTextLine::xToCursor`; setas = `QTextLayout::leftCursorPosition/rightCursorPosition` (visual) e `next/previousCursorPosition` (grafema) | APIs oficiais do Qt; respeitam bidi e clusters |
+| D4 | Caret = `QTextLine::cursorToX`; hit = `QTextLine::xToCursor`; movimento = `QTextLayout::leftCursorPosition/rightCursorPosition` (visual) e `next/previousCursorPosition` (grafema), expostos no **core** (`DocumentLayout`) e por MCP. **Ligar isso às teclas do `DocumentCanvas` é Fase Humano** (item "Navegação só de teclado no canvas"), não desta onda | APIs oficiais do Qt; respeitam bidi e clusters. Onda 16 = Fase IA: só core + MCP |
 | D5 | Modelo: `Block.dir` = `auto`\|`ltr`\|`rtl` (default `auto`, omitido no JSON quando `auto`) + `align` aceita `start`/`end` (lógicos). `left`/`right` continuam físicos. **Sem direção por run** — o algoritmo bidi resolve | Compatível com arquivos existentes; espelha `w:bidi` e `style:writing-mode` |
 | D6 | Vertical CJK real: **fora** (continua Partial). Rotação 90° atual fica como está | `QTextLayout` não faz vertical; exigiria motor próprio — decisão futura do utilizador |
 | D7 | Round-trip: DOCX `w:pPr/w:bidi` ↔ `dir=rtl`, `w:jc start/end`; ODT `style:writing-mode="rl-tb"\|"lr-tb"` ↔ `dir`, `fo:text-align start/end`. `w:rtl` em run: só leitura, ignorado | Mínimo que o Word/LibreOffice precisam para abrir certo |
-| D8 | Testes headless: novas tools MCP `caret_geometry {id, offset}` → `{page, x_mm, y_mm, line, rtl}` e `hit_test {page, x_mm, y_mm}` → `{id, offset}`. `play` ganha operadores em `expect`: `{"$gt"|"$lt"|"$gte"|"$lte"|"$ne": n}` | Sem isso a CI não prova nada sobre geometria; igualdade exata em pixels é frágil |
+| D8 | Testes headless: novas tools MCP `caret_geometry {id, offset}` → `{page, x_mm, y_mm, line, rtl}`, `hit_test {page, x_mm, y_mm}` → `{id, offset}` e `caret_move {id, offset, move: left\|right\|next\|prev}` → `{offset}`. `play` ganha operadores em `expect`: `{"$gt"|"$lt"|"$gte"|"$lte"|"$ne": n}` | Sem isso a CI não prova nada sobre geometria; igualdade exata em pixels é frágil |
 | D9 | Fontes de teste determinísticas: `noto-fonts` + `noto-fonts-cjk-sans` no `shell.nix` e `FONTCONFIG_FILE` apontando para elas | Sem fonte árabe/CJK a CI mede glifos `.notdef` e passa por acaso |
 | D10 | O tagging de PDF da onda 15 **não pode regredir**: a ordem de pintura (`orderedBlocksForPage`) e o único `setClipRect` por bloco ficam intactos | `wave15-pdf-tagging.json` é o guarda |
 
@@ -36,7 +36,7 @@
 | `t3-model-dir` | Composer 2.5 | Campo novo + JSON + schema MCP + operadores do `play`: mecânico | Baixo | Baixo | — (paralelo a t1) |
 | `integrate-1` | Composer 2.5 | Merge de 2 branches com áreas quase disjuntas | Baixo | Baixo | t1, t3 |
 | gate `build-1` | comando | `scripts/qa-all.sh` | 0 tokens | — | integrate-1 |
-| `t4-wire-rtl` | Cursor Grok | Liga `dir` ao layout, ruby, setas visuais/grafema no GUI, verificação de kashida | Médio | Médio | build-1 |
+| `t4-wire-rtl` | Cursor Grok | Liga `dir` ao layout, ruby, movimento visual/grafema no core + `caret_move`, verificação de kashida (sem GUI) | Médio | Médio | build-1 |
 | `t5-roundtrip` | Composer 2.5 | Mapear 4 atributos em Docx/Odf + `check_roundtrip.py` | Baixo | Baixo | build-1 (paralelo a t4) |
 | `integrate-2` | Composer 2.5 | Merge disjunto | Baixo | Baixo | t4, t5 |
 | `t6-qa` | Composer 2.5 | Playbooks `qa/wave16-ctl-*.json` + fontes Nix | Baixo | Baixo | integrate-2 |
