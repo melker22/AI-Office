@@ -1,0 +1,256 @@
+version: 1
+name: wave16-ctl-cjk
+description: >
+  Onda 16 — CTL/CJK (bidi + métricas). Spec: docs/waves/wave16-ctl-cjk.md.
+  Roteamento: Composer 2.5 e Cursor Grok executam, Grok Build continua/corrige,
+  Sonnet revisa, Opus só em auditoria opcional. Ver docs/ORCHESTRATION.md.
+args:
+  opus_audit:
+    default: "false"
+    description: "true = auditoria final do Opus antes do PR (só se o diff de Preview/PdfPostProcess for grande)"
+defaults:
+  agent: cursor
+  model: composer-2.5
+  approval: full-access
+max_parallel: 2
+nodes:
+  # ── Fase 1: núcleo de layout (Cursor Grok) ∥ modelo/tools (Composer) ──────────
+  t1-layout-core:
+    title: T1 núcleo de layout (Cursor Grok)
+    model: cursor-grok-4.6-high
+    workspace: isolated
+    prompt: |
+      Projeto AI Office Writer (C++20/Qt 6). Leia primeiro docs/waves/wave16-ctl-cjk.md
+      (decisões D1–D10 são fechadas; não reabra) e .cursor/rules/*.mdc.
+      Sua tarefa é a D2+D3+D4(caret/hit)+D8(tools):
+      1. Em src/core/Preview.{h,cpp} crie UMA função que constrói o QTextLayout de um bloco
+         (`BlockTextLayout`): texto de display, formatos, QTextOption, linhas já quebradas e o
+         mapa offset-modelo ↔ offset-display (soft hyphens da hifenação, campos renderizados,
+         `skip` de bloco partido entre páginas). Faça medição (~l.231) e pintura (~l.1345)
+         usarem essa função. Zero mudança visual para documentos existentes.
+      2. Reescreva DocumentLayout::caret e ::hitTest para usar QTextLine::cursorToX /
+         xToCursor via BlockTextLayout (linha correta, não interpolação linear). Células de
+         tabela podem continuar como estão.
+      3. Adicione as tools MCP `caret_geometry {id, offset}` → {page, x_mm, y_mm, line, rtl} e
+         `hit_test {page, x_mm, y_mm}` → {id, offset} (src/mcp/ToolDispatch.cpp + Session),
+         com o contrato {ok:false,error} e documentação em docs/mcp-tools.md.
+      NÃO toque em Block.dir (outra tarefa faz em paralelo) nem na ordem de pintura/um único
+      setClipRect por bloco (D10 — o tagging de PDF depende disso).
+      Verifique com `scripts/qa-all.sh --gui` (tem de ficar verde). Commit em inglês
+      (`feat: ...`), sem push. Reporte: arquivos alterados, assinatura da API nova, riscos.
+
+  t3-model-dir:
+    title: T3 Block.dir + expect ops (Composer)
+    workspace: isolated
+    prompt: |
+      Projeto AI Office Writer (C++20/Qt 6). Leia docs/waves/wave16-ctl-cjk.md (D5, D8).
+      Tarefa mecânica, sem mexer em src/core/Preview.cpp:
+      1. `Block.dir` (QString: "auto"|"ltr"|"rtl", default "auto", omitido no JSON quando
+         "auto") em src/core/Document.{h,cpp}: serialização, validação (valor inválido →
+         {ok:false,error}), cópia/duplicação de bloco.
+      2. `align` passa a aceitar também "start" e "end" (validação + schema).
+      3. Exponha `dir` na tool MCP que já aceita `writing_mode`/`lang` de parágrafo
+         (src/mcp/ToolDispatch.cpp + Session.cpp) e em docs/mcp-tools.md.
+      4. Em src/cli/Cli.cpp (`play`), `expect` aceita além de igualdade um objeto operador
+         {"$gt"|"$lt"|"$gte"|"$lte"|"$ne": número}. Documente em docs/mcp-tools.md.
+      5. Playbook qa/wave16-ctl-model.json com `expect` provando set/get de dir e align start.
+      Verifique com `scripts/qa-all.sh`. Commit em inglês (`feat: ...`), sem push.
+      Reporte arquivos alterados e o nome exato da tool que recebeu `dir`.
+
+  integrate-1:
+    title: Integrar T1+T3 (Composer)
+    needs: [t1-layout-core, t3-model-dir]
+    prompt: |
+      Faça merge de {{needs.t1-layout-core.branch}} e {{needs.t3-model-dir.branch}} neste
+      worktree. As áreas são quase disjuntas; em conflito no ToolDispatch.cpp/mcp-tools.md
+      mantenha as duas adições. Rode `scripts/qa-all.sh --gui`; se falhar por causa do merge,
+      corrija. Commit do merge. Reporte conflitos resolvidos.
+
+  build-1:
+    type: gate
+    gate: command
+    needs: [integrate-1]
+    run: scripts/qa-all.sh --gui
+
+  # ── Fase 2: ligar RTL (Cursor Grok) ∥ round-trip (Composer) ──────────────────
+  t4-wire-rtl:
+    title: T4 RTL no layout + GUI (Cursor Grok)
+    needs: [build-1]
+    model: cursor-grok-4.6-high
+    workspace: isolated
+    prompt: |
+      Projeto AI Office Writer. Leia docs/waves/wave16-ctl-cjk.md (D4, D5, itens 4–6 do
+      diagnóstico). A fase anterior já criou BlockTextLayout, caret/hit via QTextLine e
+      Block.dir. Resumo dela:
+      {{needs.t1-layout-core.report}}
+      Tarefa:
+      1. BlockTextLayout aplica Block.dir via QTextOption::setTextDirection (auto →
+         Qt::LayoutDirectionAuto) e mapeia align start/end conforme a direção resolvida.
+      2. Ruby posicionado com cursorToX do início/fim do run na linha certa.
+      3. DocumentLayout expõe movimento visual (leftCursorPosition/rightCursorPosition) e por
+         grafema; src/app/DocumentCanvas.cpp usa isso em Key_Left/Key_Right e no Backspace/
+         Delete (não partir pares substitutos nem clusters).
+      4. Verifique se o Qt insere kashida ao justificar árabe (QTextEngine::justify). Não
+         implemente kashida à mão; reporte o que observou.
+      Verifique com `scripts/qa-all.sh --gui`. Commit em inglês, sem push.
+
+  t5-roundtrip:
+    title: T5 round-trip DOCX/ODT (Composer)
+    needs: [build-1]
+    workspace: isolated
+    prompt: |
+      Projeto AI Office Writer. Leia docs/waves/wave16-ctl-cjk.md (D7). Block.dir e align
+      start/end já existem no modelo. Mapeie em import e export:
+      - DOCX (src/core/Docx.cpp): w:pPr/w:bidi ↔ dir=rtl; w:jc "start"/"end" ↔ align.
+        w:rtl em run: só leitura, ignorar sem quebrar.
+      - ODT (src/core/Odf.cpp): style:writing-mode "rl-tb"/"lr-tb" ↔ dir; fo:text-align
+        "start"/"end" ↔ align.
+      - qa/check_roundtrip.py: verificar que dir/align sobrevivem.
+      - Playbook qa/wave16-ctl-roundtrip.json (exporta e reabre, com `expect`).
+      Verifique com `scripts/qa-all.sh`. Commit em inglês, sem push.
+
+  integrate-2:
+    title: Integrar T4+T5 (Composer)
+    needs: [t4-wire-rtl, t5-roundtrip]
+    prompt: |
+      Faça merge de {{needs.t4-wire-rtl.branch}} e {{needs.t5-roundtrip.branch}} neste
+      worktree (áreas disjuntas). Rode `scripts/qa-all.sh --gui`, corrija quebras de merge,
+      commit. Reporte conflitos.
+
+  t6-qa:
+    title: T6 playbooks CTL/CJK + fontes (Composer)
+    needs: [integrate-2]
+    prompt: |
+      Projeto AI Office Writer. Leia docs/waves/wave16-ctl-cjk.md (D8, D9, "Critério de
+      pronto"). Tarefa:
+      1. shell.nix: adicionar noto-fonts e noto-fonts-cjk-sans; no shellHook exportar um
+         FONTCONFIG_FILE (makeFontsConf) com essas fontes e as já existentes.
+      2. Playbooks com `expect` (use os operadores $gt/$lt de `play`) cobrindo cada item do
+         "Critério de pronto": qa/wave16-ctl-caret.json (LTR multilinha, RTL árabe, misto
+         hebraico/latim com hit_test(caret_geometry(o)) == o), qa/wave16-ctl-cjk.json (quebra
+         de linha CJK sem espaço, caret por linha), qa/wave16-ctl-justify.json (árabe
+         justificado), e export PDF de documento RTL mantendo wave15 intacto.
+      Se algum critério falhar de verdade, NÃO afrouxe o expect: reporte a falha com o
+      output. Rode `scripts/qa-all.sh --gui`. Commit em inglês, sem push.
+
+  qa-full:
+    type: gate
+    gate: command
+    needs: [t6-qa]
+    run: scripts/qa-all.sh --gui
+
+  # ── Fase 3: revisão Sonnet + correção Grok Build, até 3 passadas ─────────────
+  review:
+    type: loop
+    needs: [qa-full]
+    max_iterations: 3
+    on_exhausted: review-adjudication
+    until:
+      run: test "{{needs.review-pass.output.issues}}" -eq 0
+    nodes:
+      review-pass:
+        agent: claude
+        model: claude-sonnet-5
+        effort: high
+        session: continue
+        prompt: |
+          Você é o Tech Lead. Revise o diff deste worktree contra `main`
+          (`git diff main...HEAD`) comparando com docs/waves/wave16-ctl-cjk.md: decisões
+          D1–D10 respeitadas, critério de pronto coberto por playbooks com expect real,
+          regressões (especialmente PDF tagging D10 e caret de tabela), contrato
+          {ok:false,error}. Rode `scripts/qa-all.sh --gui`. Não corrija nada você mesmo.
+          Liste só defeitos reais (não estilo). Submeta issues = quantidade e findings =
+          lista "arquivo:linha — defeito — correção sugerida".
+        followup_prompt: |
+          Houve uma passada de correção. Revise de novo o diff (`git diff main...HEAD`) e
+          rode `scripts/qa-all.sh --gui`. Confirme quais findings anteriores foram
+          resolvidos e liste só os que continuam ou surgiram. Submeta issues e findings.
+        output_contract:
+          type: object
+          required: [issues, findings]
+          properties:
+            issues: { type: integer, minimum: 0 }
+            findings: { type: array, items: { type: string } }
+      fix-pass:
+        needs: [review-pass]
+        agent: grok
+        model: grok-4.7
+        effort: high
+        prompt: |
+          Projeto AI Office Writer (spec: docs/waves/wave16-ctl-cjk.md). Findings do revisor:
+          {{needs.review-pass.output.findings}}
+          Se a lista estiver vazia, não altere nada e reporte "nada a corrigir".
+          Senão corrija cada finding, rode `scripts/qa-all.sh --gui` e faça commit em inglês
+          (`fix: ...`), sem push.
+
+  review-adjudication:
+    title: Adjudicação final (Sonnet)
+    needs: [review]
+    agent: claude
+    model: claude-sonnet-5
+    effort: high
+    prompt: |
+      Três passadas de revisão/correção não zeraram os findings. Aplique o critério de triagem:
+      descarte achados que não são defeitos reais (com motivo), faça UMA correção direta dos
+      defeitos reais, rode `scripts/qa-all.sh --gui` e pare. Nunca pergunte a um humano nem
+      comece outro ciclo.
+    output_contract:
+      type: object
+      required: [verdict, accepted, dismissed]
+      properties:
+        verdict: { type: string, enum: [resolved, failed] }
+        accepted: { type: array, items: { type: string } }
+        dismissed: { type: array, items: { type: string } }
+
+  opus-audit:
+    title: Auditoria Opus (opcional)
+    needs: [review-adjudication]
+    enabled: "{{args.opus_audit}}"
+    agent: claude
+    model: claude-opus-5-5
+    effort: high
+    prompt: |
+      Auditoria arquitetural final do diff `git diff main...HEAD` contra
+      docs/waves/wave16-ctl-cjk.md. Foque em: BlockTextLayout como fonte única de geometria,
+      mapa de offsets (hifenação/campos/skip), risco para o tagging de PDF (D10). Corrija só
+      defeitos críticos, commit, e reporte em até 10 linhas.
+
+  handoff:
+    title: Handoff + catálogo (Composer)
+    needs: [opus-audit]
+    prompt: |
+      Atualize a documentação da onda 16 (só estes arquivos):
+      - docs/AI_HANDOFF.md: nova entrada no topo no formato do template (modelo:
+        "Fleet wave16 — Composer/Cursor Grok/Grok Build/Sonnet"), com hashes de commit
+        (`git log main..HEAD --oneline`).
+      - docs/WRITER_FEATURE_CATALOG.md: linha "CTL/CJK completo" (Partial) atualizada com o
+        que foi entregue; corrija "Ruby, texto vertical, kashida" (kashida: descrever o que o
+        Qt faz de fato, vertical continua rotação 90°).
+      Commit `docs: ...` em inglês, sem push. Resumo da revisão para o handoff:
+      {{needs.review.report}}
+
+  approve-pr:
+    type: gate
+    gate: human
+    needs: [handoff]
+    ask: |
+      Onda 16 (CTL/CJK: caret/hit-test reais via QTextLayout, direção de parágrafo RTL,
+      setas por grafema, round-trip DOCX/ODT de bidi, playbooks novos) está pronta num branch
+      da Fleet, com scripts/qa-all.sh --gui verde e revisão Sonnet concluída.
+      Aprovar = fazer push do branch e abrir PR para main no GitHub (CI + CodeRabbit rodam lá).
+      Rejeitar = nada sai da máquina; o branch fica local.
+
+  open-pr:
+    title: Push + PR (Sonnet)
+    needs: [approve-pr]
+    when: "needs.approve-pr.approved"
+    agent: claude
+    model: claude-sonnet-5
+    effort: medium
+    prompt: |
+      Faça push deste branch para origin (nunca para main) e abra PR para `main` em
+      melker22/AI-Office (use a tool MCP do GitHub; `gh` não está instalado). Título em inglês
+      `feat: wave 16 — CTL/CJK caret, bidi paragraphs, grapheme navigation`. Corpo: resumo da
+      spec docs/waves/wave16-ctl-cjk.md, test plan (scripts/qa-all.sh --gui, playbooks novos)
+      e o relatório do handoff: {{needs.handoff.report}}
+      Reporte a URL da PR.
