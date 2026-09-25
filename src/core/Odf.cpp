@@ -67,9 +67,13 @@ QString emitSpan(SpanCounter &sc, const TextRun &r, const Document &doc)
             inner = QStringLiteral("<text:file-name>%1</text:file-name>").arg(xmlEscape(txt));
         else if (r.field == QLatin1String("word_count"))
             inner = QStringLiteral("<text:word-count>%1</text:word-count>").arg(xmlEscape(txt));
-        else
+        else {
+            QString fieldName = r.field;
+            if (!r.fieldArg.isEmpty())
+                fieldName += QLatin1Char(':') + r.fieldArg;
             inner = QStringLiteral("<text:user-field-get text:name=\"%1\">%2</text:user-field-get>")
-                        .arg(xmlEscape(r.field), xmlEscape(txt.isEmpty() ? r.fieldArg : txt));
+                        .arg(xmlEscape(fieldName), xmlEscape(txt.isEmpty() ? r.fieldArg : txt));
+        }
     } else if (!txt.isEmpty() || fmt) {
         if (!fmt && r.link.isEmpty())
             inner = xmlEscape(txt);
@@ -638,8 +642,20 @@ bool loadOdt(const QByteArray &zipData, Document &doc, QString *error)
     Block tableBlock;
     QVector<TableCell> tableRow;
     double pendingFrameWidthMm = 0;
-    const bool importNativeBm = doc.bookmarks.isEmpty();
-    const bool importNativeRev = doc.revisions.isEmpty();
+    auto hasBookmarkNamed = [&](const QString &name) {
+        for (const auto &bm : doc.bookmarks) {
+            if (bm.name == name || bm.id == name)
+                return true;
+        }
+        return false;
+    };
+    auto hasRevisionId = [&](const QString &id) {
+        for (const auto &rv : doc.revisions) {
+            if (rv.id == id)
+                return true;
+        }
+        return false;
+    };
     QVector<int> pendingBookmarkIdx;  // doc.bookmarks[] entries opened in the block being built
     QVector<int> pendingRevisionIdx;  // doc.revisions[] entries opened in the block being built
     QMap<QString, QString> changeKind;   // change-id -> insert|delete
@@ -799,10 +815,14 @@ bool loadOdt(const QByteArray &zipData, Document &doc, QString *error)
                 else if (n == QLatin1String("word-count"))
                     spanRun.field = QStringLiteral("word_count");
                 else {
-                    spanRun.field = xml.attributes().value(QStringLiteral("text:name")).toString();
-                    if (spanRun.field.isEmpty())
-                        spanRun.field = QStringLiteral("custom");
-                    spanRun.fieldArg = spanRun.field;
+                    const QString raw = xml.attributes().value(QStringLiteral("text:name")).toString();
+                    const int colon = raw.indexOf(QLatin1Char(':'));
+                    if (colon >= 0) {
+                        spanRun.field = raw.left(colon);
+                        spanRun.fieldArg = raw.mid(colon + 1);
+                    } else {
+                        spanRun.field = raw.isEmpty() ? QStringLiteral("custom") : raw;
+                    }
                 }
                 spanRun.text = xml.readElementText();
                 runs.push_back(spanRun);
@@ -825,7 +845,7 @@ bool loadOdt(const QByteArray &zipData, Document &doc, QString *error)
                 toc.runs.push_back(tr);
                 doc.assignId(toc);
                 doc.body.push_back(toc);
-            } else if (n == QLatin1String("bookmark-start") && importNativeBm) {
+            } else if (n == QLatin1String("bookmark-start") && !hasBookmarkNamed(xml.attributes().value(QStringLiteral("text:name")).toString())) {
                 Bookmark bm;
                 bm.name = xml.attributes().value(QStringLiteral("text:name")).toString();
                 bm.id = QStringLiteral("bm%1").arg(doc.bookmarks.size() + 1);
@@ -833,9 +853,10 @@ bool loadOdt(const QByteArray &zipData, Document &doc, QString *error)
                 bm.offset = curLen();
                 doc.bookmarks.push_back(bm);
                 pendingBookmarkIdx.push_back(doc.bookmarks.size() - 1);
-            } else if (n == QLatin1String("change-start") && importNativeRev) {
+            } else if (n == QLatin1String("change-start")
+                       && !hasRevisionId(xml.attributes().value(QStringLiteral("text:change-id")).toString())) {
                 changeStartOff[xml.attributes().value(QStringLiteral("text:change-id")).toString()] = curLen();
-            } else if (n == QLatin1String("change-end") && importNativeRev) {
+            } else if (n == QLatin1String("change-end")) {
                 const QString cid = xml.attributes().value(QStringLiteral("text:change-id")).toString();
                 if (changeStartOff.contains(cid)) {
                     Revision rv;

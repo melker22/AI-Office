@@ -1,34 +1,36 @@
 version: 2.1
 
-# AI Office CI: builds with the exact same Nix dev shell the README tells contributors to use
-# (shell.nix — Qt 6, CMake, Ninja, zlib, Hunspell dicts), then runs every qa/wave*.json playbook
-# headlessly as an integration smoke suite: each one is a recorded sequence of the real MCP tool
-# calls an AI agent would make (document_new, insert_*, document_save, page_preview, validate...),
-# so a green build means the AI-facing tool surface actually works end to end, not just "compiles".
+# AI Office CI: same pinned Nix shell as the README (flake.lock → Qt, CMake,
+# Ninja, zlib, Hunspell), then every qa/wave*.json playbook headlessly.
+# Each playbook is a recorded sequence of the real MCP tool calls an AI agent
+# would make, so green means the AI-facing tool surface works, not just "links".
 #
-# qa/wave1-foundation.json is a template playbook (its document_open path is a literal
-# "PLACEHOLDER" meant to be substituted with a real file before running) and is intentionally
-# excluded from the automatic sweep below.
+# qa/wave1-foundation.json is a template (document_open path is the literal
+# "PLACEHOLDER") and is excluded from the sweep.
 #
-# resource_class: large — xlarge was tried and rejected outright by this account/plan ("Task
-# information unavailable", failed before the environment even spun up — not a build problem, an
-# entitlement one), so large (4 vCPU) is the ceiling available here. With a warm Nix store cache
-# (download time no longer a factor) and the one real compile error fixed (QImage::flipped(), see
-# the Build step below), large got to 77/108 targets with zero errors, just out of time — that's
-# what the build/linux cache below is for: once *one* full build completes and gets cached, any run
-# with no or small source changes only recompiles what actually changed, fast regardless of
-# resource_class, so the wall-clock ceiling stops mattering once the cache is warm.
+# Why aioffice_cli, not the GUI target: the full `aioffice` binary pulls in
+# qmlimportscanner + per-file QML caching + rcc across 23 QML files. On this
+# plan's ceiling (resource_class large — xlarge is rejected; a cancellation
+# skips every later step including `when: always` save_cache) that 108-target
+# build never finished, so the smoke suite never ran. `aioffice_cli` is
+# aioffice_core + a thin QGuiApplication main (offscreen), which is exactly
+# what `play`/`mcp`/`tools` need. The GUI target stays a local/dev build.
 
 jobs:
   build-and-test:
     docker:
       - image: nixos/nix:2.24.9
     resource_class: large
+    environment:
+      QT_QPA_PLATFORM: offscreen
+      AIOFFICE_HEADLESS: "1"
+      CCACHE_DIR: /tmp/ccache
+      CCACHE_MAXSIZE: 1G
     steps:
       - checkout
 
       - run:
-          name: Enable Nix flakes (harmless if unused) and disable the sandbox for the CI container
+          name: Enable Nix flakes and disable the sandbox for the CI container
           command: |
             mkdir -p /etc/nix
             {
@@ -38,95 +40,66 @@ jobs:
 
       - restore_cache:
           keys:
-            - aioffice-nix-store-v1-{{ checksum "shell.nix" }}
-            - aioffice-nix-store-v1-
+            - aioffice-nix-store-v2-{{ checksum "flake.lock" }}
+            - aioffice-nix-store-v2-
 
       - run:
-          name: Warm up the Nix store (pulls the whole Qt 6 toolchain from cache.nixos.org on a cold cache)
-          # A cold nix-shell here pulls the entire Qt 6 closure (Qt itself plus its transitive
-          # deps — GTK, systemd, cups, icu4c, harfbuzz, pango, X11/Wayland... several hundred
-          # packages, since the GUI target pulls in the full desktop stack) from the binary cache.
-          # Kept as its OWN step, saved to cache immediately below regardless of whether the build
-          # itself later succeeds — every run so far has had the actual compile get cut off
-          # (see the "Build" step below), which meant save_cache was never reached and every
-          # single run kept paying this cold-download cost from scratch. Splitting it out breaks
-          # that cycle: once this step succeeds once, every later run — including one whose build
-          # is still too slow — restores a warm store and skips straight to compiling.
+          name: Warm up the Nix store (pinned flake.lock Qt 6 toolchain)
           no_output_timeout: 30m
           command: nix-shell --run "true"
 
       - save_cache:
-          key: aioffice-nix-store-v1-{{ checksum "shell.nix" }}
+          key: aioffice-nix-store-v2-{{ checksum "flake.lock" }}
           paths:
             - /nix
 
-      # build/linux (cmake's own incremental-build state, ninja's .ninja_log/.ninja_deps included)
-      # isn't reset between runs like a fresh checkout would — restoring the *previous* run's
-      # partial-or-complete build here means ninja only recompiles what actually changed (or, if
-      # the previous run got cut off mid-build like every run so far, simply picks up where it left
-      # off) instead of redoing all 108 targets from scratch every single time. Keyed on the commit
-      # so a retry of the exact same commit gets an exact hit; falls back to the branch's most
-      # recent build otherwise.
-      # Two distinct cache generations (full build preferred, core-only as a fallback) because
-      # save_cache silently no-ops on a key that already exists in this run — reusing one key for
-      # both saves below would mean the second (full) save never actually lands.
       - restore_cache:
           keys:
-            - aioffice-build-full-v1-{{ .Branch }}-{{ .Revision }}
-            - aioffice-build-full-v1-{{ .Branch }}-
-            - aioffice-build-core-v1-{{ .Branch }}-{{ .Revision }}
-            - aioffice-build-core-v1-{{ .Branch }}-
-            - aioffice-build-core-v1-
+            - aioffice-ccache-v2-{{ checksum "flake.lock" }}-{{ .Branch }}-
+            - aioffice-ccache-v2-{{ checksum "flake.lock" }}-
+            - aioffice-ccache-v2-
+
+      - restore_cache:
+          keys:
+            - aioffice-build-cli-v2-{{ .Branch }}-{{ .Revision }}
+            - aioffice-build-cli-v2-{{ .Branch }}-
+            - aioffice-build-cli-v2-
 
       - run:
           name: Configure (cmake --preset linux, inside nix-shell)
           no_output_timeout: 10m
           command: nix-shell --run "cmake --preset linux"
 
-      # Split into two targets instead of one "build everything" step. A whole-job external
-      # cancellation (see the note above the Build-core step) skips every step after it, including
-      # a `when: always` save_cache — so if the single combined build got cut off, *nothing* was
-      # ever preserved between runs, and every run redid all 108 targets from zero. Building
-      # aioffice_core (all of this project's own C++ — Session.cpp, ToolDispatch.cpp, Odf.cpp,
-      # Docx.cpp, Csl.cpp, PdfPostProcess.cpp... no QML/rcc/moc overhead of its own) first, as its
-      # own step with its own save_cache right after, means that part's cache survives even if the
-      # second step (aioffice: qmlimportscanner + per-file QML caching/rcc across 23 QML files +
-      # the final link, the part that measured slow) times out again.
       - run:
-          name: Build aioffice_core (this project's own code — Session/ToolDispatch/Odf/Docx/Csl/PdfPostProcess/...)
+          name: Build aioffice_cli (core + headless main, no QML)
           no_output_timeout: 15m
-          command: nix-shell --run "cmake --build --preset linux --target aioffice_core -- -j\$(nproc) -k 0"
+          command: nix-shell --run "cmake --build --preset linux --target aioffice_cli -- -j\$(nproc) -k 0"
 
+      # Saved before the playbooks so a later test failure still leaves a warm
+      # ninja/ccache tree for the next commit. Keyed on revision so a retry of
+      # the same SHA is an exact hit; prefix fallback is the previous SHA on
+      # this branch.
       - save_cache:
-          key: aioffice-build-core-v1-{{ .Branch }}-{{ .Revision }}
+          key: aioffice-build-cli-v2-{{ .Branch }}-{{ .Revision }}
           paths:
             - build/linux
 
-      - run:
-          name: Build aioffice (GUI/QML target — qmlimportscanner, per-file QML caching, rcc, final link)
-          no_output_timeout: 15m
-          command: nix-shell --run "cmake --build --preset linux -- -j\$(nproc) -k 0"
-
-      # when: always — save whatever got built even on an ordinary (non-cancellation) failure here;
-      # a genuine external cancellation still skips this, same caveat as above, but the core-target
-      # save above already banked the expensive part regardless.
       - save_cache:
-          key: aioffice-build-full-v1-{{ .Branch }}-{{ .Revision }}
+          key: aioffice-ccache-v2-{{ checksum "flake.lock" }}-{{ .Branch }}-{{ .Revision }}
           paths:
-            - build/linux
-          when: always
+            - /tmp/ccache
 
       - run:
           name: Run qa/wave*.json playbooks (headless MCP tool smoke suite)
           command: |
-            export AIOFFICE_HEADLESS=1
             status=0
             for f in qa/wave*.json; do
               case "$f" in
                 qa/wave1-foundation.json) continue ;; # template, needs a real path substituted first
+                qa/*.aio.json) continue ;;           # saved documents, not playbooks
               esac
               echo "=== $f ==="
-              if ! nix-shell --run "./build/linux/aioffice play $f" > /tmp/last-playbook-output.json; then
+              if ! nix-shell --run "./build/linux/aioffice-cli play $f" > /tmp/last-playbook-output.json; then
                 echo "--- FAILED: $f ---"
                 cat /tmp/last-playbook-output.json
                 status=1
@@ -135,8 +108,8 @@ jobs:
             exit $status
 
       - run:
-          name: aioffice tools (sanity check the tool catalog still parses)
-          command: nix-shell --run "./build/linux/aioffice tools" > /tmp/tools.json
+          name: aioffice-cli tools (sanity check the tool catalog still parses)
+          command: nix-shell --run "./build/linux/aioffice-cli tools" > /tmp/tools.json
 
       - store_artifacts:
           path: /tmp/last-playbook-output.json

@@ -28,6 +28,32 @@ void printJson(const QJsonObject &o)
     fwrite(b.constData(), 1, static_cast<size_t>(b.size()), stdout);
 }
 
+// Dot-path lookup into a JSON value: "document.body.0.runs.1.bold" walks
+// objects by key and arrays by numeric index. Returns QJsonValue::Undefined
+// if any segment doesn't resolve.
+QJsonValue valueAtPath(const QJsonValue &root, const QString &path)
+{
+    QJsonValue cur = root;
+    for (const QString &seg : path.split(QLatin1Char('.'), Qt::SkipEmptyParts)) {
+        bool isIdx = false;
+        const int idx = seg.toInt(&isIdx);
+        if (isIdx && cur.isArray()) {
+            const QJsonArray arr = cur.toArray();
+            if (idx < 0 || idx >= arr.size())
+                return QJsonValue(QJsonValue::Undefined);
+            cur = arr.at(idx);
+        } else if (cur.isObject()) {
+            const QJsonObject obj = cur.toObject();
+            if (!obj.contains(seg))
+                return QJsonValue(QJsonValue::Undefined);
+            cur = obj.value(seg);
+        } else {
+            return QJsonValue(QJsonValue::Undefined);
+        }
+    }
+    return cur;
+}
+
 QJsonObject parseArgsJson(const QString &s)
 {
     if (s.isEmpty())
@@ -148,6 +174,23 @@ int runCli(const QStringList &args)
                 out[QStringLiteral("results")] = results;
                 printJson(out);
                 return 1;
+            }
+            if (c.contains(QStringLiteral("expect"))) {
+                const QJsonObject expect = c.value(QStringLiteral("expect")).toObject();
+                for (auto it = expect.begin(); it != expect.end(); ++it) {
+                    const QJsonValue actual = valueAtPath(r, it.key());
+                    if (actual != it.value()) {
+                        QJsonObject out;
+                        out[QStringLiteral("ok")] = false;
+                        out[QStringLiteral("error")] = QStringLiteral("expect failed for %1 at %2: got %3, want %4")
+                            .arg(t, it.key(),
+                                 QString::fromUtf8(QJsonDocument(QJsonArray{actual}).toJson(QJsonDocument::Compact)),
+                                 QString::fromUtf8(QJsonDocument(QJsonArray{it.value()}).toJson(QJsonDocument::Compact)));
+                        out[QStringLiteral("results")] = results;
+                        printJson(out);
+                        return 1;
+                    }
+                }
             }
         }
         QJsonObject out;

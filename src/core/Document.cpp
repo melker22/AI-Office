@@ -208,6 +208,12 @@ QJsonObject Revision::toJson() const
     o[QStringLiteral("timestamp")] = double(timestamp);
     if (!payload.isEmpty())
         o[QStringLiteral("payload")] = payload;
+    if (!deletedRuns.isEmpty()) {
+        QJsonArray runs;
+        for (const auto &r : deletedRuns)
+            runs.push_back(r.toJson());
+        o[QStringLiteral("deleted_runs")] = runs;
+    }
     return o;
 }
 
@@ -223,6 +229,19 @@ Revision Revision::fromJson(const QJsonObject &o)
     r.text = o.value(QStringLiteral("text")).toString();
     r.timestamp = qint64(o.value(QStringLiteral("timestamp")).toDouble());
     r.payload = o.value(QStringLiteral("payload")).toString();
+    QString reconstructed;
+    bool allObjects = true;
+    for (const auto &rr : o.value(QStringLiteral("deleted_runs")).toArray()) {
+        if (!rr.isObject()) {
+            allObjects = false;
+            break;
+        }
+        const TextRun run = TextRun::fromJson(rr.toObject());
+        reconstructed += run.text;
+        r.deletedRuns.push_back(run);
+    }
+    if (!allObjects || (!r.deletedRuns.isEmpty() && reconstructed != r.text))
+        r.deletedRuns.clear();
     return r;
 }
 
@@ -1258,6 +1277,10 @@ static QString headingNumberOf(const Document &doc, const QString &blockId)
             continue;
         const int lvl = qBound(1, b.level > 0 ? b.level : 1, 9);
         ++counters[lvl - 1];
+        for (int i = 0; i < lvl - 1; ++i) {
+            if (counters[i] == 0)
+                counters[i] = 1;
+        }
         for (int i = lvl; i < 9; ++i)
             counters[i] = 0;
         if (b.id == blockId) {

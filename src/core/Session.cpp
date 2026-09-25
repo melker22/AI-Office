@@ -1400,6 +1400,7 @@ QJsonObject Session::insertAtCaret(const QJsonObject &args)
         return fail(QStringLiteral("cannot insert"));
     }
     if (doc_.trackChanges) {
+        shiftRevisionOffsets(id, endOff, text.size() - (endOff - startOff));
         if (hasRange && endOff > startOff) {
             QString replaced;
             for (const auto &r : *runs)
@@ -1413,6 +1414,7 @@ QJsonObject Session::insertAtCaret(const QJsonObject &args)
             del.start = startOff;
             del.end = endOff;
             del.text = replaced;
+            del.deletedRuns = splitRuns(*runs, startOff, endOff);
             del.timestamp = QDateTime::currentMSecsSinceEpoch();
             doc_.revisions.push_back(del);
         }
@@ -1450,6 +1452,7 @@ bool Session::insertTextAt(const QString &id, int offset, const QString &text, i
     ins.text = text;
     *runs = spliceRuns(*runs, offset, offset, ins);
     if (doc_.trackChanges) {
+        shiftRevisionOffsets(id, offset, text.size());
         Revision rev;
         rev.id = QStringLiteral("rev") + QString::number(doc_.nextCounter(QStringLiteral("rev")));
         // nextCounter only scans body ids; use revisions size
@@ -1475,8 +1478,19 @@ bool Session::deleteBackward(const QString &id, int offset, int row, int col)
         auto *runs = runsAt(*b, row, col);
         if (!runs)
             return false;
+        QString gone;
+        for (const auto &r : *runs)
+            gone += r.text;
+        QVector<TextRun> goneRuns;
+        if (offset > 0 && offset <= gone.size())
+            gone = gone.mid(offset - 1, 1);
+        else
+            gone.clear();
+        if (!gone.isEmpty())
+            goneRuns = splitRuns(*runs, offset - 1, offset);
         *runs = spliceRuns(*runs, offset - 1, offset, TextRun{});
         if (doc_.trackChanges) {
+            shiftRevisionOffsets(id, offset, -1);
             Revision rev;
             rev.id = QStringLiteral("rev%1").arg(doc_.revisions.size() + 1);
             rev.author = doc_.author.isEmpty() ? QStringLiteral("IA") : doc_.author;
@@ -1484,7 +1498,8 @@ bool Session::deleteBackward(const QString &id, int offset, int row, int col)
             rev.blockId = id;
             rev.start = offset - 1;
             rev.end = offset;
-            rev.text = QStringLiteral("?");
+            rev.text = gone;
+            rev.deletedRuns = goneRuns;
             rev.timestamp = QDateTime::currentMSecsSinceEpoch();
             doc_.revisions.push_back(rev);
         }
@@ -2483,6 +2498,22 @@ QJsonObject Session::revisionAccept(const QJsonObject &args)
     return fail(QStringLiteral("revision not found"));
 }
 
+void Session::shiftRevisionOffsets(const QString &blockId, int pivot, int delta, const QString &excludeId)
+{
+    if (delta == 0)
+        return;
+    for (auto &other : doc_.revisions) {
+        if (other.blockId != blockId || other.id == excludeId)
+            continue;
+        if (other.start >= pivot) {
+            other.start += delta;
+            other.end += delta;
+        } else if (other.end > pivot) {
+            other.end = pivot;
+        }
+    }
+}
+
 QJsonObject Session::revisionReject(const QJsonObject &args)
 {
     const QString id = args.value(QStringLiteral("id")).toString();
@@ -2498,12 +2529,30 @@ QJsonObject Session::revisionReject(const QJsonObject &args)
     if (idx < 0)
         return fail(QStringLiteral("revision not found"));
     pushUndo();
-    if (found.kind == QLatin1String("insert")) {
-        Block *b = doc_.findBlock(found.blockId);
-        if (b)
+    Block *b = doc_.findBlock(found.blockId);
+    int delta = 0;
+    int pivot = found.start;
+    if (b) {
+        if (found.kind == QLatin1String("insert")) {
             b->runs = spliceRuns(b->runs, found.start, found.end, TextRun{});
+            delta = -(found.end - found.start);
+            pivot = found.end;
+        } else if (found.kind == QLatin1String("delete") && !found.text.isEmpty()) {
+            QVector<TextRun> restored = found.deletedRuns;
+            if (restored.isEmpty()) {
+                TextRun fallback;
+                fallback.text = found.text;
+                restored.push_back(fallback);
+            }
+            QVector<TextRun> before = splitRuns(b->runs, 0, found.start);
+            QVector<TextRun> after = splitRuns(b->runs, found.start, b->plainText().size());
+            b->runs = before + restored + after;
+            delta = found.end - found.start;
+            pivot = found.start;
+        }
     }
     doc_.revisions.removeAt(idx);
+    shiftRevisionOffsets(found.blockId, pivot, delta);
     markChanged();
     return ok();
 }
@@ -2520,11 +2569,23 @@ QJsonObject Session::revisionRejectAll(const QJsonObject &)
 {
     pushUndo();
     const auto revs = doc_.revisions;
-    for (const auto &found : revs) {
+    for (int i = revs.size() - 1; i >= 0; --i) {
+        const Revision &found = revs[i];
+        Block *b = doc_.findBlock(found.blockId);
+        if (!b)
+            continue;
         if (found.kind == QLatin1String("insert")) {
-            Block *b = doc_.findBlock(found.blockId);
-            if (b)
-                b->runs = spliceRuns(b->runs, found.start, found.end, TextRun{});
+            b->runs = spliceRuns(b->runs, found.start, found.end, TextRun{});
+        } else if (found.kind == QLatin1String("delete") && !found.text.isEmpty()) {
+            QVector<TextRun> restored = found.deletedRuns;
+            if (restored.isEmpty()) {
+                TextRun fallback;
+                fallback.text = found.text;
+                restored.push_back(fallback);
+            }
+            QVector<TextRun> before = splitRuns(b->runs, 0, found.start);
+            QVector<TextRun> after = splitRuns(b->runs, found.start, b->plainText().size());
+            b->runs = before + restored + after;
         }
     }
     doc_.revisions.clear();
@@ -3921,7 +3982,9 @@ QJsonObject Session::insertForm(const QJsonObject &args)
 QJsonObject Session::bibliographySet(const QJsonObject &args)
 {
     pushUndo();
-    doc_.bibliography.clear();
+    const bool replaceEntries = args.contains(QStringLiteral("entries")) || args.contains(QStringLiteral("id"));
+    if (replaceEntries)
+        doc_.bibliography.clear();
     for (const auto &v : args.value(QStringLiteral("entries")).toArray())
         doc_.bibliography.push_back(BiblioEntry::fromJson(v.toObject()));
     if (args.contains(QStringLiteral("id"))) {
@@ -4408,9 +4471,7 @@ QJsonObject Session::insertBibliography(const QJsonObject &args)
     // sorted by first author's surname (then year), matching every style's convention
     QVector<BiblioEntry> sorted = doc_.bibliography;
     std::sort(sorted.begin(), sorted.end(), [](const BiblioEntry &a, const BiblioEntry &b) {
-        if (a.author != b.author)
-            return a.author < b.author;
-        return a.year < b.year;
+        return csl::bibliographySortKey(a) < csl::bibliographySortKey(b);
     });
     for (const auto &e : sorted) {
         Block para;

@@ -1,0 +1,20 @@
+[
+  {"tool": "document_new", "args": {"title": "Revision Reject Fidelity"}},
+  {"tool": "insert_at_caret", "args": {"id": "p1", "offset": 0, "text": "abc"}},
+  {"tool": "track_changes", "args": {"on": true}},
+  {"tool": "insert_at_caret", "args": {"id": "p1", "offset": 0, "text": "X"}},
+  {"tool": "apply_character_format", "args": {"id": "p1", "start": 2, "end": 3, "bold": true}},
+  {"tool": "set_selection", "args": {"anchor_id": "p1", "anchor_off": 2, "focus_id": "p1", "focus_off": 3}},
+  {"tool": "insert_at_caret", "args": {"id": "p1", "text": ""}},
+  {"tool": "revision_reject", "args": {"id": "rev1"}},
+  {"tool": "revision_reject", "args": {"id": "rev3"}},
+  {"tool": "document_get", "args": {}, "expect": {
+    "document.body.0.runs.0.text": "a",
+    "document.body.0.runs.1.text": "b",
+    "document.body.0.runs.1.bold": true,
+    "document.body.0.runs.2.text": "c"
+  }},
+  {"tool": "revision_accept_all", "args": {}},
+  {"tool": "revision_list", "args": {}, "expect": {"revisions": []}},
+  {"tool": "validate", "args": {}, "expect": {"valid": true}}
+]

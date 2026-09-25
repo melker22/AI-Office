@@ -26,6 +26,114 @@
 
 ---
 
+## 2026-09-14 — Claude — PR #2 CodeRabbit follow-up round 2 (same branch)
+
+**Objective:** Verificar todos os achados do CodeRabbit na PR #2 (2 reviews, 9 comentários) contra o código atual e resolver os 2 que ainda não tinham commit corretivo (achados na review do commit `3b86267`, sem review seguinte).
+
+**Done:**
+- Conferido nos arquivos reais (não só na mensagem "✅ Addressed"): os 7 achados da 1ª review (hash em `AI_HANDOFF.md`, exceção de push só com pedido explícito, `check_roundtrip.py` w:ins/w:del separados, bookmark sintético para `insert_crossref`, `[Content_Types].xml` após footnote/endnote, dedup de bookmark por nome normalizado, dedup de revisão com `blockId`) — todos genuinamente corrigidos em `3b86267`.
+- Os 2 achados da 2ª review (ainda sem commit corretivo) eram reais e foram corrigidos agora:
+  - `Revision` ganhou campo `deletedRuns` (fragmentos `TextRun` originais, com formatação) preenchido em `insertAtCaret`/`deleteBackward` quando `track_changes` está ligado; `revisionReject`/`revisionRejectAll` restauram esses fragmentos (preservando bold/itálico/etc.) em vez de um `TextRun` genérico só com o texto.
+  - `revisionReject` (rejeição individual) agora ajusta `start`/`end` das revisões remanescentes do mesmo bloco pelo delta da rejeição — corrige o exemplo do CodeRabbit (inserir "X" em 0, apagar "b" em 2, rejeitar o insert e depois o delete dava "acb"; agora dá "abc"). `revisionRejectAll` não precisava do mesmo ajuste (já é consistente por processar em ordem cronológica reversa).
+
+**Decisions:** `deletedRuns` é campo novo só de persistência nativa (JSON), não é exportado para markup ODT/DOCX — o objetivo é fidelidade do reject, não fidelidade de formato externo (esse gap de "w:del sintético" continua documentado como fora de escopo, decisão da entrada anterior).
+
+**Next suggested step:** ~~PR #2 pronta para merge~~ — **corrigido na entrada seguinte**: CodeRabbit rodou de novo em cima deste commit e apontou mais 4 achados (a validação e a re-review ainda não tinham terminado quando esta linha foi escrita originalmente).
+
+**Commits:** `26f3fb6` fix: preserve formatting and offsets on revision reject (CodeRabbit PR #2 round 2)
+
+---
+
+## 2026-09-14 — Claude — PR #2 CodeRabbit follow-up round 3 (same branch)
+
+**Objective:** A entrada anterior declarou "CI verde, PR pronta para merge" antes da CI/CodeRabbit terminarem de rodar em cima do commit `ad638fb` — o CodeRabbit apontou isso (não declarar pronto antes da validação terminar) e mais 3 achados reais na 3ª review. Corrigir os 4.
+
+**Done:**
+- `docs/AI_HANDOFF.md`: linha "Next suggested step" da entrada anterior corrigida (não afirmar mais "pronta para merge" antes da validação real terminar).
+- `qa/revision-reject-fidelity.json` → renomeado para `qa/wave16-revision-reject-fidelity.json` (o glob da CI é `qa/wave*.json`; o arquivo antigo nunca teria rodado na suíte automática). Playbook ganhou `expect` de verdade (texto final `abc`/bold em `b`, `revision_list` final vazio após `revision_accept_all`) em vez de só confiar no `ok` de cada chamada.
+- `aioffice play` (`src/cli/Cli.cpp`) ganhou suporte real a asserção: uma chamada pode incluir `"expect": {"dot.path": valor}`; falha do mesmo jeito que `ok:false` se o valor não bater. Documentado em `docs/mcp-tools.md`. Sem isso o achado do CodeRabbit sobre "só checa ok" não tinha como ser corrigido de verdade nesse playbook nem em nenhum outro.
+- `Revision::fromJson` (`Document.cpp`): `deleted_runs` só aceita elementos que são objeto JSON; se a reconstrução do texto dos fragmentos não bater com `Revision.text` (arquivo antigo/corrompido), `deletedRuns` é limpo e o fallback de texto plano em `revisionReject`/`revisionRejectAll` continua funcionando.
+- Achado mais profundo (Major, "heavy lift"): o ajuste de offset que adicionei na rodada anterior só corrigia revisões **depois** de um reject; uma revisão ainda não rejeitada podia ficar desatualizada por causa de uma edição **posterior** (ex.: rev1 insere "X" em 0, rev2 insere depois "Y" também em 0 — rejeitar rev1 removia "Y", não "X"). Resolvido na raiz: `Session::shiftRevisionOffsets(blockId, pivot, delta)` (novo, privado) agora roda em **todo** ponto de mutação rastreada (`insertAtCaret`, `insertTextAt`, `deleteBackward`, e o próprio `revisionReject`), não só no reject — toda revisão existente no mesmo bloco fica sempre com offset válido em relação ao documento atual, eliminando a necessidade de "rebasear" nada na hora do reject.
+- Testado manualmente o cenário exato do CodeRabbit (rev1 insere X em 0, rev2 insere Y em 0, reject rev1 → sobra "Yabc", não "Xabc" invertido) via playbook solto — confirma a correção.
+
+**Decisions:** Não estendi o ajuste de offset ao `commitCaretInsert`/autocorrect do lado GUI (path de digitação ao vivo) — esse caminho já não gravava revisão nenhuma pro replace do autocorrect antes desta rodada, é um gap pré-existente e separado, não foi um dos achados do CodeRabbit.
+
+**Next suggested step:** Esperar a 4ª rodada de CI + CodeRabbit no commit deste fix. Se limpo, PR #2 finalmente pronta para merge.
+
+**Commits:** `a21b733` fix: rebase revision offsets on every tracked edit, harden deleted_runs parsing, add real playbook assertions (CodeRabbit PR #2 round 3)
+
+---
+
+## 2026-09-14 — Grok — PR #2 CodeRabbit follow-up (same branch)
+
+**Objective:** Consertar os Majors da review da PR #2 na mesma branch.
+
+**Done:**
+- `[Content_Types].xml` montado depois dos overrides de footnotes/endnotes.
+- Dedup de bookmark compara o `w:name` normalizado da exportação.
+- Dedup de revisão no `flushP` usa `blockId+kind+start+end`.
+- `insert_crossref` sem Bookmark ganha bookmark sintético no DOCX (REF/PAGEREF).
+- Backspace com track changes grava o caractere real, não `"?"`.
+- `check_roundtrip.py` exige `w:ins` só se houver insert; `w:del` se houver delete.
+- Guia de PR: push no `main` só com pedido explícito.
+
+**Decisions:** `w:del` sintético no export continua fora (texto já saiu de `runs`).
+
+**Next suggested step:** Esperar CI + re-review na PR #2; merge quando verde.
+
+**Commits:** `c853456` fix: CodeRabbit PR #2 follow-up on DOCX round-trip and delete text
+
+---
+
+## 2026-09-14 — Grok — Branch+PR workflow as project rule; land CI/CodeRabbit work via PR
+
+**Objective:** Tornar branch→PR→`main` a regra do repo, deixar um guia copiável, e enviar as alterações da CI/CodeRabbit pela forma recomendada (não push no `main`).
+
+**Done:**
+- Regra `.cursor/rules/pr-not-direct-push.mdc` (`alwaysApply`); `ai-commit-protocol.mdc` e `project-context.mdc` apontam para ela.
+- Guia portátil `docs/GIT_PR_WORKFLOW.md` (PT-BR, para copiar a outros projetos).
+- Envio: branch `fix/ci-cli-and-coderabbit` + PR para `main`.
+
+**Decisions:** A PR #1 (`main` → `pre-wave12-baseline`) continua sendo um recorte histórico, não o fluxo normal.
+
+**Next suggested step:** Esperar CI + CodeRabbit nesta PR; merge quando verde.
+
+**Commits:** `fade1bd` ci: pin nixpkgs, add aioffice-cli, run smoke tests headless · `ceae108` fix: address CodeRabbit findings on CSL, PDF, and round-trip · `ff892b6` docs: require feature-branch PRs instead of pushing main
+
+---
+
+## 2026-09-14 — Grok — CI: pin nixpkgs, offscreen, hyphen resource, cli target
+
+**Objective:** Fazer a CircleCI passar de verdade. O X vermelho depois do `a33af05` não era um segundo bug escondido nas ondas 12–15 — era Qt local 6.11 vs CI 6.7 (`QImage::flipped()`, já corrigido) + o job nunca terminar o alvo GUI (108 targets) no `large`, então a suíte de fumo nunca rodava. CodeRabbit apontou o `hyphen.qrc` em lib estática.
+
+**Done:**
+- `flake.nix` / `shell.nix` pinados no mesmo `flake.lock` (nixpkgs `2c423e03bbaf…`, Qt 6.11.1). Sem `<nixpkgs>` solto.
+- `Q_INIT_RESOURCE(hyphen)` em `Hyphenation.cpp` (puxa o rcc da lib estática) e em `main.cpp`.
+- `QT_QPA_PLATFORM=offscreen` quando `AIOFFICE_HEADLESS` ou Linux sem DISPLAY/Wayland, **antes** do `QGuiApplication`.
+- Alvo `aioffice_cli` (`aioffice-cli`): core + main headless, sem QML. A CI builda só isso, cacheia `build/linux` + ccache, e corre os playbooks. GUI continua local.
+
+**Decisions:** A CI não tenta mais o alvo GUI — era o que o plano matava (~8 min) antes do `save_cache`. O gate é o mesmo `play` que a IA usa.
+
+**Next suggested step:** Push para a CircleCI confirmar o job verde. GUI compile check, se quiser, é um job à parte depois.
+
+**Commits:** nenhum (usuário não pediu)
+
+---
+
+## 2026-09-14 — Grok — CodeRabbit follow-ups (waves 12–15)
+
+**Objective:** Corrigir os achados relevantes da review da PR #1.
+
+**Done:** `bibliography_set` não zera entradas no `cite_style` só; sort da biblio por sobrenome parseado; MLA in-text sem `e.pages`; heading number sem componente 0; PDF append+check write, `/P` na estrutura, export propaga erro de pós-processo; ODT `field:arg`; DOCX `w:id` numérico, nomes de bookmark no REF/anchor, PAGEREF, merge nativo+json; `revision_reject` restaura delete; `mcp-tools.md` e `check_roundtrip.py` nativo.
+
+**Decisions:** Markup `w:del` sintético (reinserir texto apagado no export) continua fora — o modelo tira o texto de `runs` na hora. Docstring 80% ignorado.
+
+**Next suggested step:** Merge da PR desta branch quando a CI estiver verde.
+
+**Commits:** `ceae108` (CodeRabbit follow-ups; CI commits na entrada acima)
+
+---
+
 ## 2026-09-14 — Claude Code — Fase IA onda 15: tagged PDF real de parágrafo (cumprindo a onda 13)
 
 **Objective:** Onda 15 — cumprir o compromisso deixado explícito na onda 13/catálogo: tagging de PDF de granularidade de parágrafo/heading, não mais só de página. Push pedido pelo utilizador antes desta onda (feito, `a33af05`). Sem chrome QML novo.

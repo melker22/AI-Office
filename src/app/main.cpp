@@ -4,6 +4,7 @@
 #include "core/Session.h"
 #include "mcp/McpServer.h"
 
+#include <QByteArray>
 #include <QColor>
 #include <QCoreApplication>
 #include <QGuiApplication>
@@ -15,6 +16,18 @@
 
 int main(int argc, char *argv[])
 {
+    Q_INIT_RESOURCE(hyphen);
+
+    const bool headless = !qEnvironmentVariableIsEmpty("AIOFFICE_HEADLESS");
+#if defined(Q_OS_LINUX)
+    const bool noGuiServer = qEnvironmentVariableIsEmpty("DISPLAY")
+        && qEnvironmentVariableIsEmpty("WAYLAND_DISPLAY");
+#else
+    const bool noGuiServer = false;
+#endif
+    if (qEnvironmentVariableIsEmpty("QT_QPA_PLATFORM") && (headless || noGuiServer))
+        qputenv("QT_QPA_PLATFORM", QByteArrayLiteral("offscreen"));
+
     QGuiApplication app(argc, argv);
     app.setApplicationName(QStringLiteral("AI Office"));
     app.setOrganizationName(QStringLiteral("AIOffice"));
