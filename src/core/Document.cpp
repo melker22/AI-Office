@@ -355,6 +355,59 @@ static QVector<QVector<NestedCell>> nestedFromJson(const QJsonValue &v)
     return nested;
 }
 
+static QString normalizedBlockDir(QString dir)
+{
+    if (dir == QLatin1String("auto"))
+        dir.clear();
+    return dir;
+}
+
+bool isValidBlockAlign(const QString &align)
+{
+    if (align.isEmpty())
+        return true;
+    return align == QLatin1String("left") || align == QLatin1String("right")
+        || align == QLatin1String("center") || align == QLatin1String("justify")
+        || align == QLatin1String("start") || align == QLatin1String("end");
+}
+
+bool isValidBlockDir(const QString &dir)
+{
+    const QString d = normalizedBlockDir(dir);
+    if (d.isEmpty())
+        return true;
+    return d == QLatin1String("ltr") || d == QLatin1String("rtl");
+}
+
+QString validateBlock(const Block &b)
+{
+    if (!isValidBlockAlign(b.align))
+        return QStringLiteral("invalid align: ") + b.align;
+    if (!isValidBlockDir(b.dir))
+        return QStringLiteral("invalid dir: ") + b.dir;
+    return {};
+}
+
+QString validateParagraphFormatArgs(const QJsonObject &args)
+{
+    if (args.contains(QStringLiteral("align"))) {
+        const QString align = args.value(QStringLiteral("align")).toString();
+        if (!isValidBlockAlign(align))
+            return QStringLiteral("invalid align: ") + align;
+    }
+    if (args.contains(QStringLiteral("dir"))) {
+        const QString dir = args.value(QStringLiteral("dir")).toString();
+        if (!isValidBlockDir(dir))
+            return QStringLiteral("invalid dir: ") + dir;
+    }
+    return {};
+}
+
+Block duplicateBlock(const Block &src)
+{
+    return src;
+}
+
 QJsonObject Block::toJson() const
 {
     QJsonObject o;
@@ -366,6 +419,8 @@ QJsonObject Block::toJson() const
         o[QStringLiteral("style")] = style;
     if (!align.isEmpty())
         o[QStringLiteral("align")] = align;
+    if (!dir.isEmpty() && dir != QLatin1String("auto"))
+        o[QStringLiteral("dir")] = dir;
     if (!listKind.isEmpty())
         o[QStringLiteral("list_kind")] = listKind;
     if (!breakKind.isEmpty())
@@ -550,6 +605,7 @@ Block Block::fromJson(const QJsonObject &o)
     b.level = o.value(QStringLiteral("level")).toInt();
     b.style = o.value(QStringLiteral("style")).toString();
     b.align = o.value(QStringLiteral("align")).toString();
+    b.dir = normalizedBlockDir(o.value(QStringLiteral("dir")).toString());
     b.listKind = o.value(QStringLiteral("list_kind")).toString();
     b.breakKind = o.value(QStringLiteral("break_kind")).toString();
     b.runs = runsFromJson(o.value(QStringLiteral("runs")));
