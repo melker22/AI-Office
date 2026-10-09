@@ -40,7 +40,7 @@
 
 **Next suggested step:** Wire `Block.dir` into this layout, then ruby and `caret_move` (T4). Do not change the clip or paint order.
 
-**Commits:** `feat: share one block text layout for paint, caret, and hit-test`
+**Commits:** `6a74100` feat: share one block text layout for paint, caret, and hit-test
 
 ---
 
