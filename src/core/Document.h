@@ -107,6 +107,7 @@ struct Block {
     int level = 0;
     QString style;
     QString align;
+    QString dir; // auto | ltr | rtl (default auto; omitted in JSON when auto)
     QString listKind;
     QString breakKind;
     QVector<TextRun> runs;

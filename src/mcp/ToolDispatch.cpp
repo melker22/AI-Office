@@ -105,6 +105,7 @@ QJsonArray toolDefinitions()
                   QJsonObject{{QStringLiteral("ids"), prop(QStringLiteral("array"), QStringLiteral("Block ids; or pass id"))},
                               {QStringLiteral("id"), prop(QStringLiteral("string"), QStringLiteral("Single block id (alias of ids with one entry)"))},
                               {QStringLiteral("align"), prop(QStringLiteral("string"))},
+                              {QStringLiteral("dir"), prop(QStringLiteral("string"), QStringLiteral("auto | ltr | rtl"))},
                               {QStringLiteral("style"), prop(QStringLiteral("string"))},
                               {QStringLiteral("indent_left_mm"), prop(QStringLiteral("number"))},
                               {QStringLiteral("indent_right_mm"), prop(QStringLiteral("number"))},

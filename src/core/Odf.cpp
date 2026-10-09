@@ -44,6 +44,83 @@ struct SpanCounter {
     QMap<QString, int> seen;
 };
 
+struct ParaStyleCounter {
+    int n = 0;
+    QString stylesXml;
+    QMap<QString, QString> seen; // key -> auto style name
+};
+
+QString paraStyleForBlock(ParaStyleCounter &pc, const Block &b)
+{
+    const QString parent = odfStyleName(styleForBlock(b));
+    const bool needAlign = !b.align.isEmpty();
+    const bool needDir = !b.dir.isEmpty() && b.dir != QLatin1String("auto");
+    if (!needAlign && !needDir)
+        return parent;
+    const QString key = parent + QLatin1Char('|') + b.align + QLatin1Char('|') + b.dir;
+    if (pc.seen.contains(key))
+        return pc.seen.value(key);
+    const QString name = QStringLiteral("AioP%1").arg(++pc.n);
+    pc.seen.insert(key, name);
+    QString pp;
+    if (needAlign)
+        pp += QStringLiteral("fo:text-align=\"%1\" ").arg(xmlEscape(b.align));
+    if (needDir) {
+        const QString wm = b.dir == QLatin1String("rtl") ? QStringLiteral("rl-tb") : QStringLiteral("lr-tb");
+        pp += QStringLiteral("style:writing-mode=\"%1\" ").arg(wm);
+    }
+    pc.stylesXml += QStringLiteral(
+                         "<style:style style:name=\"%1\" style:family=\"paragraph\" style:parent-style-name=\"%2\">"
+                         "<style:paragraph-properties %3/></style:style>")
+                         .arg(name, parent, pp);
+    return name;
+}
+
+struct ParaStyleProps {
+    QString align;
+    QString dir;
+};
+
+void collectParaStyles(const QByteArray &bytes, QMap<QString, ParaStyleProps> &out)
+{
+    if (bytes.isEmpty())
+        return;
+    QXmlStreamReader xr(bytes);
+    QString curName;
+    while (!xr.atEnd()) {
+        xr.readNext();
+        if (xr.isStartElement()) {
+            if (xr.name() == QLatin1String("style"))
+                curName = xr.attributes().value(QStringLiteral("style:name")).toString();
+            else if (xr.name() == QLatin1String("paragraph-properties") && !curName.isEmpty()) {
+                ParaStyleProps p = out.value(curName);
+                const auto a = xr.attributes();
+                const QString ta = a.value(QStringLiteral("fo:text-align")).toString();
+                if (!ta.isEmpty())
+                    p.align = ta;
+                const QString wm = a.value(QStringLiteral("style:writing-mode")).toString();
+                if (wm == QLatin1String("rl-tb"))
+                    p.dir = QStringLiteral("rtl");
+                else if (wm == QLatin1String("lr-tb"))
+                    p.dir = QStringLiteral("ltr");
+                out.insert(curName, p);
+            }
+        } else if (xr.isEndElement() && xr.name() == QLatin1String("style")) {
+            curName.clear();
+        }
+    }
+}
+
+void applyParaStyleProps(const QMap<QString, ParaStyleProps> &paraStyles, const QString &odfStyleName,
+                         QString &align, QString &dir)
+{
+    const ParaStyleProps p = paraStyles.value(odfStyleName);
+    if (!p.align.isEmpty())
+        align = p.align;
+    if (!p.dir.isEmpty())
+        dir = p.dir;
+}
+
 QString emitSpan(SpanCounter &sc, const TextRun &r, const Document &doc)
 {
     const bool fmt = r.bold || r.italic || r.underline || r.strike || r.superscript || r.subscript
@@ -268,6 +345,7 @@ bool saveOdt(const Document &doc, const QString &path, QString *error)
         "<style:paragraph-properties fo:break-before=\"column\"/></style:style>");
 
     SpanCounter sc;
+    ParaStyleCounter psc;
     QString bodyXml;
     QVector<ZipEntry> pictures;
     QVector<const Revision *> usedRevisions;
@@ -291,13 +369,12 @@ bool saveOdt(const Document &doc, const QString &path, QString *error)
             ++i;
             continue;
         }
-        const QString st = odfStyleName(styleForBlock(b));
         if (b.type == QLatin1String("list-item")) {
             const QString kind = b.listKind;
             bodyXml += QLatin1String("<text:list>");
             while (i < body.size() && body[i].type == QLatin1String("list-item") && body[i].listKind == kind) {
                 QString inner = QStringLiteral("<text:p text:style-name=\"%1\">%2</text:p>")
-                                    .arg(odfStyleName(styleForBlock(body[i])),
+                                    .arg(paraStyleForBlock(psc, body[i]),
                                          revisedSpansXml(sc, body[i].id, body[i].runs, doc, usedRevisions));
                 const int lv = qMax(1, body[i].level);
                 for (int n = 1; n < lv; ++n)
@@ -311,7 +388,7 @@ bool saveOdt(const Document &doc, const QString &path, QString *error)
         if (b.type == QLatin1String("heading")) {
             bodyXml += bookmarksAround(b.id,
                 QStringLiteral("<text:h text:style-name=\"%1\" text:outline-level=\"%2\">%3</text:h>")
-                    .arg(st)
+                    .arg(paraStyleForBlock(psc, b))
                     .arg(b.level > 0 ? b.level : 1)
                     .arg(revisedSpansXml(sc, b.id, b.runs, doc, usedRevisions)));
         } else if (b.type == QLatin1String("break")) {
@@ -369,7 +446,7 @@ bool saveOdt(const Document &doc, const QString &path, QString *error)
         } else {
             bodyXml += bookmarksAround(b.id,
                 QStringLiteral("<text:p text:style-name=\"%1\">%2</text:p>")
-                    .arg(st, revisedSpansXml(sc, b.id, b.runs, doc, usedRevisions)));
+                    .arg(paraStyleForBlock(psc, b), revisedSpansXml(sc, b.id, b.runs, doc, usedRevisions)));
         }
         ++i;
     }
@@ -444,7 +521,7 @@ bool saveOdt(const Document &doc, const QString &path, QString *error)
         "xmlns:dc=\"http://purl.org/dc/elements/1.1/\" office:version=\"1.3\">"
         "<office:automatic-styles>%1</office:automatic-styles>"
         "<office:body><office:text>%2%3</office:text></office:body></office:document-content>")
-                                   .arg(sc.stylesXml, trackedChangesXml, bodyXml);
+                                   .arg(psc.stylesXml + sc.stylesXml, trackedChangesXml, bodyXml);
 
     QString manifest = QStringLiteral(
         "<?xml version=\"1.0\" encoding=\"UTF-8\"?>"
@@ -545,7 +622,11 @@ bool loadOdt(const QByteArray &zipData, Document &doc, QString *error)
     doc = Document::blank();
     doc.body.clear();
 
+    QMap<QString, ParaStyleProps> paraStyles;
     const QByteArray stylesBytes = Zip::file(entries, QStringLiteral("styles.xml"));
+    collectParaStyles(stylesBytes, paraStyles);
+    collectParaStyles(content, paraStyles);
+
     if (!stylesBytes.isEmpty()) {
         QXmlStreamReader st(stylesBytes);
         while (!st.atEnd()) {
@@ -635,6 +716,8 @@ bool loadOdt(const QByteArray &zipData, Document &doc, QString *error)
     QString currentType = QStringLiteral("paragraph");
     int currentLevel = 0;
     QString currentStyle;
+    QString pendingAlign;
+    QString pendingDir;
     QString listKind;
     int listLevel = 0;
     bool inText = false;
@@ -680,6 +763,8 @@ bool loadOdt(const QByteArray &zipData, Document &doc, QString *error)
         b.type = currentType;
         b.level = currentLevel;
         b.style = currentStyle;
+        b.align = pendingAlign;
+        b.dir = pendingDir;
         b.listKind = listKind;
         b.runs = runs;
         if (b.runs.isEmpty())
@@ -700,6 +785,8 @@ bool loadOdt(const QByteArray &zipData, Document &doc, QString *error)
         currentType = QStringLiteral("paragraph");
         currentLevel = 0;
         currentStyle.clear();
+        pendingAlign.clear();
+        pendingDir.clear();
     };
 
     while (!xml.atEnd()) {
@@ -729,7 +816,11 @@ bool loadOdt(const QByteArray &zipData, Document &doc, QString *error)
                 currentLevel = xml.attributes().value(QStringLiteral("text:outline-level")).toInt();
                 if (currentLevel <= 0)
                     currentLevel = 1;
-                currentStyle = fromOdfStyleName(xml.attributes().value(QStringLiteral("text:style-name")).toString());
+                const QString stn = xml.attributes().value(QStringLiteral("text:style-name")).toString();
+                currentStyle = fromOdfStyleName(stn);
+                pendingAlign.clear();
+                pendingDir.clear();
+                applyParaStyleProps(paraStyles, stn, pendingAlign, pendingDir);
                 inText = true;
             } else if (n == QLatin1String("p")) {
                 const QString stn = xml.attributes().value(QStringLiteral("text:style-name")).toString();
@@ -748,6 +839,9 @@ bool loadOdt(const QByteArray &zipData, Document &doc, QString *error)
                     if (currentType != QLatin1String("list-item"))
                         currentType = QStringLiteral("paragraph");
                     currentStyle = fromOdfStyleName(stn);
+                    pendingAlign.clear();
+                    pendingDir.clear();
+                    applyParaStyleProps(paraStyles, stn, pendingAlign, pendingDir);
                     inText = true;
                 }
             } else if (n == QLatin1String("span")) {

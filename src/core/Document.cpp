@@ -366,6 +366,8 @@ QJsonObject Block::toJson() const
         o[QStringLiteral("style")] = style;
     if (!align.isEmpty())
         o[QStringLiteral("align")] = align;
+    if (!dir.isEmpty() && dir != QLatin1String("auto"))
+        o[QStringLiteral("dir")] = dir;
     if (!listKind.isEmpty())
         o[QStringLiteral("list_kind")] = listKind;
     if (!breakKind.isEmpty())
@@ -550,6 +552,7 @@ Block Block::fromJson(const QJsonObject &o)
     b.level = o.value(QStringLiteral("level")).toInt();
     b.style = o.value(QStringLiteral("style")).toString();
     b.align = o.value(QStringLiteral("align")).toString();
+    b.dir = o.value(QStringLiteral("dir")).toString();
     b.listKind = o.value(QStringLiteral("list_kind")).toString();
     b.breakKind = o.value(QStringLiteral("break_kind")).toString();
     b.runs = runsFromJson(o.value(QStringLiteral("runs")));

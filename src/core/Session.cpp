@@ -560,6 +560,8 @@ QJsonObject Session::applyParagraphFormat(const QJsonObject &args)
     for (int i : idx) {
         if (args.contains(QStringLiteral("align")))
             doc_.body[i].align = args.value(QStringLiteral("align")).toString();
+        if (args.contains(QStringLiteral("dir")))
+            doc_.body[i].dir = args.value(QStringLiteral("dir")).toString();
         if (args.contains(QStringLiteral("style")))
             doc_.body[i].style = args.value(QStringLiteral("style")).toString();
         if (args.contains(QStringLiteral("indent_left_mm")))

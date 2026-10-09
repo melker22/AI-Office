@@ -1,0 +1,24 @@
+[
+  {"tool": "document_new", "args": {"title": "Wave16 CTL Round-trip"}},
+  {"tool": "insert_blocks", "args": {"after_id": "start", "blocks": [
+    {"id": "rtl1", "type": "paragraph", "dir": "rtl", "align": "start", "runs": [{"text": "RTL start align"}]},
+    {"id": "ltr1", "type": "paragraph", "dir": "ltr", "align": "end", "runs": [{"text": "LTR end align"}]}
+  ]}},
+  {"tool": "document_save", "args": {"path": "/tmp/wave16-ctl-roundtrip.odt"}},
+  {"tool": "document_open", "args": {"path": "/tmp/wave16-ctl-roundtrip.odt"}},
+  {"tool": "document_get", "args": {}, "expect": {
+    "document.body.0.dir": "rtl",
+    "document.body.0.align": "start",
+    "document.body.1.dir": "ltr",
+    "document.body.1.align": "end"
+  }},
+  {"tool": "document_save", "args": {"path": "/tmp/wave16-ctl-roundtrip.docx"}},
+  {"tool": "document_open", "args": {"path": "/tmp/wave16-ctl-roundtrip.docx"}},
+  {"tool": "document_get", "args": {}, "expect": {
+    "document.body.0.dir": "rtl",
+    "document.body.0.align": "start",
+    "document.body.1.dir": "ltr",
+    "document.body.1.align": "end"
+  }},
+  {"tool": "validate", "args": {}, "expect": {"valid": true}}
+]
