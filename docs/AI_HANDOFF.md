@@ -41,7 +41,7 @@
 
 **Next suggested step:** Fleet `integrate-2`: merge com branch `t4-wire-rtl` (layout/caret) e `t6-qa` (playbooks caret/CJK + fontes Nix).
 
-**Commits:** (pendente nesta sessão)
+**Commits:** `ba208c3` feat: round-trip Block.dir and logical align in DOCX and ODT
 
 ---
 
