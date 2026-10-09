@@ -42,7 +42,7 @@
 
 **Next suggested step:** Round-trip of `dir` / `align start|end` (T5) and the wave 16 playbooks. A hit on the caret x of offset 4 in `abc אבג def` (the LTR/RTL boundary) came back as offset 7; the other sampled offsets round-tripped. Do not wire `DocumentCanvas` keys in the AI phase.
 
-**Commits:** `<pending>` feat: apply paragraph direction, ruby cursors, and caret movement
+**Commits:** `e069582` feat: apply paragraph direction, ruby cursors, and caret movement
 
 ---
 
