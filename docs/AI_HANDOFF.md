@@ -32,13 +32,13 @@
 
 **Done:**
 - Fast-forward merge of `t4-wire-rtl`; merge commit for `t5-roundtrip` with conflict resolution (keep T3/T4 `normalizedBlockDir`, `auto` clearing in `apply_paragraph_format`, richer MCP schema for align/dir).
-- Pending: `scripts/qa-all.sh --gui`.
+- `scripts/qa-all.sh --gui` verde (incl. `qa/wave16-ctl-roundtrip.json`).
 
-**Decisions:** T5’s raw `dir` in JSON import superseded by `normalizedBlockDir` from T3.
+**Decisions:** T5’s raw `dir` in JSON import superseded by `normalizedBlockDir` from T3. Conflitos T5 vs T3/T4 em `Session.cpp`, `ToolDispatch.cpp`, `Document.{h,cpp}`, `AI_HANDOFF.md` — mantida semântica T3/T4 (auto→vazio, schema align/dir, `normalizedBlockDir`).
 
 **Next suggested step:** Fleet `t6-qa` (playbooks caret/CJK + fontes Nix).
 
-**Commits:** (this merge)
+**Commits:** (merge commit abaixo)
 
 ---
 
