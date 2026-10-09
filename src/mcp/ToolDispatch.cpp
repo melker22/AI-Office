@@ -226,6 +226,19 @@ QJsonArray toolDefinitions()
                               {QStringLiteral("from"), prop(QStringLiteral("integer"))},
                               {QStringLiteral("to"), prop(QStringLiteral("integer"))},
                               {QStringLiteral("zoom"), prop(QStringLiteral("number"))}}));
+    a.append(tool(QStringLiteral("caret_geometry"),
+                  QStringLiteral("Caret position for a block offset, from the real line layout. Returns page, x_mm, y_mm, line (0-based), rtl."),
+                  QJsonObject{{QStringLiteral("id"), prop(QStringLiteral("string"))},
+                              {QStringLiteral("offset"), prop(QStringLiteral("integer"), QStringLiteral("Model offset in the block plain text"))},
+                              {QStringLiteral("row"), prop(QStringLiteral("integer"), QStringLiteral("Table cell row; omit for body text"))},
+                              {QStringLiteral("col"), prop(QStringLiteral("integer"), QStringLiteral("Table cell column"))}},
+                  QJsonArray{QStringLiteral("id"), QStringLiteral("offset")}));
+    a.append(tool(QStringLiteral("hit_test"),
+                  QStringLiteral("Block and model offset under a point on the page (millimetres from the top-left)."),
+                  QJsonObject{{QStringLiteral("page"), prop(QStringLiteral("integer"), QStringLiteral("1-based physical page"))},
+                              {QStringLiteral("x_mm"), prop(QStringLiteral("number"))},
+                              {QStringLiteral("y_mm"), prop(QStringLiteral("number"))}},
+                  QJsonArray{QStringLiteral("page"), QStringLiteral("x_mm"), QStringLiteral("y_mm")}));
     a.append(tool(QStringLiteral("integrate_help"),
                   QStringLiteral("How a user AI should attach to AI Office (no API keys). Includes title, words, outline."),
                   {}));

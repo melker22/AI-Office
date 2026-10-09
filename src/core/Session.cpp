@@ -1084,6 +1084,63 @@ QJsonObject Session::pagePreview(const QJsonObject &args)
     return r;
 }
 
+QJsonObject Session::caretGeometry(const QJsonObject &args)
+{
+    const QString id = args.value(QStringLiteral("id")).toString();
+    if (!args.contains(QStringLiteral("id")) || id.isEmpty())
+        return fail(QStringLiteral("id is required"));
+    if (!args.contains(QStringLiteral("offset")))
+        return fail(QStringLiteral("offset is required"));
+    const Block *b = doc_.findBlock(id);
+    if (!b)
+        return fail(QStringLiteral("unknown block"));
+    const int offset = args.value(QStringLiteral("offset")).toInt();
+    const int n = b->plainText().size();
+    if (offset < 0 || offset > n)
+        return fail(QStringLiteral("offset out of range"));
+    const int row = args.contains(QStringLiteral("row")) ? args.value(QStringLiteral("row")).toInt() : -1;
+    const int col = args.contains(QStringLiteral("col")) ? args.value(QStringLiteral("col")).toInt() : -1;
+    DocumentLayout lay;
+    lay.relayout(doc_, 1.0);
+    const CaretRect c = lay.caret(doc_, id, offset, row, col);
+    if (!c.ok)
+        return fail(QStringLiteral("block is not laid out"));
+    auto r = ok();
+    const double z = lay.zoom > 0 ? lay.zoom : 1;
+    r[QStringLiteral("page")] = c.page;
+    r[QStringLiteral("x_mm")] = double(c.rect.left()) * 25.4 / 96.0 / z;
+    r[QStringLiteral("y_mm")] = double(c.rect.top()) * 25.4 / 96.0 / z;
+    r[QStringLiteral("line")] = c.line;
+    r[QStringLiteral("rtl")] = c.rtl;
+    return r;
+}
+
+QJsonObject Session::hitTestTool(const QJsonObject &args)
+{
+    if (!args.contains(QStringLiteral("page")) || !args.contains(QStringLiteral("x_mm"))
+        || !args.contains(QStringLiteral("y_mm")))
+        return fail(QStringLiteral("page, x_mm and y_mm are required"));
+    DocumentLayout lay;
+    lay.relayout(doc_, 1.0);
+    const int page = args.value(QStringLiteral("page")).toInt();
+    if (page < 1 || page > lay.pages)
+        return fail(QStringLiteral("page out of range"));
+    const double z = lay.zoom > 0 ? lay.zoom : 1;
+    const QPointF pos(args.value(QStringLiteral("x_mm")).toDouble() * 96.0 / 25.4 * z,
+                      args.value(QStringLiteral("y_mm")).toDouble() * 96.0 / 25.4 * z);
+    const HitResult h = lay.hitTest(doc_, page, pos);
+    if (!h.ok || h.id.isEmpty())
+        return fail(QStringLiteral("no block"));
+    auto r = ok();
+    r[QStringLiteral("id")] = h.id;
+    r[QStringLiteral("offset")] = h.offset;
+    if (h.row >= 0)
+        r[QStringLiteral("row")] = h.row;
+    if (h.col >= 0)
+        r[QStringLiteral("col")] = h.col;
+    return r;
+}
+
 QJsonObject Session::integrateHelp(const QJsonObject &)
 {
     auto r = ok();
@@ -4733,6 +4790,8 @@ QJsonObject Session::call(const QString &tool, const QJsonObject &args)
         QStringLiteral("revision_list"),
         QStringLiteral("autocorrect_get"),
         QStringLiteral("page_preview"),
+        QStringLiteral("caret_geometry"),
+        QStringLiteral("hit_test"),
         QStringLiteral("search"),
         QStringLiteral("spellcheck"),
         QStringLiteral("validate"),
@@ -4826,6 +4885,10 @@ QJsonObject Session::dispatchTool(const QString &tool, const QJsonObject &args)
         return redo(args);
     if (tool == QLatin1String("page_preview"))
         return pagePreview(args);
+    if (tool == QLatin1String("caret_geometry"))
+        return caretGeometry(args);
+    if (tool == QLatin1String("hit_test"))
+        return hitTestTool(args);
     if (tool == QLatin1String("integrate_help"))
         return integrateHelp(args);
     if (tool == QLatin1String("set_cell"))

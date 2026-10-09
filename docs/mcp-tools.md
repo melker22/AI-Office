@@ -435,6 +435,20 @@ Args: `{}`
 Args: `{ "page"?: 1, "zoom"?: 1.15 }` or `{ "page": "all", "zoom"?: 1.15 }` or `{ "from": 1, "to": 3, "zoom"?: 1.15 }`  
 Default zoom **1.15**. `from`/`to` are inclusive page numbers. `page:"all"` returns `{previews:[{page,png_base64}]}`.
 
+### `caret_geometry`
+
+Args: `{ "id": string, "offset": int, "row"?: int, "col"?: int }`  
+`offset` is a model offset in the block's plain text (`0` … length). Unknown id, missing args, or an offset outside that range → `{ok:false,error}`. A block that is not on any page (hidden section) → `{ok:false,error:"block is not laid out"}`.
+
+Returns `{ page, x_mm, y_mm, line, rtl }` plus the usual `ok` envelope. `line` is the 0-based line in that block. `rtl` is true when the glyph at the caret is right-to-left. `x_mm`/`y_mm` are millimetres from the top-left of the physical page, measured at layout zoom 1 (96 dpi) — the same space `hit_test` reads. Optional `row`/`col` select a table cell; without them a table keeps the previous cell-wide placement.
+
+### `hit_test`
+
+Args: `{ "page": int, "x_mm": number, "y_mm": number }`  
+Missing args → `{ok:false,error}`. `page` outside `1 … pages` → `{ok:false,error:"page out of range"}`.
+
+Returns `{ id, offset }` for the block under that point. Body text uses the line's real glyph positions (`QTextLine::xToCursor`); table cells stay on the previous linear placement and also return `row` and `col`. An empty document → `{ok:false,error:"no block"}`.
+
 ### `validate`
 
 Args: `{}`  
