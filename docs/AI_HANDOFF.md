@@ -26,6 +26,41 @@
 
 ---
 
+## 2026-10-09 — Cursor — Wave 16 integrate T4+T5 merge
+
+**Objective:** Merge `t4-wire-rtl` and `t5-roundtrip` into integration branch; resolve conflicts; QA.
+
+**Done:**
+- Fast-forward merge of `t4-wire-rtl`; merge commit for `t5-roundtrip` with conflict resolution (keep T3/T4 `normalizedBlockDir`, `auto` clearing in `apply_paragraph_format`, richer MCP schema for align/dir).
+- Pending: `scripts/qa-all.sh --gui`.
+
+**Decisions:** T5’s raw `dir` in JSON import superseded by `normalizedBlockDir` from T3.
+
+**Next suggested step:** Fleet `t6-qa` (playbooks caret/CJK + fontes Nix).
+
+**Commits:** (this merge)
+
+---
+
+## 2026-10-09 — Composer — Wave 16 T5 dir/align DOCX/ODT round-trip
+
+**Objective:** Fleet `t5-roundtrip` (spec D7): mapear `Block.dir` e `align` lógico (`start`/`end`) na importação/exportação DOCX e ODT; QA e playbook.
+
+**Done:**
+- Modelo: campo `Block.dir` (`auto`|`ltr`|`rtl`) no JSON/MCP (`apply_paragraph_format`, schema).
+- `Docx.cpp`: export/import `w:jc` start/end; `w:bidi` ↔ `rtl`, `w:bidi w:val="0"` ↔ `ltr`; `w:rtl` em run ignorado na leitura.
+- `Odf.cpp`: estilos automáticos com `fo:text-align` e `style:writing-mode` (`rl-tb`/`lr-tb`); import via `paragraph-properties`.
+- `qa/check_roundtrip.py`: confere `dir`/`align` nos JSON reabertos; `qa/wave16-ctl-roundtrip.json` com `expect`.
+- `scripts/qa-all.sh` verde.
+
+**Decisions:** DOCX usa `w:bidi w:val="0"` para `dir=ltr` explícito (só `rtl` omitiria o atributo no reimport).
+
+**Next suggested step:** Fleet `integrate-2`: merge com branch `t4-wire-rtl` (layout/caret) e `t6-qa` (playbooks caret/CJK + fontes Nix).
+
+**Commits:** `ba208c3` feat: round-trip Block.dir and logical align in DOCX and ODT
+
+---
+
 ## 2026-10-09 — Cursor Grok — Wave 16 T4: dir, ruby, caret_move
 
 **Objective:** Wire `Block.dir` into `BlockTextLayout`, place ruby from the real line, and expose visual and grapheme caret movement in the core and as MCP `caret_move`. Do not touch `src/app/`. Do not implement kashida by hand. Keep one clip per block and `orderedBlocksForPage`.
