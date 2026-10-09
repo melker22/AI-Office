@@ -283,6 +283,21 @@ bool Session::loadFrom(const QString &path, QString *error)
         }
         doc_ = Document::fromJson(docj.object());
         doc_.fileName = QFileInfo(path).fileName();
+        for (const auto &b : doc_.body) {
+            const QString be = validateBlock(b);
+            if (!be.isEmpty()) {
+                if (error)
+                    *error = be;
+                return false;
+            }
+        }
+        for (const auto &s : doc_.styles) {
+            if (!isValidBlockAlign(s.align)) {
+                if (error)
+                    *error = QStringLiteral("invalid align in style: ") + s.align;
+                return false;
+            }
+        }
         return true;
     }
     if (ext == QLatin1String("odt")) {
@@ -450,9 +465,15 @@ QJsonObject Session::insertBlocks(const QJsonObject &args)
     int at = insertIndex(args.value(QStringLiteral("after_id")).toString(QStringLiteral("end")), &err);
     if (at < 0)
         return fail(err);
+    const QJsonArray blockArr = args.value(QStringLiteral("blocks")).toArray();
+    for (const auto &v : blockArr) {
+        const QString be = validateBlock(Block::fromJson(v.toObject()));
+        if (!be.isEmpty())
+            return fail(be);
+    }
     pushUndo();
     QJsonArray assigned;
-    for (const auto &v : args.value(QStringLiteral("blocks")).toArray()) {
+    for (const auto &v : blockArr) {
         Block b = prepareBlock(doc_, Block::fromJson(v.toObject()));
         doc_.body.insert(at++, b);
         assigned.append(b.id);
@@ -470,13 +491,19 @@ QJsonObject Session::replaceRange(const QJsonObject &args)
     const auto idx = indexesFor(idList(args));
     if (idx.isEmpty())
         return fail(QStringLiteral("no matching ids"));
+    const QJsonArray blockArr = args.value(QStringLiteral("blocks")).toArray();
+    for (const auto &v : blockArr) {
+        const QString be = validateBlock(Block::fromJson(v.toObject()));
+        if (!be.isEmpty())
+            return fail(be);
+    }
     pushUndo();
     const int first = idx.first();
     for (int i = idx.size() - 1; i >= 0; --i)
         doc_.body.removeAt(idx[i]);
     int at = first;
     QJsonArray assigned;
-    for (const auto &v : args.value(QStringLiteral("blocks")).toArray()) {
+    for (const auto &v : blockArr) {
         Block b = prepareBlock(doc_, Block::fromJson(v.toObject()));
         doc_.body.insert(at++, b);
         assigned.append(b.id);
@@ -553,6 +580,9 @@ QJsonObject Session::applyCharacterFormat(const QJsonObject &args)
 
 QJsonObject Session::applyParagraphFormat(const QJsonObject &args)
 {
+    const QString argErr = validateParagraphFormatArgs(args);
+    if (!argErr.isEmpty())
+        return fail(argErr);
     const auto idx = indexesFor(idList(args));
     if (idx.isEmpty())
         return fail(QStringLiteral("no matching ids"));
@@ -560,6 +590,12 @@ QJsonObject Session::applyParagraphFormat(const QJsonObject &args)
     for (int i : idx) {
         if (args.contains(QStringLiteral("align")))
             doc_.body[i].align = args.value(QStringLiteral("align")).toString();
+        if (args.contains(QStringLiteral("dir"))) {
+            QString d = args.value(QStringLiteral("dir")).toString();
+            if (d == QLatin1String("auto"))
+                d.clear();
+            doc_.body[i].dir = d;
+        }
         if (args.contains(QStringLiteral("style")))
             doc_.body[i].style = args.value(QStringLiteral("style")).toString();
         if (args.contains(QStringLiteral("indent_left_mm")))
@@ -672,6 +708,11 @@ QJsonObject Session::createStyle(const QJsonObject &args)
     const QString name = args.value(QStringLiteral("name")).toString();
     if (name.isEmpty())
         return fail(QStringLiteral("name is required"));
+    if (args.contains(QStringLiteral("align"))) {
+        const QString align = args.value(QStringLiteral("align")).toString();
+        if (!isValidBlockAlign(align))
+            return fail(QStringLiteral("invalid align: ") + align);
+    }
     pushUndo();
     StyleDef s = defaultStyle(QStringLiteral("Normal"));
     s.name = name;
@@ -1602,7 +1643,7 @@ QJsonObject Session::duplicateBlocks(const QJsonObject &args)
     pushUndo();
     QJsonArray ids;
     for (int i : idx) {
-        Block copy = doc_.body[i];
+        Block copy = duplicateBlock(doc_.body[i]);
         copy.id.clear();
         doc_.assignId(copy);
         doc_.body.insert(at++, copy);
@@ -4592,6 +4633,9 @@ QJsonObject Session::validate(const QJsonObject &)
         ids.insert(b.id);
         if (!known.contains(b.type))
             err(QStringLiteral("unknown_type"), b.id, QStringLiteral("unknown block type: ") + b.type);
+        const QString blockErr = validateBlock(b);
+        if (!blockErr.isEmpty())
+            err(QStringLiteral("invalid_block"), b.id, blockErr);
         if (b.type == QLatin1String("footnote") || b.type == QLatin1String("endnote"))
             noteIds.insert(b.id);
     }

@@ -101,10 +101,11 @@ QJsonArray toolDefinitions()
                               {QStringLiteral("redact"), prop(QStringLiteral("boolean"))},
                               {QStringLiteral("show_if"), prop(QStringLiteral("string"))}}));
     a.append(tool(QStringLiteral("apply_paragraph_format"),
-                  QStringLiteral("Set align, style, indents, spacing, line_height, keep_with_next, break_before, orphans/widows, drop_cap, tabs, border, list_restart, list_bullet, lang."),
+                  QStringLiteral("Set align, dir, style, indents, spacing, line_height, keep_with_next, break_before, orphans/widows, drop_cap, tabs, border, list_restart, list_bullet, lang."),
                   QJsonObject{{QStringLiteral("ids"), prop(QStringLiteral("array"), QStringLiteral("Block ids; or pass id"))},
                               {QStringLiteral("id"), prop(QStringLiteral("string"), QStringLiteral("Single block id (alias of ids with one entry)"))},
-                              {QStringLiteral("align"), prop(QStringLiteral("string"))},
+                              {QStringLiteral("align"), prop(QStringLiteral("string"), QStringLiteral("left|center|right|justify|start|end"))},
+                              {QStringLiteral("dir"), prop(QStringLiteral("string"), QStringLiteral("auto|ltr|rtl"))},
                               {QStringLiteral("style"), prop(QStringLiteral("string"))},
                               {QStringLiteral("indent_left_mm"), prop(QStringLiteral("number"))},
                               {QStringLiteral("indent_right_mm"), prop(QStringLiteral("number"))},

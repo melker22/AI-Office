@@ -54,6 +54,47 @@ QJsonValue valueAtPath(const QJsonValue &root, const QString &path)
     return cur;
 }
 
+static bool jsonNumber(const QJsonValue &v, double *out)
+{
+    if (v.isDouble()) {
+        *out = v.toDouble();
+        return true;
+    }
+    if (v.isBool()) {
+        *out = v.toBool() ? 1.0 : 0.0;
+        return true;
+    }
+    return false;
+}
+
+static bool expectValueMatches(const QJsonValue &actual, const QJsonValue &expected)
+{
+    if (expected.isObject()) {
+        const QJsonObject eo = expected.toObject();
+        if (eo.size() == 1) {
+            const auto it = eo.begin();
+            const QString op = it.key();
+            double a = 0;
+            double e = 0;
+            if ((op == QLatin1String("$gt") || op == QLatin1String("$lt") || op == QLatin1String("$gte")
+                 || op == QLatin1String("$lte") || op == QLatin1String("$ne"))
+                && jsonNumber(actual, &a) && jsonNumber(it.value(), &e)) {
+                if (op == QLatin1String("$gt"))
+                    return a > e;
+                if (op == QLatin1String("$lt"))
+                    return a < e;
+                if (op == QLatin1String("$gte"))
+                    return a >= e;
+                if (op == QLatin1String("$lte"))
+                    return a <= e;
+                if (op == QLatin1String("$ne"))
+                    return a != e;
+            }
+        }
+    }
+    return actual == expected;
+}
+
 QJsonObject parseArgsJson(const QString &s)
 {
     if (s.isEmpty())
@@ -179,7 +220,7 @@ int runCli(const QStringList &args)
                 const QJsonObject expect = c.value(QStringLiteral("expect")).toObject();
                 for (auto it = expect.begin(); it != expect.end(); ++it) {
                     const QJsonValue actual = valueAtPath(r, it.key());
-                    if (actual != it.value()) {
+                    if (!expectValueMatches(actual, it.value())) {
                         QJsonObject out;
                         out[QStringLiteral("ok")] = false;
                         out[QStringLiteral("error")] = QStringLiteral("expect failed for %1 at %2: got %3, want %4")

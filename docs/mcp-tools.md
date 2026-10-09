@@ -1,6 +1,6 @@
 # Semantic document + MCP/CLI contract
 
-All tools are available as MCP `tools/call` and as `aioffice call <name> '<json args>'`. Playbooks: `aioffice play script.json` (JSON array of `{tool, args}`, runs `batch`). A call entry may add `"expect": {"dot.path": value, ...}` to assert a field of that call's own JSON result (dot-path, numeric segments index arrays, e.g. `document.body.0.runs.1.bold`); a mismatch fails the playbook the same way `ok:false` does, printing what was expected vs. what came back.
+All tools are available as MCP `tools/call` and as `aioffice call <name> '<json args>'`. Playbooks: `aioffice play script.json` (JSON array of `{tool, args}`, runs `batch`). A call entry may add `"expect": {"dot.path": value, ...}` to assert a field of that call's own JSON result (dot-path, numeric segments index arrays, e.g. `document.body.0.runs.1.bold`); a mismatch fails the playbook the same way `ok:false` does, printing what was expected vs. what came back. For numeric fields, `expect` also accepts a one-key object operator: `{"$gt"|"$lt"|"$gte"|"$lte"|"$ne": number}` (compared to the actual number at that path).
 
 The document is a JSON object with **stable block IDs**. Agents must address content by `id`, never by pixel or mouse.
 
@@ -57,8 +57,8 @@ The document is a JSON object with **stable block IDs**. Agents must address con
 
 | `type` | Extra fields |
 | --- | --- |
-| `paragraph` | `style`, `align`, `runs` |
-| `heading` | `level` 1–6, `style`, `align`, `runs` |
+| `paragraph` | `style`, `align`, `dir` (`auto`\|`ltr`\|`rtl`, default `auto`, omitted when `auto`), `runs` |
+| `heading` | `level` 1–6, `style`, `align`, `dir`, `runs` |
 | `list-item` | `level`, `list_kind` (`bullet` \| `decimal`), `runs` |
 | `table` | `rows`: array of rows; each cell `{ "runs": [...] }` |
 | `image` | `path`, `image_b64`, `width_mm`, `rotate`, `opacity`, `flip_h`/`flip_v`, `crop` [L,T,R,B], `shadow_pt`, `z_index` |
@@ -148,7 +148,7 @@ With `start`/`end`, applies to that range of the block’s plain text. Otherwise
 
 ### `apply_paragraph_format`
 
-Args: `{ "ids": ["p1"], "align"?: "left"|"center"|"right"|"justify", "style"?: string, "indent_left_mm"?: number, "indent_right_mm"?: number, "indent_first_mm"?: number, "space_before_pt"?: number, "space_after_pt"?: number, "line_height"?: number, "keep_with_next"?: bool, "break_before"?: bool, "orphans"?: int, "widows"?: int, "drop_cap_lines"?: int, "tabs"?: [{"pos_mm": number, "align"?: "left"|"right"|"center"|"decimal"}], "border_pt"?: number, "border_color"?: string, "list_restart"?: bool, "list_bullet"?: string, "lang"?: string }`  
+Args: `{ "ids": ["p1"], "align"?: "left"|"center"|"right"|"justify"|"start"|"end", "dir"?: "auto"|"ltr"|"rtl", "style"?: string, "indent_left_mm"?: number, "indent_right_mm"?: number, "indent_first_mm"?: number, "space_before_pt"?: number, "space_after_pt"?: number, "line_height"?: number, "keep_with_next"?: bool, "break_before"?: bool, "orphans"?: int, "widows"?: int, "drop_cap_lines"?: int, "tabs"?: [{"pos_mm": number, "align"?: "left"|"right"|"center"|"decimal"}], "border_pt"?: number, "border_color"?: string, "list_restart"?: bool, "list_bullet"?: string, "lang"?: string, "writing_mode"?: string }`  
 `drop_cap_lines` ≥ 2 paints a visual drop cap in `page_preview`. Tab stops pair with `insert_tab` / `\t` in run text. `list_restart` resets decimal numbering; `list_bullet` is the custom marker. `keep_with_next` holds the next block on the same page; `break_before` starts a new page.
 
 ### `apply_style`
