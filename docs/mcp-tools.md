@@ -449,6 +449,13 @@ Missing args → `{ok:false,error}`. `page` outside `1 … pages` → `{ok:false
 
 Returns `{ id, offset }` for the block under that point. Body text uses the line's real glyph positions (`QTextLine::xToCursor`); table cells stay on the previous linear placement and also return `row` and `col`. An empty document → `{ok:false,error:"no block"}`.
 
+### `caret_move`
+
+Args: `{ "id": string, "offset": int, "move": "left"|"right"|"next"|"prev" }`  
+`offset` is a model offset in the block's plain text (`0` … length). Unknown id, missing args, an offset outside that range, or a `move` other than those four → `{ok:false,error}`. A block that is not on any page, or not a text block (table, image, shape), → `{ok:false,error:"block is not laid out"}`.
+
+Returns `{ offset }` plus the usual `ok` envelope. `left` and `right` are visual (`QTextLayout::leftCursorPosition` / `rightCursorPosition`) and follow the glyph order, including RTL. `next` and `prev` walk one grapheme cluster (`nextCursorPosition` / `previousCursorPosition` with `SkipCharacters`), so a surrogate pair or a combining mark counts as one step. At either end of the text the offset stays put. The canvas keys are not wired here.
+
 ### `validate`
 
 Args: `{}`  

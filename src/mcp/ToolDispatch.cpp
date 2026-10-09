@@ -240,6 +240,12 @@ QJsonArray toolDefinitions()
                               {QStringLiteral("x_mm"), prop(QStringLiteral("number"))},
                               {QStringLiteral("y_mm"), prop(QStringLiteral("number"))}},
                   QJsonArray{QStringLiteral("page"), QStringLiteral("x_mm"), QStringLiteral("y_mm")}));
+    a.append(tool(QStringLiteral("caret_move"),
+                  QStringLiteral("Move a text caret by one visual step (left/right) or one grapheme (next/prev). Returns the new model offset."),
+                  QJsonObject{{QStringLiteral("id"), prop(QStringLiteral("string"))},
+                              {QStringLiteral("offset"), prop(QStringLiteral("integer"), QStringLiteral("Model offset in the block plain text"))},
+                              {QStringLiteral("move"), prop(QStringLiteral("string"), QStringLiteral("left|right|next|prev"))}},
+                  QJsonArray{QStringLiteral("id"), QStringLiteral("offset"), QStringLiteral("move")}));
     a.append(tool(QStringLiteral("integrate_help"),
                   QStringLiteral("How a user AI should attach to AI Office (no API keys). Includes title, words, outline."),
                   {}));

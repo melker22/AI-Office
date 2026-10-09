@@ -104,15 +104,36 @@ QString hyphenateDisplay(QString t, double zoneMm = 0, const QString &lang = QSt
     return out;
 }
 
-Qt::Alignment qtAlign(const QString &a)
+// left/right stay physical. start/end follow the resolved paragraph direction.
+// AlignAbsolute keeps Qt from mirroring left/right when the paragraph is RTL.
+Qt::Alignment qtAlign(const QString &a, Qt::LayoutDirection resolved)
 {
+    const bool rtl = resolved == Qt::RightToLeft;
     if (a == QLatin1String("center"))
         return Qt::AlignHCenter;
-    if (a == QLatin1String("right"))
-        return Qt::AlignRight;
     if (a == QLatin1String("justify"))
         return Qt::AlignJustify;
-    return Qt::AlignLeft;
+    if (a == QLatin1String("right") || (a == QLatin1String("end") && !rtl) || (a == QLatin1String("start") && rtl))
+        return Qt::AlignRight | Qt::AlignAbsolute;
+    return Qt::AlignLeft | Qt::AlignAbsolute;
+}
+
+Qt::LayoutDirection blockOptionDirection(const Block &b)
+{
+    if (b.dir == QLatin1String("rtl"))
+        return Qt::RightToLeft;
+    if (b.dir == QLatin1String("ltr"))
+        return Qt::LeftToRight;
+    return Qt::LayoutDirectionAuto;
+}
+
+// Same rule QTextEngine uses for LayoutDirectionAuto: first strong character.
+Qt::LayoutDirection resolvedParagraphDirection(const Block &b, const QString &text)
+{
+    const Qt::LayoutDirection opt = blockOptionDirection(b);
+    if (opt != Qt::LayoutDirectionAuto)
+        return opt;
+    return text.isRightToLeft() ? Qt::RightToLeft : Qt::LeftToRight;
 }
 
 constexpr qreal kDpi = 96.0;
@@ -1040,6 +1061,94 @@ CaretRect DocumentLayout::caret(const Document &doc, const QString &id, int offs
     return c;
 }
 
+bool DocumentLayout::caretMove(const Document &doc, const QString &id, int offset, const QString &move,
+                               int *outOffset) const
+{
+    if (outOffset)
+        *outOffset = offset;
+    const Block *block = doc.findBlock(id);
+    if (!block || !blockUsesTextLayout(block->type))
+        return false;
+
+    const int modelLen = block->plainText().size();
+    const int modelOff = qBound(0, offset, modelLen);
+    const LaidBlock *chosenLb = nullptr;
+    BlockTextLayout chosen;
+    int disp = 0;
+    bool contained = false;
+    qreal bestDist = 1e100;
+    for (const auto &lb : blocks) {
+        if (lb.id != id)
+            continue;
+        BlockTextLayout btl = blockTextLayout(doc, *block, laidTextInput(*this, lb));
+        const int d = btl.toDisplay(qBound(0, modelOff, btl.modelLength));
+        qreal y = 0;
+        qreal h = QFontMetricsF(btl.font).height();
+        const int layoutStart = btl.toModel(0);
+        if (!(btl.dropLines > 0 && !btl.dropLetter.isEmpty() && modelOff < layoutStart)
+            && btl.layout && btl.layout->lineCount() > 0) {
+            QTextLine line = btl.layout->lineForTextPosition(qBound(0, d, btl.display.size()));
+            if (!line.isValid())
+                line = btl.layout->lineAt(0);
+            y = line.y();
+            h = qMax(qreal(1), line.height());
+        }
+        const qreal mid = y + h * 0.5;
+        qreal dist = 0;
+        if (mid < lb.layoutY0)
+            dist = lb.layoutY0 - mid;
+        else if (mid > lb.layoutY0 + lb.rect.height())
+            dist = mid - (lb.layoutY0 + lb.rect.height());
+        const bool inside = dist <= 0.75;
+        if (!chosenLb || inside || (!contained && dist < bestDist)) {
+            chosenLb = &lb;
+            chosen = std::move(btl);
+            disp = d;
+            bestDist = dist;
+            if (inside) {
+                contained = true;
+                break;
+            }
+        }
+    }
+    if (!chosenLb || !chosen.layout)
+        return false;
+
+    if (move != QLatin1String("left") && move != QLatin1String("right") && move != QLatin1String("next")
+        && move != QLatin1String("prev"))
+        return false;
+
+    const QTextLayout &layout = *chosen.layout;
+    const int n = layout.text().size();
+    auto step = [&](int pos) -> int {
+        pos = qBound(0, pos, n);
+        if (move == QLatin1String("left"))
+            return layout.leftCursorPosition(pos);
+        if (move == QLatin1String("right"))
+            return layout.rightCursorPosition(pos);
+        if (move == QLatin1String("next"))
+            return layout.nextCursorPosition(pos, QTextLayout::SkipCharacters);
+        return layout.previousCursorPosition(pos, QTextLayout::SkipCharacters);
+    };
+
+    int model = modelOff;
+    const int limit = n + 2;
+    for (int guard = 0; guard < limit; ++guard) {
+        const int nextDisp = step(disp);
+        if (nextDisp == disp)
+            break;
+        const int nextModel = qBound(0, chosen.toModel(nextDisp), modelLen);
+        disp = nextDisp;
+        if (nextModel != model) {
+            model = nextModel;
+            break;
+        }
+    }
+    if (outOffset)
+        *outOffset = model;
+    return true;
+}
+
 // Shared by paintPage (painting order) and exportNativePdf's tag-correlation gathering (expected
 // order) — both MUST agree, since Wave 15's paragraph-tagging post-process assumes the Nth
 // text-bearing block painted is the Nth block in this same list. std::sort isn't guaranteed
@@ -1257,9 +1366,11 @@ BlockTextLayout blockTextLayout(const Document &doc, const Block &b, const Block
     auto layout = std::make_unique<QTextLayout>(text, f);
     QTextOption opt;
     opt.setWrapMode(QTextOption::WrapAtWordBoundaryOrAnywhere);
+    opt.setTextDirection(blockOptionDirection(b));
     if (in.paint) {
         const StyleDef *st = styleNamed(doc, b.style);
-        opt.setAlignment(qtAlign(b.align.isEmpty() && st ? st->align : b.align));
+        const QString align = b.align.isEmpty() && st ? st->align : b.align;
+        opt.setAlignment(qtAlign(align, resolvedParagraphDirection(b, text)));
     }
     applyTabs(opt, b, in.zoom);
     layout->setTextOption(opt);
@@ -1326,6 +1437,56 @@ BlockTextLayout blockTextLayout(const Document &doc, const Block &b, const Block
     }
     out.layout = std::move(layout);
     return out;
+}
+
+// Ruby sits on the line that holds the run, centered between cursorToX of the
+// run's display start and end (clamped to that line when the run wraps).
+static void paintRuby(QPainter *p, const BlockTextLayout &btl, const Block &b, const LaidBlock &lb, const QColor &col)
+{
+    if (!btl.layout)
+        return;
+    bool any = false;
+    for (const auto &r : b.runs) {
+        if (!r.ruby.isEmpty()) {
+            any = true;
+            break;
+        }
+    }
+    if (!any)
+        return;
+    QFont rf = btl.font;
+    rf.setPointSizeF(qMax(6.0, btl.font.pointSizeF() * 0.45));
+    p->setFont(rf);
+    p->setPen(col);
+    const QFontMetricsF rfm(rf);
+    const qreal originX = lb.rect.left() + lb.markerWidth;
+    const qreal originY = lb.rect.top() - lb.layoutY0;
+    const qreal vis0 = lb.layoutY0;
+    const qreal vis1 = lb.layoutY0 + lb.rect.height();
+    int model = 0;
+    for (const auto &r : b.runs) {
+        const int m0 = model;
+        model += r.text.size();
+        if (r.ruby.isEmpty())
+            continue;
+        const int d0 = btl.toDisplay(m0);
+        const int d1 = btl.toDisplay(model);
+        QTextLine line = btl.layout->lineForTextPosition(qBound(0, d0, btl.display.size()));
+        if (!line.isValid())
+            continue;
+        if (line.y() + line.height() <= vis0 + 0.01 || line.y() >= vis1 - 0.01)
+            continue;
+        const int lineLast = line.textStart() + line.textLength();
+        const int a = qBound(line.textStart(), d0, lineLast);
+        const int c = qBound(line.textStart(), qMax(d0, d1), lineLast);
+        const qreal x0 = line.cursorToX(a);
+        const qreal x1 = line.cursorToX(c);
+        const qreal left = qMin(x0, x1);
+        const qreal span = qAbs(x1 - x0);
+        const qreal rw = rfm.horizontalAdvance(r.ruby);
+        const qreal x = left + (span - rw) / 2.0;
+        p->drawText(QPointF(originX + x, originY + line.y() - 1), r.ruby);
+    }
 }
 
 void paintPage(QPainter *p, const Document &doc, const DocumentLayout &lay, int page,
@@ -1707,19 +1868,7 @@ void paintPage(QPainter *p, const Document &doc, const DocumentLayout &lay, int 
         if (btl.layout)
             btl.layout->draw(p, QPointF(lb.rect.left() + lb.markerWidth, lb.rect.top() - lb.layoutY0));
         p->restore();
-        {
-            qreal rx = lb.rect.left() + lb.markerWidth;
-            QFont rf = f;
-            rf.setPointSizeF(qMax(6.0, f.pointSizeF() * 0.45));
-            p->setFont(rf);
-            p->setPen(col);
-            for (const auto &r : b.runs) {
-                const QString d = liveDisplayText(doc, r, shown, lay.pages, lay);
-                if (!r.ruby.isEmpty())
-                    p->drawText(QPointF(rx, lb.rect.top() - 1), r.ruby);
-                rx += QFontMetricsF(f).horizontalAdvance(d);
-            }
-        }
+        paintRuby(p, btl, b, lb, col);
         if (vert)
             p->restore();
         int openComments = 0;

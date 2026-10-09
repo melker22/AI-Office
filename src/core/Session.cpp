@@ -1182,6 +1182,36 @@ QJsonObject Session::hitTestTool(const QJsonObject &args)
     return r;
 }
 
+QJsonObject Session::caretMove(const QJsonObject &args)
+{
+    const QString id = args.value(QStringLiteral("id")).toString();
+    if (!args.contains(QStringLiteral("id")) || id.isEmpty())
+        return fail(QStringLiteral("id is required"));
+    if (!args.contains(QStringLiteral("offset")))
+        return fail(QStringLiteral("offset is required"));
+    if (!args.contains(QStringLiteral("move")))
+        return fail(QStringLiteral("move is required"));
+    const QString move = args.value(QStringLiteral("move")).toString();
+    if (move != QLatin1String("left") && move != QLatin1String("right") && move != QLatin1String("next")
+        && move != QLatin1String("prev"))
+        return fail(QStringLiteral("invalid move"));
+    const Block *b = doc_.findBlock(id);
+    if (!b)
+        return fail(QStringLiteral("unknown block"));
+    const int offset = args.value(QStringLiteral("offset")).toInt();
+    const int n = b->plainText().size();
+    if (offset < 0 || offset > n)
+        return fail(QStringLiteral("offset out of range"));
+    DocumentLayout lay;
+    lay.relayout(doc_, 1.0);
+    int next = offset;
+    if (!lay.caretMove(doc_, id, offset, move, &next))
+        return fail(QStringLiteral("block is not laid out"));
+    auto r = ok();
+    r[QStringLiteral("offset")] = next;
+    return r;
+}
+
 QJsonObject Session::integrateHelp(const QJsonObject &)
 {
     auto r = ok();
@@ -4836,6 +4866,7 @@ QJsonObject Session::call(const QString &tool, const QJsonObject &args)
         QStringLiteral("page_preview"),
         QStringLiteral("caret_geometry"),
         QStringLiteral("hit_test"),
+        QStringLiteral("caret_move"),
         QStringLiteral("search"),
         QStringLiteral("spellcheck"),
         QStringLiteral("validate"),
@@ -4933,6 +4964,8 @@ QJsonObject Session::dispatchTool(const QString &tool, const QJsonObject &args)
         return caretGeometry(args);
     if (tool == QLatin1String("hit_test"))
         return hitTestTool(args);
+    if (tool == QLatin1String("caret_move"))
+        return caretMove(args);
     if (tool == QLatin1String("integrate_help"))
         return integrateHelp(args);
     if (tool == QLatin1String("set_cell"))

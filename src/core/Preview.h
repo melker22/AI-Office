@@ -114,6 +114,10 @@ struct DocumentLayout {
     void relayout(const Document &doc, double zoom);
     HitResult hitTest(const Document &doc, int page, QPointF posInPage) const;
     CaretRect caret(const Document &doc, const QString &id, int offset, int row = -1, int col = -1) const;
+    // Visual (left/right → QTextLayout::left/rightCursorPosition) or grapheme
+    // (next/prev → next/previousCursorPosition). `move` is left|right|next|prev.
+    // Writes the new model offset. False when the block has no text layout.
+    bool caretMove(const Document &doc, const QString &id, int offset, const QString &move, int *outOffset) const;
     int pageOf(const QString &id) const;
     int displayPage(int physical) const;
 };
