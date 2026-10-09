@@ -9,7 +9,7 @@ uma task real de um agente, com dependências, gates de QA e aprovação humana 
 |---|---|---|---|
 | Estratégica | `claude` / `claude-opus-5-5` | Arquitetura, decisões críticas, spec da onda, auditoria final opcional | Escrever código, docs longas, testes |
 | Tech Lead | `claude` / `claude-sonnet-5` | Plano de tarefa, revisão, QA, adjudicação, PR | Implementação que um executor faz |
-| Executor principal | `cursor` / `cursor-grok-4.6-high` | Implementação, refatoração, debugging no core | Tarefas triviais (desperdício) |
+| Executor principal | `cursor` / `grok-4.7-high` | Implementação, refatoração, debugging no core | Tarefas triviais (desperdício) |
 | Executor secundário | `grok` / `grok-4.7` | Correções pós-revisão, continuidade quando o Cursor acabar | — |
 | Executor barato | `cursor` / `composer-2.5` | Campos/tools MCP, round-trip de atributos, playbooks, merges, docs | Refatoração central, decisões |
 

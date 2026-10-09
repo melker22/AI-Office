@@ -14,7 +14,7 @@ args:
     description: Caminho opcional de uma spec em docs/ (ex. docs/waves/wave17-x.md)
 defaults:
   agent: cursor
-  model: cursor-grok-4.6-high
+  model: grok-4.7-high
   approval: full-access
 max_parallel: 1
 nodes:

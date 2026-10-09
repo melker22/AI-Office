@@ -32,7 +32,7 @@
 
 | Nó da Fleet | Executor | Por quê | Custo | Risco | Depende de |
 |---|---|---|---|---|---|
-| `t1-layout-core` | Cursor Grok (`cursor-grok-4.6-high`) | Refatoração central em `Preview.cpp` (1,6k linhas) + novas tools; raciocínio de código médio-alto | Alto | **Alto** (toca pintura + PDF) | — |
+| `t1-layout-core` | Cursor Grok (`grok-4.7-high`) | Refatoração central em `Preview.cpp` (1,6k linhas) + novas tools; raciocínio de código médio-alto | Alto | **Alto** (toca pintura + PDF) | — |
 | `t3-model-dir` | Composer 2.5 | Campo novo + JSON + schema MCP + operadores do `play`: mecânico | Baixo | Baixo | — (paralelo a t1) |
 | `integrate-1` | Composer 2.5 | Merge de 2 branches com áreas quase disjuntas | Baixo | Baixo | t1, t3 |
 | gate `build-1` | comando | `scripts/qa-all.sh` | 0 tokens | — | integrate-1 |

@@ -17,7 +17,7 @@ nodes:
   # ── Fase 1: núcleo de layout (Cursor Grok) ∥ modelo/tools (Composer) ──────────
   t1-layout-core:
     title: T1 núcleo de layout (Cursor Grok)
-    model: cursor-grok-4.6-high
+    model: grok-4.7-high
     workspace: isolated
     prompt: |
       Projeto AI Office Writer (C++20/Qt 6). Leia primeiro docs/waves/wave16-ctl-cjk.md
@@ -76,7 +76,7 @@ nodes:
   t4-wire-rtl:
     title: T4 RTL no layout + caret_move (Cursor Grok)
     needs: [build-1]
-    model: cursor-grok-4.6-high
+    model: grok-4.7-high
     workspace: isolated
     prompt: |
       Projeto AI Office Writer. Leia docs/waves/wave16-ctl-cjk.md (D4, D5, itens 4–6 do
