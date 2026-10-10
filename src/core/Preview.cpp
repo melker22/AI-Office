@@ -505,7 +505,7 @@ void DocumentLayout::relayout(const Document &doc, double z)
                 else
                     h = w * img.height() / qMax(1, img.width());
             }
-            m.height = h + 8 + (!b.caption.isEmpty() ? 16 * zoom : 0);
+            m.height = h + 8 + (blockHasCaption(b) ? 16 * zoom : 0);
             meas.push_back(m);
             continue;
         }
@@ -513,7 +513,7 @@ void DocumentLayout::relayout(const Document &doc, double z)
             || b.type == QLatin1String("equation") || b.type == QLatin1String("form")) {
             const qreal wmm = b.imageWidthMm > 0 ? b.imageWidthMm : (b.type == QLatin1String("qr") ? 40.0 : 80.0);
             const qreal hmm = b.heightMm > 0 ? b.heightMm : (b.type == QLatin1String("equation") || b.type == QLatin1String("form") ? 12.0 : 40.0);
-            m.height = mmToPx(hmm, zoom) + 8 + (!b.caption.isEmpty() ? 16 * zoom : 0);
+            m.height = mmToPx(hmm, zoom) + 8 + (blockHasCaption(b) ? 16 * zoom : 0);
             if (b.type == QLatin1String("qr"))
                 m.height = mmToPx(wmm, zoom) + 8;
             meas.push_back(m);
@@ -1243,13 +1243,13 @@ static QVector<LaidBlock> orderedBlocksForPage(const Document &doc, const Docume
 }
 
 static QString liveDisplayText(const Document &doc, const TextRun &r, int page, int pages,
-                                const DocumentLayout &lay)
+                                const DocumentLayout &lay, const TextRun *fieldInstance = nullptr)
 {
     if (r.field == QLatin1String("xref") && r.xrefKind == QLatin1String("page")) {
         const int physical = lay.pageOf(r.fieldArg);
         return formatPageNumber(lay.displayPage(physical), doc.page.numberFormat);
     }
-    return runDisplayText(doc, r, page, pages);
+    return runDisplayText(doc, r, page, pages, fieldInstance);
 }
 
 static QMap<QString, int> footnoteOrdinals(const Document &doc, const DocumentLayout &lay, int page)
@@ -1343,8 +1343,8 @@ BlockTextLayout blockTextLayout(const Document &doc, const Block &b, const Block
     int model = 0;
     const bool live = in.paint && in.docLayout;
     for (const auto &r : runs) {
-        const QString disp = live ? liveDisplayText(doc, r, in.fieldPage, in.pages, *in.docLayout)
-                                  : runDisplayText(doc, r, in.fieldPage, in.pages);
+        const QString disp = live ? liveDisplayText(doc, r, in.fieldPage, in.pages, *in.docLayout, &r)
+                                  : runDisplayText(doc, r, in.fieldPage, in.pages, &r);
         const int m0 = model;
         model += r.text.size();
         const int m1 = model;
@@ -1761,7 +1761,7 @@ void paintPage(QPainter *p, const Document &doc, const DocumentLayout &lay, int 
         if (b.type == QLatin1String("image")) {
             QImage img = loadBlockImage(b);
             QRectF box = lb.rect.adjusted(0, 0, 0, -8);
-            if (!b.caption.isEmpty())
+            if (blockHasCaption(b))
                 box.adjust(0, 0, 0, -16 * lay.zoom);
             if (!img.isNull()) {
                 if (b.cropL > 0 || b.cropT > 0 || b.cropR > 0 || b.cropB > 0) {
@@ -1796,13 +1796,14 @@ void paintPage(QPainter *p, const Document &doc, const DocumentLayout &lay, int 
                 p->setPen(QColor(QStringLiteral("#6B6258")));
                 p->drawText(box, Qt::AlignCenter, b.imagePath.isEmpty() ? QStringLiteral("imagem") : b.imagePath);
             }
-            if (!b.caption.isEmpty()) {
+            if (blockHasCaption(b)) {
                 p->setPen(QColor(QStringLiteral("#6B6258")));
                 QFont cf(QStringLiteral("IBM Plex Sans"));
                 cf.setPointSizeF(8 * lay.zoom);
                 p->setFont(cf);
+                const QString cap = captionDisplayText(doc, b, lb.page, lay.pages);
                 p->drawText(QRectF(lb.rect.left(), box.bottom(), lb.rect.width(), 16 * lay.zoom),
-                            Qt::AlignHCenter | Qt::AlignVCenter, b.caption);
+                            Qt::AlignHCenter | Qt::AlignVCenter, cap);
             }
             continue;
         }

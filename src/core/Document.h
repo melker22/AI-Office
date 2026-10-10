@@ -137,6 +137,7 @@ struct Block {
     double borderPt = 0;
     QString altText;
     QString caption;
+    QVector<TextRun> captionRuns; // numbered caption prefix + seq field + text (image/table)
     QString wrap;
     QString anchor;
     bool checked = false;
@@ -318,7 +319,10 @@ struct Document {
     int wordCount() const;
 };
 
-QString runDisplayText(const Document &doc, const TextRun &r, int page = 1, int pages = 1);
+QString runDisplayText(const Document &doc, const TextRun &r, int page = 1, int pages = 1,
+                       const TextRun *fieldInstance = nullptr);
+QString captionDisplayText(const Document &doc, const Block &b, int page = 1, int pages = 1);
+bool blockHasCaption(const Block &b);
 QString formatPageNumber(int n, const QString &format);
 StyleDef defaultStyle(const QString &name);
 QVector<TextRun> splitRuns(const QVector<TextRun> &runs, int start, int end);
