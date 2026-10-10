@@ -8,6 +8,24 @@
 
 ---
 
+## 2026-10-09 — Cursor Grok — Wave 16: RTL justify hangs the trailing space
+
+**Objective:** The previous `setPosition` only moved the gap from the right edge to the left. Stretch non-final RTL justified lines so the glyphs fill the measure and the trailing space does not consume it. Restore the playbook's `$lte: 20.5`.
+
+**Done:**
+- After the normal break, and still inside `beginLayout`, each non-final RTL justified line that ends in spaces is re-laid with `QTextLine::setNumColumns(textLength, width + sw)`. Same characters, no rebreak. `sw` is the inset `line.width() - cursorToX(start)` (4.000 px / 1.058 mm, equal to the space advance).
+- Qt 6.11 measurement: that wider budget cancels `leadingSpaceWidth`, so carets already span the original measure. `setPosition(x - sw)` then clamps the left edge and moves the right edge back to 188.75 mm, so the line is left where `setNumColumns` placed it.
+- Playbook offset 114 (caret on the content side of the trailing space) is 20.00 mm (`$lte: 20.5` restored). Offset 0 is 189.81 mm (`$gte: 189.25` unchanged).
+- `scripts/qa-all.sh --gui` green, including `qa/wave15-pdf-tagging.json`. D11 text unchanged.
+
+**Decisions:** Do not slide the line by `-sw` on this Qt. The extra width is already consumed by the justification budget.
+
+**Next suggested step:** Fleet review.
+
+**Commits:** HASHPLACEHOLDER fix: justify RTL lines on a width that includes the trailing space
+
+---
+
 ## 2026-10-09 — Cursor Grok — Wave 16: bidi hit-test and RTL justify space
 
 **Objective:** Close the two `scripts/qa-all.sh --gui` failures: bidi boundary hit-test (D11) and the short right edge of a justified RTL line. Do not touch `src/app/` or the paint order / one clip per block (D10).

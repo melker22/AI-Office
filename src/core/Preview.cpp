@@ -215,12 +215,14 @@ DropCapInfo dropCapInfo(const Document &doc, const Block &b, const QVector<TextR
     return d;
 }
 
-// RTL justify keeps the trailing space's advance inside the measure
-// (QTextEngine::leadingSpaceWidth subtracts it from the extra width)
-// instead of hanging it outside the way LTR justify does. The first glyph
-// then stops short of the right edge by that space. Slide non-final lines
-// so the space falls outside the box and the first glyph meets the edge.
-// Paint, caret, and hit-test all read this same QTextLine position.
+// Qt subtracts the trailing-space advance from an RTL line's justification
+// budget (QTextEngine::leadingSpaceWidth), so the glyphs stop short of the
+// right edge by that space. Re-lay the same characters against width+sw.
+// Measured on Qt 6.11: setNumColumns(textLength, width+sw) keeps the break
+// and the carets then span the original measure (page ~20.00 .. ~189.81).
+// A further setPosition(x-sw) clamps on the left and pulls the right edge
+// back off the margin, so the line is left where setNumColumns put it.
+// Must run before endLayout(). Paint, caret, and hit-test share this layout.
 static void hangRtlJustifiedTrailingSpace(QTextLayout &layout)
 {
     if ((layout.textOption().alignment() & Qt::AlignJustify) == 0)
@@ -242,12 +244,10 @@ static void hangRtlJustifiedTrailingSpace(QTextLayout &layout)
             ++trail;
         if (trail == 0)
             continue;
-        const qreal gap = (line.x() + line.width()) - line.cursorToX(from);
-        // The inset we measured on a justified Arabic line is exactly one
-        // space (4 px). A much larger gap is a different cause; leave it.
-        if (gap <= 0.5 || gap > oneSpace * (trail + 1) + 1.0)
+        const qreal sw = (line.x() + line.width()) - line.cursorToX(from);
+        if (sw <= 0.5 || sw > oneSpace * (trail + 1) + 1.0)
             continue;
-        line.setPosition(QPointF(line.x() + gap, line.y()));
+        line.setNumColumns(len, line.width() + sw);
     }
 }
 
@@ -267,6 +267,7 @@ qreal layoutLines(QTextLayout &layout, qreal width, qreal dropW, int dropLines)
         y += line.height();
         ++lineNo;
     }
+    hangRtlJustifiedTrailingSpace(layout);
     layout.endLayout();
     return y;
 }
@@ -1493,8 +1494,6 @@ BlockTextLayout blockTextLayout(const Document &doc, const Block &b, const Block
     }
 
     out.textHeight = layoutLines(*layout, in.width, dc.width, dc.lines);
-    if (resolvedParagraphDirection(b, text) == Qt::RightToLeft)
-        hangRtlJustifiedTrailingSpace(*layout);
     if (in.fragmentHeight >= 0 && layout->lineCount() > 0) {
         const qreal y0 = in.fragmentY0;
         const qreal y1 = y0 + in.fragmentHeight;
