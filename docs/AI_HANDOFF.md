@@ -24,7 +24,7 @@
 
 **Next suggested step:** Fleet integrate-2.
 
-**Commits:**
+**Commits:** `8a9efb6` merge: land t3 ctest fixtures on the DOCX revision interop branch
 
 ---
 
