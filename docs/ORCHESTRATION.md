@@ -49,6 +49,10 @@ isso porque o código antigo também passava nos testes. Regras:
    scripts/qa-all.sh …`, com os executores listados **diretamente** em `needs` do gate (para receber
    `FLEET_NEEDS_<ID>_OUTPUT`). O script falha se um commit reportado não existe, não está no HEAD
    testado, ou se vieram menos de `<n>` commits.
+4. **Executores dentro de loop** (ex.: `fix-pass`): a verificação vai no `until` do loop
+   (`test … -eq 0 && scripts/fleet-verify-merged.sh 1`), que recebe a saída dos nós do corpo.
+   Nó opcional que pode ser pulado (ex.: adjudicação) também reporta `commit`, mas não entra no
+   mínimo `<n>` — o script verifica todo commit presente.
 
 Esqueleto para nós paralelos isolados:
 

@@ -68,7 +68,8 @@ nodes:
     max_iterations: 3
     on_exhausted: adjudicate
     until:
-      run: test "{{needs.review-pass.output.issues}}" -eq 0
+      # Encerra só com 0 findings E com o commit reportado pelo fix-pass presente no HEAD.
+      run: test "{{needs.review-pass.output.issues}}" -eq 0 && scripts/fleet-verify-merged.sh 1
     nodes:
       review-pass:
         agent: claude
@@ -117,12 +118,13 @@ nodes:
     effort: high
     prompt: |
       Três passadas não zeraram os findings. Descarte os que não são defeitos (com motivo),
-      faça UMA correção direta dos reais, rode `scripts/qa-all.sh --gui` e pare. Nunca
-      pergunte a um humano.
+      faça UMA correção direta dos reais (com commit), rode `scripts/qa-all.sh --gui` e pare.
+      Nunca pergunte a um humano. Submeta também commit = `git rev-parse HEAD`, mesmo sem mudanças.
     output_contract:
       type: object
-      required: [verdict, accepted, dismissed]
+      required: [verdict, accepted, dismissed, commit]
       properties:
+        commit: { type: string, pattern: "^[0-9a-f]{40}$" }
         verdict: { type: string, enum: [resolved, failed] }
         accepted: { type: array, items: { type: string } }
         dismissed: { type: array, items: { type: string } }
@@ -134,7 +136,8 @@ nodes:
   qa-final:
     type: gate
     gate: command
-    # implement listado explicitamente para o gate receber FLEET_NEEDS_IMPLEMENT_OUTPUT.
+    # implement listado explicitamente para o gate receber FLEET_NEEDS_IMPLEMENT_OUTPUT. O commit do
+    # adjudicate (quando ele roda) também é verificado; mínimo 1 porque no caminho normal ele é pulado.
     needs: [adjudicate, implement]
     run: scripts/fleet-verify-merged.sh 1 && scripts/qa-all.sh --gui
 

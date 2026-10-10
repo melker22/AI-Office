@@ -13,7 +13,11 @@
 #     <min-count>: how many executor commits this gate must see (fails if fewer were reported).
 set -uo pipefail
 min=${1:-1}
-cd "$(dirname "$0")/.."
+if [[ ! $min =~ ^[0-9]+$ ]] || (( ${#min} > 9 )) || (( min < 1 )); then
+  echo "FAIL min-count must be a positive integer, got '$min'" >&2
+  exit 2
+fi
+cd "$(dirname "$0")/.." || exit 2
 
 seen=0
 status=0
