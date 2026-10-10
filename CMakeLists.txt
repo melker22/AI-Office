@@ -28,6 +28,7 @@ qt_standard_project_setup(REQUIRES 6.5)
 
 add_library(aioffice_core STATIC
     src/core/Document.cpp
+    src/core/FieldExpr.cpp
     src/core/Session.cpp
     src/core/Odf.cpp
     src/core/Docx.cpp

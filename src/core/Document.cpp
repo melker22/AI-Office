@@ -1,6 +1,7 @@
 #include "core/Document.h"
 
 #include "core/Csl.h"
+#include "core/FieldExpr.h"
 #include <QDateTime>
 #include <QJsonArray>
 #include <QJsonDocument>
@@ -614,6 +615,8 @@ QJsonObject Block::toJson() const
         o[QStringLiteral("writing_mode")] = writingMode;
     if (sectionHidden)
         o[QStringLiteral("section_hidden")] = true;
+    if (!hideIf.isEmpty())
+        o[QStringLiteral("hide_if")] = hideIf;
     return o;
 }
 
@@ -724,6 +727,7 @@ Block Block::fromJson(const QJsonObject &o)
     b.formKind = o.value(QStringLiteral("form")).toString();
     b.writingMode = o.value(QStringLiteral("writing_mode")).toString();
     b.sectionHidden = o.value(QStringLiteral("section_hidden")).toBool();
+    b.hideIf = o.value(QStringLiteral("hide_if")).toString();
     b.numbered = o.value(QStringLiteral("numbered")).toBool();
     b.connectTo = o.value(QStringLiteral("connect_to")).toString();
     return b;
@@ -1416,9 +1420,17 @@ QString runDisplayText(const Document &doc, const TextRun &r, int page, int page
     if (r.hidden)
         return {};
     if (!r.showIf.isEmpty()) {
-        const QString v = doc.vars.value(r.showIf);
-        if (v.isEmpty() || v == QLatin1String("0") || v == QLatin1String("false"))
-            return {};
+        if (showIfIsBareName(r.showIf)) {
+            const QString v = doc.vars.value(r.showIf);
+            if (v.isEmpty() || v == QLatin1String("0") || v == QLatin1String("false"))
+                return {};
+        } else {
+            const FieldExprResult ev = FieldExpr::evaluate(r.showIf, doc, fieldContextFor(doc, page, pages));
+            if (!ev.ok)
+                return QStringLiteral("#ERR");
+            if (!fieldExprIsTruthy(ev.value))
+                return {};
+        }
     }
     QString t;
     if (r.redact)
@@ -1507,6 +1519,8 @@ QString runDisplayText(const Document &doc, const TextRun &r, int page, int page
                     t = r.fieldArg;
             }
         }
+    } else if (r.field == QLatin1String("if")) {
+        t = evalIfField(doc, r.fieldArg, page, pages);
     } else {
         t = r.text;
     }
@@ -1561,7 +1575,7 @@ QVector<TextRun> spliceRuns(QVector<TextRun> runs, int start, int end, const Tex
     QVector<TextRun> before = splitRuns(runs, 0, s);
     QVector<TextRun> after = splitRuns(runs, e, plain.size());
     QVector<TextRun> out = before;
-    if (!insert.text.isEmpty() || insert.bold || insert.italic || insert.underline)
+    if (!insert.text.isEmpty() || insert.bold || insert.italic || insert.underline || !insert.field.isEmpty())
         out.push_back(insert);
     out += after;
     if (out.isEmpty())

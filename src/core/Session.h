@@ -73,6 +73,7 @@ public:
     QJsonObject bookmarkAdd(const QJsonObject &args);
     QJsonObject insertCrossref(const QJsonObject &args);
     QJsonObject insertField(const QJsonObject &args);
+    QJsonObject fieldEvaluate(const QJsonObject &args);
     QJsonObject insertFootnote(const QJsonObject &args);
     QJsonObject insertEndnote(const QJsonObject &args);
     QJsonObject tocUpdate(const QJsonObject &args);

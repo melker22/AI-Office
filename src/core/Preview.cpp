@@ -1,4 +1,5 @@
 #include "core/Preview.h"
+#include "core/FieldExpr.h"
 #include "core/Hyphenation.h"
 #include "core/PdfPostProcess.h"
 #include "core/Qr.h"
@@ -466,7 +467,7 @@ void DocumentLayout::relayout(const Document &doc, double z)
         const StyleDef *st = styleNamed(doc, b.style);
         const qreal beforePt = b.spaceBeforePt >= 0 ? b.spaceBeforePt : (st ? st->spaceBeforePt : 0);
         m.before = beforePt * zoom * kDpi / 72.0;
-        if (b.sectionHidden) {
+        if (b.sectionHidden || blockHiddenByExpr(doc, b, 1, 1)) {
             meas.push_back(m);
             continue;
         }
@@ -563,7 +564,7 @@ void DocumentLayout::relayout(const Document &doc, double z)
     QSet<int> placedEn;
     for (int i = 0; i < doc.body.size(); ++i) {
         const Block &b = doc.body[i];
-        if (b.sectionHidden)
+        if (b.sectionHidden || blockHiddenByExpr(doc, b, 1, 1))
             continue;
         if (b.type == QLatin1String("footnote") || b.type == QLatin1String("endnote"))
             continue;
@@ -1672,7 +1673,8 @@ void paintPage(QPainter *p, const Document &doc, const DocumentLayout &lay, int 
         if (lb.page != page)
             continue;
         const Block *bp = doc.findBlock(lb.id);
-        if (!bp || bp->type == QLatin1String("break") || bp->sectionHidden)
+        if (!bp || bp->type == QLatin1String("break") || bp->sectionHidden
+            || blockHiddenByExpr(doc, *bp, 1, 1))
             continue;
         const Block &b = *bp;
         if (b.type == QLatin1String("table")) {

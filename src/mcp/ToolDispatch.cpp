@@ -125,6 +125,7 @@ QJsonArray toolDefinitions()
                               {QStringLiteral("list_bullet"), prop(QStringLiteral("string"))},
                               {QStringLiteral("lang"), prop(QStringLiteral("string"))},
                               {QStringLiteral("section_hidden"), prop(QStringLiteral("boolean"))},
+                              {QStringLiteral("hide_if"), prop(QStringLiteral("string"), QStringLiteral("Expression; paragraph is omitted from layout, preview, and PDF when true"))},
                               {QStringLiteral("writing_mode"), prop(QStringLiteral("string"))},
                               {QStringLiteral("z_index"), prop(QStringLiteral("integer"))},
                               {QStringLiteral("connect_to"), prop(QStringLiteral("string"))},
@@ -406,12 +407,16 @@ QJsonArray toolDefinitions()
                               {QStringLiteral("offset"), prop(QStringLiteral("integer"))}},
                   QJsonArray{QStringLiteral("target")}));
     a.append(tool(QStringLiteral("insert_field"),
-                  QStringLiteral("Insert a field: page_number, page_count, date, title, author, xref, filename, word_count, custom, merge, chapter, var, input, time, cite, filepath."),
+                  QStringLiteral("Insert a field: page_number, page_count, date, title, author, xref, filename, word_count, custom, merge, chapter, var, input, time, cite, filepath, if. if takes arg {cond, then, else}."),
                   QJsonObject{{QStringLiteral("kind"), prop(QStringLiteral("string"))},
-                              {QStringLiteral("arg"), prop(QStringLiteral("string"))},
+                              {QStringLiteral("arg"), prop(QStringLiteral("string"), QStringLiteral("For if, a JSON object {cond, then, else} or that object as a string"))},
                               {QStringLiteral("id"), prop(QStringLiteral("string"))},
                               {QStringLiteral("offset"), prop(QStringLiteral("integer"))}},
                   QJsonArray{QStringLiteral("kind")}));
+    a.append(tool(QStringLiteral("field_evaluate"),
+                  QStringLiteral("Evaluate an expression (numbers, strings, variables, page/pages/words/chars/paragraphs/tables/images, comparisons, && || !, parentheses). Returns {value, type} or {ok:false, error}."),
+                  QJsonObject{{QStringLiteral("expr"), prop(QStringLiteral("string"))}},
+                  QJsonArray{QStringLiteral("expr")}));
     a.append(tool(QStringLiteral("insert_footnote"),
                   QStringLiteral("Insert a footnote marker at the caret and a footnote block."),
                   QJsonObject{{QStringLiteral("text"), prop(QStringLiteral("string"))},

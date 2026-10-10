@@ -2,6 +2,7 @@
 
 #include "core/Csl.h"
 #include "core/Docx.h"
+#include "core/FieldExpr.h"
 #include "core/Odf.h"
 #include "core/Preview.h"
 #include "core/Spell.h"
@@ -419,6 +420,7 @@ QJsonObject Session::exportPdf(const QJsonObject &args)
 
 QJsonObject Session::getDocument(const QJsonObject &)
 {
+    refreshIfFields(doc_);
     auto r = ok();
     r[QStringLiteral("document")] = doc_.toJson();
     r[QStringLiteral("words")] = doc_.wordCount();
@@ -680,6 +682,8 @@ QJsonObject Session::applyParagraphFormat(const QJsonObject &args)
             doc_.body[i].lang = args.value(QStringLiteral("lang")).toString();
         if (args.contains(QStringLiteral("section_hidden")))
             doc_.body[i].sectionHidden = args.value(QStringLiteral("section_hidden")).toBool();
+        if (args.contains(QStringLiteral("hide_if")))
+            doc_.body[i].hideIf = args.value(QStringLiteral("hide_if")).toString();
         if (args.contains(QStringLiteral("writing_mode")))
             doc_.body[i].writingMode = args.value(QStringLiteral("writing_mode")).toString();
         if (args.contains(QStringLiteral("z_index")))
@@ -1104,6 +1108,19 @@ QJsonObject Session::redo(const QJsonObject &)
     return ok();
 }
 
+static QJsonArray laidBlockIds(const DocumentLayout &lay, int page)
+{
+    QJsonArray ids;
+    QSet<QString> seen;
+    for (const auto &lb : lay.blocks) {
+        if (lb.page != page || lb.id.isEmpty() || seen.contains(lb.id))
+            continue;
+        seen.insert(lb.id);
+        ids.append(lb.id);
+    }
+    return ids;
+}
+
 QJsonObject Session::pagePreview(const QJsonObject &args)
 {
     const double zoom = args.value(QStringLiteral("zoom")).toDouble(1.15);
@@ -1127,6 +1144,7 @@ QJsonObject Session::pagePreview(const QJsonObject &args)
             QJsonObject o;
             o[QStringLiteral("page")] = p;
             o[QStringLiteral("png_base64")] = QString::fromLatin1(png.toBase64());
+            o[QStringLiteral("ids")] = laidBlockIds(lay, p);
             pages.append(o);
         }
         auto r = ok();
@@ -1145,6 +1163,7 @@ QJsonObject Session::pagePreview(const QJsonObject &args)
             QJsonObject o;
             o[QStringLiteral("page")] = p;
             o[QStringLiteral("png_base64")] = QString::fromLatin1(png.toBase64());
+            o[QStringLiteral("ids")] = laidBlockIds(lay, p);
             pages.append(o);
         }
         auto r = ok();
@@ -1155,12 +1174,15 @@ QJsonObject Session::pagePreview(const QJsonObject &args)
     const int page = pageV.toInt(1);
     const auto prev = renderPage(doc_, page, zoom);
     QByteArray png = renderPagePng(doc_, page, zoom);
+    DocumentLayout lay;
+    lay.relayout(doc_, zoom);
     auto r = ok();
     r[QStringLiteral("page")] = prev.page;
     r[QStringLiteral("pages")] = prev.pages;
     r[QStringLiteral("png_base64")] = QString::fromLatin1(png.toBase64());
     r[QStringLiteral("width")] = prev.image.width();
     r[QStringLiteral("height")] = prev.image.height();
+    r[QStringLiteral("ids")] = laidBlockIds(lay, prev.page);
     return r;
 }
 
@@ -2481,9 +2503,10 @@ QJsonObject Session::insertField(const QJsonObject &args)
                                  QStringLiteral("variable"), QStringLiteral("input"),
                                  QStringLiteral("time"), QStringLiteral("cite"),
                                  QStringLiteral("citation"), QStringLiteral("filepath"),
-                                 QStringLiteral("file_path"), QStringLiteral("path")};
+                                 QStringLiteral("file_path"), QStringLiteral("path"),
+                                 QStringLiteral("if")};
     if (!okKinds.contains(kind))
-        return fail(QStringLiteral("kind must be page_number, page_count, date, title, author, xref, filename, word_count, custom, merge, chapter, var, input, time, cite, or filepath"));
+        return fail(QStringLiteral("kind must be page_number, page_count, date, title, author, xref, filename, word_count, custom, merge, chapter, var, input, time, cite, filepath, or if"));
     QString id = args.value(QStringLiteral("id")).toString();
     int off = args.value(QStringLiteral("offset")).toInt(-1);
     if (id.isEmpty()) {
@@ -2494,10 +2517,31 @@ QJsonObject Session::insertField(const QJsonObject &args)
     if (!b || b->type == QLatin1String("table") || b->type == QLatin1String("image")
         || b->type == QLatin1String("break"))
         return fail(QStringLiteral("cannot insert field here"));
+    QString fieldArg = args.value(QStringLiteral("arg")).toString();
+    if (kind == QLatin1String("if")) {
+        QJsonObject spec;
+        const QJsonValue argV = args.value(QStringLiteral("arg"));
+        if (argV.isObject())
+            spec = argV.toObject();
+        else if (argV.isString()) {
+            const QJsonDocument jd = QJsonDocument::fromJson(argV.toString().toUtf8());
+            if (!jd.isObject())
+                return fail(QStringLiteral("if arg must be {cond, then, else}"));
+            spec = jd.object();
+        } else
+            return fail(QStringLiteral("if arg must be {cond, then, else}"));
+        if (!spec.contains(QStringLiteral("cond")) || !spec.value(QStringLiteral("cond")).isString())
+            return fail(QStringLiteral("if arg.cond is required"));
+        QJsonObject stored;
+        stored.insert(QStringLiteral("cond"), spec.value(QStringLiteral("cond")).toString());
+        stored.insert(QStringLiteral("then"), spec.value(QStringLiteral("then")).toString());
+        stored.insert(QStringLiteral("else"), spec.value(QStringLiteral("else")).toString());
+        fieldArg = QString::fromUtf8(QJsonDocument(stored).toJson(QJsonDocument::Compact));
+    }
     pushUndo();
     TextRun ins;
     ins.field = kind;
-    ins.fieldArg = args.value(QStringLiteral("arg")).toString();
+    ins.fieldArg = fieldArg;
     if (kind == QLatin1String("xref"))
         ins.xrefKind = args.value(QStringLiteral("xref_kind")).toString();
     ins.text = runDisplayText(doc_, ins, 1, 1);
@@ -2507,6 +2551,22 @@ QJsonObject Session::insertField(const QJsonObject &args)
     sel_.focusOff = sel_.anchorOff = at + ins.text.size();
     markChanged();
     return ok();
+}
+
+QJsonObject Session::fieldEvaluate(const QJsonObject &args)
+{
+    if (!args.contains(QStringLiteral("expr")))
+        return fail(QStringLiteral("expr is required"));
+    const QString expr = args.value(QStringLiteral("expr")).toString();
+    DocumentLayout lay;
+    lay.relayout(doc_, 1.0);
+    const FieldExprResult ev = FieldExpr::evaluate(expr, doc_, fieldContextFor(doc_, 1, lay.pages));
+    if (!ev.ok)
+        return fail(ev.error.isEmpty() ? QStringLiteral("invalid expression") : ev.error);
+    auto r = ok();
+    r[QStringLiteral("value")] = fieldExprJsonValue(ev.value);
+    r[QStringLiteral("type")] = fieldExprTypeName(ev.value);
+    return r;
 }
 
 static QJsonObject insertNoteAtCaret(Document &doc, Selection &sel, const QJsonObject &args,
@@ -3964,6 +4024,7 @@ QJsonObject Session::setVars(const QJsonObject &args)
     const auto vo = args.value(QStringLiteral("vars")).toObject();
     for (auto it = vo.begin(); it != vo.end(); ++it)
         doc_.vars.insert(it.key(), it.value().toString());
+    refreshIfFields(doc_);
     markChanged();
     auto r = ok();
     QJsonObject out;
@@ -4363,7 +4424,7 @@ QJsonObject Session::documentStats(const QJsonObject &)
     lay.relayout(doc_, 1.0);
     int paras = 0, images = 0, tables = 0, headings = 0, comments = 0, chars = 0;
     for (const auto &b : doc_.body) {
-        if (b.type == QLatin1String("paragraph"))
+        if (b.type == QLatin1String("paragraph") && !blockHiddenByExpr(doc_, b, 1, 1))
             ++paras;
         else if (b.type == QLatin1String("image"))
             ++images;
@@ -4861,8 +4922,29 @@ QJsonObject Session::validate(const QJsonObject &)
         if (b.type == QLatin1String("footnote") || b.type == QLatin1String("endnote"))
             noteIds.insert(b.id);
     }
+    const FieldContext exprCtx = fieldContextFor(doc_, 1, 1);
+    auto checkExpr = [&](const QString &expr, const QString &id) {
+        if (expr.isEmpty())
+            return;
+        const FieldExprResult ev = FieldExpr::evaluate(expr, doc_, exprCtx);
+        if (!ev.ok)
+            err(QStringLiteral("invalid_expression"), id,
+                ev.error.isEmpty() ? QStringLiteral("invalid expression") : ev.error);
+    };
+    auto checkRunExpr = [&](const TextRun &r, const QString &id) {
+        if (!r.showIf.isEmpty() && !showIfIsBareName(r.showIf))
+            checkExpr(r.showIf, id);
+        if (r.field == QLatin1String("if")) {
+            bool exprOk = false;
+            evalIfField(doc_, r.fieldArg, 1, 1, &exprOk);
+            if (!exprOk)
+                err(QStringLiteral("invalid_expression"), id, QStringLiteral("invalid expression"));
+        }
+    };
     for (const auto &b : doc_.body) {
+        checkExpr(b.hideIf, b.id);
         for (const auto &r : b.runs) {
+            checkRunExpr(r, b.id);
             if (!r.noteId.isEmpty() && !noteIds.contains(r.noteId) && !ids.contains(r.noteId))
                 err(QStringLiteral("broken_note_id"), b.id, QStringLiteral("note_id not found: ") + r.noteId);
             if (r.field == QLatin1String("xref") && !r.fieldArg.isEmpty()) {
@@ -4883,6 +4965,7 @@ QJsonObject Session::validate(const QJsonObject &)
             for (const auto &row : b.table) {
                 for (const auto &cell : row) {
                     for (const auto &r : cell.runs) {
+                        checkRunExpr(r, b.id);
                         if (r.field == QLatin1String("xref") && !r.fieldArg.isEmpty() && !ids.contains(r.fieldArg))
                             err(QStringLiteral("broken_xref"), b.id, QStringLiteral("xref target missing: ") + r.fieldArg);
                     }
@@ -5016,6 +5099,7 @@ QJsonObject Session::call(const QString &tool, const QJsonObject &args)
         QStringLiteral("spellcheck"),
         QStringLiteral("validate"),
         QStringLiteral("document_validate"),
+        QStringLiteral("field_evaluate"),
         QStringLiteral("integrate_help"),
         QStringLiteral("export_markdown"),
         QStringLiteral("document_export_markdown"),
@@ -5161,6 +5245,8 @@ QJsonObject Session::dispatchTool(const QString &tool, const QJsonObject &args)
         return insertCrossref(args);
     if (tool == QLatin1String("insert_field"))
         return insertField(args);
+    if (tool == QLatin1String("field_evaluate"))
+        return fieldEvaluate(args);
     if (tool == QLatin1String("insert_footnote"))
         return insertFootnote(args);
     if (tool == QLatin1String("insert_endnote"))

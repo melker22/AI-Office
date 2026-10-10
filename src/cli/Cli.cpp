@@ -208,15 +208,8 @@ int runCli(const QStringList &args)
                 r = session.call(t, a);
             }
             results.append(r);
-            if (!r.value(QStringLiteral("ok")).toBool()) {
-                QJsonObject out;
-                out[QStringLiteral("ok")] = false;
-                out[QStringLiteral("error")] = r.value(QStringLiteral("error"));
-                out[QStringLiteral("results")] = results;
-                printJson(out);
-                return 1;
-            }
-            if (c.contains(QStringLiteral("expect"))) {
+            const bool hasExpect = c.contains(QStringLiteral("expect"));
+            if (hasExpect) {
                 const QJsonObject expect = c.value(QStringLiteral("expect")).toObject();
                 for (auto it = expect.begin(); it != expect.end(); ++it) {
                     const QJsonValue actual = valueAtPath(r, it.key());
@@ -232,6 +225,13 @@ int runCli(const QStringList &args)
                         return 1;
                     }
                 }
+            } else if (!r.value(QStringLiteral("ok")).toBool()) {
+                QJsonObject out;
+                out[QStringLiteral("ok")] = false;
+                out[QStringLiteral("error")] = r.value(QStringLiteral("error"));
+                out[QStringLiteral("results")] = results;
+                printJson(out);
+                return 1;
             }
         }
         QJsonObject out;

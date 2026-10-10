@@ -36,7 +36,7 @@ struct TextRun {
     QString noteId;   // footnote/endnote block id
     QString ruby;
     bool redact = false;
-    QString showIf; // hide run unless doc.vars[showIf] is non-empty / not "0"
+    QString showIf; // bare var name: hide unless doc.vars[name] is non-empty / not "0"/"false"; otherwise an expression
 
     QJsonObject toJson() const;
     static TextRun fromJson(const QJsonObject &o);
@@ -165,6 +165,7 @@ struct Block {
     QString formKind; // text | checkbox | dropdown
     QString writingMode; // vertical
     bool sectionHidden = false;
+    QString hideIf; // expression: omit this block from layout/PDF when true; kept in JSON and search
     bool numbered = false;
     QString connectTo;
 
