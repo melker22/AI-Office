@@ -52,8 +52,10 @@ QString evalIfField(const Document &doc, const QString &fieldArg, int page, int 
 
 // Rewrite stored text of fields whose result depends on document structure:
 // `if`, `seq`, and xref `category_number` (body runs, caption runs, cells).
-// `stat` is rewritten only when includeStats is true (variable or hide changes).
-// A chars recount reads the field's own cached text, so it is not refreshed on every read.
+// `stat` is rewritten only when includeStats is true. Callers pass true after an
+// edit (dirty get/save, hide, or vars) and false on a clean read, so an imported
+// cache survives document_get. A chars/words recount includes the field's own
+// cached digits, so the stat pass repeats until those stored numbers settle.
 void refreshIfFields(Document &doc, bool includeStats = false);
 
 } // namespace aioffice

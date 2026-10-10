@@ -376,7 +376,8 @@ QJsonObject Session::saveDocument(const QJsonObject &args)
         return fail(QStringLiteral("path is required (no current file)"));
     if (args.contains(QStringLiteral("title")))
         doc_.title = args.value(QStringLiteral("title")).toString();
-    refreshIfFields(doc_);
+    // Republish stat after an edit. A clean save leaves an imported cache alone.
+    refreshIfFields(doc_, dirty_);
     QString err;
     const bool embedJson = !args.contains(QStringLiteral("embed_json"))
         || args.value(QStringLiteral("embed_json")).toBool();
@@ -421,7 +422,9 @@ QJsonObject Session::exportPdf(const QJsonObject &args)
 
 QJsonObject Session::getDocument(const QJsonObject &)
 {
-    refreshIfFields(doc_);
+    // A clean read leaves imported stat caches alone. An edit must republish
+    // paragraphs/chars/tables/images before the JSON is returned.
+    refreshIfFields(doc_, dirty_);
     auto r = ok();
     r[QStringLiteral("document")] = doc_.toJson();
     r[QStringLiteral("words")] = doc_.wordCount();
@@ -695,7 +698,8 @@ QJsonObject Session::applyParagraphFormat(const QJsonObject &args)
             doc_.body[i].groupId = args.value(QStringLiteral("group_id")).toString();
     }
     // Hide changes the paragraphs/chars/tables/images a stat field must report (D3).
-    // Refresh once here; document_get leaves imported stat caches alone.
+    // Refresh once here. A clean document_get still leaves an imported cache alone;
+    // any later edit republishes stat from getDocument and saveDocument.
     if (args.contains(QStringLiteral("section_hidden")) || args.contains(QStringLiteral("hide_if")))
         refreshIfFields(doc_, true);
     markChanged();

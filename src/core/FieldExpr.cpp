@@ -504,34 +504,53 @@ static bool isStructureField(const TextRun &r)
 void refreshIfFields(Document &doc, bool includeStats)
 {
     // Seq and category_number first: a stat/chars count reads the stored run text.
-    auto walk = [&](QVector<TextRun> &runs, bool stats) {
+    auto walk = [&](QVector<TextRun> &runs, bool stats) -> bool {
+        bool changed = false;
         for (TextRun &r : runs) {
             const bool stat = r.field == QLatin1String("stat");
             if (stats != stat)
                 continue;
             if (!stat && !isStructureField(r))
                 continue;
-            r.text = runDisplayText(doc, r, 1, 1, &r);
+            const QString next = runDisplayText(doc, r, 1, 1, &r);
+            if (next == r.text)
+                continue;
+            r.text = next;
+            changed = true;
         }
+        return changed;
     };
-    auto eachRun = [&](bool stats) {
+    auto eachRun = [&](bool stats) -> bool {
+        bool changed = false;
         for (Block &b : doc.body) {
-            walk(b.runs, stats);
-            walk(b.captionRuns, stats);
+            if (walk(b.runs, stats))
+                changed = true;
+            if (walk(b.captionRuns, stats))
+                changed = true;
             for (auto &row : b.table) {
                 for (auto &cell : row) {
-                    walk(cell.runs, stats);
+                    if (walk(cell.runs, stats))
+                        changed = true;
                     for (auto &nrow : cell.nested) {
-                        for (auto &nc : nrow)
-                            walk(nc.runs, stats);
+                        for (auto &nc : nrow) {
+                            if (walk(nc.runs, stats))
+                                changed = true;
+                        }
                     }
                 }
             }
         }
+        return changed;
     };
     eachRun(false);
-    if (includeStats)
-        eachRun(true);
+    if (!includeStats)
+        return;
+    // chars/words include the stat field's own cached digits. One pass can change
+    // that length and therefore the next total; repeat until the numbers settle.
+    for (int pass = 0; pass < 6; ++pass) {
+        if (!eachRun(true))
+            break;
+    }
 }
 
 } // namespace aioffice
