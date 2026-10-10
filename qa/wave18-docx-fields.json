@@ -47,7 +47,7 @@
   {"tool": "document_get", "args": {}, "expect": {
     "document.body.9.runs.0.field": "stat",
     "document.body.9.runs.0.field_arg": "paragraphs",
-    "document.body.9.runs.0.text": "18",
+    "document.body.9.runs.0.text": "17",
     "document.body.15.runs.0.text": "BOTH",
     "document.body.16.hide_if": "flag == \"on\""
   }},
@@ -78,7 +78,7 @@
     "document.body.7.runs.0.field": "word_count",
     "document.body.8.runs.0.field": "stat",
     "document.body.8.runs.0.field_arg": "chars",
-    "document.body.9.runs.0.text": "18",
+    "document.body.9.runs.0.text": "17",
     "document.body.10.runs.0.field": "doc_info",
     "document.body.10.runs.0.field_arg": "subject",
     "document.body.10.runs.0.text": "Assunto",
@@ -105,7 +105,7 @@
     "document.body.0.runs.0.field_arg": "{\"cond\":\"\\\"a\\\" == \\\"a\\\"\",\"else\":\"NAO\",\"then\":\"SIM\"}",
     "document.body.9.runs.0.field": "stat",
     "document.body.9.runs.0.field_arg": "paragraphs",
-    "document.body.9.runs.0.text": "18",
+    "document.body.9.runs.0.text": "17",
     "document.body.15.runs.0.field": "if",
     "document.body.15.runs.0.text": "BOTH",
     "document.body.15.runs.0.field_arg": "{\"cond\":\"\\\"a\\\" == \\\"a\\\" && page == 1\",\"else\":\"NO\",\"then\":\"BOTH\"}",

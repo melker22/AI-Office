@@ -376,6 +376,7 @@ QJsonObject Session::saveDocument(const QJsonObject &args)
         return fail(QStringLiteral("path is required (no current file)"));
     if (args.contains(QStringLiteral("title")))
         doc_.title = args.value(QStringLiteral("title")).toString();
+    refreshIfFields(doc_);
     QString err;
     const bool embedJson = !args.contains(QStringLiteral("embed_json"))
         || args.value(QStringLiteral("embed_json")).toBool();
@@ -693,6 +694,10 @@ QJsonObject Session::applyParagraphFormat(const QJsonObject &args)
         if (args.contains(QStringLiteral("group_id")))
             doc_.body[i].groupId = args.value(QStringLiteral("group_id")).toString();
     }
+    // Hide changes the paragraphs/chars/tables/images a stat field must report (D3).
+    // Refresh once here; document_get leaves imported stat caches alone.
+    if (args.contains(QStringLiteral("section_hidden")) || args.contains(QStringLiteral("hide_if")))
+        refreshIfFields(doc_, true);
     markChanged();
     return ok();
 }
@@ -4108,7 +4113,7 @@ QJsonObject Session::setVars(const QJsonObject &args)
     const auto vo = args.value(QStringLiteral("vars")).toObject();
     for (auto it = vo.begin(); it != vo.end(); ++it)
         doc_.vars.insert(it.key(), it.value().toString());
-    refreshIfFields(doc_);
+    refreshIfFields(doc_, true);
     markChanged();
     auto r = ok();
     QJsonObject out;

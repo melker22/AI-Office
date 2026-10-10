@@ -494,26 +494,44 @@ QString evalIfField(const Document &doc, const QString &fieldArg, int page, int 
                                         : o.value(QStringLiteral("else")).toString();
 }
 
-void refreshIfFields(Document &doc)
+static bool isStructureField(const TextRun &r)
 {
-    auto walk = [&](QVector<TextRun> &runs) {
+    if (r.field == QLatin1String("if") || r.field == QLatin1String("seq"))
+        return true;
+    return r.field == QLatin1String("xref") && r.xrefKind == QLatin1String("category_number");
+}
+
+void refreshIfFields(Document &doc, bool includeStats)
+{
+    // Seq and category_number first: a stat/chars count reads the stored run text.
+    auto walk = [&](QVector<TextRun> &runs, bool stats) {
         for (TextRun &r : runs) {
-            if (r.field == QLatin1String("if"))
-                r.text = runDisplayText(doc, r, 1, 1);
+            const bool stat = r.field == QLatin1String("stat");
+            if (stats != stat)
+                continue;
+            if (!stat && !isStructureField(r))
+                continue;
+            r.text = runDisplayText(doc, r, 1, 1, &r);
         }
     };
-    for (Block &b : doc.body) {
-        walk(b.runs);
-        for (auto &row : b.table) {
-            for (auto &cell : row) {
-                walk(cell.runs);
-                for (auto &nrow : cell.nested) {
-                    for (auto &nc : nrow)
-                        walk(nc.runs);
+    auto eachRun = [&](bool stats) {
+        for (Block &b : doc.body) {
+            walk(b.runs, stats);
+            walk(b.captionRuns, stats);
+            for (auto &row : b.table) {
+                for (auto &cell : row) {
+                    walk(cell.runs, stats);
+                    for (auto &nrow : cell.nested) {
+                        for (auto &nc : nrow)
+                            walk(nc.runs, stats);
+                    }
                 }
             }
         }
-    }
+    };
+    eachRun(false);
+    if (includeStats)
+        eachRun(true);
 }
 
 } // namespace aioffice

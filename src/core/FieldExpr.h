@@ -50,7 +50,10 @@ bool blockHiddenByExpr(const Document &doc, const Block &block, int page, int pa
 // Live text of an `if` field. On a bad arg or condition, returns "#ERR" and sets *exprOk false.
 QString evalIfField(const Document &doc, const QString &fieldArg, int page, int pages, bool *exprOk = nullptr);
 
-// Rewrite stored text of `if` fields from the current variables.
-void refreshIfFields(Document &doc);
+// Rewrite stored text of fields whose result depends on document structure:
+// `if`, `seq`, and xref `category_number` (body runs, caption runs, cells).
+// `stat` is rewritten only when includeStats is true (variable or hide changes).
+// A chars recount reads the field's own cached text, so it is not refreshed on every read.
+void refreshIfFields(Document &doc, bool includeStats = false);
 
 } // namespace aioffice

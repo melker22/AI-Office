@@ -1431,12 +1431,16 @@ static QString seqFieldName(const TextRun &r)
     return seqFieldJson(r).value(QStringLiteral("name")).toString();
 }
 
-static bool blockVisibleForStat(const Block &b)
+// Hidden paragraphs (section or hideIf) leave the layout, the PDF, and these counts (D3).
+// hideIf is decided on the unfiltered field context, so this does not recurse.
+static bool blockVisibleForStat(const Document &doc, const Block &b, int page, int pages)
 {
-    return !b.sectionHidden;
+    if (b.sectionHidden)
+        return false;
+    return !blockHiddenByExpr(doc, b, page, pages);
 }
 
-static int statCount(const Document &doc, const QString &kind, int pages)
+static int statCount(const Document &doc, const QString &kind, int page, int pages)
 {
     if (kind == QLatin1String("pages"))
         return qMax(1, pages);
@@ -1445,7 +1449,7 @@ static int statCount(const Document &doc, const QString &kind, int pages)
     if (kind == QLatin1String("chars")) {
         int n = 0;
         for (const auto &b : doc.body) {
-            if (!blockVisibleForStat(b))
+            if (!blockVisibleForStat(doc, b, page, pages))
                 continue;
             n += b.plainText().size();
         }
@@ -1453,7 +1457,7 @@ static int statCount(const Document &doc, const QString &kind, int pages)
     }
     int n = 0;
     for (const auto &b : doc.body) {
-        if (!blockVisibleForStat(b))
+        if (!blockVisibleForStat(doc, b, page, pages))
             continue;
         if (kind == QLatin1String("paragraphs") && b.type == QLatin1String("paragraph"))
             ++n;
@@ -1625,7 +1629,7 @@ QString runDisplayText(const Document &doc, const TextRun &r, int page, int page
         else if (key == QLatin1String("revision"))
             t = QString::number(qMax(1, doc.revisions.size()));
     } else if (r.field == QLatin1String("stat")) {
-        t = QString::number(statCount(doc, r.fieldArg, pages));
+        t = QString::number(statCount(doc, r.fieldArg, page, pages));
     } else if (r.field == QLatin1String("sender")) {
         t = doc.vars.value(QStringLiteral("sender.") + r.fieldArg);
     } else if (r.field == QLatin1String("seq")) {

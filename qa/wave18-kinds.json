@@ -48,8 +48,15 @@
   {"tool": "insert_crossref", "args": {"id": "px", "offset": 0, "target": "figB", "kind": "category_number"}},
   {"tool": "insert_crossref", "args": {"id": "px", "offset": 0, "target": "figD", "kind": "category_number"}},
   {"tool": "document_get", "args": {}, "expect": {
+    "document.body.2.caption_runs.1.text": "1",
+    "document.body.3.caption_runs.1.text": "2",
+    "document.body.4.caption_runs.1.text": "3",
+    "document.body.5.caption_runs.1.text": "4",
     "document.body.6.runs.0.text": "2",
-    "document.body.6.runs.1.text": "3"
+    "document.body.6.runs.1.text": "3",
+    "document.body.6.runs.2.text": "4",
+    "document.body.6.runs.3.text": "3",
+    "document.body.6.runs.4.text": "1"
   }},
   {"tool": "page_preview", "args": {"page": 1}},
   {"tool": "validate", "args": {}, "expect": {"valid": true}}
