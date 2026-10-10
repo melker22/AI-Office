@@ -131,6 +131,43 @@ def write_docx(path: Path) -> None:
     path.write_bytes(buf.getvalue())
 
 
+# Hand-written foreign fields: IF (comparison), SEQ, NUMPAGES, plus the other D5 instructions.
+# No word/aioffice.json. fldSimple stays on one line so cached text has no extra whitespace.
+DOCX_FIELDS_XML = """<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">
+<w:body>
+<w:p><w:r><w:t xml:space="preserve">See </w:t></w:r><w:fldSimple w:instr=" IF page &gt; 1 &quot;Later&quot; &quot;First&quot; "><w:r><w:t>First</w:t></w:r></w:fldSimple></w:p>
+<w:p><w:fldSimple w:instr=" IF &quot;a&quot; = &quot;a&quot; &quot;SIM&quot; &quot;NAO&quot; "><w:r><w:t>SIM</w:t></w:r></w:fldSimple></w:p>
+<w:p><w:fldSimple w:instr=" IF 1 &lt;&gt; 2 &quot;T&quot; &quot;F&quot; "><w:r><w:t>T</w:t></w:r></w:fldSimple></w:p>
+<w:p><w:fldSimple w:instr=" SEQ Figura \\* ARABIC "><w:r><w:t>1</w:t></w:r></w:fldSimple></w:p>
+<w:p><w:fldSimple w:instr=" NUMPAGES "><w:r><w:t>2</w:t></w:r></w:fldSimple></w:p>
+<w:p><w:fldSimple w:instr=" NUMWORDS "><w:r><w:t>9</w:t></w:r></w:fldSimple></w:p>
+<w:p><w:fldSimple w:instr=" NUMCHARS "><w:r><w:t>4</w:t></w:r></w:fldSimple></w:p>
+<w:p><w:fldSimple w:instr=" DOCPROPERTY &quot;Subject&quot; "><w:r><w:t>Tema</w:t></w:r></w:fldSimple></w:p>
+<w:p><w:fldSimple w:instr=" DOCPROPERTY Keywords "><w:r><w:t>alfa</w:t></w:r></w:fldSimple></w:p>
+<w:p><w:fldSimple w:instr=" CREATEDATE "><w:r><w:t>2020-01-01T00:00:00</w:t></w:r></w:fldSimple></w:p>
+<w:p><w:fldSimple w:instr=" SAVEDATE "><w:r><w:t>2020-01-02T00:00:00</w:t></w:r></w:fldSimple></w:p>
+<w:p><w:fldSimple w:instr=" REVNUM "><w:r><w:t>4</w:t></w:r></w:fldSimple></w:p>
+<w:p><w:pPr><w:rPr><w:vanish/></w:rPr></w:pPr><w:r><w:rPr><w:vanish/></w:rPr><w:t>Secret</w:t></w:r></w:p>
+<w:p><w:r><w:rPr><w:vanish/></w:rPr><w:t>HiddenRun</w:t></w:r></w:p>
+<w:p><w:r><w:rPr><w:vanish/></w:rPr><w:t>H</w:t></w:r><w:r><w:t>V</w:t></w:r></w:p>
+<w:sectPr><w:pgSz w:w="12240" w:h="15840"/><w:pgMar w:top="1440" w:right="1440" w:bottom="1440" w:left="1440"/></w:sectPr>
+</w:body>
+</w:document>
+"""
+
+
+def write_fields_docx(path: Path) -> None:
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w", compression=zipfile.ZIP_DEFLATED) as z:
+        z.writestr("[Content_Types].xml", CONTENT_TYPES)
+        z.writestr("_rels/.rels", RELS_ROOT)
+        z.writestr("word/document.xml", DOCX_FIELDS_XML)
+        z.writestr("word/_rels/document.xml.rels", DOC_RELS)
+        z.writestr("docProps/core.xml", CORE_PROPS)
+    path.write_bytes(buf.getvalue())
+
+
 def write_odt(path: Path) -> None:
     buf = io.BytesIO()
     with zipfile.ZipFile(buf, "w", compression=zipfile.ZIP_DEFLATED) as z:
@@ -143,8 +180,10 @@ def write_odt(path: Path) -> None:
 def main() -> None:
     write_odt(ROOT / "wave17-odt-revisions-foreign.odt")
     write_docx(ROOT / "wave17-docx-revisions-foreign.docx")
+    write_fields_docx(ROOT / "wave18-docx-fields-foreign.docx")
     print("wrote", ROOT / "wave17-odt-revisions-foreign.odt")
     print("wrote", ROOT / "wave17-docx-revisions-foreign.docx")
+    print("wrote", ROOT / "wave18-docx-fields-foreign.docx")
 
 
 if __name__ == "__main__":
