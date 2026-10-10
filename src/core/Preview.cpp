@@ -15,6 +15,7 @@
 #include <QPdfWriter>
 #include <QSet>
 #include <QStringList>
+#include <QGlyphRun>
 #include <QTextCharFormat>
 #include <QTextLayout>
 #include <QTextOption>
@@ -103,15 +104,36 @@ QString hyphenateDisplay(QString t, double zoneMm = 0, const QString &lang = QSt
     return out;
 }
 
-Qt::Alignment qtAlign(const QString &a)
+// left/right stay physical. start/end follow the resolved paragraph direction.
+// AlignAbsolute keeps Qt from mirroring left/right when the paragraph is RTL.
+Qt::Alignment qtAlign(const QString &a, Qt::LayoutDirection resolved)
 {
+    const bool rtl = resolved == Qt::RightToLeft;
     if (a == QLatin1String("center"))
         return Qt::AlignHCenter;
-    if (a == QLatin1String("right"))
-        return Qt::AlignRight;
     if (a == QLatin1String("justify"))
         return Qt::AlignJustify;
-    return Qt::AlignLeft;
+    if (a == QLatin1String("right") || (a == QLatin1String("end") && !rtl) || (a == QLatin1String("start") && rtl))
+        return Qt::AlignRight | Qt::AlignAbsolute;
+    return Qt::AlignLeft | Qt::AlignAbsolute;
+}
+
+Qt::LayoutDirection blockOptionDirection(const Block &b)
+{
+    if (b.dir == QLatin1String("rtl"))
+        return Qt::RightToLeft;
+    if (b.dir == QLatin1String("ltr"))
+        return Qt::LeftToRight;
+    return Qt::LayoutDirectionAuto;
+}
+
+// Same rule QTextEngine uses for LayoutDirectionAuto: first strong character.
+Qt::LayoutDirection resolvedParagraphDirection(const Block &b, const QString &text)
+{
+    const Qt::LayoutDirection opt = blockOptionDirection(b);
+    if (opt != Qt::LayoutDirectionAuto)
+        return opt;
+    return text.isRightToLeft() ? Qt::RightToLeft : Qt::LeftToRight;
 }
 
 constexpr qreal kDpi = 96.0;
@@ -193,6 +215,42 @@ DropCapInfo dropCapInfo(const Document &doc, const Block &b, const QVector<TextR
     return d;
 }
 
+// Qt subtracts the trailing-space advance from an RTL line's justification
+// budget (QTextEngine::leadingSpaceWidth), so the glyphs stop short of the
+// right edge by that space. Re-lay the same characters against width+sw.
+// Measured on Qt 6.11: setNumColumns(textLength, width+sw) keeps the break
+// and the carets then span the original measure (page ~20.00 .. ~189.81).
+// A further setPosition(x-sw) clamps on the left and pulls the right edge
+// back off the margin, so the line is left where setNumColumns put it.
+// Must run before endLayout(). Paint, caret, and hit-test share this layout.
+static void hangRtlJustifiedTrailingSpace(QTextLayout &layout)
+{
+    if ((layout.textOption().alignment() & Qt::AlignJustify) == 0)
+        return;
+    if (layout.lineCount() < 2)
+        return;
+    const QString text = layout.text();
+    QFontMetricsF fm(layout.font());
+    const qreal oneSpace = qMax(qreal(1), fm.horizontalAdvance(QLatin1Char(' ')));
+    const int last = layout.lineCount() - 1;
+    for (int i = 0; i < last; ++i) {
+        QTextLine line = layout.lineAt(i);
+        const int from = line.textStart();
+        const int len = line.textLength();
+        if (len <= 0 || from + len > text.size())
+            continue;
+        int trail = 0;
+        while (trail < len && text.at(from + len - 1 - trail).isSpace())
+            ++trail;
+        if (trail == 0)
+            continue;
+        const qreal sw = (line.x() + line.width()) - line.cursorToX(from);
+        if (sw <= 0.5 || sw > oneSpace * (trail + 1) + 1.0)
+            continue;
+        line.setNumColumns(len, line.width() + sw);
+    }
+}
+
 qreal layoutLines(QTextLayout &layout, qreal width, qreal dropW, int dropLines)
 {
     layout.beginLayout();
@@ -209,6 +267,7 @@ qreal layoutLines(QTextLayout &layout, qreal width, qreal dropW, int dropLines)
         y += line.height();
         ++lineNo;
     }
+    hangRtlJustifiedTrailingSpace(layout);
     layout.endLayout();
     return y;
 }
@@ -216,32 +275,25 @@ qreal layoutLines(QTextLayout &layout, qreal width, qreal dropW, int dropLines)
 qreal measureTextHeight(const Document &doc, const Block &b, const QVector<TextRun> &runs, qreal width,
                         qreal zoom, QVector<qreal> *lineHs = nullptr)
 {
-    QString text;
-    for (const auto &r : runs)
-        text += runDisplayText(doc, r, 1, 1);
-    const DropCapInfo dc = dropCapInfo(doc, b, runs, zoom);
-    if (dc.lines > 0 && dc.skip > 0 && dc.skip <= text.size())
-        text = text.mid(dc.skip);
-    if (doc.page.hyphenate)
-        text = hyphenateDisplay(text, doc.page.hyphenZoneMm, b.lang);
-    if (text.isEmpty())
-        text = QLatin1Char(' ');
-    TextRun probe = runs.isEmpty() ? TextRun{} : runs.first();
-    QFont f = fontFor(doc, b, probe, zoom);
-    QTextLayout layout(text, f);
-    QTextOption opt;
-    opt.setWrapMode(QTextOption::WrapAtWordBoundaryOrAnywhere);
-    applyTabs(opt, b, zoom);
-    layout.setTextOption(opt);
-    const qreal y = layoutLines(layout, width, dc.width, dc.lines);
+    BlockTextInput in;
+    in.width = width;
+    in.zoom = zoom;
+    in.paint = false;
+    in.fieldPage = 1;
+    in.pages = 1;
+    in.runs = &runs;
+    const BlockTextLayout btl = blockTextLayout(doc, b, in);
+    const qreal y = btl.textHeight;
     if (lineHs) {
         lineHs->clear();
-        for (int i = 0; i < layout.lineCount(); ++i)
-            lineHs->push_back(qMax(qreal(8), layout.lineAt(i).height()));
+        if (btl.layout) {
+            for (int i = 0; i < btl.layout->lineCount(); ++i)
+                lineHs->push_back(qMax(qreal(8), btl.layout->lineAt(i).height()));
+        }
         if (lineHs->isEmpty())
-            lineHs->push_back(qMax(QFontMetricsF(f).height(), y));
+            lineHs->push_back(qMax(QFontMetricsF(btl.font).height(), y));
     }
-    return qMax(qMax(QFontMetricsF(f).height(), y), dc.height);
+    return qMax(qMax(QFontMetricsF(btl.font).height(), y), btl.dropHeight);
 }
 
 qreal cellPadPx(const TableCell &cell, qreal zoom)
@@ -815,6 +867,90 @@ int DocumentLayout::displayPage(int physical) const
     return qMax(1, physical);
 }
 
+static bool blockUsesTextLayout(const QString &type)
+{
+    return type != QLatin1String("table") && type != QLatin1String("image") && type != QLatin1String("shape")
+        && type != QLatin1String("chart") && type != QLatin1String("qr") && type != QLatin1String("equation")
+        && type != QLatin1String("form") && type != QLatin1String("break");
+}
+
+static bool verticalWriting(const Document &doc, const Block &b)
+{
+    return b.writingMode == QLatin1String("vertical") || doc.page.writingMode == QLatin1String("vertical");
+}
+
+// paintPage rotates vertical blocks 90° clockwise around the block center, then
+// restores before drawing the caret. Geometry tools speak in that visual space.
+static QPointF verticalMap(QPointF p, QPointF center, bool inverse)
+{
+    const qreal dx = p.x() - center.x();
+    const qreal dy = p.y() - center.y();
+    if (!inverse)
+        return QPointF(center.x() + dy, center.y() - dx);
+    return QPointF(center.x() - dy, center.y() + dx);
+}
+
+static BlockTextInput laidTextInput(const DocumentLayout &lay, const LaidBlock &lb)
+{
+    BlockTextInput in;
+    in.width = lb.rect.width() - lb.markerWidth;
+    in.zoom = lay.zoom;
+    in.fieldPage = lay.displayPage(lb.page);
+    in.pages = qMax(1, lay.pages);
+    in.physicalPage = lb.page;
+    in.paint = true;
+    in.docLayout = &lay;
+    in.fragmentY0 = lb.layoutY0;
+    in.fragmentHeight = lb.rect.height();
+    return in;
+}
+
+// At a direction boundary one x belongs to two logical offsets and
+// QTextLine::xToCursor picks either. Prefer the offset whose own caret
+// (cursorToX) sits on the clicked x. D11. Cells stay on the linear path.
+static int cursorOnLineAtX(const QTextLayout &layout, const QTextLine &line, qreal x)
+{
+    const int from = line.textStart();
+    const int to = qMin(layout.text().size(), from + line.textLength());
+    int chosen = qBound(from, line.xToCursor(x), to);
+    const qreal chosenX = line.cursorToX(chosen);
+    constexpr qreal kFarPx = 0.5;
+    if (qAbs(chosenX - x) <= kFarPx)
+        return chosen;
+    int best = chosen;
+    qreal bestDist = qAbs(chosenX - x);
+    int p = from;
+    while (p <= to) {
+        if (layout.isValidCursorPosition(p)) {
+            const qreal d = qAbs(line.cursorToX(p) - x);
+            if (d < bestDist) {
+                bestDist = d;
+                best = p;
+            }
+        }
+        if (p >= to)
+            break;
+        const int n = layout.nextCursorPosition(p, QTextLayout::SkipCharacters);
+        if (n <= p)
+            break;
+        p = n > to ? to : n;
+    }
+    return best;
+}
+
+static bool glyphRtl(const QTextLayout &layout, int displayPos)
+{
+    const QString t = layout.text();
+    if (t.isEmpty())
+        return false;
+    const int probe = qBound(0, displayPos > 0 ? displayPos - 1 : 0, t.size() - 1);
+    const QList<QGlyphRun> runs = layout.glyphRuns(probe, 1);
+    if (!runs.isEmpty())
+        return runs.first().isRightToLeft();
+    const auto dir = t.at(probe).direction();
+    return dir == QChar::DirR || dir == QChar::DirAL || dir == QChar::DirRLE || dir == QChar::DirRLO;
+}
+
 HitResult DocumentLayout::hitTest(const Document &doc, int page, QPointF posInPage) const
 {
     HitResult h;
@@ -845,10 +981,41 @@ HitResult DocumentLayout::hitTest(const Document &doc, int page, QPointF posInPa
             h.ok = true;
             h.id = lb.id;
             const Block *b = doc.findBlock(lb.id);
-            const QString t = b ? b->plainText() : QString();
-            const qreal x = posInPage.x() - lb.rect.left() - lb.markerWidth;
-            if (!t.isEmpty() && lb.rect.width() > 0)
-                h.offset = qBound(0, int(t.size() * x / qMax(1.0, lb.rect.width() - lb.markerWidth)), t.size());
+            if (b && blockUsesTextLayout(lb.type) && lb.rect.width() > 0) {
+                const BlockTextLayout btl = blockTextLayout(doc, *b, laidTextInput(*this, lb));
+                const bool vert = verticalWriting(doc, *b);
+                const QPointF layoutPt = vert ? verticalMap(posInPage, lb.rect.center(), true) : posInPage;
+                const qreal originX = lb.rect.left() + lb.markerWidth;
+                const qreal originY = lb.rect.top() - lb.layoutY0;
+                const qreal localX = layoutPt.x() - originX;
+                const qreal localY = layoutPt.y() - originY;
+                int disp = 0;
+                if (btl.layout && btl.layout->lineCount() > 0) {
+                    int idx = btl.layout->lineCount() - 1;
+                    for (int i = 0; i < btl.layout->lineCount(); ++i) {
+                        const QTextLine line = btl.layout->lineAt(i);
+                        const qreal top = line.y();
+                        const qreal bot = top + line.height();
+                        if (localY + 0.05 >= top && localY < bot - 0.01) {
+                            idx = i;
+                            break;
+                        }
+                        if (localY < top) {
+                            idx = i;
+                            break;
+                        }
+                    }
+                    const QTextLine line = btl.layout->lineAt(idx);
+                    disp = cursorOnLineAtX(*btl.layout, line, localX);
+                }
+                disp = qBound(0, disp, btl.display.size());
+                h.offset = qBound(0, btl.toModel(disp), btl.modelLength);
+            } else {
+                const QString t = b ? b->plainText() : QString();
+                const qreal x = posInPage.x() - lb.rect.left() - lb.markerWidth;
+                if (!t.isEmpty() && lb.rect.width() > 0)
+                    h.offset = qBound(0, int(t.size() * x / qMax(1.0, lb.rect.width() - lb.markerWidth)), t.size());
+            }
             return h;
         }
     }
@@ -863,35 +1030,194 @@ HitResult DocumentLayout::hitTest(const Document &doc, int page, QPointF posInPa
 CaretRect DocumentLayout::caret(const Document &doc, const QString &id, int offset, int row, int col) const
 {
     CaretRect c;
+    const Block *block = doc.findBlock(id);
+    if (!block || !blockUsesTextLayout(block->type)) {
+        for (const auto &lb : blocks) {
+            if (lb.id != id)
+                continue;
+            c.page = lb.page;
+            c.ok = true;
+            if (block && lb.type == QLatin1String("table") && row >= 0) {
+                for (const auto &g : lb.cells) {
+                    if (g.row == row && g.col == col) {
+                        QString t;
+                        if (row < block->table.size() && col < block->table[row].size())
+                            for (const auto &r : block->table[row][col].runs)
+                                t += r.text;
+                        const qreal frac = t.isEmpty() ? 0 : qreal(qBound(0, offset, t.size())) / qMax(1, t.size());
+                        const qreal x = g.rect.left() + 4 + frac * (g.rect.width() - 8);
+                        c.rect = QRectF(x, g.rect.top() + 2, 1.5 * zoom, g.rect.height() - 4);
+                        return c;
+                    }
+                }
+                continue;
+            }
+            const QString t = block ? block->plainText() : QString();
+            const qreal frac = t.isEmpty() ? 0 : qreal(qBound(0, offset, t.size())) / qMax(1, t.size());
+            const qreal x = lb.rect.left() + lb.markerWidth + frac * (lb.rect.width() - lb.markerWidth);
+            c.rect = QRectF(x, lb.rect.top(), 1.5 * zoom, qMin(lb.rect.height(), 22.0 * zoom));
+            return c;
+        }
+        return c;
+    }
+
+    const int modelOff = qBound(0, offset, block->plainText().size());
+    const LaidBlock *chosen = nullptr;
+    qreal cursorX = 0;
+    qreal lineY = 0;
+    qreal lineH = 0;
+    int lineNo = 0;
+    bool rtl = false;
+    bool contained = false;
+    qreal bestDist = 1e100;
     for (const auto &lb : blocks) {
         if (lb.id != id)
             continue;
-        c.page = lb.page;
-        c.ok = true;
-        if (lb.type == QLatin1String("table") && row >= 0) {
-            for (const auto &g : lb.cells) {
-                if (g.row == row && g.col == col) {
-                    const Block *b = doc.findBlock(id);
-                    QString t;
-                    if (b && row < b->table.size() && col < b->table[row].size())
-                        for (const auto &r : b->table[row][col].runs)
-                            t += r.text;
-                    const qreal frac = t.isEmpty() ? 0 : qreal(offset) / t.size();
-                    const qreal x = g.rect.left() + 4 + frac * (g.rect.width() - 8);
-                    c.rect = QRectF(x, g.rect.top() + 2, 1.5 * zoom, g.rect.height() - 4);
-                    return c;
-                }
-            }
-            continue;
+        const BlockTextLayout btl = blockTextLayout(doc, *block, laidTextInput(*this, lb));
+        const int disp = btl.toDisplay(qBound(0, modelOff, btl.modelLength));
+        qreal x = 0;
+        qreal y = 0;
+        qreal h = QFontMetricsF(btl.font).height();
+        int ln = 0;
+        bool runRtl = false;
+        const int layoutStart = btl.toModel(0);
+        if (btl.dropLines > 0 && !btl.dropLetter.isEmpty() && modelOff < layoutStart) {
+            x = 0;
+            y = 0;
+            h = qMax(btl.dropHeight, qreal(1));
+        } else if (btl.layout && btl.layout->lineCount() > 0) {
+            QTextLine line = btl.layout->lineForTextPosition(qBound(0, disp, btl.display.size()));
+            if (!line.isValid())
+                line = btl.layout->lineAt(0);
+            x = line.cursorToX(qBound(0, disp, btl.display.size()));
+            y = line.y();
+            h = qMax(qreal(1), line.height());
+            ln = line.lineNumber();
+            runRtl = glyphRtl(*btl.layout, disp);
         }
-        const Block *b = doc.findBlock(id);
-        const QString t = b ? b->plainText() : QString();
-        const qreal frac = t.isEmpty() ? 0 : qreal(qBound(0, offset, t.size())) / qMax(1, t.size());
-        const qreal x = lb.rect.left() + lb.markerWidth + frac * (lb.rect.width() - lb.markerWidth);
-        c.rect = QRectF(x, lb.rect.top(), 1.5 * zoom, qMin(lb.rect.height(), 22.0 * zoom));
-        return c;
+        const qreal mid = y + h * 0.5;
+        qreal dist = 0;
+        if (mid < lb.layoutY0)
+            dist = lb.layoutY0 - mid;
+        else if (mid > lb.layoutY0 + lb.rect.height())
+            dist = mid - (lb.layoutY0 + lb.rect.height());
+        const bool inside = dist <= 0.75;
+        if (!chosen || inside || (!contained && dist < bestDist)) {
+            chosen = &lb;
+            cursorX = x;
+            lineY = y;
+            lineH = h;
+            lineNo = ln;
+            rtl = runRtl;
+            bestDist = dist;
+            if (inside) {
+                contained = true;
+                break;
+            }
+        }
     }
+    if (!chosen)
+        return c;
+    const bool vert = verticalWriting(doc, *block);
+    const qreal originX = chosen->rect.left() + chosen->markerWidth;
+    const qreal originY = chosen->rect.top() - chosen->layoutY0;
+    QPointF topLeft(originX + cursorX, originY + lineY);
+    if (vert)
+        topLeft = verticalMap(topLeft, chosen->rect.center(), false);
+    c.ok = true;
+    c.page = chosen->page;
+    c.line = lineNo;
+    c.rtl = rtl;
+    c.rect = QRectF(topLeft.x(), topLeft.y(), 1.5 * zoom, lineH);
     return c;
+}
+
+bool DocumentLayout::caretMove(const Document &doc, const QString &id, int offset, const QString &move,
+                               int *outOffset) const
+{
+    if (outOffset)
+        *outOffset = offset;
+    const Block *block = doc.findBlock(id);
+    if (!block || !blockUsesTextLayout(block->type))
+        return false;
+
+    const int modelLen = block->plainText().size();
+    const int modelOff = qBound(0, offset, modelLen);
+    const LaidBlock *chosenLb = nullptr;
+    BlockTextLayout chosen;
+    int disp = 0;
+    bool contained = false;
+    qreal bestDist = 1e100;
+    for (const auto &lb : blocks) {
+        if (lb.id != id)
+            continue;
+        BlockTextLayout btl = blockTextLayout(doc, *block, laidTextInput(*this, lb));
+        const int d = btl.toDisplay(qBound(0, modelOff, btl.modelLength));
+        qreal y = 0;
+        qreal h = QFontMetricsF(btl.font).height();
+        const int layoutStart = btl.toModel(0);
+        if (!(btl.dropLines > 0 && !btl.dropLetter.isEmpty() && modelOff < layoutStart)
+            && btl.layout && btl.layout->lineCount() > 0) {
+            QTextLine line = btl.layout->lineForTextPosition(qBound(0, d, btl.display.size()));
+            if (!line.isValid())
+                line = btl.layout->lineAt(0);
+            y = line.y();
+            h = qMax(qreal(1), line.height());
+        }
+        const qreal mid = y + h * 0.5;
+        qreal dist = 0;
+        if (mid < lb.layoutY0)
+            dist = lb.layoutY0 - mid;
+        else if (mid > lb.layoutY0 + lb.rect.height())
+            dist = mid - (lb.layoutY0 + lb.rect.height());
+        const bool inside = dist <= 0.75;
+        if (!chosenLb || inside || (!contained && dist < bestDist)) {
+            chosenLb = &lb;
+            chosen = std::move(btl);
+            disp = d;
+            bestDist = dist;
+            if (inside) {
+                contained = true;
+                break;
+            }
+        }
+    }
+    if (!chosenLb || !chosen.layout)
+        return false;
+
+    if (move != QLatin1String("left") && move != QLatin1String("right") && move != QLatin1String("next")
+        && move != QLatin1String("prev"))
+        return false;
+
+    const QTextLayout &layout = *chosen.layout;
+    const int n = layout.text().size();
+    auto step = [&](int pos) -> int {
+        pos = qBound(0, pos, n);
+        if (move == QLatin1String("left"))
+            return layout.leftCursorPosition(pos);
+        if (move == QLatin1String("right"))
+            return layout.rightCursorPosition(pos);
+        if (move == QLatin1String("next"))
+            return layout.nextCursorPosition(pos, QTextLayout::SkipCharacters);
+        return layout.previousCursorPosition(pos, QTextLayout::SkipCharacters);
+    };
+
+    int model = modelOff;
+    const int limit = n + 2;
+    for (int guard = 0; guard < limit; ++guard) {
+        const int nextDisp = step(disp);
+        if (nextDisp == disp)
+            break;
+        const int nextModel = qBound(0, chosen.toModel(nextDisp), modelLen);
+        disp = nextDisp;
+        if (nextModel != model) {
+            model = nextModel;
+            break;
+        }
+    }
+    if (outOffset)
+        *outOffset = model;
+    return true;
 }
 
 // Shared by paintPage (painting order) and exportNativePdf's tag-correlation gathering (expected
@@ -923,6 +1249,315 @@ static QString liveDisplayText(const Document &doc, const TextRun &r, int page, 
         return formatPageNumber(lay.displayPage(physical), doc.page.numberFormat);
     }
     return runDisplayText(doc, r, page, pages);
+}
+
+static QMap<QString, int> footnoteOrdinals(const Document &doc, const DocumentLayout &lay, int page)
+{
+    QMap<QString, int> pageNoteNo;
+    if (!doc.page.noteRestart)
+        return pageNoteNo;
+    int n = 0;
+    for (const auto &lb0 : lay.blocks) {
+        if (lb0.page != page)
+            continue;
+        const Block *nb = doc.findBlock(lb0.id);
+        if (nb && nb->type == QLatin1String("footnote"))
+            pageNoteNo[lb0.id] = ++n;
+    }
+    return pageNoteNo;
+}
+
+static QMap<QString, QString> chapterLabels(const Document &doc)
+{
+    QMap<QString, QString> chapNo;
+    if (!doc.page.chapterNumbers)
+        return chapNo;
+    int c[7] = {};
+    for (const auto &hb : doc.body) {
+        if (hb.type != QLatin1String("heading"))
+            continue;
+        const int lv = qBound(1, hb.level, 6);
+        ++c[lv];
+        for (int k = lv + 1; k < 7; ++k)
+            c[k] = 0;
+        QString s;
+        for (int k = 1; k <= lv; ++k) {
+            if (!s.isEmpty())
+                s += QLatin1Char('.');
+            s += QString::number(qMax(1, c[k]));
+        }
+        chapNo[hb.id] = s;
+    }
+    return chapNo;
+}
+
+static void prependSynthetic(QString &raw, QVector<int> &before, const QString &prefix)
+{
+    if (prefix.isEmpty())
+        return;
+    QVector<int> nb;
+    nb.reserve(prefix.size() + before.size());
+    for (int i = 0; i < prefix.size(); ++i)
+        nb.append(-1);
+    nb += before;
+    raw = prefix + raw;
+    before = nb;
+}
+
+int BlockTextLayout::toDisplay(int modelOffset) const
+{
+    if (modelToDisplay.isEmpty())
+        return 0;
+    const int m = qBound(0, modelOffset, qMax(0, modelLength));
+    if (m < modelToDisplay.size())
+        return modelToDisplay.at(m);
+    return display.size();
+}
+
+int BlockTextLayout::toModel(int displayOffset) const
+{
+    if (displayToModel.isEmpty())
+        return 0;
+    int d = qBound(0, displayOffset, displayToModel.size() - 1);
+    while (d < displayToModel.size() && displayToModel.at(d) < 0)
+        ++d;
+    if (d >= displayToModel.size())
+        return qMax(0, modelLength);
+    return displayToModel.at(d);
+}
+
+BlockTextLayout blockTextLayout(const Document &doc, const Block &b, const BlockTextInput &in)
+{
+    const QVector<TextRun> &runs = in.runs ? *in.runs : b.runs;
+    BlockTextLayout out;
+    const DropCapInfo dc = dropCapInfo(doc, b, runs, in.zoom);
+    out.dropLetter = dc.letter;
+    out.dropLines = dc.lines;
+    out.dropWidth = dc.width;
+    out.dropHeight = dc.height;
+    out.dropFont = dc.font;
+
+    QString raw;
+    QVector<int> before;
+    int model = 0;
+    const bool live = in.paint && in.docLayout;
+    for (const auto &r : runs) {
+        const QString disp = live ? liveDisplayText(doc, r, in.fieldPage, in.pages, *in.docLayout)
+                                  : runDisplayText(doc, r, in.fieldPage, in.pages);
+        const int m0 = model;
+        model += r.text.size();
+        const int m1 = model;
+        const int D = disp.size();
+        const int M = qMax(0, m1 - m0);
+        for (int d = 0; d < D; ++d) {
+            const int at = (M == 0) ? m0 : m0 + int((qint64(M) * d) / D);
+            before.append(at);
+            raw += disp.at(d);
+        }
+    }
+    out.modelLength = model;
+
+    QMap<QString, int> noteOrds;
+    if (in.paint && in.docLayout && doc.page.noteRestart)
+        noteOrds = footnoteOrdinals(doc, *in.docLayout, in.physicalPage);
+    if (in.paint) {
+        if (b.type == QLatin1String("footnote") && noteOrds.contains(b.id))
+            prependSynthetic(raw, before, QString::number(noteOrds.value(b.id)) + QStringLiteral("  "));
+        if (b.type == QLatin1String("heading")) {
+            const QMap<QString, QString> chap = chapterLabels(doc);
+            if (chap.contains(b.id))
+                prependSynthetic(raw, before, chap.value(b.id) + QStringLiteral("  "));
+        }
+    }
+
+    int skip = 0;
+    if (!in.paint) {
+        if (dc.lines > 0 && dc.skip > 0 && dc.skip <= raw.size())
+            skip = dc.skip;
+    } else if (dc.lines > 0) {
+        skip = dc.skip;
+    }
+    if (skip > 0) {
+        const int s = qMin(skip, raw.size());
+        raw = raw.mid(s);
+        before = before.mid(s);
+    }
+
+    QString text = raw;
+    if (doc.page.hyphenate)
+        text = hyphenateDisplay(raw, doc.page.hyphenZoneMm, b.lang);
+    QVector<int> mapped;
+    if (!doc.page.hyphenate) {
+        mapped = before;
+    } else {
+        mapped.reserve(text.size());
+        int si = 0;
+        for (int i = 0; i < text.size(); ++i) {
+            const QChar ch = text.at(i);
+            const bool inserted = ch == QChar(0x00AD) && (si >= raw.size() || raw.at(si) != QChar(0x00AD));
+            const int m = (si < before.size()) ? before.at(si) : out.modelLength;
+            mapped.append(m);
+            if (!inserted)
+                ++si;
+        }
+    }
+    if (!in.paint && text.isEmpty()) {
+        text = QString(QLatin1Char(' '));
+        mapped = QVector<int>{-1};
+    }
+    if (mapped.size() != text.size()) {
+        QVector<int> fixed(text.size(), out.modelLength);
+        const int n = qMin(mapped.size(), text.size());
+        for (int i = 0; i < n; ++i)
+            fixed[i] = mapped.at(i);
+        mapped = fixed;
+    }
+
+    out.display = text;
+    out.displayToModel = mapped;
+    out.displayToModel.append(out.modelLength);
+    out.modelToDisplay.resize(out.modelLength + 1);
+    for (int m = 0; m <= out.modelLength; ++m) {
+        int found = text.size();
+        for (int d = 0; d < out.displayToModel.size(); ++d) {
+            if (out.displayToModel.at(d) >= m) {
+                found = d;
+                break;
+            }
+        }
+        out.modelToDisplay[m] = found;
+    }
+
+    TextRun probe = runs.isEmpty() ? TextRun{} : runs.first();
+    QFont f = fontFor(doc, b, probe, in.zoom);
+    if (in.paint && (b.lang.startsWith(QLatin1String("ar")) || probe.lang.startsWith(QLatin1String("ar"))))
+        f.setLetterSpacing(QFont::PercentageSpacing, 112);
+    out.font = f;
+
+    auto layout = std::make_unique<QTextLayout>(text, f);
+    QTextOption opt;
+    opt.setWrapMode(QTextOption::WrapAtWordBoundaryOrAnywhere);
+    opt.setTextDirection(blockOptionDirection(b));
+    if (in.paint) {
+        const StyleDef *st = styleNamed(doc, b.style);
+        const QString align = b.align.isEmpty() && st ? st->align : b.align;
+        opt.setAlignment(qtAlign(align, resolvedParagraphDirection(b, text)));
+    }
+    applyTabs(opt, b, in.zoom);
+    layout->setTextOption(opt);
+
+    if (in.paint && in.docLayout) {
+        QList<QTextLayout::FormatRange> fmts;
+        int pos = 0;
+        int rawPos = 0;
+        for (const auto &r : runs) {
+            QString disp = liveDisplayText(doc, r, in.fieldPage, in.pages, *in.docLayout);
+            if (!r.noteId.isEmpty() && doc.page.noteRestart && noteOrds.contains(r.noteId))
+                disp = QString::number(noteOrds.value(r.noteId));
+            const int rawLen = disp.size();
+            if (rawPos + rawLen <= skip) {
+                rawPos += rawLen;
+                continue;
+            }
+            disp = disp.mid(qMax(0, skip - rawPos));
+            if (doc.page.hyphenate)
+                disp = hyphenateDisplay(disp, doc.page.hyphenZoneMm, r.lang.isEmpty() ? b.lang : r.lang);
+            QTextLayout::FormatRange fr;
+            fr.start = pos;
+            fr.length = disp.size();
+            QTextCharFormat cf;
+            cf.setFont(fontFor(doc, b, r, in.zoom));
+            if (r.strike)
+                cf.setFontStrikeOut(true);
+            if (r.superscript)
+                cf.setVerticalAlignment(QTextCharFormat::AlignSuperScript);
+            if (r.subscript)
+                cf.setVerticalAlignment(QTextCharFormat::AlignSubScript);
+            if (!r.color.isEmpty())
+                cf.setForeground(QColor(r.color));
+            else if (!r.charStyle.isEmpty()) {
+                if (const StyleDef *cs = styleNamed(doc, r.charStyle); cs && !cs->color.isEmpty())
+                    cf.setForeground(QColor(cs->color));
+            } else if (!r.link.isEmpty())
+                cf.setForeground(QColor(QStringLiteral("#B5651D")));
+            if (!r.highlight.isEmpty())
+                cf.setBackground(QColor(r.highlight));
+            if (!r.link.isEmpty())
+                cf.setFontUnderline(true);
+            fr.format = cf;
+            fmts.append(fr);
+            pos += fr.length;
+            rawPos += rawLen;
+        }
+        if (!fmts.isEmpty())
+            layout->setFormats(fmts);
+    }
+
+    out.textHeight = layoutLines(*layout, in.width, dc.width, dc.lines);
+    if (in.fragmentHeight >= 0 && layout->lineCount() > 0) {
+        const qreal y0 = in.fragmentY0;
+        const qreal y1 = y0 + in.fragmentHeight;
+        for (int i = 0; i < layout->lineCount(); ++i) {
+            const QTextLine line = layout->lineAt(i);
+            if (line.y() + line.height() > y0 + 0.01 && line.y() < y1 - 0.01) {
+                out.pageSkipDisplay = line.textStart();
+                out.pageSkipModel = out.toModel(line.textStart());
+                break;
+            }
+        }
+    }
+    out.layout = std::move(layout);
+    return out;
+}
+
+// Ruby sits on the line that holds the run, centered between cursorToX of the
+// run's display start and end (clamped to that line when the run wraps).
+static void paintRuby(QPainter *p, const BlockTextLayout &btl, const Block &b, const LaidBlock &lb, const QColor &col)
+{
+    if (!btl.layout)
+        return;
+    bool any = false;
+    for (const auto &r : b.runs) {
+        if (!r.ruby.isEmpty()) {
+            any = true;
+            break;
+        }
+    }
+    if (!any)
+        return;
+    QFont rf = btl.font;
+    rf.setPointSizeF(qMax(6.0, btl.font.pointSizeF() * 0.45));
+    p->setFont(rf);
+    p->setPen(col);
+    const QFontMetricsF rfm(rf);
+    const qreal originX = lb.rect.left() + lb.markerWidth;
+    const qreal originY = lb.rect.top() - lb.layoutY0;
+    const qreal vis0 = lb.layoutY0;
+    const qreal vis1 = lb.layoutY0 + lb.rect.height();
+    int model = 0;
+    for (const auto &r : b.runs) {
+        const int m0 = model;
+        model += r.text.size();
+        if (r.ruby.isEmpty())
+            continue;
+        const int d0 = btl.toDisplay(m0);
+        const int d1 = btl.toDisplay(model);
+        QTextLine line = btl.layout->lineForTextPosition(qBound(0, d0, btl.display.size()));
+        if (!line.isValid())
+            continue;
+        if (line.y() + line.height() <= vis0 + 0.01 || line.y() >= vis1 - 0.01)
+            continue;
+        const int lineLast = line.textStart() + line.textLength();
+        const int a = qBound(line.textStart(), d0, lineLast);
+        const int c = qBound(line.textStart(), qMax(d0, d1), lineLast);
+        const qreal x0 = line.cursorToX(a);
+        const qreal x1 = line.cursorToX(c);
+        const qreal left = qMin(x0, x1);
+        const qreal span = qAbs(x1 - x0);
+        const qreal rw = rfm.horizontalAdvance(r.ruby);
+        const qreal x = left + (span - rw) / 2.0;
+        p->drawText(QPointF(originX + x, originY + line.y() - 1), r.ruby);
+    }
 }
 
 void paintPage(QPainter *p, const Document &doc, const DocumentLayout &lay, int page,
@@ -975,17 +1610,6 @@ void paintPage(QPainter *p, const Document &doc, const DocumentLayout &lay, int 
     }
 
     const int shown = lay.displayPage(page);
-    QMap<QString, int> pageNoteNo;
-    if (doc.page.noteRestart) {
-        int n = 0;
-        for (const auto &lb0 : lay.blocks) {
-            if (lb0.page != page)
-                continue;
-            const Block *nb = doc.findBlock(lb0.id);
-            if (nb && nb->type == QLatin1String("footnote"))
-                pageNoteNo[lb0.id] = ++n;
-        }
-    }
     const HeaderFooter &hdr = headerForPage(doc, page, shown);
     const HeaderFooter &ftr = footerForPage(doc, page, shown);
     const bool hasHeader = hdr.active();
@@ -1039,25 +1663,6 @@ void paintPage(QPainter *p, const Document &doc, const DocumentLayout &lay, int 
         }
     }
 
-    QMap<QString, QString> chapNo;
-    if (doc.page.chapterNumbers) {
-        int c[7] = {};
-        for (const auto &hb : doc.body) {
-            if (hb.type != QLatin1String("heading"))
-                continue;
-            const int lv = qBound(1, hb.level, 6);
-            ++c[lv];
-            for (int k = lv + 1; k < 7; ++k)
-                c[k] = 0;
-            QString s;
-            for (int k = 1; k <= lv; ++k) {
-                if (!s.isEmpty())
-                    s += QLatin1Char('.');
-                s += QString::number(qMax(1, c[k]));
-            }
-            chapNo[hb.id] = s;
-        }
-    }
     int lineNo = 0;
     bool fnSep = false;
 
@@ -1273,18 +1878,8 @@ void paintPage(QPainter *p, const Document &doc, const DocumentLayout &lay, int 
             p->setBrush(Qt::NoBrush);
             p->drawRect(lb.rect.adjusted(-2, -1, 2, 1));
         }
-        QString raw;
-        for (const auto &r : b.runs)
-            raw += liveDisplayText(doc, r, shown, lay.pages, lay);
-        if (b.type == QLatin1String("footnote") && doc.page.noteRestart && pageNoteNo.contains(b.id))
-            raw = QString::number(pageNoteNo.value(b.id)) + QStringLiteral("  ") + raw;
-        if (b.type == QLatin1String("heading") && chapNo.contains(b.id))
-            raw = chapNo.value(b.id) + QStringLiteral("  ") + raw;
-        const DropCapInfo dc = dropCapInfo(doc, b, b.runs, lay.zoom);
-        const int skip = dc.lines > 0 ? dc.skip : 0;
-        QString text = raw.mid(skip);
-        if (doc.page.hyphenate)
-            text = hyphenateDisplay(text, doc.page.hyphenZoneMm, b.lang);
+        const BlockTextLayout btl = blockTextLayout(doc, b, laidTextInput(lay, lb));
+        const QFont &f = btl.font;
         if (b.type == QLatin1String("footnote") && !fnSep) {
             p->setPen(QPen(QColor(QStringLiteral("#C4B8A8")), 1));
             p->drawLine(QPointF(lb.rect.left(), lb.rect.top() - 4),
@@ -1303,9 +1898,6 @@ void paintPage(QPainter *p, const Document &doc, const DocumentLayout &lay, int 
                         Qt::AlignRight | Qt::AlignVCenter, QString::number(lineNo));
         }
         TextRun probe = b.runs.isEmpty() ? TextRun{} : b.runs.first();
-        QFont f = fontFor(doc, b, probe, lay.zoom);
-        if (b.lang.startsWith(QLatin1String("ar")) || probe.lang.startsWith(QLatin1String("ar")))
-            f.setLetterSpacing(QFont::PercentageSpacing, 112);
         p->setFont(f);
         QColor col(QStringLiteral("#1A1F24"));
         if (doc.page.tone == QLatin1String("night"))
@@ -1319,18 +1911,18 @@ void paintPage(QPainter *p, const Document &doc, const DocumentLayout &lay, int 
             p->drawText(QPointF(lb.rect.left(), lb.rect.top() + QFontMetricsF(f).ascent()), lb.marker);
         }
         if (selId == lb.id && selStart >= 0 && selEnd > selStart) {
-            const QString t = text.isEmpty() ? QString() : text;
+            const QString t = btl.display;
             const int n = qMax(1, t.size());
             const qreal x0 = lb.rect.left() + lb.markerWidth + qreal(selStart) / n * (lb.rect.width() - lb.markerWidth);
             const qreal x1 = lb.rect.left() + lb.markerWidth + qreal(selEnd) / n * (lb.rect.width() - lb.markerWidth);
             p->fillRect(QRectF(x0, lb.rect.top(), qMax(2.0, x1 - x0), qMin(lb.rect.height(), 22.0 * lay.zoom)),
                         QColor(QStringLiteral("#B5651D40")));
         }
-        if (dc.lines > 0 && !dc.letter.isEmpty()) {
-            p->setFont(dc.font);
+        if (btl.dropLines > 0 && !btl.dropLetter.isEmpty()) {
+            p->setFont(btl.dropFont);
             p->setPen(col);
-            p->drawText(QPointF(lb.rect.left() + lb.markerWidth, lb.rect.top() + QFontMetricsF(dc.font).ascent()),
-                        dc.letter);
+            p->drawText(QPointF(lb.rect.left() + lb.markerWidth, lb.rect.top() + QFontMetricsF(btl.dropFont).ascent()),
+                        btl.dropLetter);
             p->setFont(f);
         }
         p->setPen(col);
@@ -1342,75 +1934,12 @@ void paintPage(QPainter *p, const Document &doc, const DocumentLayout &lay, int 
             p->rotate(90);
             p->translate(-lb.rect.center());
         }
-        QTextLayout layout(text.isEmpty() ? QString() : text, f);
-        QTextOption opt;
-        opt.setWrapMode(QTextOption::WrapAtWordBoundaryOrAnywhere);
-        const StyleDef *st = styleNamed(doc, b.style);
-        opt.setAlignment(qtAlign(b.align.isEmpty() && st ? st->align : b.align));
-        applyTabs(opt, b, lay.zoom);
-        layout.setTextOption(opt);
-        QList<QTextLayout::FormatRange> fmts;
-        int pos = 0;
-        int rawPos = 0;
-        for (const auto &r : b.runs) {
-            QString disp = liveDisplayText(doc, r, shown, lay.pages, lay);
-            if (!r.noteId.isEmpty() && doc.page.noteRestart && pageNoteNo.contains(r.noteId))
-                disp = QString::number(pageNoteNo.value(r.noteId));
-            const int rawLen = disp.size();
-            if (rawPos + rawLen <= skip) {
-                rawPos += rawLen;
-                continue;
-            }
-            disp = disp.mid(qMax(0, skip - rawPos));
-            if (doc.page.hyphenate)
-                disp = hyphenateDisplay(disp, doc.page.hyphenZoneMm, r.lang.isEmpty() ? b.lang : r.lang);
-            QTextLayout::FormatRange fr;
-            fr.start = pos;
-            fr.length = disp.size();
-            QTextCharFormat cf;
-            cf.setFont(fontFor(doc, b, r, lay.zoom));
-            if (r.strike)
-                cf.setFontStrikeOut(true);
-            if (r.superscript)
-                cf.setVerticalAlignment(QTextCharFormat::AlignSuperScript);
-            if (r.subscript)
-                cf.setVerticalAlignment(QTextCharFormat::AlignSubScript);
-            if (!r.color.isEmpty())
-                cf.setForeground(QColor(r.color));
-            else if (!r.charStyle.isEmpty()) {
-                if (const StyleDef *cs = styleNamed(doc, r.charStyle); cs && !cs->color.isEmpty())
-                    cf.setForeground(QColor(cs->color));
-            } else if (!r.link.isEmpty())
-                cf.setForeground(QColor(QStringLiteral("#B5651D")));
-            if (!r.highlight.isEmpty())
-                cf.setBackground(QColor(r.highlight));
-            if (!r.link.isEmpty())
-                cf.setFontUnderline(true);
-            fr.format = cf;
-            fmts.append(fr);
-            pos += fr.length;
-            rawPos += rawLen;
-        }
-        if (!fmts.isEmpty())
-            layout.setFormats(fmts);
-        layoutLines(layout, lb.rect.width() - lb.markerWidth, dc.width, dc.lines);
         p->save();
         p->setClipRect(lb.rect.adjusted(-2, -1, 2, 1));
-        layout.draw(p, QPointF(lb.rect.left() + lb.markerWidth, lb.rect.top() - lb.layoutY0));
+        if (btl.layout)
+            btl.layout->draw(p, QPointF(lb.rect.left() + lb.markerWidth, lb.rect.top() - lb.layoutY0));
         p->restore();
-        {
-            qreal rx = lb.rect.left() + lb.markerWidth;
-            QFont rf = f;
-            rf.setPointSizeF(qMax(6.0, f.pointSizeF() * 0.45));
-            p->setFont(rf);
-            p->setPen(col);
-            for (const auto &r : b.runs) {
-                const QString d = liveDisplayText(doc, r, shown, lay.pages, lay);
-                if (!r.ruby.isEmpty())
-                    p->drawText(QPointF(rx, lb.rect.top() - 1), r.ruby);
-                rx += QFontMetricsF(f).horizontalAdvance(d);
-            }
-        }
+        paintRuby(p, btl, b, lb, col);
         if (vert)
             p->restore();
         int openComments = 0;

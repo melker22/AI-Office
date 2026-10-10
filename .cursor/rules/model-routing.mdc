@@ -1,0 +1,13 @@
+---
+description: Roteamento multi-IA via Cockpit Fleet
+alwaysApply: true
+---
+
+# Roteamento de modelos
+
+O trabalho roda como Fleets do AGI Cockpit (`.cockpit/fleets/*.yaml`). Camadas, ordem de escalonamento
+e como trocar de executor quando um limite de uso esgota: [`docs/ORCHESTRATION.md`](../../docs/ORCHESTRATION.md).
+
+- Se você é um executor num nó de Fleet: faça **só** a tarefa do seu prompt, siga a spec da onda
+  (`docs/waves/`) sem reabrir decisões fechadas, rode `scripts/qa-all.sh` antes de reportar, commit sem push.
+- Decisão arquitetural não prevista na spec → pare e reporte "PRECISA OPUS: ..." em vez de decidir.

@@ -24,6 +24,10 @@ QString wAlign(const QString &a)
         return QStringLiteral("center");
     if (a == QLatin1String("right"))
         return QStringLiteral("right");
+    if (a == QLatin1String("start"))
+        return QStringLiteral("start");
+    if (a == QLatin1String("end"))
+        return QStringLiteral("end");
     if (a == QLatin1String("justify"))
         return QStringLiteral("both");
     return QStringLiteral("left");
@@ -318,14 +322,19 @@ QString pPr(const Block &b)
     } else if (b.style == QLatin1String("Quote")) {
         xml += QLatin1String("<w:pStyle w:val=\"Quote\"/>");
     }
-    if (!b.align.isEmpty())
-        xml += QStringLiteral("<w:jc w:val=\"%1\"/>").arg(wAlign(b.align));
+    // EG_PPrBase order: pStyle, numPr, bidi, then jc. Strict OOXML rejects any other sequence.
     if (b.type == QLatin1String("list-item")) {
         const int numId = b.listKind == QLatin1String("decimal") ? 1 : 2;
         xml += QStringLiteral("<w:numPr><w:ilvl w:val=\"%1\"/><w:numId w:val=\"%2\"/></w:numPr>")
                    .arg(qMax(0, b.level - 1))
                    .arg(numId);
     }
+    if (b.dir == QLatin1String("rtl"))
+        xml += QLatin1String("<w:bidi/>");
+    else if (b.dir == QLatin1String("ltr"))
+        xml += QLatin1String("<w:bidi w:val=\"0\"/>");
+    if (!b.align.isEmpty())
+        xml += QStringLiteral("<w:jc w:val=\"%1\"/>").arg(wAlign(b.align));
     if (xml.isEmpty())
         return {};
     return QStringLiteral("<w:pPr>%1</w:pPr>").arg(xml);
@@ -727,6 +736,7 @@ bool loadDocx(const QByteArray &zipData, Document &doc, QString *error)
     TextRun run;
     QString pStyle;
     QString align;
+    QString paraDir;
     int numId = 0;
     int ilvl = 0;
     bool inP = false;
@@ -772,6 +782,7 @@ bool loadDocx(const QByteArray &zipData, Document &doc, QString *error)
             runs.clear();
             pStyle.clear();
             align.clear();
+            paraDir.clear();
             numId = 0;
             ilvl = 0;
             return;
@@ -799,6 +810,7 @@ bool loadDocx(const QByteArray &zipData, Document &doc, QString *error)
             b.style = pStyle.isEmpty() ? QStringLiteral("Normal") : pStyle;
         }
         b.align = align;
+        b.dir = paraDir;
         b.runs = runs;
         if (b.runs.isEmpty())
             b.runs.push_back(TextRun{});
@@ -834,6 +846,7 @@ bool loadDocx(const QByteArray &zipData, Document &doc, QString *error)
         runs.clear();
         pStyle.clear();
         align.clear();
+        paraDir.clear();
         numId = 0;
         ilvl = 0;
     };
@@ -856,6 +869,7 @@ bool loadDocx(const QByteArray &zipData, Document &doc, QString *error)
                 runs.clear();
                 pStyle.clear();
                 align.clear();
+                paraDir.clear();
                 numId = 0;
             } else if (n == QLatin1String("pStyle")) {
                 pStyle = xml.attributes().value(QStringLiteral("w:val")).toString();
@@ -866,6 +880,12 @@ bool loadDocx(const QByteArray &zipData, Document &doc, QString *error)
             } else if (n == QLatin1String("jc")) {
                 const auto v = xml.attributes().value(QStringLiteral("w:val")).toString();
                 align = (v == QLatin1String("both")) ? QStringLiteral("justify") : v;
+            } else if (n == QLatin1String("bidi")) {
+                const auto v = xml.attributes().value(QStringLiteral("w:val")).toString();
+                paraDir = (v.isEmpty() || v != QLatin1String("0")) ? QStringLiteral("rtl")
+                                                                   : QStringLiteral("ltr");
+            } else if (n == QLatin1String("rtl") && inR) {
+                // run-level RTL flag: read-only, ignored
             } else if (n == QLatin1String("r")) {
                 inR = true;
                 run = TextRun{};

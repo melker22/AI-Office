@@ -8,6 +8,95 @@
 
 ---
 
+## 2026-10-09 — Cursor Grok — Wave 16: hermetic test fonts
+
+**Objective:** CircleCI failed `qa/wave16-ctl-justify.json` and `qa/wave16-ctl-caret.json` on the PR #3 branch. D9 was not hermetic: this NixOS host and the `nixos/nix` container resolved different fonts from the same `shell.nix`.
+
+**Done:**
+- Proved the leak. `pkgs.makeFontsConf` includes `/etc/fonts/conf.d`, XDG and FHS dirs, plus DejaVu. Locally `fc-list` saw 2876 faces, `fc-match "Liberation Serif"` was the system Liberation, and `:lang=ar` / `:lang=he` were DejaVu Sans. A conf limited to the Nix dirs the container actually has maps "Liberation Serif" to Source Serif 4 and reproduced the CI failures exactly: justify offset 120 stayed on line 0, offset 60 `x_mm` 108.64, offset 114 `x_mm` 28.14; mixed hit-test got offset 2, want 3.
+- `shell.nix` now writes its own fonts.conf: only `liberation_ttf`, IBM Plex, Source Serif, JetBrains Mono, Noto and Noto CJK; cache `/tmp/aioffice-fontconfig-cache`; no system include. `lang=ar|he|ja|zh|ko` prefer Noto Naskh Arabic, Noto Serif Hebrew and Noto Sans CJK. `nix-shell --pure` with `HOME=/tmp/ci-home` matches Liberation Serif, Noto Naskh Arabic and Noto Serif Hebrew (1596 faces, all under `/nix/store`). CircleCI already runs `nix-shell --run`, so the shellHook `FONTCONFIG_FILE` is the job's config; the store path cannot be hardcoded in `.circleci/config.yml`.
+- Recalibrated font-dependent probes only. Justified left edge is offset 102 at 20.00 mm (`$lte` 20.5 kept); offset 0 stays 189.81 mm (`$gte` 189.25 kept); offset 120 is still line 1. LTR multiline probe moved from offset 100 (now line 0, x 185.89) to 151, the middle of line 1 (offsets 103–198, x 105.72, `line == 1`). RTL final caret is offset 160 at 99.85 mm (`$lt` 105 kept; offset 114 is now on line 1 at 169.70). Mixed `hit_test(caret_geometry(o))` x_mm updated for Noto Serif Hebrew; offsets 0–11 round-trip. CJK breaks unchanged (40 / 80).
+- `scripts/qa-all.sh --gui` green in that hermetic shell, including `qa/wave15-pdf-tagging.json`.
+
+**Decisions:** Did not loosen the 20.0 / 190.0 edge bounds. Did not put a static `FONTCONFIG_FILE` in CircleCI.
+
+**Next suggested step:** Update PR #3 with this commit (no push from this node unless asked).
+
+**Commits:** `c9f8f24` fix: pin hermetic Nix fonts so CI and local share CTL metrics
+
+---
+
+## 2026-10-09 — Fleet wave16 — Composer / Cursor Grok / Grok Build / Sonnet
+
+**Objective:** Close the fleet `review` loop on wave 16 CTL/CJK: verify revisor findings, confirm QA criteria, and record handoff + catalog.
+
+**Done:**
+- Revisor pass submitted with **`issues: 0`**, **`findings: []`**. Incremental diff review found no new defects beyond the fix commit below.
+- **`967d6a0`** — table-cell **`caret_geometry`**: `Session::caretGeometry` bounds checks against `cellPlain(b->table[row][col])` when `row`/`col` are set (not the table’s full `plainText()`); `Preview.cpp` adds defensive `qBound` on line fraction. Reproduced: cell text `"ab"` (len 2), offset 10 → `{ok:false,error:"offset out of range"}` instead of a bogus `x_mm` (~859 mm).
+- **`967d6a0`** — DOCX **`pPr` element order**: export emits `pStyle → numPr → bidi → jc` (`EG_PPrBase`), so `w:bidi` precedes `w:jc` (statically confirmed in `Docx.cpp`).
+- Branch delivery (prior nodes): shared **`BlockTextLayout`** (paint/caret/hit/ruby), **`Block.dir`** + logical **`align`**, MCP **`caret_geometry`** / **`hit_test`** / **`caret_move`**, bidi boundary hit-test (D11), RTL justified-line width fixes, DOCX/ODT round-trip, **`qa/wave16-ctl-*.json`**, Noto fontconfig in Nix. Kashida: no app code — Qt **`QTextEngine::justify`** on this stack stretches RTL via character/space justification (no U+0640 tatweel observed on Qt 6.11 with Noto Arabic; see T4 handoff).
+- **`scripts/qa-all.sh --gui`** is green under the hermetic fontconfig (same Nix shell CircleCI uses), including `qa/wave15-pdf-tagging.json` and the wave 16 CTL playbooks. The earlier "pending" note was the in-flight local run; CI then failed justify/caret because host fonts leaked (see the entry above).
+
+**Decisions:** No code changes in the empty-findings review pass; documentation only on this node.
+
+**Next suggested step:** Fleet **`handoff`** + PR to **`main`**. Font hermeticity is the entry above.
+
+**Commits:** `967d6a0` fix: reject cell caret offsets past the cell and order w:bidi before w:jc · `7252ee9` docs: record the RTL justify commit hash in the handoff · `8a4a035` fix: justify RTL lines on a width that includes the trailing space · `9413a36` docs: record the bidi caret commit hash in the handoff · `8d21670` fix: snap bidi hit-test to the caret and hang RTL justify spaces · `c25abce` test: add wave16 CTL/CJK QA playbooks and Noto fontconfig · `f5eca54` docs: record t4+t5 merge QA and conflict resolution in handoff · `0f10fdc` merge: integrate wave16 t4-wire-rtl and t5-roundtrip · `53515e5` docs: record the paragraph-direction commit in the handoff · `e069582` feat: apply paragraph direction, ruby cursors, and caret movement · `8457f91` docs: record wave 16 T5 round-trip handoff entry · `ba208c3` feat: round-trip Block.dir and logical align in DOCX and ODT · `6a65d8a` Merge branch 'fleet/wave16-ctl-cjk-250f6dfa' into fleet/wave16-ctl-cjk-250f6dfa-t4-wire-rtl · `04920f4` Merge branch 'fleet/wave16-ctl-cjk-250f6dfa-t3-model-dir' into fleet/wave16-ctl-cjk-250f6dfa · `74e5c4f` feat: add block dir, logical align, and play numeric expect operators · `5b4f29b` docs: record the layout-core commit in the handoff · `6a74100` feat: share one block text layout for paint, caret, and hit-test · `2329c88` docs: route Cursor executor nodes to grok-4.7-high · `d2ed302` docs: scope wave 16 to the AI phase and record the AI-phase audit · `a30824b` docs: add wave 16 CTL/CJK spec, Cockpit Fleets, and model routing
+
+---
+
+## 2026-10-09 — Cursor Grok — Wave 16: RTL justify hangs the trailing space
+
+**Objective:** The previous `setPosition` only moved the gap from the right edge to the left. Stretch non-final RTL justified lines so the glyphs fill the measure and the trailing space does not consume it. Restore the playbook's `$lte: 20.5`.
+
+**Done:**
+- After the normal break, and still inside `beginLayout`, each non-final RTL justified line that ends in spaces is re-laid with `QTextLine::setNumColumns(textLength, width + sw)`. Same characters, no rebreak. `sw` is the inset `line.width() - cursorToX(start)` (4.000 px / 1.058 mm, equal to the space advance).
+- Qt 6.11 measurement: that wider budget cancels `leadingSpaceWidth`, so carets already span the original measure. `setPosition(x - sw)` then clamps the left edge and moves the right edge back to 188.75 mm, so the line is left where `setNumColumns` placed it.
+- Playbook offset 114 (caret on the content side of the trailing space) is 20.00 mm (`$lte: 20.5` restored). Offset 0 is 189.81 mm (`$gte: 189.25` unchanged).
+- `scripts/qa-all.sh --gui` green, including `qa/wave15-pdf-tagging.json`. D11 text unchanged.
+
+**Decisions:** Do not slide the line by `-sw` on this Qt. The extra width is already consumed by the justification budget.
+
+**Next suggested step:** Fleet review.
+
+**Commits:** `8a4a035` fix: justify RTL lines on a width that includes the trailing space
+
+---
+
+## 2026-10-09 — Cursor Grok — Wave 16: bidi hit-test and RTL justify space
+
+**Objective:** Close the two `scripts/qa-all.sh --gui` failures: bidi boundary hit-test (D11) and the short right edge of a justified RTL line. Do not touch `src/app/` or the paint order / one clip per block (D10).
+
+**Done:**
+- `DocumentLayout::hitTest` (text only) keeps `xToCursor`, then if that offset's own caret is more than 0.5 px from the click, uses the grapheme boundary on the same line whose `cursorToX` is closer.
+- Non-final RTL justified lines are shifted with `QTextLine::setPosition` inside `blockTextLayout`, so paint, caret, and hit-test share the offset. D11 is recorded in `docs/waves/wave16-ctl-cjk.md`.
+- `scripts/qa-all.sh --gui` green, including `qa/wave15-pdf-tagging.json`.
+
+**Decisions:** The RTL shortfall is the trailing space. On the playbook line, `line.width() - cursorToX(start)` is 4.000 px (1.058 mm), equal to `horizontalAdvance` of U+0020; LTR justify already reaches page x 189.81. Shifting by that gap puts offset 0 at 189.81 mm. Offset 114 is the caret before that space, so it moves from 20.00 to 21.06; its expect is now `$lte: 21.6`. The right-edge bound `$gte: 189.25` is unchanged.
+
+**Next suggested step:** Fleet review of this diff.
+
+**Commits:** `8d21670` fix: snap bidi hit-test to the caret and hang RTL justify spaces
+
+---
+
+## 2026-10-09 — Composer — Wave 16 T6 QA playbooks + Noto fonts
+
+**Objective:** Fleet `t6-qa`: deterministic fonts in `shell.nix` (D9) and MCP playbooks for wave 16 ready criteria (D8): caret/CJK/justify/RTL PDF; keep `wave15-pdf-tagging` unchanged.
+
+**Done:**
+- `shell.nix`: `noto-fonts`, `noto-fonts-cjk-sans`, `FONTCONFIG_FILE` via `pkgs.makeFontsConf` (IBM Plex, Source Serif, JetBrains Mono, Noto).
+- Playbooks: `qa/wave16-ctl-caret.json`, `qa/wave16-ctl-cjk.json`, `qa/wave16-ctl-justify.json`, `qa/wave16-ctl-pdf-rtl.json` with `expect` and `$gt`/`$lt`/`$gte`/`$lte`.
+- `scripts/qa-all.sh --gui`: `wave15-pdf-tagging`, CJK, model, roundtrip, PDF RTL pass.
+
+**Decisions:** Did not loosen expects on real failures (per spec).
+
+**Next suggested step:** Fleet `review`: fix `hit_test` at bidi boundary in `abc אבג def` (offset 7 → got 4); justified Arabic first-line span ~168.75 mm vs 170±0.5 mm (offset 0 `x_mm` 188.75, expect ≥189.25).
+
+**Commits:** `5d8476c` test: add wave16 CTL/CJK QA playbooks and Noto fontconfig
+
+---
+
 ## Template (copiar para o topo)
 
 ```
@@ -23,6 +112,79 @@
 
 **Commits:** nenhum (usuário não pediu) | `<hash>` <mensagem>
 ```
+
+---
+
+## 2026-10-09 — Cursor — Wave 16 integrate T4+T5 merge
+
+**Objective:** Merge `t4-wire-rtl` and `t5-roundtrip` into integration branch; resolve conflicts; QA.
+
+**Done:**
+- Fast-forward merge of `t4-wire-rtl`; merge commit for `t5-roundtrip` with conflict resolution (keep T3/T4 `normalizedBlockDir`, `auto` clearing in `apply_paragraph_format`, richer MCP schema for align/dir).
+- `scripts/qa-all.sh --gui` verde (incl. `qa/wave16-ctl-roundtrip.json`).
+
+**Decisions:** T5’s raw `dir` in JSON import superseded by `normalizedBlockDir` from T3. Conflitos T5 vs T3/T4 em `Session.cpp`, `ToolDispatch.cpp`, `Document.{h,cpp}`, `AI_HANDOFF.md` — mantida semântica T3/T4 (auto→vazio, schema align/dir, `normalizedBlockDir`).
+
+**Next suggested step:** Fleet `t6-qa` (playbooks caret/CJK + fontes Nix).
+
+**Commits:** `0f10fdc` merge: integrate wave16 t4-wire-rtl and t5-roundtrip
+
+---
+
+## 2026-10-09 — Composer — Wave 16 T5 dir/align DOCX/ODT round-trip
+
+**Objective:** Fleet `t5-roundtrip` (spec D7): mapear `Block.dir` e `align` lógico (`start`/`end`) na importação/exportação DOCX e ODT; QA e playbook.
+
+**Done:**
+- Modelo: campo `Block.dir` (`auto`|`ltr`|`rtl`) no JSON/MCP (`apply_paragraph_format`, schema).
+- `Docx.cpp`: export/import `w:jc` start/end; `w:bidi` ↔ `rtl`, `w:bidi w:val="0"` ↔ `ltr`; `w:rtl` em run ignorado na leitura.
+- `Odf.cpp`: estilos automáticos com `fo:text-align` e `style:writing-mode` (`rl-tb`/`lr-tb`); import via `paragraph-properties`.
+- `qa/check_roundtrip.py`: confere `dir`/`align` nos JSON reabertos; `qa/wave16-ctl-roundtrip.json` com `expect`.
+- `scripts/qa-all.sh` verde.
+
+**Decisions:** DOCX usa `w:bidi w:val="0"` para `dir=ltr` explícito (só `rtl` omitiria o atributo no reimport).
+
+**Next suggested step:** Fleet `integrate-2`: merge com branch `t4-wire-rtl` (layout/caret) e `t6-qa` (playbooks caret/CJK + fontes Nix).
+
+**Commits:** `ba208c3` feat: round-trip Block.dir and logical align in DOCX and ODT
+
+---
+
+## 2026-10-09 — Cursor Grok — Wave 16 T4: dir, ruby, caret_move
+
+**Objective:** Wire `Block.dir` into `BlockTextLayout`, place ruby from the real line, and expose visual and grapheme caret movement in the core and as MCP `caret_move`. Do not touch `src/app/`. Do not implement kashida by hand. Keep one clip per block and `orderedBlocksForPage`.
+
+**Done:**
+- `blockTextLayout` calls `QTextOption::setTextDirection`: `rtl` → `RightToLeft`, `ltr` → `LeftToRight`, `auto` (empty) → `LayoutDirectionAuto`. `align` `start`/`end` map to the resolved direction (explicit dir, or the first strong character when auto). `left`/`right` stay physical via `Qt::AlignAbsolute`.
+- Ruby is centered on the line that contains the run, between `cursorToX` of the run's display start and end. A wrapped run is clamped to that line. A block split across pages only draws ruby for lines inside the fragment.
+- `DocumentLayout::caretMove` and MCP `caret_move {id, offset, move: left|right|next|prev}` → `{offset}`. `left`/`right` use `leftCursorPosition`/`rightCursorPosition`. `next`/`prev` use `nextCursorPosition`/`previousCursorPosition` (`SkipCharacters`). Documented in `docs/mcp-tools.md`. Canvas keys are not wired.
+- `scripts/qa-all.sh --gui` passed, including `qa/wave15-pdf-tagging.json` and `qa/wave16-ctl-model.json`.
+
+**Decisions:** Empty `align` stays physical left, same as an explicit `left`. A `dir: rtl` paragraph sits on the right when `align` is `start` (probed: «مرحبا» offset 0 at 189.8 mm, the end of that short word still on the right). `align: left` with `dir: rtl` stays on the left margin. Kashida was not added.
+
+**Kashida (Qt 6.11.1, observed, not implemented):** `QTextEngine::justify` still has a kashida path (`nKashidas`, and `QFontEngine::getGlyphPositions` emits U+0640 for an RTL item when that count is non-zero). This Qt never assigns the classes that arm it (`Justification_Arabic_Normal` and above). Arabic runs are marked `Justification_Character` or `Justification_Arabic_Space`, so the extra width is inter-character and space advance. With Noto Naskh Arabic, Noto Sans Arabic, and DejaVu Sans, a non-final justified line grew toward the full measure and `glyphRuns` gained no U+0640 versus the same line aligned right. In the app, a justified Arabic paragraph's first-line carets run from the left margin (20.00 mm) to 188.49 mm; the content box is 20–190 mm.
+
+**Next suggested step:** Round-trip of `dir` / `align start|end` (T5) and the wave 16 playbooks. A hit on the caret x of offset 4 in `abc אבג def` (the LTR/RTL boundary) came back as offset 7; the other sampled offsets round-tripped. Do not wire `DocumentCanvas` keys in the AI phase.
+
+**Commits:** `e069582` feat: apply paragraph direction, ruby cursors, and caret movement
+
+---
+
+## 2026-10-09 — Cursor Grok — Wave 16 layout core (BlockTextLayout, caret, hit-test)
+
+**Objective:** D2+D3+D4 (caret/hit) and D8 tools: one function builds a block's QTextLayout for measurement and painting, caret and hit-test use real line geometry, and MCP exposes `caret_geometry` and `hit_test`. Do not touch `Block.dir` or the paint order / single clip per block (D10).
+
+**Done:**
+- `blockTextLayout` builds display text, formats, `QTextOption`, already-broken lines, and the model ↔ display offset map (soft hyphens, rendered fields, drop-cap skip, and the page-fragment skip of a block split across pages).
+- `measureTextHeight` and `paintPage` both call it. Painting still uses one `setClipRect` per block and `orderedBlocksForPage`.
+- `DocumentLayout::caret` and `hitTest` use `QTextLine::cursorToX` / `xToCursor` for body text. Table cells stay on the previous linear placement.
+- MCP tools `caret_geometry` and `hit_test` follow `{ok:false,error}` and are documented in `docs/mcp-tools.md`.
+
+**Decisions:** The tools lay out at zoom 1 (96 dpi) so `x_mm`/`y_mm` are a shared millimetre space. `rtl` is the glyph run at the caret, not `Block.dir` (that field is a parallel task). A split block is still painted as the full layout clipped by `layoutY0`; `pageSkipModel` records where the visible fragment starts.
+
+**Next suggested step:** Wire `Block.dir` into this layout, then ruby and `caret_move` (T4). Do not change the clip or paint order.
+
+**Commits:** `6a74100` feat: share one block text layout for paint, caret, and hit-test
 
 ---
 
@@ -414,175 +576,3 @@
 **Commits:** `8d41845` feat: add tabs, drop cap, nested tables, mail merge, and PDF/A
 
 ---
-
-## 2026-08-29 — Cursor — Fase IA: DoD + fundação MCP + fatia Writer
-
-**Objective:** Executar o programa Fase IA (depois Humano): Wave 0 auditoria, Wave 1 fundação MCP, Wave 2 round-trip A+B, fatia JSON+MCP+preview das waves 3–6. Sem chrome QML novo. Sem push.
-
-**Done:**
-- **DoD IA:** dado no `.aio.json` com IDs; tool MCP/`aioffice call` com `{ok:false,error}`; `page_preview` reflecte; `docs/mcp-tools.md` actualizado. ODT/DOCX não bloqueia a subfase (SoT = JSON).
-- Wave 0: coluna Notion **Fase** (`IA`/`Humano`/`Infra`/`Fora`); board alinhado ao `Session::call`.
-- Wave 1: `validate`, `batch` atómico, `id`/`ids[]`, `checkpoint`/`restore`, `aioffice play`, JSON canónico, `page_preview` `from`/`to`, `insert_markdown`, outline rico. Teste: `AIOFFICE_HEADLESS=1 aioffice play qa/wave1-foundation.json`.
-- Wave 2: round-trip ODT/DOCX de notas, campos, TOC, bookmarks, revisões; notas no layout por página; quebra de coluna + separador; track `format` + accept/reject all; Hunspell `DICPATH` com `:` + dicts no `shell.nix`; Autocorrect JSON MCP.
-- Waves 3–6 (fatia, não o catálogo inteiro): recuos/`keep_with_next`/papéis extra/gutter; `merge_cells`/`split_cells`/`table_sort`/`set_image`/`insert_caption`; export `md`/`txt`/`html`; campos `filename`/`word_count`/`custom`.
-- Fase Humano **não** começou (UX Pilot + `Ui*` só depois da IA plena).
-
-**Decisions:** `aioffice play` é sequencial (macros); atomicidade = tool `batch`. Checkpoint fora de `batch`. Commits locais por unidade; nunca `git push` neste programa até pedido.
-
-**Next suggested step:** Continuar waves 3–6 no Notion (tabulações, drop cap visual, nested table, mala direta, PDF/A). Fase Humano só quando o critério IA estiver pleno no catálogo restante.
-
-**Commits:** `cc141e4` feat: add MCP session foundation and Writer IA extras
-
----
-
-
-## 2026-08-29 — Cursor — Backlog longo no Roadmap (o que um agente pode fazer)
-
-**Objective:** Acrescentar no Notion tudo o que, mesmo demorando anos, um agente pode implementar no AI Office *do nosso jeito* (JSON+IDs, MCP/CLI, Tinta & Papel).
-
-**Done:**
-- +150 linhas Todo no Roadmap (formato, chrome, tabela, MCP, a11y, testes, etc.).
-- Board: 22 Done, 16 Partial, **203 Todo** (241 no total).
-- Hub callout + `docs/WRITER_FEATURE_CATALOG.md` actualizados.
-
-**Decisions:** Se cabe no nosso modelo, entra. Continua **fora**: Calc, Impress, Draw-app, Base, StarBasic, Gallery/UI/ícones LO, WPS/FreeOffice, chat Copilot, Share. Gráficos/fórmulas = renderer nosso. CRDT local está no board como horizonte longo.
-
-**Next suggested step:** Round-trip ODT/DOCX das ondas A+B; tools MCP de lote/IDs.
-
-**Commits:** nenhum (usuário não pediu)
-
----
-
-## 2026-08-29 — Cursor — Catálogo Writer Guide no Roadmap Notion
-
-**Objective:** Encher o Roadmap para Produção (hub AI Office) com o catálogo de ideias do Writer Guide 26.2 — Done / Partial / Todo — sem copiar código/UI do LO e sem Calc/Impress/Base.
-
-**Done:**
-- Colunas `Fonte` e `Camada` no data source `collection://f3cc11ed-9e5e-4389-b49a-ca98f98dda62`.
-- Callout do hub: sync 2026-08-29 + `docs/ATTRIBUTION.md` + este catálogo.
-- Round-trip ODT/DOCX → **Partial** (notas/campos/TOC/revisões ainda não).
-- 75 linhas novas (12 Done + 13 Partial + 50 Todo Writer/Formats). Board: 22 Done, 16 Partial, 53 Todo.
-- Espelho: `docs/WRITER_FEATURE_CATALOG.md`.
-
-**Decisions:** Ideias TDF só. Macros = MCP/CLI. Formas no documento de texto = cap. 11 no nosso canvas. Planilha/PPT continua Todo / não começar.
-
-**Next suggested step:** Round-trip ODT/DOCX das ondas A+B; mesclar células / âncora de imagem. Não implementar features neste passo.
-
-**Commits:** `aae080d` docs: catalog Writer Guide features for the Notion roadmap
-
----
-
-## 2026-08-29 — Cursor — Writer ondas A+B (ideias LO, código nosso)
-
-**Objective:** Implementar no Writer (JSON + MCP + GUI Tinta & Papel) as ideias de documento estruturado e edição de texto do LibreOffice Writer Guide, sem copiar código.
-
-**Done:**
-- `docs/ATTRIBUTION.md` (TDF / Writer Guide; WPS e FreeOffice fora).
-- Runs: tachado, super/sub, campos, `note_id`.
-- Bookmarks, revisões, `page.columns`, `hyphenate`, blocos footnote/endnote/toc.
-- Tools: link_set, bookmark_add, insert_crossref/field/footnote/endnote, toc_update, spellcheck, track_changes, revision_*.
-- Find `regex`; Hunspell opcional; Autocorrect no caret; hífen no layout.
-- CommandBar + Sidebar + FindBar.
-
-**Decisions:** Código nosso, GPL. LO só como referência de ideias. Ortografia só se Hunspell estiver no build.
-
-**Next suggested step:** Empacotar Linux; Windows v1. Mesclar células / âncora de imagem depois.
-
-**Commits:** `bd131dd` feat: add Writer Guide ideas in JSON, MCP, and GUI
-
----
-
-## 2026-08-29 — Cursor — Relicense to GPL-3.0-or-later
-
-**Objective:** Trocar MPL-2.0 por GPL para o software e os derivados continuarem livres, com o nome do autor citado.
-
-**Done:**
-- `LICENSE` = texto oficial GNU GPL v3 (29 June 2007).
-- Copyright (C) 2026 Melker Halberd Pereira Alves no README, `docs/architecture.md` e `docs/DOCUMENTACAO_COMPLETA.md`.
-
-**Decisions:** GPL-3.0-or-later (copyleft: quem reutilizar tem de manter livre). Attribution pelo aviso de copyright, que a GPL obriga a preservar. LO continua MPL, processo separado.
-
-**Next suggested step:** Empacotar Linux (PATH/Nix); Windows v1. Planilha e PPT = apps separados.
-
-**Commits:** `0582976` docs: relicense AI Office to GPL-3.0-or-later
-
----
-
-## 2026-08-29 — Cursor — MPL-2.0 + initial git commit
-
-**Objective:** Inicializar o repositório git, publicar no GitHub, e alinhar a licença com a do LibreOffice (MPL 2.0).
-
-**Done:**
-- `LICENSE` trocado de MIT para o texto oficial da Mozilla Public License 2.0.
-- README, `docs/architecture.md` e `docs/DOCUMENTACAO_COMPLETA.md` atualizados.
-- Removida instrumentação de debug (`agent log`) de `Session.cpp` e `Preview.cpp`.
-- `.gitignore`: `.cursor/settings.json` e `.cursor/debug-*.log`.
-- `git init` + commit inicial + push.
-
-**Decisions:** Mesma licença do LibreOffice (MPL-2.0), não dual MPL/LGPL. LO continua processo separado em runtime.
-
-**Next suggested step:** Empacotar Linux (PATH/Nix); Windows v1. Planilha e PPT = apps separados.
-
-**Commits:** `97a4551` feat: initial AI Office Writer under MPL-2.0
-
----
-
-## 2026-08-29 — Cursor — QA P1/P2 fixes from ResultadoDosTestes
-
-**Objective:** Corrigir bugs P1/P2 e features v0.2 listadas em `qa/ResultadoDosTestes.md`.
-
-**Done:**
-- `insert_table`: `header_texts` na linha 0; `cells` a partir da linha 1; `header` no JSON; `col_widths_mm`.
-- Markdown: `**bold**`, `*italic*`, `[text](url)`, listas aninhadas por indentação.
-- Templates: alias `name`, `force` se dirty, título humano, limpa `path`, `fields`/`{{placeholders}}`.
-- `insert_at_caret` substitui o range selecionado.
-- `document_diff` vs último save/open/new/template (`added`/`moved`).
-- Paint por run (negrito só no trecho); comentário = círculo cobre na margem.
-- Mini-barra: botão H liga header; excluir tabela é `⊟`; combo de estilos usa `styleLabels`.
-- ODT: `svg:width` → `width_mm`; não cria parágrafo vazio em volta da imagem.
-- DOCX: twips 1440/25.4; quebra de página sem parágrafo fantasma.
-
-**Decisions:** Diff contra baseline de arquivo (não último undo). Merge de células fica para depois. Planilha/PPT fora.
-
-**Next suggested step:** Reiniciar a GUI no eDP-1 e conferir comentário no papel + botão H. Depois empacotar PATH/Nix.
-
-**Commits:** `97a4551` feat: initial AI Office Writer under MPL-2.0
-
----
-
-## 2026-08-28 — Cursor — Writer v0.2 QA + Tinta & Papel
-
-**Objective:** Corrigir QA P0–P2 e completar o Writer (layout, ODT/DOCX, canvas, tools, GUI a partir dos frames UX Pilot).
-
-**Done:**
-- Hub Notion + Roadmap para Produção + catálogo MCP (irmão do Rose Faxina).
-- 16 frames novos na página `bOAKXwabCJcNcRA1DigB` (job `wIOu49yS2pyteKKuI9cH`); mapa em `docs/design/html/`.
-- Layout único (fonte×zoom, listas 1.2.3, tabela wrap, imagem raster, header/footer, hit-test, PDF nativo).
-- IPC lê JSON até newline (PNG em base64).
-- ODT/DOCX: table/list/image/break/page-layout, T-styles únicos, numbering.xml, Pictures/media.
-- Tools: `after_id` falha, format por range, Title, tabela, search, selection, comments, header/footer, markdown, templates, diff, PDF nativo.
-- Canvas digitável (caret cobre, seleção, IME, células) ligado à Session.
-- QML: nav de página, FindBar next/prev, styleNames, TableMiniBar real, tabs, UnsavedSheet, dica LO, chip PDF nativo.
-- Wrapper `scripts/aioffice`.
-
-**Decisions:** Design HTML manda; sem Compartilhar; ODT/DOCX nativos (o frame do aviso LO falava o contrário — produto vence). PDF nativo no caminho feliz. Tabs por snapshot JSON, uma Session viva.
-
-**Next suggested step:** Empacotar Linux (PATH/Nix); Windows v1. Planilha e PPT = apps separados da suite, nunca neste Writer.
-
-**Commits:** nenhum (usuário não pediu)
-
----
-
-## 2026-08-28 — Cursor — Continuity + Writer v0.2 in progress
-
-**Objective:** Instalar o método de agentes (handoff, regras, wiki) e completar o Writer segundo o QA em `qa/ResultadoDosTestes.md`.
-
-**Done:**
-- Regras Cursor (`ai-continuity`, `ai-commit-protocol`, `project-context`, `commit-language-english`) + `design-overrides-qt` já existente.
-- Stubs de `DOCUMENTACAO_COMPLETA.md`, `DESIGN_CHANGES.md`, `QA_REPORT.md`, `docs/design/`.
-
-**Decisions:** Git = o que mudou; handoff = por quê; Notion = wiki + Roadmap para Produção. Design Tinta & Papel manda sobre Qt. Planilha e PPT são apps separados (suite), não features deste Writer.
-
-**Next suggested step:** Hub Notion + gerar frames UX Pilot que faltam; depois layout, ODT/DOCX, canvas.
-
-**Commits:** (esta sessão)

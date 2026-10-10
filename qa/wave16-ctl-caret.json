@@ -1,0 +1,234 @@
+[
+  {
+    "tool": "document_new",
+    "args": {
+      "title": "Wave16 CTL caret",
+      "force": true
+    }
+  },
+  {
+    "tool": "insert_at_caret",
+    "args": {
+      "id": "p1",
+      "offset": 0,
+      "text": "Lorem ipsum dolor sit amet, consectetur adipiscing elit, sed do eiusmod tempor incididunt ut labore et dolore magna aliqua. Ut enim ad minim veniam, quis nostrud exercitation ullamco laboris nisi ut aliquip ex ea commodo consequat."
+    }
+  },
+  {
+    "tool": "caret_geometry",
+    "args": {
+      "id": "p1",
+      "offset": 151
+    },
+    "expect": {
+      "line": 1
+    }
+  },
+  {
+    "tool": "document_new",
+    "args": {
+      "title": "Wave16 CTL caret RTL",
+      "force": true
+    }
+  },
+  {
+    "tool": "insert_at_caret",
+    "args": {
+      "id": "p1",
+      "offset": 0,
+      "text": "السلام عليكم ورحمة الله وبركاته السلام عليكم ورحمة الله وبركاته السلام عليكم ورحمة الله وبركاته السلام عليكم ورحمة الله وبركاته السلام عليكم ورحمة الله وبركاته "
+    }
+  },
+  {
+    "tool": "apply_paragraph_format",
+    "args": {
+      "id": "p1",
+      "dir": "rtl",
+      "align": "start",
+      "lang": "ar"
+    }
+  },
+  {
+    "tool": "caret_geometry",
+    "args": {
+      "id": "p1",
+      "offset": 0
+    },
+    "expect": {
+      "x_mm": {
+        "$gt": 105
+      }
+    }
+  },
+  {
+    "tool": "caret_geometry",
+    "args": {
+      "id": "p1",
+      "offset": 160
+    },
+    "expect": {
+      "x_mm": {
+        "$lt": 105
+      }
+    }
+  },
+  {
+    "tool": "document_new",
+    "args": {
+      "title": "Wave16 CTL mixed",
+      "force": true
+    }
+  },
+  {
+    "tool": "insert_at_caret",
+    "args": {
+      "id": "p1",
+      "offset": 0,
+      "text": "abc אבג def"
+    }
+  },
+  {
+    "tool": "hit_test",
+    "args": {
+      "page": 1,
+      "x_mm": 20,
+      "y_mm": 25
+    },
+    "expect": {
+      "id": "p1",
+      "offset": 0
+    }
+  },
+  {
+    "tool": "hit_test",
+    "args": {
+      "page": 1,
+      "x_mm": 21.852083333333336,
+      "y_mm": 25
+    },
+    "expect": {
+      "id": "p1",
+      "offset": 1
+    }
+  },
+  {
+    "tool": "hit_test",
+    "args": {
+      "page": 1,
+      "x_mm": 23.96875,
+      "y_mm": 25
+    },
+    "expect": {
+      "id": "p1",
+      "offset": 2
+    }
+  },
+  {
+    "tool": "hit_test",
+    "args": {
+      "page": 1,
+      "x_mm": 25.820833333333336,
+      "y_mm": 25
+    },
+    "expect": {
+      "id": "p1",
+      "offset": 3
+    }
+  },
+  {
+    "tool": "hit_test",
+    "args": {
+      "page": 1,
+      "x_mm": 26.879166666666666,
+      "y_mm": 25
+    },
+    "expect": {
+      "id": "p1",
+      "offset": 4
+    }
+  },
+  {
+    "tool": "hit_test",
+    "args": {
+      "page": 1,
+      "x_mm": 30.318749999999998,
+      "y_mm": 25
+    },
+    "expect": {
+      "id": "p1",
+      "offset": 5
+    }
+  },
+  {
+    "tool": "hit_test",
+    "args": {
+      "page": 1,
+      "x_mm": 28.202083333333334,
+      "y_mm": 25
+    },
+    "expect": {
+      "id": "p1",
+      "offset": 6
+    }
+  },
+  {
+    "tool": "hit_test",
+    "args": {
+      "page": 1,
+      "x_mm": 32.96458333333333,
+      "y_mm": 25
+    },
+    "expect": {
+      "id": "p1",
+      "offset": 7
+    }
+  },
+  {
+    "tool": "hit_test",
+    "args": {
+      "page": 1,
+      "x_mm": 34.02291666666667,
+      "y_mm": 25
+    },
+    "expect": {
+      "id": "p1",
+      "offset": 8
+    }
+  },
+  {
+    "tool": "hit_test",
+    "args": {
+      "page": 1,
+      "x_mm": 36.139583333333334,
+      "y_mm": 25
+    },
+    "expect": {
+      "id": "p1",
+      "offset": 9
+    }
+  },
+  {
+    "tool": "hit_test",
+    "args": {
+      "page": 1,
+      "x_mm": 37.99166666666667,
+      "y_mm": 25
+    },
+    "expect": {
+      "id": "p1",
+      "offset": 10
+    }
+  },
+  {
+    "tool": "hit_test",
+    "args": {
+      "page": 1,
+      "x_mm": 39.31458333333333,
+      "y_mm": 25
+    },
+    "expect": {
+      "id": "p1",
+      "offset": 11
+    }
+  }
+]

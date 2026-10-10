@@ -106,7 +106,8 @@ struct Block {
     QString type; // paragraph, heading, list-item, table, image, break, footnote, endnote, toc
     int level = 0;
     QString style;
-    QString align;
+    QString align; // left | right | center | justify | start | end
+    QString dir;   // auto (default, omitted in JSON) | ltr | rtl
     QString listKind;
     QString breakKind;
     QVector<TextRun> runs;
@@ -324,5 +325,11 @@ void applyFormatToRun(TextRun &r, const QJsonObject &fmt);
 void clearRunFormat(TextRun &r);
 QJsonObject runFormatJson(const TextRun &r);
 void applyFormatToRange(QVector<TextRun> &runs, int start, int end, const QJsonObject &fmt);
+
+bool isValidBlockAlign(const QString &align);
+bool isValidBlockDir(const QString &dir);
+QString validateBlock(const Block &b);
+QString validateParagraphFormatArgs(const QJsonObject &args);
+Block duplicateBlock(const Block &src);
 
 } // namespace aioffice

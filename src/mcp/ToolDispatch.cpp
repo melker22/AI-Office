@@ -101,10 +101,11 @@ QJsonArray toolDefinitions()
                               {QStringLiteral("redact"), prop(QStringLiteral("boolean"))},
                               {QStringLiteral("show_if"), prop(QStringLiteral("string"))}}));
     a.append(tool(QStringLiteral("apply_paragraph_format"),
-                  QStringLiteral("Set align, style, indents, spacing, line_height, keep_with_next, break_before, orphans/widows, drop_cap, tabs, border, list_restart, list_bullet, lang."),
+                  QStringLiteral("Set align, dir, style, indents, spacing, line_height, keep_with_next, break_before, orphans/widows, drop_cap, tabs, border, list_restart, list_bullet, lang."),
                   QJsonObject{{QStringLiteral("ids"), prop(QStringLiteral("array"), QStringLiteral("Block ids; or pass id"))},
                               {QStringLiteral("id"), prop(QStringLiteral("string"), QStringLiteral("Single block id (alias of ids with one entry)"))},
-                              {QStringLiteral("align"), prop(QStringLiteral("string"))},
+                              {QStringLiteral("align"), prop(QStringLiteral("string"), QStringLiteral("left|center|right|justify|start|end"))},
+                              {QStringLiteral("dir"), prop(QStringLiteral("string"), QStringLiteral("auto|ltr|rtl"))},
                               {QStringLiteral("style"), prop(QStringLiteral("string"))},
                               {QStringLiteral("indent_left_mm"), prop(QStringLiteral("number"))},
                               {QStringLiteral("indent_right_mm"), prop(QStringLiteral("number"))},
@@ -226,6 +227,25 @@ QJsonArray toolDefinitions()
                               {QStringLiteral("from"), prop(QStringLiteral("integer"))},
                               {QStringLiteral("to"), prop(QStringLiteral("integer"))},
                               {QStringLiteral("zoom"), prop(QStringLiteral("number"))}}));
+    a.append(tool(QStringLiteral("caret_geometry"),
+                  QStringLiteral("Caret position for a block offset, from the real line layout. Returns page, x_mm, y_mm, line (0-based), rtl."),
+                  QJsonObject{{QStringLiteral("id"), prop(QStringLiteral("string"))},
+                              {QStringLiteral("offset"), prop(QStringLiteral("integer"), QStringLiteral("Model offset in the block plain text, or in the cell when row and col are set"))},
+                              {QStringLiteral("row"), prop(QStringLiteral("integer"), QStringLiteral("Table cell row; omit for body text"))},
+                              {QStringLiteral("col"), prop(QStringLiteral("integer"), QStringLiteral("Table cell column"))}},
+                  QJsonArray{QStringLiteral("id"), QStringLiteral("offset")}));
+    a.append(tool(QStringLiteral("hit_test"),
+                  QStringLiteral("Block and model offset under a point on the page (millimetres from the top-left)."),
+                  QJsonObject{{QStringLiteral("page"), prop(QStringLiteral("integer"), QStringLiteral("1-based physical page"))},
+                              {QStringLiteral("x_mm"), prop(QStringLiteral("number"))},
+                              {QStringLiteral("y_mm"), prop(QStringLiteral("number"))}},
+                  QJsonArray{QStringLiteral("page"), QStringLiteral("x_mm"), QStringLiteral("y_mm")}));
+    a.append(tool(QStringLiteral("caret_move"),
+                  QStringLiteral("Move a text caret by one visual step (left/right) or one grapheme (next/prev). Returns the new model offset."),
+                  QJsonObject{{QStringLiteral("id"), prop(QStringLiteral("string"))},
+                              {QStringLiteral("offset"), prop(QStringLiteral("integer"), QStringLiteral("Model offset in the block plain text"))},
+                              {QStringLiteral("move"), prop(QStringLiteral("string"), QStringLiteral("left|right|next|prev"))}},
+                  QJsonArray{QStringLiteral("id"), QStringLiteral("offset"), QStringLiteral("move")}));
     a.append(tool(QStringLiteral("integrate_help"),
                   QStringLiteral("How a user AI should attach to AI Office (no API keys). Includes title, words, outline."),
                   {}));

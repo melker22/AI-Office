@@ -2,12 +2,16 @@
 
 #include "core/Document.h"
 
+#include <QFont>
 #include <QImage>
 #include <QPainter>
 #include <QPointF>
 #include <QRectF>
 #include <QString>
+#include <QTextLayout>
 #include <QVector>
+
+#include <memory>
 
 namespace aioffice {
 
@@ -30,6 +34,8 @@ struct CaretRect {
     QRectF rect;
     int page = 1;
     bool ok = false;
+    int line = 0; // 0-based line in the block's QTextLayout
+    bool rtl = false;
 };
 
 struct CellGeom {
@@ -37,6 +43,48 @@ struct CellGeom {
     int col = 0;
     QRectF rect;
 };
+
+struct DocumentLayout;
+
+// Inputs for blockTextLayout. paint=false reproduces measurement (page-1 fields,
+// no formats, empty text becomes a space). paint=true reproduces page painting.
+struct BlockTextInput {
+    qreal width = 0;
+    qreal zoom = 1;
+    int fieldPage = 1;    // value fed to page fields (display page number when painting)
+    int pages = 1;
+    int physicalPage = 1; // LaidBlock::page; footnote ordinals are per physical page
+    bool paint = false;
+    const DocumentLayout *docLayout = nullptr;
+    const QVector<TextRun> *runs = nullptr; // nullptr → block.runs (cells pass their own)
+    qreal fragmentY0 = 0;
+    qreal fragmentHeight = -1; // < 0: whole block, page-split skip stays 0
+};
+
+// One QTextLayout for a block, already line-broken, plus the model ↔ display
+// offset map. Display text differs from plainText() because of soft hyphens,
+// rendered fields, drop-cap skip, and (via pageSkip*) a block split across pages.
+struct BlockTextLayout {
+    std::unique_ptr<QTextLayout> layout;
+    QString display;
+    QFont font;
+    QVector<int> displayToModel; // display cursor → model offset; -1 = synthetic (prefix)
+    QVector<int> modelToDisplay; // model cursor → display cursor
+    int modelLength = 0;
+    int pageSkipDisplay = 0; // first display cursor visible in fragmentY0/Height
+    int pageSkipModel = 0;   // model offset of that cursor (content on earlier pages)
+    qreal textHeight = 0;
+    QString dropLetter;
+    int dropLines = 0;
+    qreal dropWidth = 0;
+    qreal dropHeight = 0;
+    QFont dropFont;
+
+    int toDisplay(int modelOffset) const;
+    int toModel(int displayOffset) const;
+};
+
+BlockTextLayout blockTextLayout(const Document &doc, const Block &block, const BlockTextInput &in);
 
 struct LaidBlock {
     QString id;
@@ -66,6 +114,10 @@ struct DocumentLayout {
     void relayout(const Document &doc, double zoom);
     HitResult hitTest(const Document &doc, int page, QPointF posInPage) const;
     CaretRect caret(const Document &doc, const QString &id, int offset, int row = -1, int col = -1) const;
+    // Visual (left/right → QTextLayout::left/rightCursorPosition) or grapheme
+    // (next/prev → next/previousCursorPosition). `move` is left|right|next|prev.
+    // Writes the new model offset. False when the block has no text layout.
+    bool caretMove(const Document &doc, const QString &id, int offset, const QString &move, int *outOffset) const;
     int pageOf(const QString &id) const;
     int displayPage(int physical) const;
 };

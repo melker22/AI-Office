@@ -46,6 +46,9 @@ public:
     QJsonObject undo(const QJsonObject &args);
     QJsonObject redo(const QJsonObject &args);
     QJsonObject pagePreview(const QJsonObject &args);
+    QJsonObject caretGeometry(const QJsonObject &args);
+    QJsonObject hitTestTool(const QJsonObject &args);
+    QJsonObject caretMove(const QJsonObject &args);
     QJsonObject integrateHelp(const QJsonObject &args);
     QJsonObject setCell(const QJsonObject &args);
     QJsonObject insertRow(const QJsonObject &args);

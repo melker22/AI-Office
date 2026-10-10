@@ -27,6 +27,39 @@ for name in ("from_json", "from_odt", "from_docx"):
             raise SystemExit(f"{name} missing {need}: {t}")
 print("round-trip types OK")
 
+
+def ctl_attrs(body):
+    """Block indices that carry dir or logical align in the source document."""
+    out = []
+    for i, b in enumerate(body):
+        d = b.get("dir") or ""
+        a = b.get("align") or ""
+        if d or a in ("start", "end"):
+            out.append((i, d, a))
+    return out
+
+
+base_body = docs["from_json"].get("body") or []
+ctl = ctl_attrs(base_body)
+if ctl:
+    for name in ("from_odt", "from_docx"):
+        body = docs[name].get("body") or []
+        for i, want_dir, want_align in ctl:
+            if i >= len(body):
+                raise SystemExit(f"{name} body shorter than source at index {i}")
+            got = body[i]
+            got_dir = got.get("dir") or ""
+            if got_dir != want_dir:
+                raise SystemExit(
+                    f"{name} body[{i}] dir mismatch: {got_dir!r} vs {want_dir!r}"
+                )
+            got_align = got.get("align") or ""
+            if want_align and got_align != want_align:
+                raise SystemExit(
+                    f"{name} body[{i}] align mismatch: {got_align!r} vs {want_align!r}"
+                )
+    print("round-trip dir/align OK")
+
 # wave12: bookmarks/revisions must survive ODT/DOCX round-trip as real markup, not just internally
 # (see Odf.cpp/Docx.cpp bookmarkStart/End, text:change-*/w:ins). Only checked if the source has any.
 base_bm = len(docs["from_json"].get("bookmarks") or [])
