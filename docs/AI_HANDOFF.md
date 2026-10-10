@@ -21,7 +21,7 @@
 
 **Next suggested step:** Fleet review of this diff.
 
-**Commits:** HASHPLACEHOLDER fix: snap bidi hit-test to the caret and hang RTL justify spaces
+**Commits:** `8d21670` fix: snap bidi hit-test to the caret and hang RTL justify spaces
 
 ---
 
