@@ -8,6 +8,24 @@
 
 ---
 
+## 2026-10-10 — Fleet wave17 — Composer / Cursor Grok / Grok Build / Sonnet
+
+**Objective:** Close the fleet `review` loop on wave 17 revision round-trip (D1–D10): re-run the real gate, confirm the four prior review findings are fixed, record handoff + catalog.
+
+**Done:**
+- Fleet `review` submitted **`{"issues":0,"findings":[]}`** on the second pass; no code changes on that node.
+- Re-verified the four earlier findings: (1) `revision_reject`/`revision_reject_all` for `format` restores `priorRuns` via `restoreFormatPrior` + `shiftRevisionOffsets` in `Session.cpp`; (2) `applyCharacterFormat` captures `priorRuns` before mutating runs; (3) `validate()` rejects delete with `start != end` and insert/format with `end < start` (`qa/wave17-docx-revisions-invalid.aio.json` + negative expects); (4) CTest `roundtrip_foreign_docx_wave17` + `document_save {embed_json:false}` foreign reimport path.
+- Extra manual check (no playbook): format revision without `priorRuns` (e.g. from third-party ODT) — `revision_accept` ok; `revision_reject` / `revision_reject_all` → `{ok:false,error:"format revision has no prior formatting"}`.
+- **`scripts/qa-all.sh --gui --interop`** (nix-shell, full build): **30/30 ctest** passed (includes `playbook_wave17-docx-revisions.json`, `roundtrip_foreign_docx_wave17`, wave 17 ODT playbooks/fixtures); **interop** LibreOffice **docx→odt** and **odt→docx** green.
+
+**Decisions:** Nested footnotes/endnotes stay **Fora** (D10); multi-paragraph notes are a new catalog Todo, not wave 17 scope.
+
+**Next suggested step:** Fleet **`handoff`** done; human **`approve-pr`** → open PR to **`main`**.
+
+**Commits (branch vs `main`):** `dd8378c` merge: land the wave17 t1 completion (D1/D2) left out of integrate-2 · `dee390b` docs: record the wave17 t4 merge commit hash in the handoff · `8a9efb6` merge: land t3 ctest fixtures on the DOCX revision interop branch · `80de02a` merge: integrate wave17 t3 ctest fixtures and t4 interop · `900f28d` docs: record the LibreOffice interop commit hash in the handoff · `49cad9c` feat: round-trip revision marks through LibreOffice · `c99cb33` feat: add ctest roundtrip fixtures and foreign revision QA · `5886b0b` docs: record wave17 integrate-1 merge and QA on the fleet branch · `0f5956c` merge: integrate wave17 t1 docx and t2 odt revisions · `00edabe` docs: record the ODT revision commit hash in the handoff · `47ac260` feat: round-trip ODT insert, delete, and format revisions · `157e642` docs: add wave 17 revision round-trip spec and Fleet
+
+---
+
 ## 2026-10-10 — Cursor Grok — Wave 17 t4: ctest merge, revision invariant, foreign DOCX
 
 **Objective:** Merge the t3 ctest/fixtures branch into this interop branch, keep the D3/D4 DOCX markup, implement D1 and D2, and register the foreign DOCX ctest. `scripts/qa-all.sh --gui --interop` must stay green.
