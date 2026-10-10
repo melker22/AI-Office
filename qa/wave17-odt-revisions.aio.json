@@ -1,0 +1,48 @@
+{
+  "schema": 1,
+  "meta": {"title": "Wave17 ODT revisions", "author": "Ada", "track_changes": true},
+  "body": [
+    {
+      "id": "p1",
+      "type": "paragraph",
+      "style": "Normal",
+      "runs": [
+        {"text": "A", "italic": true},
+        {"text": "C"}
+      ]
+    }
+  ],
+  "revisions": [
+    {
+      "id": "rev-ins",
+      "author": "Ada",
+      "kind": "insert",
+      "block_id": "p1",
+      "start": 1,
+      "end": 2,
+      "text": "C",
+      "timestamp": 1700000000000
+    },
+    {
+      "id": "rev-del",
+      "author": "Ada",
+      "kind": "delete",
+      "block_id": "p1",
+      "start": 1,
+      "end": 1,
+      "text": "B",
+      "timestamp": 1700000001000,
+      "deleted_runs": [{"text": "B", "bold": true}]
+    },
+    {
+      "id": "rev-fmt",
+      "author": "Ada",
+      "kind": "format",
+      "block_id": "p1",
+      "start": 0,
+      "end": 1,
+      "timestamp": 1700000002000,
+      "payload": "{\"italic\":true}"
+    }
+  ]
+}

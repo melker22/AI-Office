@@ -1,0 +1,100 @@
+[
+  {"tool": "document_open", "args": {"path": "qa/wave17-odt-revisions.aio.json"}},
+  {"tool": "revision_list", "args": {}, "expect": {
+    "revisions.0.kind": "insert",
+    "revisions.0.text": "C",
+    "revisions.0.start": 1,
+    "revisions.0.end": 2,
+    "revisions.1.kind": "delete",
+    "revisions.1.text": "B",
+    "revisions.1.start": 1,
+    "revisions.1.end": 1,
+    "revisions.1.deleted_runs.0.text": "B",
+    "revisions.1.deleted_runs.0.bold": true,
+    "revisions.2.kind": "format",
+    "revisions.2.start": 0,
+    "revisions.2.end": 1,
+    "revisions.2.payload": "{\"italic\":true}"
+  }},
+  {"tool": "document_save", "args": {"path": "/tmp/wave17-odt-revisions.odt"}},
+  {"tool": "document_open", "args": {"path": "/tmp/wave17-odt-revisions.odt"}},
+  {"tool": "revision_list", "args": {}, "expect": {
+    "revisions.0.kind": "insert",
+    "revisions.0.author": "Ada",
+    "revisions.0.block_id": "p1",
+    "revisions.0.text": "C",
+    "revisions.0.start": 1,
+    "revisions.0.end": 2,
+    "revisions.1.kind": "delete",
+    "revisions.1.author": "Ada",
+    "revisions.1.block_id": "p1",
+    "revisions.1.text": "B",
+    "revisions.1.start": 1,
+    "revisions.1.end": 1,
+    "revisions.1.deleted_runs.0.text": "B",
+    "revisions.1.deleted_runs.0.bold": true,
+    "revisions.2.kind": "format",
+    "revisions.2.author": "Ada",
+    "revisions.2.block_id": "p1",
+    "revisions.2.start": 0,
+    "revisions.2.end": 1,
+    "revisions.2.payload": "{\"italic\":true}"
+  }},
+  {"tool": "document_get", "args": {}, "expect": {
+    "document.body.0.runs.0.text": "A",
+    "document.body.0.runs.0.italic": true,
+    "document.body.0.runs.1.text": "C",
+    "document.body.0.runs.1.bold": false
+  }},
+  {"tool": "page_preview", "args": {"page": 1}},
+  {"tool": "revision_reject", "args": {"id": "rev-del"}},
+  {"tool": "document_get", "args": {}, "expect": {
+    "document.body.0.runs.0.text": "A",
+    "document.body.0.runs.0.italic": true,
+    "document.body.0.runs.1.text": "B",
+    "document.body.0.runs.1.bold": true,
+    "document.body.0.runs.2.text": "C",
+    "document.body.0.runs.2.bold": false
+  }},
+  {"tool": "revision_list", "args": {}, "expect": {
+    "revisions.0.kind": "insert",
+    "revisions.1.kind": "format"
+  }},
+  {"tool": "validate", "args": {}, "expect": {"valid": true}},
+
+  {"tool": "document_open", "args": {"path": "qa/fixtures/wave17-odt-revisions-foreign.odt"}},
+  {"tool": "revision_list", "args": {}, "expect": {
+    "revisions.0.kind": "format",
+    "revisions.0.author": "Ada",
+    "revisions.0.block_id": "p1",
+    "revisions.0.start": 0,
+    "revisions.0.end": 1,
+    "revisions.1.kind": "delete",
+    "revisions.1.author": "Ada",
+    "revisions.1.block_id": "p1",
+    "revisions.1.text": "B",
+    "revisions.1.start": 1,
+    "revisions.1.end": 1,
+    "revisions.1.deleted_runs.0.text": "B",
+    "revisions.1.deleted_runs.0.bold": true,
+    "revisions.2.kind": "insert",
+    "revisions.2.author": "Ada",
+    "revisions.2.block_id": "p1",
+    "revisions.2.text": "C",
+    "revisions.2.start": 1,
+    "revisions.2.end": 2
+  }},
+  {"tool": "document_get", "args": {}, "expect": {
+    "document.body.0.runs.0.text": "A",
+    "document.body.0.runs.0.italic": true,
+    "document.body.0.runs.1.text": "C"
+  }},
+  {"tool": "revision_reject", "args": {"id": "ct-del"}},
+  {"tool": "document_get", "args": {}, "expect": {
+    "document.body.0.runs.0.text": "A",
+    "document.body.0.runs.1.text": "B",
+    "document.body.0.runs.1.bold": true,
+    "document.body.0.runs.2.text": "C"
+  }},
+  {"tool": "validate", "args": {}, "expect": {"valid": true}}
+]
