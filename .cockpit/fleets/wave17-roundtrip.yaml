@@ -1,0 +1,250 @@
+version: 1
+name: wave17-roundtrip
+description: >
+  Onda 17 — round-trip fiel de revisões DOCX/ODT + ctest. Spec: docs/waves/wave17-roundtrip.md.
+  Cursor Grok 4.7 executa o núcleo, Composer o mecânico, Sonnet revisa, Grok Build corrige.
+args:
+  opus_audit:
+    default: "false"
+    description: "true = auditoria final do Opus antes do PR"
+defaults:
+  agent: cursor
+  model: composer-2.5
+  approval: full-access
+max_parallel: 2
+nodes:
+  # ── Fase 1: DOCX + modelo (Grok) ∥ ODT (Grok) ─────────────────────────────────
+  t1-docx-revisions:
+    title: T1 modelo + DOCX (Cursor Grok 4.7)
+    model: grok-4.7-high
+    workspace: isolated
+    prompt: |
+      Projeto AI Office Writer (C++20/Qt 6). Leia docs/waves/wave17-roundtrip.md (D1–D4, D6, D11
+      são fechadas) e .cursor/rules/*.mdc. Não toque em src/app/ nem em src/core/Odf.cpp (outra
+      tarefa em paralelo).
+      1. D1: invariante de Revision em src/core/Document.{h,cpp} — novo campo `priorRuns`
+         (QVector<TextRun>, JSON `prior_runs`, mesma validação defensiva de `deleted_runs`);
+         `validate` (Session) rejeita delete com start != end e insert/format com end < start.
+      2. D2: applyCharacterFormat com track changes grava priorRuns (fatias da faixa antes da
+         mudança); revisionReject/RejectAll de format restauram priorRuns na faixa; sem priorRuns
+         → {ok:false,error:"format revision has no prior formatting"}; accept continua.
+      3. D3: export DOCX (src/core/Docx.cpp) de delete (`<w:del>` com runs de deletedRuns e
+         `<w:delText xml:space="preserve">` no ponto start) e format (`<w:rPrChange>` com o rPr
+         anterior, último filho de `<w:rPr>`). Atualize o comentário que dizia ser impossível.
+      4. D4: import DOCX — conteúdo de `<w:del>` vai para deletedRuns/text com start==end, nunca
+         para runs; `<w:ins>`/`<w:del>` multi-run = uma revisão; `<w:rPrChange>` → format com
+         priorRuns.
+      5. Playbook qa/wave17-docx-revisions.json com `expect`: reject de format restaura bold;
+         validate negativo; export DOCX + reimport mantém as 3 revisões. Para o caminho
+         estrangeiro (sem word/aioffice.json) use/estenda qa/check_roundtrip.py.
+      `scripts/qa-all.sh --gui` verde. Commit em inglês (feat:/fix:), sem push. Reporte arquivos,
+      decisões de implementação e riscos.
+
+  t2-odt-revisions:
+    title: T2 ODT revisões (Cursor Grok 4.7)
+    model: grok-4.7-high
+    workspace: isolated
+    prompt: |
+      Projeto AI Office Writer (C++20/Qt 6). Leia docs/waves/wave17-roundtrip.md (D1, D2, D5, D6,
+      D11) e .cursor/rules/*.mdc. Só src/core/Odf.cpp, qa/ e docs/ — NÃO toque em Document.h,
+      Session.cpp nem Docx.cpp (outra tarefa adiciona `priorRuns` em paralelo; você não precisa
+      dele: revisões format de ODT não têm atributos antigos).
+      1. D5 export: delete → `<text:change text:change-id/>` no ponto start + changed-region com
+         `<text:deletion>` contendo change-info e o conteúdo de deletedRuns como `<text:p>` com
+         spans formatados; format → change-start/end na faixa + região `<text:format-change>`.
+         Atualize o comentário que dizia ser impossível.
+      2. D5 import simétrico: conteúdo da text:deletion → deletedRuns/text com start==end (nunca
+         em runs); format-change → revisão kind=format sem payload anterior.
+      3. Playbook qa/wave17-odt-revisions.json com `expect` (export ODT + reimport mantém
+         insert/delete/format; delete continua ponto de largura zero; reject do delete reinsere o
+         texto uma vez).
+      `scripts/qa-all.sh --gui` verde. Commit em inglês, sem push. Reporte arquivos e riscos.
+
+  integrate-1:
+    title: Integrar T1+T2 (Composer)
+    needs: [t1-docx-revisions, t2-odt-revisions]
+    prompt: |
+      Faça merge de {{needs.t1-docx-revisions.branch}} e {{needs.t2-odt-revisions.branch}} neste
+      worktree. Conflitos esperados só em docs/AI_HANDOFF.md e docs/mcp-tools.md: mantenha as duas
+      versões. Rode `scripts/qa-all.sh --gui`; corrija só quebras de merge. Commit. Reporte.
+
+  build-1:
+    type: gate
+    gate: command
+    needs: [integrate-1]
+    run: scripts/qa-all.sh --gui
+
+  # ── Fase 2: ctest + fixtures (Composer) ∥ interop LibreOffice (Grok) ───────────
+  t3-ctest-fixtures:
+    title: T3 ctest + fixtures estrangeiras (Composer)
+    needs: [build-1]
+    workspace: isolated
+    prompt: |
+      Projeto AI Office Writer. Leia docs/waves/wave17-roundtrip.md (D6, D7, D9).
+      1. qa/fixtures/: DOCX e ODT mínimos escritos à mão (gerados por um script Python versionado
+         em qa/fixtures/make_fixtures.py a partir de XML literal, para ficarem revisáveis), no
+         formato que Word/LibreOffice produzem: w:ins, w:del cobrindo 2 runs com formatação
+         diferente, w:rPrChange (bold→não bold), deleção no meio de palavra; ODT com insertion,
+         deletion e format-change. SEM word/aioffice.json.
+      2. qa/check_roundtrip.py: modo `--foreign` que remove o JSON nativo de um pacote exportado
+         antes de reimportar, e modo que importa uma fixture e compara as revisões com um .json
+         de expectativa ao lado dela.
+      3. CMake (D9): enable_testing(); um add_test por qa/wave*.json (exceto wave1-foundation e
+         *.aio.json) com LABELS playbook; testes de fixtures com LABELS roundtrip.
+         scripts/qa-all.sh passa a rodar `ctest --output-on-failure` (mantenha --gui e o exit
+         code); .circleci/config.yml troca o laço por `ctest -L "playbook|roundtrip"`.
+      4. Os critérios de pronto da spec que dependem de fixtures viram testes roundtrip.
+      `scripts/qa-all.sh --gui` verde. Commit em inglês, sem push.
+
+  t4-interop:
+    title: T4 interop LibreOffice (Cursor Grok 4.7)
+    needs: [build-1]
+    model: grok-4.7-high
+    workspace: isolated
+    prompt: |
+      Projeto AI Office Writer. Leia docs/waves/wave17-roundtrip.md (D8, D1–D5).
+      1. scripts/qa-all.sh ganha `--interop` (pode combinar com --gui): se `soffice` existir,
+         para DOCX e ODT exporta um documento com insert+delete+format via aioffice-cli, converte
+         com `soffice --headless --convert-to` (docx→odt e odt→docx, perfil temporário
+         -env:UserInstallation=file:///tmp/...), reimporta e compara revisões
+         (kind/bloco/offset/texto/autor; format sem priorRuns quando passar por ODT). Sem soffice
+         → imprime "skip interop" e não falha.
+      2. Rode e corrija no código de export/import o que o LibreOffice revelar (ordem de
+         elementos, atributos obrigatórios, ids). Toda correção mantém D1–D5; se uma decisão da
+         spec se mostrar impossível com o LibreOffice real, PARE e reporte "PRECISA OPUS: ..." com
+         a evidência, em vez de mudar a decisão.
+      `scripts/qa-all.sh --gui --interop` verde. Commit em inglês, sem push. Reporte o que o
+      LibreOffice mostrou e o que mudou.
+
+  integrate-2:
+    title: Integrar T3+T4 (Composer)
+    needs: [t3-ctest-fixtures, t4-interop]
+    prompt: |
+      Faça merge de {{needs.t3-ctest-fixtures.branch}} e {{needs.t4-interop.branch}} neste
+      worktree. Atenção a scripts/qa-all.sh (as duas tarefas mexem): o resultado deve rodar ctest
+      E aceitar --gui e --interop. Rode `scripts/qa-all.sh --gui --interop`; corrija quebras de
+      merge. Commit. Reporte conflitos.
+
+  qa-full:
+    type: gate
+    gate: command
+    needs: [integrate-2]
+    run: scripts/qa-all.sh --gui --interop
+
+  # ── Fase 3: revisão Sonnet + correção Grok Build ─────────────────────────────
+  review:
+    type: loop
+    needs: [qa-full]
+    max_iterations: 3
+    on_exhausted: review-adjudication
+    until:
+      run: test "{{needs.review-pass.output.issues}}" -eq 0
+    nodes:
+      review-pass:
+        agent: claude
+        model: claude-sonnet-5
+        effort: high
+        session: continue
+        prompt: |
+          Você é o Tech Lead. Revise `git diff main...HEAD` contra docs/waves/wave17-roundtrip.md:
+          D1–D11 respeitadas (especialmente: delete nunca em runs; priorRuns; ordem de schema
+          OOXML; caminho estrangeiro testado de verdade), critério de pronto coberto por testes com
+          expect real, regressões das ondas 12/15/16. Rode `scripts/qa-all.sh --gui --interop`.
+          Não corrija nada. Só defeitos reais. Submeta issues e findings
+          ("arquivo:linha — defeito — correção sugerida").
+        followup_prompt: |
+          Houve correção. Revise de novo `git diff main...HEAD`, rode
+          `scripts/qa-all.sh --gui --interop` e submeta só os findings que continuam ou surgiram.
+        output_contract:
+          type: object
+          required: [issues, findings]
+          properties:
+            issues: { type: integer, minimum: 0 }
+            findings: { type: array, items: { type: string } }
+      fix-pass:
+        needs: [review-pass]
+        agent: grok
+        model: grok-4.7
+        effort: high
+        prompt: |
+          Projeto AI Office Writer (spec: docs/waves/wave17-roundtrip.md). Findings do revisor:
+          {{needs.review-pass.output.findings}}
+          Lista vazia → não altere nada e reporte "nada a corrigir". Senão corrija, rode
+          `scripts/qa-all.sh --gui --interop`, commit `fix: ...` em inglês, sem push.
+
+  review-adjudication:
+    title: Adjudicação final (Sonnet)
+    needs: [review]
+    agent: claude
+    model: claude-sonnet-5
+    effort: high
+    prompt: |
+      Três passadas não zeraram os findings. Descarte os que não são defeitos (com motivo), faça
+      UMA correção direta dos reais, rode `scripts/qa-all.sh --gui --interop` e pare. Nunca
+      pergunte a um humano nem comece outro ciclo.
+    output_contract:
+      type: object
+      required: [verdict, accepted, dismissed]
+      properties:
+        verdict: { type: string, enum: [resolved, failed] }
+        accepted: { type: array, items: { type: string } }
+        dismissed: { type: array, items: { type: string } }
+
+  opus-audit:
+    title: Auditoria Opus (opcional)
+    needs: [review-adjudication]
+    enabled: "{{args.opus_audit}}"
+    agent: claude
+    model: claude-opus-5-5
+    effort: high
+    prompt: |
+      Auditoria final de `git diff main...HEAD` contra docs/waves/wave17-roundtrip.md. Foque no
+      invariante D1 e no caminho estrangeiro. Corrija só o crítico, commit, reporte em 10 linhas.
+
+  # Gate final: fix-pass/adjudicação podem comitar depois do qa-full. Um verdict "failed" do
+  # adjudicador já falha o nó e o loop no runtime da Fleet, pulando tudo daqui para baixo.
+  qa-final:
+    type: gate
+    gate: command
+    needs: [opus-audit]
+    run: scripts/qa-all.sh --gui --interop
+
+  handoff:
+    title: Handoff + catálogo (Composer)
+    needs: [qa-final]
+    prompt: |
+      Atualize só estes arquivos e faça commit `docs: ...` em inglês, sem push:
+      - docs/AI_HANDOFF.md: entrada nova no topo (formato do template; modelo "Fleet wave17 —
+        Composer/Cursor Grok/Grok Build/Sonnet"), com o resultado REAL de
+        `scripts/qa-all.sh --gui --interop` (rode-o) e `git log main..HEAD --oneline`. Não cite o
+        hash do próprio commit de docs.
+      - docs/WRITER_FEATURE_CATALOG.md: "Round-trip ODT/DOCX" com o que foi entregue e o que falta
+        de verdade; "Suite de testes de round-trip" → Done; nested notes → Fora (D10); novo Todo
+        "Notas com vários parágrafos".
+      Resumo da revisão: {{needs.review.report}}
+
+  approve-pr:
+    type: gate
+    gate: human
+    needs: [handoff]
+    ask: |
+      Onda 17 (revisões de exclusão e de formatação reais em DOCX/ODT, correção do import de w:del
+      do Word, reject de formatação que restaura o estado anterior, fixtures estrangeiras, ctest e
+      teste de ida e volta pelo LibreOffice) está pronta num branch local da Fleet, com
+      scripts/qa-all.sh --gui --interop verde no branch final e revisão Sonnet concluída.
+      Aprovar = push do branch e PR para main (CI e CodeRabbit rodam no GitHub).
+      Rejeitar = nada sai da máquina.
+
+  open-pr:
+    title: Push + PR (Sonnet)
+    needs: [approve-pr]
+    when: "needs.approve-pr.approved"
+    agent: claude
+    model: claude-sonnet-5
+    effort: medium
+    prompt: |
+      Push deste branch para origin (nunca main) e PR para `main` em melker22/AI-Office via tool
+      MCP do GitHub (`gh` não está instalado). Título em inglês
+      `feat: wave 17 — faithful DOCX/ODT revision round-trip and ctest suite`. Corpo: resumo de
+      docs/waves/wave17-roundtrip.md, test plan e o handoff: {{needs.handoff.report}}
+      Não reescreva commits já criados. Reporte a URL.

@@ -1,0 +1,162 @@
+[
+  {"tool": "document_open", "args": {"path": "qa/wave17-docx-revisions-invalid.aio.json"}},
+  {"tool": "revision_list", "args": {}, "expect": {
+    "revisions.0.kind": "delete",
+    "revisions.0.id": "rev-del",
+    "revisions.0.start": 0,
+    "revisions.0.end": 0
+  }},
+  {"tool": "validate", "args": {}, "expect": {
+    "valid": false,
+    "errors.0.code": "invalid_revision",
+    "errors.0.id": "rev-ins",
+    "errors.0.message": "insert revision has end before start",
+    "errors.1.id": "rev-fmt",
+    "errors.1.message": "format revision has end before start"
+  }},
+
+  {"tool": "document_new", "args": {"title": "Wave17 format prior"}},
+  {"tool": "document_set_title", "args": {"author": "Ada"}},
+  {"tool": "insert_at_caret", "args": {"id": "p1", "offset": 0, "text": "AB"}},
+  {"tool": "apply_character_format", "args": {"id": "p1", "start": 0, "end": 1, "bold": true}},
+  {"tool": "track_changes", "args": {"on": true}},
+  {"tool": "apply_character_format", "args": {"id": "p1", "start": 0, "end": 1, "bold": false}},
+  {"tool": "revision_list", "args": {}, "expect": {
+    "revisions.0.kind": "format",
+    "revisions.0.author": "Ada",
+    "revisions.0.block_id": "p1",
+    "revisions.0.start": 0,
+    "revisions.0.end": 1,
+    "revisions.0.prior_runs.0.text": "A",
+    "revisions.0.prior_runs.0.bold": true
+  }},
+  {"tool": "document_get", "args": {}, "expect": {
+    "document.body.0.runs.0.text": "A",
+    "document.body.0.runs.0.bold": false
+  }},
+  {"tool": "revision_reject", "args": {"id": "rev1"}},
+  {"tool": "document_get", "args": {}, "expect": {
+    "document.body.0.runs.0.text": "A",
+    "document.body.0.runs.0.bold": true,
+    "document.body.0.runs.1.text": "B"
+  }},
+
+  {"tool": "document_new", "args": {"title": "Wave17 format reject all", "force": true}},
+  {"tool": "insert_at_caret", "args": {"id": "p1", "offset": 0, "text": "AB"}},
+  {"tool": "apply_character_format", "args": {"id": "p1", "start": 0, "end": 1, "bold": true}},
+  {"tool": "track_changes", "args": {"on": true}},
+  {"tool": "apply_character_format", "args": {"id": "p1", "start": 0, "end": 1, "bold": false}},
+  {"tool": "revision_reject_all", "args": {}},
+  {"tool": "document_get", "args": {}, "expect": {
+    "document.body.0.runs.0.text": "A",
+    "document.body.0.runs.0.bold": true
+  }},
+  {"tool": "revision_list", "args": {}, "expect": {"revisions": []}},
+
+  {"tool": "document_open", "args": {"path": "qa/wave17-docx-revisions.aio.json"}},
+  {"tool": "validate", "args": {}, "expect": {"valid": true}},
+  {"tool": "revision_list", "args": {}, "expect": {
+    "revisions.0.kind": "insert",
+    "revisions.0.text": "C",
+    "revisions.0.start": 1,
+    "revisions.0.end": 2,
+    "revisions.1.kind": "delete",
+    "revisions.1.text": "B",
+    "revisions.1.start": 1,
+    "revisions.1.end": 1,
+    "revisions.2.kind": "format",
+    "revisions.2.start": 0,
+    "revisions.2.end": 1,
+    "revisions.2.prior_runs.0.text": "A",
+    "revisions.2.prior_runs.0.bold": true
+  }},
+  {"tool": "document_get", "args": {}, "expect": {
+    "document.body.0.runs.0.text": "A",
+    "document.body.0.runs.0.bold": false,
+    "document.body.0.runs.1.text": "C"
+  }},
+  {"tool": "revision_reject", "args": {"id": "rev-fmt"}},
+  {"tool": "document_get", "args": {}, "expect": {
+    "document.body.0.runs.0.text": "A",
+    "document.body.0.runs.0.bold": true,
+    "document.body.0.runs.1.text": "C"
+  }},
+  {"tool": "revision_list", "args": {}, "expect": {
+    "revisions.0.kind": "insert",
+    "revisions.1.kind": "delete"
+  }},
+
+  {"tool": "document_open", "args": {"path": "qa/wave17-docx-revisions.aio.json"}},
+  {"tool": "revision_accept", "args": {"id": "rev-fmt"}},
+  {"tool": "document_get", "args": {}, "expect": {
+    "document.body.0.runs.0.text": "A",
+    "document.body.0.runs.0.bold": false
+  }},
+  {"tool": "revision_list", "args": {}, "expect": {
+    "revisions.0.kind": "insert",
+    "revisions.1.kind": "delete"
+  }},
+
+  {"tool": "document_open", "args": {"path": "qa/wave17-docx-revisions.aio.json"}},
+  {"tool": "document_save", "args": {"path": "/tmp/wave17-docx-revisions-foreign.docx", "embed_json": false}},
+  {"tool": "document_open", "args": {"path": "/tmp/wave17-docx-revisions-foreign.docx"}},
+  {"tool": "revision_list", "args": {}, "expect": {
+    "revisions.0.kind": "format",
+    "revisions.0.author": "Ada",
+    "revisions.0.block_id": "p1",
+    "revisions.0.start": 0,
+    "revisions.0.end": 1,
+    "revisions.0.prior_runs.0.text": "A",
+    "revisions.0.prior_runs.0.bold": true,
+    "revisions.1.kind": "delete",
+    "revisions.1.author": "Ada",
+    "revisions.1.block_id": "p1",
+    "revisions.1.start": 1,
+    "revisions.1.end": 1,
+    "revisions.1.text": "B",
+    "revisions.2.kind": "insert",
+    "revisions.2.author": "Ada",
+    "revisions.2.block_id": "p1",
+    "revisions.2.start": 1,
+    "revisions.2.end": 2,
+    "revisions.2.text": "C"
+  }},
+  {"tool": "document_get", "args": {}, "expect": {
+    "document.body.0.runs.0.text": "A",
+    "document.body.0.runs.0.bold": false,
+    "document.body.0.runs.1.text": "C",
+    "document.body.0.runs.1.bold": false
+  }},
+  {"tool": "revision_reject", "args": {"id": "rev1"}},
+  {"tool": "document_get", "args": {}, "expect": {
+    "document.body.0.runs.0.text": "A",
+    "document.body.0.runs.0.bold": true,
+    "document.body.0.runs.1.text": "C"
+  }},
+  {"tool": "page_preview", "args": {"page": 1}},
+  {"tool": "validate", "args": {}, "expect": {"valid": true}},
+
+  {"tool": "document_new", "args": {"title": "Wave17 format spans two runs", "force": true}},
+  {"tool": "document_set_title", "args": {"author": "Ada"}},
+  {"tool": "insert_at_caret", "args": {"id": "p1", "offset": 0, "text": "AB"}},
+  {"tool": "apply_character_format", "args": {"id": "p1", "start": 0, "end": 1, "bold": true}},
+  {"tool": "apply_character_format", "args": {"id": "p1", "start": 1, "end": 2, "italic": true}},
+  {"tool": "track_changes", "args": {"on": true}},
+  {"tool": "apply_character_format", "args": {"id": "p1", "start": 0, "end": 2, "underline": true}},
+  {"tool": "document_save", "args": {"path": "/tmp/wave17-format-two-runs.docx"}},
+  {"tool": "document_open", "args": {"path": "/tmp/wave17-format-two-runs.docx"}},
+  {"tool": "revision_list", "args": {}, "expect": {
+    "revisions.0.kind": "format",
+    "revisions.0.id": "rev1",
+    "revisions.0.block_id": "p1",
+    "revisions.0.start": 0,
+    "revisions.0.end": 2,
+    "revisions.0.prior_runs.0.text": "A",
+    "revisions.0.prior_runs.0.bold": true,
+    "revisions.0.prior_runs.1.text": "B",
+    "revisions.0.prior_runs.1.italic": true
+  }},
+  {"tool": "revision_accept", "args": {"id": "rev1"}},
+  {"tool": "revision_list", "args": {}, "expect": {"revisions": []}},
+  {"tool": "validate", "args": {}, "expect": {"valid": true}}
+]

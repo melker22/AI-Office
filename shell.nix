@@ -83,6 +83,7 @@ pkgs.mkShell {
     gcc
     pkg-config
     ccache
+    python3
     qt6.wrapQtAppsHook
   ];
   buildInputs = with pkgs; [

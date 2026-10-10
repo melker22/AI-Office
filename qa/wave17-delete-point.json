@@ -1,0 +1,77 @@
+[
+  {"tool": "document_new", "args": {"title": "Tracked backspace"}},
+  {"tool": "document_set_title", "args": {"author": "Ada"}},
+  {"tool": "insert_at_caret", "args": {"id": "p1", "offset": 0, "text": "AB"}},
+  {"tool": "track_changes", "args": {"on": true}},
+  {"tool": "set_selection", "args": {"anchor_id": "p1", "anchor_off": 2, "focus_id": "p1", "focus_off": 2}},
+  {"tool": "backspace", "args": {}},
+  {"tool": "validate", "args": {}, "expect": {"valid": true}},
+  {"tool": "revision_list", "args": {}, "expect": {
+    "revisions.0.kind": "delete",
+    "revisions.0.block_id": "p1",
+    "revisions.0.start": 1,
+    "revisions.0.end": 1,
+    "revisions.0.text": "B"
+  }},
+  {"tool": "document_get", "args": {}, "expect": {
+    "document.body.0.runs.0.text": "A"
+  }},
+
+  {"tool": "document_new", "args": {"title": "Tracked type over selection", "force": true}},
+  {"tool": "insert_at_caret", "args": {"id": "p1", "offset": 0, "text": "Hello"}},
+  {"tool": "track_changes", "args": {"on": true}},
+  {"tool": "set_selection", "args": {"anchor_id": "p1", "anchor_off": 1, "focus_id": "p1", "focus_off": 4}},
+  {"tool": "insert_at_caret", "args": {"id": "p1", "text": "X"}},
+  {"tool": "validate", "args": {}, "expect": {"valid": true}},
+  {"tool": "revision_list", "args": {}, "expect": {
+    "revisions.0.kind": "delete",
+    "revisions.0.start": 1,
+    "revisions.0.end": 1,
+    "revisions.0.text": "ell",
+    "revisions.1.kind": "insert",
+    "revisions.1.start": 1,
+    "revisions.1.end": 2,
+    "revisions.1.text": "X"
+  }},
+  {"tool": "document_get", "args": {}, "expect": {
+    "document.body.0.runs.0.text": "H",
+    "document.body.0.runs.1.text": "X",
+    "document.body.0.runs.2.text": "o"
+  }},
+
+  {"tool": "document_open", "args": {"path": "qa/wave17-delete-legacy.aio.json"}},
+  {"tool": "validate", "args": {}, "expect": {"valid": true}},
+  {"tool": "revision_list", "args": {}, "expect": {
+    "revisions.0.kind": "delete",
+    "revisions.0.id": "rev-del",
+    "revisions.0.start": 1,
+    "revisions.0.end": 1,
+    "revisions.0.text": "B",
+    "revisions.1.kind": "insert",
+    "revisions.1.id": "rev-ins",
+    "revisions.1.start": 3,
+    "revisions.1.end": 4,
+    "revisions.1.text": "X"
+  }},
+  {"tool": "revision_reject", "args": {"id": "rev-del"}},
+  {"tool": "document_get", "args": {}, "expect": {
+    "document.body.0.runs.0.text": "A",
+    "document.body.0.runs.1.text": "B",
+    "document.body.0.runs.2.text": "YZX"
+  }},
+  {"tool": "revision_list", "args": {}, "expect": {
+    "revisions.0.kind": "insert",
+    "revisions.0.id": "rev-ins",
+    "revisions.0.start": 4,
+    "revisions.0.end": 5,
+    "revisions.0.text": "X"
+  }},
+  {"tool": "revision_reject", "args": {"id": "rev-ins"}},
+  {"tool": "document_get", "args": {}, "expect": {
+    "document.body.0.runs.0.text": "A",
+    "document.body.0.runs.1.text": "B",
+    "document.body.0.runs.2.text": "YZ"
+  }},
+  {"tool": "validate", "args": {}, "expect": {"valid": true}},
+  {"tool": "page_preview", "args": {"page": 1}}
+]

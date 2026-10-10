@@ -1,15 +1,23 @@
 #!/usr/bin/env bash
-# Local mirror of the CircleCI gate: build aioffice-cli and run every
-# qa/wave*.json playbook headlessly. Exit code is the whole contract
-# (used by Cockpit Fleet command gates).
+# Local mirror of the CircleCI gate: build aioffice-cli and run CTest playbooks +
+# roundtrip fixtures. Exit code is the whole contract (Cockpit Fleet command gates).
 #
-#   scripts/qa-all.sh          # cli target + playbooks
-#   scripts/qa-all.sh --gui    # also compile the full GUI target
+#   scripts/qa-all.sh                 # cli target + ctest (playbook|roundtrip)
+#   scripts/qa-all.sh --gui           # also compile the full GUI target
+#   scripts/qa-all.sh --interop       # LibreOffice round-trip when soffice exists
+#   scripts/qa-all.sh --gui --interop # both; flag order does not matter
 set -uo pipefail
 cd "$(dirname "$0")/.."
 
 gui=0
-[ "${1:-}" = "--gui" ] && gui=1
+interop=0
+for arg in "$@"; do
+  case "$arg" in
+    --gui) gui=1 ;;
+    --interop) interop=1 ;;
+    *) echo "unknown argument: $arg" >&2; exit 2 ;;
+  esac
+done
 
 export AIOFFICE_HEADLESS=1 QT_QPA_PLATFORM=offscreen
 
@@ -23,20 +31,20 @@ if [ "$gui" = 1 ]; then
 fi
 
 status=0
-out=$(mktemp)
-for f in qa/wave*.json; do
-  case "$f" in
-    qa/wave1-foundation.json) continue ;;
-    qa/*.aio.json) continue ;;
-  esac
-  if run "./build/linux/aioffice-cli play $f" >"$out" 2>&1; then
-    echo "ok   $f"
+if ! run "ctest --test-dir build/linux --output-on-failure -L 'playbook|roundtrip'"; then
+  status=1
+fi
+
+if [ "$interop" = 1 ]; then
+  if ! command -v soffice >/dev/null 2>&1; then
+    echo "skip interop"
   else
-    echo "FAIL $f"
-    tail -n 40 "$out"
-    status=1
+    if run "python3 scripts/qa-interop.py ./build/linux/aioffice-cli"; then
+      echo "ok   interop"
+    else
+      echo "FAIL interop"
+      status=1
+    fi
   fi
-done
-rm -f "$out"
-run "./build/linux/aioffice-cli tools" >/dev/null || { echo "FAIL tools catalog"; status=1; }
+fi
 exit $status
