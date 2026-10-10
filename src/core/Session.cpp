@@ -549,30 +549,38 @@ QJsonObject Session::applyCharacterFormat(const QJsonObject &args)
     pushUndo();
     const int start = args.value(QStringLiteral("start")).toInt(-1);
     const int end = args.value(QStringLiteral("end")).toInt(-1);
-    QVector<TextRun> priorSlices;
-    int revStart = start;
-    int revEnd = end;
-    QString priorBlockId;
-    bool capturedPrior = false;
+    // One format revision per non-table block. Tables stay untracked.
+    struct PendingFormat {
+        QString blockId;
+        int start = 0;
+        int end = 0;
+        QVector<TextRun> priorRuns;
+    };
+    QVector<PendingFormat> pending;
     for (int i : idx) {
         auto &b = doc_.body[i];
         if (b.runs.isEmpty())
             b.runs.push_back(TextRun{});
-        if (doc_.trackChanges && !capturedPrior && b.type != QLatin1String("table")) {
-            int blockLen = 0;
-            for (const auto &r : b.runs)
-                blockLen += r.text.size();
+        if (doc_.trackChanges && b.type != QLatin1String("table")) {
+            const int blockLen = b.plainText().size();
+            PendingFormat pend;
+            pend.blockId = b.id;
+            bool record = true;
             if (start >= 0 && end >= start) {
-                revStart = qBound(0, start, blockLen);
-                revEnd = qBound(revStart, end, blockLen);
-                priorSlices = splitRuns(b.runs, revStart, revEnd);
+                pend.start = qBound(0, start, blockLen);
+                pend.end = qBound(pend.start, end, blockLen);
+                // A range that misses this block does not change it.
+                if (pend.start == pend.end)
+                    record = false;
+                else
+                    pend.priorRuns = splitRuns(b.runs, pend.start, pend.end);
             } else {
-                priorSlices = b.runs;
-                revStart = 0;
-                revEnd = blockLen;
+                pend.priorRuns = b.runs;
+                pend.start = 0;
+                pend.end = blockLen;
             }
-            priorBlockId = b.id;
-            capturedPrior = true;
+            if (record)
+                pending.push_back(pend);
         }
         if (start >= 0 && end >= start && b.type != QLatin1String("table"))
             applyFormatToRange(b.runs, start, end, args);
@@ -588,17 +596,22 @@ QJsonObject Session::applyCharacterFormat(const QJsonObject &args)
         }
     }
     if (doc_.trackChanges) {
-        Revision rev;
-        rev.id = QStringLiteral("rev%1").arg(doc_.revisions.size() + 1);
-        rev.author = doc_.author.isEmpty() ? QStringLiteral("IA") : doc_.author;
-        rev.kind = QStringLiteral("format");
-        rev.blockId = priorBlockId.isEmpty() ? doc_.body[idx.first()].id : priorBlockId;
-        rev.start = revStart;
-        rev.end = revEnd;
-        rev.priorRuns = priorSlices;
-        rev.timestamp = QDateTime::currentMSecsSinceEpoch();
-        rev.payload = QString::fromUtf8(QJsonDocument(args).toJson(QJsonDocument::Compact));
-        doc_.revisions.push_back(rev);
+        const QString payload = QString::fromUtf8(QJsonDocument(args).toJson(QJsonDocument::Compact));
+        const qint64 now = QDateTime::currentMSecsSinceEpoch();
+        const QString author = doc_.author.isEmpty() ? QStringLiteral("IA") : doc_.author;
+        for (const auto &pend : pending) {
+            Revision rev;
+            rev.id = QStringLiteral("rev%1").arg(doc_.revisions.size() + 1);
+            rev.author = author;
+            rev.kind = QStringLiteral("format");
+            rev.blockId = pend.blockId;
+            rev.start = pend.start;
+            rev.end = pend.end;
+            rev.priorRuns = pend.priorRuns;
+            rev.timestamp = now;
+            rev.payload = payload;
+            doc_.revisions.push_back(rev);
+        }
     }
     markChanged();
     return ok();
@@ -1648,6 +1661,15 @@ bool Session::deleteBackward(const QString &id, int offset, int row, int col)
             goneRuns = splitRuns(*runs, offset - 1, offset);
         *runs = spliceRuns(*runs, offset - 1, offset, TextRun{});
         if (doc_.trackChanges) {
+            // shiftRevisionOffsets leaves a range that ends on the caret (`end > pivot`
+            // is false). The deleted character was the last one of that insert, so close
+            // the range over the text that remains. A one-character insert (start == offset - 1)
+            // is left to the normal shift, same as before.
+            for (auto &other : doc_.revisions) {
+                if (other.blockId == id && other.kind == QLatin1String("insert")
+                    && other.start < offset - 1 && other.end == offset)
+                    other.end = offset - 1;
+            }
             shiftRevisionOffsets(id, offset, -1);
             Revision rev;
             rev.id = QStringLiteral("rev%1").arg(doc_.revisions.size() + 1);
@@ -2695,6 +2717,34 @@ void Session::shiftRevisionOffsets(const QString &blockId, int pivot, int delta,
     }
 }
 
+// Rejecting a delete puts `delta` characters back at `pivot`. An insert that
+// contains that point grows (`end += delta`) so the restored text stays inside
+// it. Every other revision follows shiftRevisionOffsets. Typing does not use this.
+// `beforeIndex < 0` updates the whole list; otherwise only revisions before that index
+// (revisionRejectAll walks backwards and must not rewrite marks it already applied).
+static void shiftRevisionsAfterDeleteReject(QVector<Revision> &revs, const QString &blockId, int pivot, int delta,
+                                            const QString &excludeId, int beforeIndex)
+{
+    if (delta == 0)
+        return;
+    const int limit = beforeIndex < 0 ? revs.size() : beforeIndex;
+    for (int j = 0; j < limit; ++j) {
+        Revision &other = revs[j];
+        if (other.blockId != blockId || (!excludeId.isEmpty() && other.id == excludeId))
+            continue;
+        if (other.kind == QLatin1String("insert") && other.start <= pivot && pivot <= other.end) {
+            other.end += delta;
+            continue;
+        }
+        if (other.start >= pivot) {
+            other.start += delta;
+            other.end += delta;
+        } else if (other.end > pivot) {
+            other.end = pivot;
+        }
+    }
+}
+
 QJsonObject Session::revisionReject(const QJsonObject &args)
 {
     const QString id = args.value(QStringLiteral("id")).toString();
@@ -2737,7 +2787,10 @@ QJsonObject Session::revisionReject(const QJsonObject &args)
         }
     }
     doc_.revisions.removeAt(idx);
-    shiftRevisionOffsets(found.blockId, pivot, delta);
+    if (found.kind == QLatin1String("delete"))
+        shiftRevisionsAfterDeleteReject(doc_.revisions, found.blockId, pivot, delta, QString(), -1);
+    else
+        shiftRevisionOffsets(found.blockId, pivot, delta);
     markChanged();
     return ok();
 }
@@ -2795,20 +2848,7 @@ QJsonObject Session::revisionRejectAll(const QJsonObject &)
             b->runs = before + restored + after;
             const int delta = revisionRunsLen(restored);
             const int pivot = found.start;
-            shiftRevisionOffsets(found.blockId, pivot, delta, found.id);
-            if (delta != 0) {
-                for (int j = 0; j < i; ++j) {
-                    Revision &other = revs[j];
-                    if (other.blockId != found.blockId)
-                        continue;
-                    if (other.start >= pivot) {
-                        other.start += delta;
-                        other.end += delta;
-                    } else if (other.end > pivot) {
-                        other.end = pivot;
-                    }
-                }
-            }
+            shiftRevisionsAfterDeleteReject(revs, found.blockId, pivot, delta, found.id, i);
         }
     }
     doc_.revisions.clear();

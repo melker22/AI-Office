@@ -8,6 +8,25 @@
 
 ---
 
+## 2026-10-10 — Cursor Grok — Wave 17: format per block, delete inside insert
+
+**Objective:** Fix the two new CodeRabbit majors. One `format` revision per changed non-table block. Rejecting a delete inside an insert must put the restored text back inside that insert. Do not touch `src/app/`. Do not change `shiftRevisionOffsets` for ordinary typing.
+
+**Done:**
+- `applyCharacterFormat` with track changes records one `kind=format` revision per non-table block: that block's id, the range clamped to the block, and that block's `priorRuns`. A range that misses a block records nothing. Tables still get no revision. `revision_reject` restores the named block; `revision_reject_all` restores every one.
+- Rejecting a delete (only `revisionReject` and `revisionRejectAll`) grows every `insert` on the same block with `start <= P <= end` by the restored length (`end += L`). Other revisions keep the `shiftRevisionOffsets` rule. The helper is `shiftRevisionsAfterDeleteReject`; `shiftRevisionOffsets` itself is unchanged.
+- Backspace closes a multi-character insert that ended on the caret. `shiftRevisionOffsets` does not (`end > pivot` is false), so the range would stay one past the live text and `end += L` would count the deleted character twice. A one-character insert is left to the existing shift.
+- Playbook `qa/wave17-reject-repairs.json`: two paragraphs, bold on both, two format revisions, reject one then the other, and `revision_reject_all` leaves neither bold. Insert `abc`, backspace `c` (insert `[0,2)`, delete at 2), `revision_reject_all` leaves empty text; `revision_accept_all` leaves `ab` and no revisions; reject the delete only leaves `abc` with insert `[0,3)`, then reject the insert leaves empty text.
+- `scripts/qa-all.sh --gui --interop`: **32/32** ctests passed; LibreOffice docx→odt and odt→docx ok.
+
+**Decisions:** The grow rule is not folded into `shiftRevisionOffsets`. Closing the insert on backspace is what makes the architect's `[0,2)` → `[0,3)` arithmetic true.
+
+**Next suggested step:** Human `approve-pr` → open the PR to `main`.
+
+**Commits:** pending
+
+---
+
 ## 2026-10-10 — Cursor Grok — Wave 17 review: delete point, DOCX JSON precedence
 
 **Objective:** Fix the five CodeRabbit findings on the wave 17 branch. Keep D1 strict (`delete` is `start == end`). Do not touch `src/app/`.

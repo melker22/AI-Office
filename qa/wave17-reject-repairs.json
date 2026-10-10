@@ -1,0 +1,118 @@
+[
+  {"tool": "document_new", "args": {"title": "Format two blocks"}},
+  {"tool": "document_set_title", "args": {"author": "Ada"}},
+  {"tool": "insert_at_caret", "args": {"id": "p1", "offset": 0, "text": "One"}},
+  {"tool": "insert_blocks", "args": {"after_id": "p1", "blocks": [
+    {"type": "paragraph", "runs": [{"text": "Two"}]}
+  ]}},
+  {"tool": "track_changes", "args": {"on": true}},
+  {"tool": "apply_character_format", "args": {"ids": ["p1", "p2"], "bold": true}},
+  {"tool": "revision_list", "args": {}, "expect": {
+    "revisions.0.kind": "format",
+    "revisions.0.id": "rev1",
+    "revisions.0.block_id": "p1",
+    "revisions.0.start": 0,
+    "revisions.0.end": 3,
+    "revisions.0.prior_runs.0.text": "One",
+    "revisions.0.prior_runs.0.bold": false,
+    "revisions.1.kind": "format",
+    "revisions.1.id": "rev2",
+    "revisions.1.block_id": "p2",
+    "revisions.1.start": 0,
+    "revisions.1.end": 3,
+    "revisions.1.prior_runs.0.text": "Two",
+    "revisions.1.prior_runs.0.bold": false
+  }},
+  {"tool": "revision_reject", "args": {"id": "rev1"}},
+  {"tool": "document_get", "args": {}, "expect": {
+    "document.body.0.runs.0.text": "One",
+    "document.body.0.runs.0.bold": false,
+    "document.body.1.runs.0.text": "Two",
+    "document.body.1.runs.0.bold": true
+  }},
+  {"tool": "revision_reject", "args": {"id": "rev2"}},
+  {"tool": "document_get", "args": {}, "expect": {
+    "document.body.0.runs.0.bold": false,
+    "document.body.1.runs.0.bold": false
+  }},
+  {"tool": "revision_list", "args": {}, "expect": {"revisions": []}},
+
+  {"tool": "document_new", "args": {"title": "Format two blocks reject all", "force": true}},
+  {"tool": "insert_at_caret", "args": {"id": "p1", "offset": 0, "text": "One"}},
+  {"tool": "insert_blocks", "args": {"after_id": "p1", "blocks": [
+    {"type": "paragraph", "runs": [{"text": "Two"}]}
+  ]}},
+  {"tool": "track_changes", "args": {"on": true}},
+  {"tool": "apply_character_format", "args": {"ids": ["p1", "p2"], "bold": true}},
+  {"tool": "document_get", "args": {}, "expect": {
+    "document.body.0.runs.0.bold": true,
+    "document.body.1.runs.0.bold": true
+  }},
+  {"tool": "revision_reject_all", "args": {}},
+  {"tool": "document_get", "args": {}, "expect": {
+    "document.body.0.runs.0.text": "One",
+    "document.body.0.runs.0.bold": false,
+    "document.body.1.runs.0.text": "Two",
+    "document.body.1.runs.0.bold": false
+  }},
+  {"tool": "revision_list", "args": {}, "expect": {"revisions": []}},
+  {"tool": "validate", "args": {}, "expect": {"valid": true}},
+
+  {"tool": "document_new", "args": {"title": "Reject delete inside insert", "force": true}},
+  {"tool": "track_changes", "args": {"on": true}},
+  {"tool": "insert_at_caret", "args": {"id": "p1", "offset": 0, "text": "abc"}},
+  {"tool": "set_selection", "args": {"anchor_id": "p1", "anchor_off": 3, "focus_id": "p1", "focus_off": 3}},
+  {"tool": "backspace", "args": {}},
+  {"tool": "revision_list", "args": {}, "expect": {
+    "revisions.0.kind": "insert",
+    "revisions.0.start": 0,
+    "revisions.0.end": 2,
+    "revisions.0.text": "abc",
+    "revisions.1.kind": "delete",
+    "revisions.1.start": 2,
+    "revisions.1.end": 2,
+    "revisions.1.text": "c"
+  }},
+  {"tool": "revision_reject_all", "args": {}},
+  {"tool": "document_get", "args": {}, "expect": {
+    "document.body.0.runs.0.text": ""
+  }},
+  {"tool": "revision_list", "args": {}, "expect": {"revisions": []}},
+  {"tool": "validate", "args": {}, "expect": {"valid": true}},
+
+  {"tool": "document_new", "args": {"title": "Accept delete inside insert", "force": true}},
+  {"tool": "track_changes", "args": {"on": true}},
+  {"tool": "insert_at_caret", "args": {"id": "p1", "offset": 0, "text": "abc"}},
+  {"tool": "set_selection", "args": {"anchor_id": "p1", "anchor_off": 3, "focus_id": "p1", "focus_off": 3}},
+  {"tool": "backspace", "args": {}},
+  {"tool": "revision_accept_all", "args": {}},
+  {"tool": "document_get", "args": {}, "expect": {
+    "document.body.0.runs.0.text": "ab"
+  }},
+  {"tool": "revision_list", "args": {}, "expect": {"revisions": []}},
+
+  {"tool": "document_new", "args": {"title": "Reject delete then insert", "force": true}},
+  {"tool": "track_changes", "args": {"on": true}},
+  {"tool": "insert_at_caret", "args": {"id": "p1", "offset": 0, "text": "abc"}},
+  {"tool": "set_selection", "args": {"anchor_id": "p1", "anchor_off": 3, "focus_id": "p1", "focus_off": 3}},
+  {"tool": "backspace", "args": {}},
+  {"tool": "revision_reject", "args": {"id": "rev2"}},
+  {"tool": "document_get", "args": {}, "expect": {
+    "document.body.0.runs.0.text": "ab",
+    "document.body.0.runs.1.text": "c"
+  }},
+  {"tool": "revision_list", "args": {}, "expect": {
+    "revisions.0.kind": "insert",
+    "revisions.0.id": "rev1",
+    "revisions.0.start": 0,
+    "revisions.0.end": 3,
+    "revisions.0.text": "abc"
+  }},
+  {"tool": "revision_reject", "args": {"id": "rev1"}},
+  {"tool": "document_get", "args": {}, "expect": {
+    "document.body.0.runs.0.text": ""
+  }},
+  {"tool": "revision_list", "args": {}, "expect": {"revisions": []}},
+  {"tool": "validate", "args": {}, "expect": {"valid": true}},
+  {"tool": "page_preview", "args": {"page": 1}}
+]
