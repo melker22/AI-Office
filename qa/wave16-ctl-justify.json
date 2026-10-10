@@ -60,7 +60,7 @@
     "tool": "caret_geometry",
     "args": {
       "id": "p1",
-      "offset": 114
+      "offset": 102
     },
     "expect": {
       "line": 0,
