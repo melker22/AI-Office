@@ -216,9 +216,19 @@ nodes:
       mapa de offsets (hifenação/campos/skip), risco para o tagging de PDF (D10). Corrija só
       defeitos críticos, commit, e reporte em até 10 linhas.
 
+  # Gate final: fix-pass/adjudicate podem comitar depois do qa-full, então o branch
+  # final é testado de novo antes do handoff e da aprovação humana.
+  # (Um verdict "failed" do adjudicador já falha o nó e o loop no runtime da Fleet,
+  #  o que pula tudo daqui para baixo — não precisa de checagem extra.)
+  qa-final:
+    type: gate
+    gate: command
+    needs: [opus-audit]
+    run: scripts/qa-all.sh --gui
+
   handoff:
     title: Handoff + catálogo (Composer)
-    needs: [opus-audit]
+    needs: [qa-final]
     prompt: |
       Atualize a documentação da onda 16 (só estes arquivos):
       - docs/AI_HANDOFF.md: nova entrada no topo no formato do template (modelo:

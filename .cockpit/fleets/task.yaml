@@ -103,8 +103,18 @@ nodes:
         accepted: { type: array, items: { type: string } }
         dismissed: { type: array, items: { type: string } }
 
-  handoff:
+  # Gate final: fix-pass/adjudicate podem comitar depois do qa-full, então o branch
+  # final é testado de novo antes do handoff e da aprovação humana.
+  # (Um verdict "failed" do adjudicador já falha o nó e o loop no runtime da Fleet,
+  #  o que pula tudo daqui para baixo — não precisa de checagem extra.)
+  qa-final:
+    type: gate
+    gate: command
     needs: [adjudicate]
+    run: scripts/qa-all.sh --gui
+
+  handoff:
+    needs: [qa-final]
     model: composer-2.5
     prompt: |
       Adicione uma entrada no topo de docs/AI_HANDOFF.md (formato do template) para a tarefa
