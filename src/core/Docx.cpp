@@ -99,35 +99,45 @@ void fillBookmarkNames(DocxOut &o, const Document &doc)
     }
 }
 
-QString runsToWml(const QVector<TextRun> &runs, const Document &doc, DocxOut &o)
+QString runRPr(const TextRun &r)
+{
+    QString rPr;
+    if (r.bold)
+        rPr += QLatin1String("<w:b/>");
+    if (r.italic)
+        rPr += QLatin1String("<w:i/>");
+    if (r.underline)
+        rPr += QLatin1String("<w:u w:val=\"single\"/>");
+    if (r.strike)
+        rPr += QLatin1String("<w:strike/>");
+    if (r.superscript)
+        rPr += QLatin1String("<w:vertAlign w:val=\"superscript\"/>");
+    if (r.subscript)
+        rPr += QLatin1String("<w:vertAlign w:val=\"subscript\"/>");
+    if (r.sizePt > 0)
+        rPr += QStringLiteral("<w:sz w:val=\"%1\"/><w:szCs w:val=\"%1\"/>").arg(int(r.sizePt * 2));
+    if (!r.font.isEmpty())
+        rPr += QStringLiteral("<w:rFonts w:ascii=\"%1\" w:hAnsi=\"%1\"/>").arg(xmlEscape(r.font));
+    if (!r.color.isEmpty()) {
+        QString c = r.color;
+        c.remove(QLatin1Char('#'));
+        rPr += QStringLiteral("<w:color w:val=\"%1\"/>").arg(c);
+    }
+    if (!r.highlight.isEmpty())
+        rPr += QLatin1String("<w:highlight w:val=\"yellow\"/>");
+    return rPr;
+}
+
+// rPrExtra is appended last inside w:rPr (CT_RPr: w:rPrChange is the last child).
+// asDeleted emits w:delText instead of w:t (content of a w:del).
+QString runsToWml(const QVector<TextRun> &runs, const Document &doc, DocxOut &o,
+                  const QString &rPrExtra = QString(), bool asDeleted = false)
 {
     QString xml;
     for (const auto &r : runs) {
-        QString rPr;
-        if (r.bold)
-            rPr += QLatin1String("<w:b/>");
-        if (r.italic)
-            rPr += QLatin1String("<w:i/>");
-        if (r.underline)
-            rPr += QLatin1String("<w:u w:val=\"single\"/>");
-        if (r.strike)
-            rPr += QLatin1String("<w:strike/>");
-        if (r.superscript)
-            rPr += QLatin1String("<w:vertAlign w:val=\"superscript\"/>");
-        if (r.subscript)
-            rPr += QLatin1String("<w:vertAlign w:val=\"subscript\"/>");
-        if (r.sizePt > 0)
-            rPr += QStringLiteral("<w:sz w:val=\"%1\"/><w:szCs w:val=\"%1\"/>").arg(int(r.sizePt * 2));
-        if (!r.font.isEmpty())
-            rPr += QStringLiteral("<w:rFonts w:ascii=\"%1\" w:hAnsi=\"%1\"/>").arg(xmlEscape(r.font));
-        if (!r.color.isEmpty()) {
-            QString c = r.color;
-            c.remove(QLatin1Char('#'));
-            rPr += QStringLiteral("<w:color w:val=\"%1\"/>").arg(c);
-        }
-        if (!r.highlight.isEmpty()) {
-            rPr += QLatin1String("<w:highlight w:val=\"yellow\"/>");
-        }
+        QString rPr = runRPr(r);
+        if (!rPrExtra.isEmpty())
+            rPr += rPrExtra;
         if (!r.field.isEmpty()) {
             QString instr = r.field;
             if (r.field == QLatin1String("page_number"))
@@ -177,7 +187,10 @@ QString runsToWml(const QVector<TextRun> &runs, const Document &doc, DocxOut &o)
             QString runXml = QStringLiteral("<w:r>");
             if (!rPr.isEmpty())
                 runXml += QStringLiteral("<w:rPr>%1</w:rPr>").arg(rPr);
-            runXml += QStringLiteral("<w:t%1>%2</w:t></w:r>").arg(space, t);
+            if (asDeleted)
+                runXml += QStringLiteral("<w:delText xml:space=\"preserve\">%1</w:delText></w:r>").arg(t);
+            else
+                runXml += QStringLiteral("<w:t%1>%2</w:t></w:r>").arg(space, t);
             if (!r.link.isEmpty()) {
                 if (r.link.startsWith(QLatin1Char('#'))) {
                     runXml = QStringLiteral("<w:hyperlink w:anchor=\"%1\">%2</w:hyperlink>")
@@ -194,7 +207,7 @@ QString runsToWml(const QVector<TextRun> &runs, const Document &doc, DocxOut &o)
             }
             xml += runXml;
         }
-        if (!r.noteId.isEmpty()) {
+        if (!asDeleted && !r.noteId.isEmpty()) {
             const Block *nb = doc.findBlock(r.noteId);
             if (nb && nb->type == QLatin1String("footnote")) {
                 int id = o.fnIds.value(r.noteId, 0);
@@ -220,69 +233,163 @@ QString runsToWml(const QVector<TextRun> &runs, const Document &doc, DocxOut &o)
     return xml;
 }
 
-using RevSegment = QPair<QVector<TextRun>, const Revision *>;
-
-// Mirrors Odf.cpp's revisionSegments: slices `runs` so insert revisions can be wrapped in real
-// w:ins markup. Only "insert" is handled: our edit model removes deleted text from `runs`
-// immediately (Session::deleteBackward/insertAtCaret), keeping just an audit-log Revision with the
-// removed text in `rev.text` — there is nothing left in `runs` at that offset range to wrap in
-// w:del. Emitting real w:del would mean re-inserting `rev.text` synthetically at export time; left
-// as a documented gap for a future wave. kind=format also has no OOXML equivalent. Both kinds still
-// round-trip losslessly through our own word/aioffice.json fallback.
-QVector<RevSegment> revisionSegments(const Document &doc, const QString &blockId, const QVector<TextRun> &runs)
-{
-    QVector<const Revision *> revs;
-    for (const auto &rv : doc.revisions) {
-        if (rv.blockId == blockId && rv.kind == QLatin1String("insert"))
-            revs.push_back(&rv);
-    }
-    QVector<RevSegment> segs;
-    if (revs.isEmpty()) {
-        segs.push_back({runs, nullptr});
-        return segs;
-    }
-    std::sort(revs.begin(), revs.end(), [](const Revision *a, const Revision *b) { return a->start < b->start; });
-    int total = 0;
-    for (const auto &r : runs)
-        total += r.text.size();
+// D3: insert wraps live text in one w:ins; delete is a w:del at `start` built from deletedRuns
+// (the edit model has already removed that text from `runs`); format adds w:rPrChange as the
+// last child of each covered run's w:rPr, with the previous w:rPr taken from priorRuns.
+struct RevEv {
     int pos = 0;
-    for (const Revision *rv : revs) {
-        const int s = qBound(0, rv->start, total);
-        const int e = qBound(s, rv->end, total);
-        if (s > pos)
-            segs.push_back({splitRuns(runs, pos, s), nullptr});
-        if (e > s)
-            segs.push_back({splitRuns(runs, s, e), rv});
-        pos = qMax(pos, e);
+    int ord = 0; // 0 close, 1 delete point, 2 open — same order LibreOffice writes at one offset
+    int seq = 0;
+    const Revision *rv = nullptr;
+    bool open = false;
+    bool point = false;
+};
+
+QString revDate(const Revision *rv)
+{
+    return QDateTime::fromMSecsSinceEpoch(rv->timestamp).toString(Qt::ISODate);
+}
+
+QString wrapIns(const Revision *rv, const QString &inner, DocxOut &o)
+{
+    return QStringLiteral("<w:ins w:id=\"%1\" w:author=\"%2\" w:date=\"%3\">%4</w:ins>")
+        .arg(o.wId(rv->id))
+        .arg(xmlEscape(rv->author), revDate(rv), inner);
+}
+
+QString emitDel(const Revision *rv, const Document &doc, DocxOut &o)
+{
+    QVector<TextRun> gone = rv->deletedRuns;
+    if (gone.isEmpty() && !rv->text.isEmpty()) {
+        TextRun fallback;
+        fallback.text = rv->text;
+        gone.push_back(fallback);
     }
-    if (pos < total)
-        segs.push_back({splitRuns(runs, pos, total), nullptr});
-    return segs;
+    const QString inner = runsToWml(gone, doc, o, QString(), true);
+    return QStringLiteral("<w:del w:id=\"%1\" w:author=\"%2\" w:date=\"%3\">%4</w:del>")
+        .arg(o.wId(rv->id))
+        .arg(xmlEscape(rv->author), revDate(rv), inner);
+}
+
+QString rPrChangeXml(const Revision *fmt, int absOff, int len, DocxOut &o)
+{
+    QString prior;
+    if (!fmt->priorRuns.isEmpty()) {
+        const auto slices = splitRuns(fmt->priorRuns, absOff - fmt->start, absOff - fmt->start + len);
+        if (!slices.isEmpty())
+            prior = runRPr(slices.front());
+    }
+    const int wid = o.wId(QStringLiteral("%1#%2").arg(fmt->id).arg(absOff));
+    return QStringLiteral("<w:rPrChange w:id=\"%1\" w:author=\"%2\" w:date=\"%3\"><w:rPr>%4</w:rPr></w:rPrChange>")
+        .arg(wid)
+        .arg(xmlEscape(fmt->author), revDate(fmt), prior);
 }
 
 QString revisedRunsToWml(const QString &blockId, const QVector<TextRun> &runs, const Document &doc, DocxOut &o)
 {
+    int total = 0;
+    for (const auto &r : runs)
+        total += r.text.size();
+    QVector<RevEv> evs;
+    int seq = 0;
+    for (const auto &rv : doc.revisions) {
+        if (rv.blockId != blockId)
+            continue;
+        if (rv.kind == QLatin1String("insert") || rv.kind == QLatin1String("format")) {
+            const int s = qBound(0, rv.start, total);
+            const int e = qBound(s, rv.end, total);
+            evs.push_back(RevEv{s, 2, seq++, &rv, true, false});
+            evs.push_back(RevEv{e, 0, seq++, &rv, false, false});
+        } else if (rv.kind == QLatin1String("delete")) {
+            const int s = qBound(0, rv.start, total);
+            evs.push_back(RevEv{s, 1, seq++, &rv, false, true});
+        }
+    }
+    std::sort(evs.begin(), evs.end(), [](const RevEv &a, const RevEv &b) {
+        if (a.pos != b.pos)
+            return a.pos < b.pos;
+        if (a.ord != b.ord)
+            return a.ord < b.ord;
+        return a.seq < b.seq;
+    });
+
+    struct Piece {
+        bool del = false;
+        int from = 0;
+        int to = 0;
+        const Revision *delRv = nullptr;
+        const Revision *insert = nullptr;
+        QVector<const Revision *> formats;
+    };
+    QVector<Piece> pieces;
+    int cursor = 0;
+    const Revision *insert = nullptr;
+    QVector<const Revision *> formats;
+    auto flushText = [&](int to) {
+        if (to <= cursor)
+            return;
+        Piece p;
+        p.from = cursor;
+        p.to = to;
+        p.insert = insert;
+        p.formats = formats;
+        pieces.push_back(p);
+        cursor = to;
+    };
+    for (const RevEv &ev : evs) {
+        if (ev.pos > cursor)
+            flushText(ev.pos);
+        if (ev.point) {
+            Piece p;
+            p.del = true;
+            p.delRv = ev.rv;
+            p.insert = insert;
+            pieces.push_back(p);
+        } else if (ev.open) {
+            if (ev.rv->kind == QLatin1String("insert"))
+                insert = ev.rv;
+            else
+                formats.push_back(ev.rv);
+        } else if (ev.rv->kind == QLatin1String("insert")) {
+            if (insert == ev.rv)
+                insert = nullptr;
+        } else {
+            formats.erase(std::remove(formats.begin(), formats.end(), ev.rv), formats.end());
+        }
+    }
+    if (cursor < total)
+        flushText(total);
+
+    auto emitText = [&](const Piece &p) {
+        QString xml;
+        const Revision *fmt = p.formats.isEmpty() ? nullptr : p.formats.back();
+        if (!fmt) {
+            xml += runsToWml(splitRuns(runs, p.from, p.to), doc, o);
+            return xml;
+        }
+        int abs = p.from;
+        for (const auto &r : splitRuns(runs, p.from, p.to)) {
+            const QString extra = rPrChangeXml(fmt, abs, r.text.size(), o);
+            xml += runsToWml(QVector<TextRun>{r}, doc, o, extra, false);
+            abs += r.text.size();
+        }
+        return xml;
+    };
+
     QString out;
-    for (const auto &seg : revisionSegments(doc, blockId, runs)) {
-        QString inner = runsToWml(seg.first, doc, o);
-        if (!seg.second) {
-            out += inner;
+    for (int i = 0; i < pieces.size();) {
+        const Revision *ins = pieces[i].insert;
+        if (!ins) {
+            out += pieces[i].del ? emitDel(pieces[i].delRv, doc, o) : emitText(pieces[i]);
+            ++i;
             continue;
         }
-        const QString dateStr = QDateTime::fromMSecsSinceEpoch(seg.second->timestamp).toString(Qt::ISODate);
-        const QString author = xmlEscape(seg.second->author);
-        const int wid = o.wId(seg.second->id);
-        if (seg.second->kind == QLatin1String("delete")) {
-            inner.replace(QLatin1String("<w:t"), QLatin1String("<w:delText"));
-            inner.replace(QLatin1String("</w:t>"), QLatin1String("</w:delText>"));
-            out += QStringLiteral("<w:del w:id=\"%1\" w:author=\"%2\" w:date=\"%3\">%4</w:del>")
-                       .arg(wid)
-                       .arg(author, dateStr, inner);
-        } else {
-            out += QStringLiteral("<w:ins w:id=\"%1\" w:author=\"%2\" w:date=\"%3\">%4</w:ins>")
-                       .arg(wid)
-                       .arg(author, dateStr, inner);
+        QString inner;
+        while (i < pieces.size() && pieces[i].insert == ins) {
+            inner += pieces[i].del ? emitDel(pieces[i].delRv, doc, o) : emitText(pieces[i]);
+            ++i;
         }
+        out += wrapIns(ins, inner, o);
     }
     return out;
 }
@@ -761,19 +868,33 @@ bool loadDocx(const QByteArray &zipData, Document &doc, QString *error)
     QVector<int> pendingBookmarkIdx;
     QVector<int> pendingRevisionIdx;
     QString curLinkHref;
-    QString curRevKind;
     QString curRevAuthor;
     qint64 curRevDate = 0;
     int curRevStartOff = -1;
-    int inDelDepth = 0;
-    int inInsDepth = 0;
-    QVector<TextRun> delRunsBuffer;
-    bool inRPrChangePrior = false;
-    TextRun priorFmtRun;
-    bool runHadRPrChange = false;
-    int runStartOff = 0;
-    QString rPrChangeAuthor;
-    qint64 rPrChangeDate = 0;
+    bool inDel = false;
+    bool inRPrChange = false;
+    bool runHasFmtChange = false;
+    bool sawPriorRPr = false;
+    QString fmtAuthor;
+    qint64 fmtDate = 0;
+    TextRun delRun;
+    TextRun priorRun;
+    QVector<TextRun> delAcc;
+    auto plainOf = [](const QVector<TextRun> &rs) {
+        QString s;
+        for (const auto &rr : rs)
+            s += rr.text;
+        return s;
+    };
+    auto fmtTarget = [&]() -> TextRun * {
+        if (inRPrChange)
+            return &priorRun;
+        if (inDel)
+            return &delRun;
+        if (inR)
+            return &run;
+        return nullptr;
+    };
     auto curLen = [&]() {
         int n = 0;
         for (const auto &r : runs)
@@ -880,6 +1001,9 @@ bool loadDocx(const QByteArray &zipData, Document &doc, QString *error)
                 align.clear();
                 paraDir.clear();
                 numId = 0;
+                inDel = false;
+                inRPrChange = false;
+                delAcc.clear();
             } else if (n == QLatin1String("pStyle")) {
                 pStyle = xml.attributes().value(QStringLiteral("w:val")).toString();
             } else if (n == QLatin1String("numId")) {
@@ -897,53 +1021,54 @@ bool loadDocx(const QByteArray &zipData, Document &doc, QString *error)
                 // run-level RTL flag: read-only, ignored
             } else if (n == QLatin1String("r")) {
                 inR = true;
-                run = TextRun{};
-                runStartOff = curLen();
-                runHadRPrChange = false;
-            } else if (n == QLatin1String("rPrChange")) {
-                inRPrChangePrior = true;
-                priorFmtRun = TextRun{};
-                runHadRPrChange = true;
-                rPrChangeAuthor = xml.attributes().value(QStringLiteral("w:author")).toString();
-                rPrChangeDate = QDateTime::fromString(xml.attributes().value(QStringLiteral("w:date")).toString(),
-                                                       Qt::ISODate)
-                                    .toMSecsSinceEpoch();
-            } else if (n == QLatin1String("b") && inR) {
-                if (inRPrChangePrior)
-                    priorFmtRun.bold = true;
-                else
-                    run.bold = true;
-            } else if (n == QLatin1String("i") && inR) {
-                if (inRPrChangePrior)
-                    priorFmtRun.italic = true;
-                else
-                    run.italic = true;
-            } else if (n == QLatin1String("u") && inR) {
-                if (inRPrChangePrior)
-                    priorFmtRun.underline = true;
-                else
-                    run.underline = true;
-            } else if (n == QLatin1String("strike") && inR) {
-                if (inRPrChangePrior)
-                    priorFmtRun.strike = true;
-                else
-                    run.strike = true;
-            } else if (n == QLatin1String("vertAlign") && inR) {
-                const auto v = xml.attributes().value(QStringLiteral("w:val")).toString();
-                if (inRPrChangePrior) {
-                    priorFmtRun.superscript = (v == QLatin1String("superscript"));
-                    priorFmtRun.subscript = (v == QLatin1String("subscript"));
-                } else {
-                    run.superscript = (v == QLatin1String("superscript"));
-                    run.subscript = (v == QLatin1String("subscript"));
+                if (inDel)
+                    delRun = TextRun{};
+                else {
+                    run = TextRun{};
+                    runHasFmtChange = false;
+                    sawPriorRPr = false;
+                    priorRun = TextRun{};
                 }
-            } else if (n == QLatin1String("highlight") && inR) {
-                if (!inRPrChangePrior)
-                    run.highlight = QStringLiteral("#FFF59D");
-            } else if (n == QLatin1String("t") && inR) {
-                run.text += xml.readElementText();
-            } else if (n == QLatin1String("delText") && inR && inDelDepth > 0) {
-                run.text += xml.readElementText();
+            } else if (n == QLatin1String("rPrChange") && inR && !inDel) {
+                inRPrChange = true;
+                sawPriorRPr = false;
+                priorRun = TextRun{};
+                fmtAuthor = xml.attributes().value(QStringLiteral("w:author")).toString();
+                fmtDate = QDateTime::fromString(xml.attributes().value(QStringLiteral("w:date")).toString(), Qt::ISODate)
+                              .toMSecsSinceEpoch();
+                // LibreOffice writes an empty rPrChange as <w:rPrChange .../> with no inner w:rPr.
+                if (xml.isEndElement()) {
+                    inRPrChange = false;
+                    runHasFmtChange = true;
+                }
+            } else if (n == QLatin1String("rPr") && inRPrChange) {
+                sawPriorRPr = true;
+            } else if (n == QLatin1String("b") || n == QLatin1String("i") || n == QLatin1String("u")
+                       || n == QLatin1String("strike") || n == QLatin1String("vertAlign")
+                       || n == QLatin1String("highlight")) {
+                if (TextRun *dst = fmtTarget()) {
+                    if (n == QLatin1String("b"))
+                        dst->bold = true;
+                    else if (n == QLatin1String("i"))
+                        dst->italic = true;
+                    else if (n == QLatin1String("u"))
+                        dst->underline = true;
+                    else if (n == QLatin1String("strike"))
+                        dst->strike = true;
+                    else if (n == QLatin1String("vertAlign")) {
+                        const auto v = xml.attributes().value(QStringLiteral("w:val")).toString();
+                        dst->superscript = (v == QLatin1String("superscript"));
+                        dst->subscript = (v == QLatin1String("subscript"));
+                    } else if (n == QLatin1String("highlight")) {
+                        dst->highlight = QStringLiteral("#FFF59D");
+                    }
+                }
+            } else if ((n == QLatin1String("t") || n == QLatin1String("delText")) && (inR || inDel)) {
+                const QString tx = xml.readElementText();
+                if (inDel)
+                    delRun.text += tx;
+                else
+                    run.text += tx;
             } else if (n == QLatin1String("hyperlink")) {
                 const QString anchor = xml.attributes().value(QStringLiteral("w:anchor")).toString();
                 const QString rid = xml.attributes().value(QStringLiteral("r:id")).toString();
@@ -960,27 +1085,16 @@ bool loadDocx(const QByteArray &zipData, Document &doc, QString *error)
                 bm.offset = curLen();
                 doc.bookmarks.push_back(bm);
                 pendingBookmarkIdx.push_back(doc.bookmarks.size() - 1);
-            } else if (n == QLatin1String("ins")) {
-                if (inInsDepth++ == 0) {
-                    curRevKind = QStringLiteral("insert");
-                    curRevAuthor = xml.attributes().value(QStringLiteral("w:author")).toString();
-                    curRevDate = QDateTime::fromString(xml.attributes().value(QStringLiteral("w:date")).toString(),
-                                                        Qt::ISODate)
-                                     .toMSecsSinceEpoch();
-                    curRevStartOff = curLen();
+            } else if (n == QLatin1String("ins") || n == QLatin1String("del")) {
+                curRevAuthor = xml.attributes().value(QStringLiteral("w:author")).toString();
+                curRevDate = QDateTime::fromString(xml.attributes().value(QStringLiteral("w:date")).toString(),
+                                                    Qt::ISODate)
+                                 .toMSecsSinceEpoch();
+                curRevStartOff = curLen();
+                if (n == QLatin1String("del")) {
+                    inDel = true;
+                    delAcc.clear();
                 }
-                doc.trackChanges = true;
-            } else if (n == QLatin1String("del")) {
-                if (inDelDepth++ == 0) {
-                    curRevKind = QStringLiteral("delete");
-                    curRevAuthor = xml.attributes().value(QStringLiteral("w:author")).toString();
-                    curRevDate = QDateTime::fromString(xml.attributes().value(QStringLiteral("w:date")).toString(),
-                                                        Qt::ISODate)
-                                     .toMSecsSinceEpoch();
-                    curRevStartOff = curLen();
-                    delRunsBuffer.clear();
-                }
-                doc.trackChanges = true;
             } else if (n == QLatin1String("fldSimple")) {
                 TextRun fr;
                 const QString instrRaw = xml.attributes().value(QStringLiteral("w:instr")).toString().trimmed();
@@ -1068,26 +1182,35 @@ bool loadDocx(const QByteArray &zipData, Document &doc, QString *error)
         } else if (xml.isEndElement()) {
             const auto n = xml.name();
             if (n == QLatin1String("rPrChange")) {
-                inRPrChangePrior = false;
+                inRPrChange = false;
+                if (inR && !inDel)
+                    runHasFmtChange = true;
             } else if (n == QLatin1String("r") && inR) {
-                if (!curLinkHref.isEmpty())
-                    run.link = curLinkHref;
-                const bool hasContent = !run.text.isEmpty() || run.bold || run.italic || !run.noteId.isEmpty()
-                                        || !run.field.isEmpty();
-                if (inDelDepth > 0) {
-                    if (hasContent)
-                        delRunsBuffer.push_back(run);
-                } else if (hasContent) {
-                    runs.push_back(run);
-                    if (runHadRPrChange) {
+                if (inDel) {
+                    if (!curLinkHref.isEmpty())
+                        delRun.link = curLinkHref;
+                    if (!delRun.text.isEmpty() || delRun.bold || delRun.italic || delRun.underline || delRun.strike
+                        || !delRun.noteId.isEmpty())
+                        delAcc.push_back(delRun);
+                } else {
+                    if (!curLinkHref.isEmpty())
+                        run.link = curLinkHref;
+                    const int before = curLen();
+                    if (!run.text.isEmpty() || run.bold || run.italic || !run.noteId.isEmpty() || !run.field.isEmpty())
+                        runs.push_back(run);
+                    if (runHasFmtChange && curLen() > before) {
                         Revision rv;
                         rv.id = QStringLiteral("rev%1").arg(doc.revisions.size() + 1);
                         rv.kind = QStringLiteral("format");
-                        rv.author = rPrChangeAuthor;
-                        rv.timestamp = rPrChangeDate;
+                        rv.author = fmtAuthor;
+                        rv.timestamp = fmtDate;
                         rv.blockId = QStringLiteral("pending");
-                        rv.start = runStartOff;
+                        rv.start = before;
                         rv.end = curLen();
+                        if (sawPriorRPr) {
+                            priorRun.text = run.text;
+                            rv.priorRuns.push_back(priorRun);
+                        }
                         QJsonObject payload;
                         if (run.bold)
                             payload[QStringLiteral("bold")] = true;
@@ -1100,48 +1223,41 @@ bool loadDocx(const QByteArray &zipData, Document &doc, QString *error)
                         rv.payload = QString::fromUtf8(QJsonDocument(payload).toJson(QJsonDocument::Compact));
                         doc.revisions.push_back(rv);
                         pendingRevisionIdx.push_back(doc.revisions.size() - 1);
-                        doc.trackChanges = true;
                     }
                 }
                 inR = false;
+                runHasFmtChange = false;
             } else if (n == QLatin1String("hyperlink")) {
                 curLinkHref.clear();
-            } else if (n == QLatin1String("ins") && inInsDepth > 0) {
-                if (--inInsDepth == 0 && curRevStartOff >= 0) {
-                    Revision rv;
-                    rv.id = QStringLiteral("rev%1").arg(doc.revisions.size() + 1);
-                    rv.kind = QStringLiteral("insert");
-                    rv.author = curRevAuthor;
-                    rv.timestamp = curRevDate;
-                    rv.blockId = QStringLiteral("pending");
-                    rv.start = curRevStartOff;
-                    rv.end = curLen();
-                    QString blockPlain;
-                    for (const auto &rr : runs)
-                        blockPlain += rr.text;
-                    rv.text = blockPlain.mid(rv.start, rv.end - rv.start);
-                    doc.revisions.push_back(rv);
-                    pendingRevisionIdx.push_back(doc.revisions.size() - 1);
-                    curRevStartOff = -1;
-                }
-            } else if (n == QLatin1String("del") && inDelDepth > 0) {
-                if (--inDelDepth == 0 && curRevStartOff >= 0) {
-                    Revision rv;
-                    rv.id = QStringLiteral("rev%1").arg(doc.revisions.size() + 1);
-                    rv.kind = QStringLiteral("delete");
-                    rv.author = curRevAuthor;
-                    rv.timestamp = curRevDate;
-                    rv.blockId = QStringLiteral("pending");
-                    rv.start = curRevStartOff;
-                    rv.end = curRevStartOff;
-                    rv.deletedRuns = delRunsBuffer;
-                    for (const auto &dr : delRunsBuffer)
-                        rv.text += dr.text;
-                    delRunsBuffer.clear();
-                    doc.revisions.push_back(rv);
-                    pendingRevisionIdx.push_back(doc.revisions.size() - 1);
-                    curRevStartOff = -1;
-                }
+            } else if (n == QLatin1String("ins") && curRevStartOff >= 0) {
+                Revision rv;
+                rv.id = QStringLiteral("rev%1").arg(doc.revisions.size() + 1);
+                rv.kind = QStringLiteral("insert");
+                rv.author = curRevAuthor;
+                rv.timestamp = curRevDate;
+                rv.blockId = QStringLiteral("pending");
+                rv.start = curRevStartOff;
+                rv.end = curLen();
+                rv.text = plainOf(runs).mid(rv.start, qMax(0, rv.end - rv.start));
+                doc.revisions.push_back(rv);
+                pendingRevisionIdx.push_back(doc.revisions.size() - 1);
+                curRevStartOff = -1;
+            } else if (n == QLatin1String("del") && curRevStartOff >= 0) {
+                Revision rv;
+                rv.id = QStringLiteral("rev%1").arg(doc.revisions.size() + 1);
+                rv.kind = QStringLiteral("delete");
+                rv.author = curRevAuthor;
+                rv.timestamp = curRevDate;
+                rv.blockId = QStringLiteral("pending");
+                rv.start = curRevStartOff;
+                rv.end = curRevStartOff;
+                rv.deletedRuns = delAcc;
+                rv.text = plainOf(delAcc);
+                doc.revisions.push_back(rv);
+                pendingRevisionIdx.push_back(doc.revisions.size() - 1);
+                inDel = false;
+                delAcc.clear();
+                curRevStartOff = -1;
             } else if (n == QLatin1String("drawing") && !blipRid.isEmpty()) {
                 QString target = rels.value(blipRid);
                 if (target.startsWith(QLatin1String("media/")))

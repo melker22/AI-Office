@@ -8,6 +8,22 @@
 
 ---
 
+## 2026-10-10 — Composer — Wave 17 integrate-2 (t3 ctest + t4 interop)
+
+**Objective:** Merge `t3-ctest-fixtures` and `t4-interop` into `fleet/wave17-roundtrip-c574277e`; resolve `scripts/qa-all.sh`, `Docx.cpp`, and handoff conflicts; gate with `scripts/qa-all.sh --gui --interop`.
+
+**Done:**
+- Fast-forward merged t3 (`c99cb33`): CTest `playbook|roundtrip`, foreign fixtures, `check_roundtrip.py` modes, CircleCI ctest.
+- Merged t4 (`49cad9c`, `900f28d`): `scripts/qa-interop.py`, DOCX D3/D4 + `priorRuns`, LibreOffice round-trip probe.
+- **Conflicts resolved:** `qa-all.sh` — ctest gate plus optional `--interop` (flags via `for arg`; order independent). `Docx.cpp` — kept t4 import/export (superset for LO + `priorRuns`). Handoff — both task entries preserved below.
+- `scripts/qa-all.sh --gui --interop` green.
+
+**Next suggested step:** Fleet `build-1` / complete t1 if still required by spec.
+
+**Commits:** `7dc35f3` merge: integrate wave17 t3 ctest fixtures and t4 interop
+
+---
+
 ## 2026-10-09 — Composer — Wave 17 T3: ctest, foreign fixtures, roundtrip QA
 
 **Objective:** D6/D7/D9 — hand-built foreign DOCX/ODT fixtures, `check_roundtrip.py` foreign + fixture modes, CTest labels `playbook`/`roundtrip`, CI and `scripts/qa-all.sh` via ctest.
@@ -22,7 +38,26 @@
 
 **Next suggested step:** Fleet `t4-interop` / complete t1 DOCX export + `priorRuns`; add `--foreign docx` ctest when export path is ready.
 
-**Commits:** `cadb6bc` feat: add ctest roundtrip fixtures and foreign revision QA
+**Commits:** `c99cb33` feat: add ctest roundtrip fixtures and foreign revision QA
+
+---
+
+## 2026-10-09 — Cursor Grok — Wave 17: LibreOffice revision interop
+
+**Objective:** D8. `scripts/qa-all.sh --interop` (combinable with `--gui`) exports insert+delete+format, converts with `soffice --headless --convert-to` both ways, reimports, and compares kind, block, offsets, text, and author. Format revisions that passed through ODT must not keep `prior_runs`. No `soffice` prints `skip interop` and does not fail. Fix whatever LibreOffice showed, without changing D1–D5.
+
+**Done:**
+- `scripts/qa-all.sh --interop` and `scripts/qa-interop.py`. The probe opens `qa/wave17-odt-revisions.aio.json`, saves DOCX and ODT, converts with a temporary `-env:UserInstallation=file:///tmp/...` profile, strips embedded `aioffice` JSON, and reimports.
+- LibreOffice 26.2 accepted the ODT tracked-change markup already written by D5 (change-start/end, `text:change` deletion, `text:format-change`). docx→odt of a file that only had `w:ins` dropped delete and format, because DOCX export did not emit them.
+- odt→docx: LibreOffice wrote `w:del` + `w:delText` (deleted “B” is not live text), `w:ins` around “C”, and `w:rPrChange` as the last child of `w:rPr` with **no inner `w:rPr`** (no previous formatting). The old importer treated `w:delText` as live text (delete became a range, insert offsets shifted) and ignored `w:rPrChange`.
+- DOCX export (D3): one `w:del` at `start` from `deletedRuns` (`w:delText xml:space="preserve"`), and `w:rPrChange` last inside `w:rPr` (previous `w:rPr` from `priorRuns`, empty when there is none). DOCX import (D4): `w:del` content goes to `deletedRuns`/`text` with `start == end` and never into `runs`; `w:ins` keeps the live range and its text; `w:rPrChange` becomes one `format` revision on that run. `priorRuns` is stored only when an inner `w:rPr` is present. `Revision.priorRuns` / JSON `prior_runs` is that field.
+- `scripts/qa-all.sh --gui --interop` green, including `qa/wave17-odt-revisions.json` and both LibreOffice directions.
+
+**Decisions:** Did not change D1–D5. LibreOffice copies italic from the previous run onto the deleted “B” (`w:b`+`w:i`) when converting ODT→DOCX; kind, block, offsets, text, and author still match, so the deletion span in ODT stays bold-only (D5). An empty `w:rPrChange` (the ODT path) does not invent `priorRuns` (D2/D4). `w:rPrChange` before `w:i` was also accepted by this LibreOffice, but export still puts `w:rPrChange` last (D3).
+
+**Next suggested step:** Fleet integrate-2 with the ctest/fixtures branch. `t1` had not landed `priorRuns` on the integrate-1 branch; this node added the field so DOCX import can keep a real inner `w:rPr`.
+
+**Commits:** `49cad9c` feat: round-trip revision marks through LibreOffice
 
 ---
 
