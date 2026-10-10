@@ -195,3 +195,6 @@ endforeach()
 add_test(NAME roundtrip_foreign_odt_wave17 COMMAND "${CMAKE_COMMAND}" -E env AIOFFICE_HEADLESS=1 QT_QPA_PLATFORM=offscreen
     python3 "${_AIO_PYTHON}" --cli "${AIOFFICE_CLI}" --foreign "${CMAKE_SOURCE_DIR}/qa/wave17-odt-revisions.aio.json" odt)
 set_tests_properties(roundtrip_foreign_odt_wave17 PROPERTIES LABELS "roundtrip" WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}")
+add_test(NAME roundtrip_foreign_docx_wave17 COMMAND "${CMAKE_COMMAND}" -E env AIOFFICE_HEADLESS=1 QT_QPA_PLATFORM=offscreen
+    python3 "${_AIO_PYTHON}" --cli "${AIOFFICE_CLI}" --foreign "${CMAKE_SOURCE_DIR}/qa/wave17-docx-revisions.aio.json" docx)
+set_tests_properties(roundtrip_foreign_docx_wave17 PROPERTIES LABELS "roundtrip" WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}")

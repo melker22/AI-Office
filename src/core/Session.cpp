@@ -191,7 +191,7 @@ QVector<int> Session::indexesFor(const QJsonArray &ids) const
     return idx;
 }
 
-bool Session::saveTo(const QString &path, QString *error)
+bool Session::saveTo(const QString &path, QString *error, bool embedJson)
 {
     const QString ext = QFileInfo(path).suffix().toLower();
     if (ext == QLatin1String("aio") || ext == QLatin1String("json") || path.endsWith(QLatin1String(".aio.json"))) {
@@ -212,7 +212,7 @@ bool Session::saveTo(const QString &path, QString *error)
         return true;
     }
     if (ext == QLatin1String("docx")) {
-        if (!saveDocx(doc_, path, error))
+        if (!saveDocx(doc_, path, error, embedJson))
             return false;
         doc_.fileName = QFileInfo(path).fileName();
         return true;
@@ -376,7 +376,9 @@ QJsonObject Session::saveDocument(const QJsonObject &args)
     if (args.contains(QStringLiteral("title")))
         doc_.title = args.value(QStringLiteral("title")).toString();
     QString err;
-    if (!saveTo(path, &err))
+    const bool embedJson = !args.contains(QStringLiteral("embed_json"))
+        || args.value(QStringLiteral("embed_json")).toBool();
+    if (!saveTo(path, &err, embedJson))
         return fail(err);
     path_ = path;
     dirty_ = false;
@@ -547,10 +549,28 @@ QJsonObject Session::applyCharacterFormat(const QJsonObject &args)
     pushUndo();
     const int start = args.value(QStringLiteral("start")).toInt(-1);
     const int end = args.value(QStringLiteral("end")).toInt(-1);
+    QVector<TextRun> priorSlices;
+    int revStart = start;
+    int revEnd = end;
+    bool capturedPrior = false;
     for (int i : idx) {
         auto &b = doc_.body[i];
         if (b.runs.isEmpty())
             b.runs.push_back(TextRun{});
+        if (doc_.trackChanges && !capturedPrior && b.type != QLatin1String("table")) {
+            if (start >= 0 && end >= start) {
+                priorSlices = splitRuns(b.runs, start, end);
+                revStart = start;
+                revEnd = end;
+            } else {
+                priorSlices = b.runs;
+                revStart = 0;
+                revEnd = 0;
+                for (const auto &r : b.runs)
+                    revEnd += r.text.size();
+            }
+            capturedPrior = true;
+        }
         if (start >= 0 && end >= start && b.type != QLatin1String("table"))
             applyFormatToRange(b.runs, start, end, args);
         else {
@@ -570,8 +590,9 @@ QJsonObject Session::applyCharacterFormat(const QJsonObject &args)
         rev.author = doc_.author.isEmpty() ? QStringLiteral("IA") : doc_.author;
         rev.kind = QStringLiteral("format");
         rev.blockId = doc_.body[idx.first()].id;
-        rev.start = start;
-        rev.end = end;
+        rev.start = revStart;
+        rev.end = revEnd;
+        rev.priorRuns = priorSlices;
         rev.timestamp = QDateTime::currentMSecsSinceEpoch();
         rev.payload = QString::fromUtf8(QJsonDocument(args).toJson(QJsonDocument::Compact));
         doc_.revisions.push_back(rev);
@@ -2632,6 +2653,29 @@ QJsonObject Session::revisionAccept(const QJsonObject &args)
     return fail(QStringLiteral("revision not found"));
 }
 
+static int revisionRunsLen(const QVector<TextRun> &runs)
+{
+    int n = 0;
+    for (const auto &r : runs)
+        n += r.text.size();
+    return n;
+}
+
+// Replace [start, end) with the formatting that was there before the change.
+// delta/pivot match shiftRevisionOffsets: revisions at or after the old end move by the length change.
+static void restoreFormatPrior(Block &b, const Revision &found, int *delta, int *pivot)
+{
+    const int oldLen = found.end - found.start;
+    const int newLen = revisionRunsLen(found.priorRuns);
+    QVector<TextRun> before = splitRuns(b.runs, 0, found.start);
+    QVector<TextRun> after = splitRuns(b.runs, found.end, b.plainText().size());
+    b.runs = before + found.priorRuns + after;
+    if (b.runs.isEmpty())
+        b.runs.push_back(TextRun{});
+    *delta = newLen - oldLen;
+    *pivot = found.end;
+}
+
 void Session::shiftRevisionOffsets(const QString &blockId, int pivot, int delta, const QString &excludeId)
 {
     if (delta == 0)
@@ -2662,6 +2706,8 @@ QJsonObject Session::revisionReject(const QJsonObject &args)
     }
     if (idx < 0)
         return fail(QStringLiteral("revision not found"));
+    if (found.kind == QLatin1String("format") && found.priorRuns.isEmpty())
+        return fail(QStringLiteral("format revision has no prior formatting"));
     pushUndo();
     Block *b = doc_.findBlock(found.blockId);
     int delta = 0;
@@ -2671,6 +2717,8 @@ QJsonObject Session::revisionReject(const QJsonObject &args)
             b->runs = spliceRuns(b->runs, found.start, found.end, TextRun{});
             delta = -(found.end - found.start);
             pivot = found.end;
+        } else if (found.kind == QLatin1String("format")) {
+            restoreFormatPrior(*b, found, &delta, &pivot);
         } else if (found.kind == QLatin1String("delete") && !found.text.isEmpty()) {
             QVector<TextRun> restored = found.deletedRuns;
             if (restored.isEmpty()) {
@@ -2701,8 +2749,12 @@ QJsonObject Session::revisionAcceptAll(const QJsonObject &)
 
 QJsonObject Session::revisionRejectAll(const QJsonObject &)
 {
+    for (const auto &found : doc_.revisions) {
+        if (found.kind == QLatin1String("format") && found.priorRuns.isEmpty())
+            return fail(QStringLiteral("format revision has no prior formatting"));
+    }
     pushUndo();
-    const auto revs = doc_.revisions;
+    auto revs = doc_.revisions;
     for (int i = revs.size() - 1; i >= 0; --i) {
         const Revision &found = revs[i];
         Block *b = doc_.findBlock(found.blockId);
@@ -2710,6 +2762,24 @@ QJsonObject Session::revisionRejectAll(const QJsonObject &)
             continue;
         if (found.kind == QLatin1String("insert")) {
             b->runs = spliceRuns(b->runs, found.start, found.end, TextRun{});
+        } else if (found.kind == QLatin1String("format")) {
+            int delta = 0;
+            int pivot = found.end;
+            restoreFormatPrior(*b, found, &delta, &pivot);
+            shiftRevisionOffsets(found.blockId, pivot, delta, found.id);
+            if (delta != 0) {
+                for (int j = 0; j < i; ++j) {
+                    Revision &other = revs[j];
+                    if (other.blockId != found.blockId)
+                        continue;
+                    if (other.start >= pivot) {
+                        other.start += delta;
+                        other.end += delta;
+                    } else if (other.end > pivot) {
+                        other.end = pivot;
+                    }
+                }
+            }
         } else if (found.kind == QLatin1String("delete") && !found.text.isEmpty()) {
             QVector<TextRun> restored = found.deletedRuns;
             if (restored.isEmpty()) {
@@ -4764,6 +4834,16 @@ QJsonObject Session::validate(const QJsonObject &)
     for (const auto &bm : doc_.bookmarks) {
         if (!ids.contains(bm.blockId))
             err(QStringLiteral("broken_bookmark"), bm.id, QStringLiteral("bookmark block missing: ") + bm.blockId);
+    }
+    for (const auto &rv : doc_.revisions) {
+        if (rv.kind == QLatin1String("delete")) {
+            if (rv.start != rv.end)
+                err(QStringLiteral("invalid_revision"), rv.id,
+                    QStringLiteral("delete revision must have start == end"));
+        } else if ((rv.kind == QLatin1String("insert") || rv.kind == QLatin1String("format")) && rv.end < rv.start) {
+            err(QStringLiteral("invalid_revision"), rv.id,
+                QStringLiteral("%1 revision has end before start").arg(rv.kind));
+        }
     }
     auto r = ok();
     r[QStringLiteral("valid")] = errors.isEmpty();
