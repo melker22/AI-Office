@@ -22,7 +22,7 @@
 
 **Next suggested step:** Update PR #3 with this commit (no push from this node unless asked).
 
-**Commits:** fix: pin hermetic Nix fonts so CI and local share CTL metrics
+**Commits:** `c9f8f24` fix: pin hermetic Nix fonts so CI and local share CTL metrics
 
 ---
 
