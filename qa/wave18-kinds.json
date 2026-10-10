@@ -1,0 +1,56 @@
+[
+  {"tool": "document_new", "args": {"title": "Wave18 field kinds", "force": true}},
+  {"tool": "document_set_title", "args": {"subject": "Wave18 subject", "keywords": "k1,k2"}},
+  {"tool": "set_vars", "args": {"vars": {"sender.name": "Ada Lovelace", "sender.email": "ada@example.com", "doc.created": "2020-06-15T10:00:00"}}},
+  {"tool": "insert_blocks", "args": {"after_id": "end", "blocks": [
+    {"id": "pf", "type": "paragraph", "runs": [{"text": ""}]},
+    {"id": "figA", "type": "image", "path": "a.png"},
+    {"id": "figB", "type": "image", "path": "b.png"},
+    {"id": "figC", "type": "image", "path": "c.png"},
+    {"id": "px", "type": "paragraph", "runs": [{"text": ""}]}
+  ]}},
+  {"tool": "insert_field", "args": {"id": "pf", "offset": 0, "kind": "doc_info", "arg": "subject"}},
+  {"tool": "insert_field", "args": {"id": "pf", "offset": 0, "kind": "doc_info", "arg": "keywords"}},
+  {"tool": "insert_field", "args": {"id": "pf", "offset": 0, "kind": "doc_info", "arg": "created"}},
+  {"tool": "insert_field", "args": {"id": "pf", "offset": 0, "kind": "stat", "arg": "images"}},
+  {"tool": "insert_field", "args": {"id": "pf", "offset": 0, "kind": "sender", "arg": "name"}},
+  {"tool": "insert_field", "args": {"id": "pf", "offset": 0, "kind": "seq", "arg": "{\"name\":\"Cap\",\"format\":\"alpha\"}"}},
+  {"tool": "insert_field", "args": {"id": "pf", "offset": 0, "kind": "input_list", "arg": "{\"options\":[\"Um\",\"Dois\"],\"selected\":\"Dois\"}"}},
+  {"tool": "document_get", "args": {}, "expect": {
+    "document.meta.subject": "Wave18 subject",
+    "document.meta.keywords": "k1,k2",
+    "document.body.1.runs.0.field": "input_list",
+    "document.body.1.runs.1.field": "seq",
+    "document.body.1.runs.2.field": "sender",
+    "document.body.1.runs.3.field": "stat",
+    "document.body.1.runs.5.field": "doc_info"
+  }},
+  {"tool": "insert_caption", "args": {"id": "figA", "seq": {"name": "Figura"}, "text": "first"}},
+  {"tool": "insert_caption", "args": {"id": "figB", "seq": {"name": "Figura"}, "text": "second"}},
+  {"tool": "insert_caption", "args": {"id": "figC", "seq": {"name": "Figura"}, "text": "third"}},
+  {"tool": "document_get", "args": {}, "expect": {
+    "document.body.2.caption_runs.1.field": "seq",
+    "document.body.3.caption_runs.1.field": "seq",
+    "document.body.4.caption_runs.1.field": "seq"
+  }},
+  {"tool": "insert_crossref", "args": {"id": "px", "offset": 0, "target": "figA", "kind": "category_number"}},
+  {"tool": "insert_crossref", "args": {"id": "px", "offset": 0, "target": "figB", "kind": "category_number"}},
+  {"tool": "insert_crossref", "args": {"id": "px", "offset": 0, "target": "figC", "kind": "category_number"}},
+  {"tool": "document_get", "args": {}, "expect": {
+    "document.body.5.runs.0.text": "3",
+    "document.body.5.runs.1.text": "2",
+    "document.body.5.runs.2.text": "1"
+  }},
+  {"tool": "insert_blocks", "args": {"after_id": "figA", "blocks": [
+    {"id": "figD", "type": "image", "path": "d.png"}
+  ]}},
+  {"tool": "insert_caption", "args": {"id": "figD", "seq": {"name": "Figura"}, "text": "middle"}},
+  {"tool": "insert_crossref", "args": {"id": "px", "offset": 0, "target": "figB", "kind": "category_number"}},
+  {"tool": "insert_crossref", "args": {"id": "px", "offset": 0, "target": "figD", "kind": "category_number"}},
+  {"tool": "document_get", "args": {}, "expect": {
+    "document.body.6.runs.0.text": "2",
+    "document.body.6.runs.1.text": "3"
+  }},
+  {"tool": "page_preview", "args": {"page": 1}},
+  {"tool": "validate", "args": {}, "expect": {"valid": true}}
+]

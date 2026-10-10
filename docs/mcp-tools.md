@@ -298,12 +298,14 @@ Markdown → blocks. Inline: `**bold**`, `*italic*`, `[text](url)`. Nested lists
 
 Hiperlink na seleção (`url`). Marcador nomeado no bloco (`name`, `id` opcional). Referência cruzada (`target` = id de bloco ou bookmark) como campo `xref`.
 
-`insert_crossref` args: `{ "target": string, "kind"?: "text"|"page"|"heading_number"|"above_below"|"category_number"|"footnote_number"|"endnote_number", "id"?, "offset"? }`. `text` (default) insere o texto/legenda do alvo — comportamento de antes. `page` mostra o **número de página vivo** do alvo (recalculado a cada `page_preview`/export; sem layout — ex. round-trip ODT/DOCX — cai de volta no texto do alvo). `heading_number` mostra o número de contorno do heading alvo (`1.2`). `category_number` mostra o ordinal do alvo entre blocos do mesmo tipo (image/table/chart/equation/qr/form). `footnote_number`/`endnote_number` mostram a ordem da nota entre as notas referenciadas. `above_below` é resolvido **uma vez**, no momento do insert (compara a posição do alvo com `id`/caret atual) e vira texto "acima"/"abaixo" fixo — não é um campo vivo (simplificação documentada, `Session::insertCrossref`).
+`insert_crossref` args: `{ "target": string, "kind"?: "text"|"page"|"heading_number"|"above_below"|"category_number"|"footnote_number"|"endnote_number", "id"?, "offset"? }`. `text` (default) insere o texto/legenda do alvo — comportamento de antes. `page` mostra o **número de página vivo** do alvo (recalculado a cada `page_preview`/export; sem layout — ex. round-trip ODT/DOCX — cai de volta no texto do alvo). `heading_number` mostra o número de contorno do heading alvo (`1.2`). `category_number` mostra o número do campo **seq** da legenda numerada do alvo (`insert_caption` com `seq`); se não houver seq, cai no ordinal entre blocos do mesmo tipo (image/table/…). `footnote_number`/`endnote_number` mostram a ordem da nota entre as notas referenciadas. `above_below` é resolvido **uma vez**, no momento do insert (compara a posição do alvo com `id`/caret atual) e vira texto "acima"/"abaixo" fixo — não é um campo vivo (simplificação documentada, `Session::insertCrossref`).
 
 ### `insert_field`
 
-Args: `{ "kind": "page_number"|"page_count"|"date"|"title"|"author"|"xref"|"filename"|"word_count"|"custom"|"merge", "arg"?: string }`  
+Args: `{ "kind": "page_number"|"page_count"|"date"|"title"|"author"|"xref"|"filename"|"word_count"|"custom"|"merge"|"doc_info"|"stat"|"sender"|"seq"|"input_list", "arg"?: string, "xref_kind"?: string }`  
 Insere no caret. `xref`/`custom`/`merge` usam `arg`. Campo `merge` mostra `«arg»` até `mail_merge`. `date` usa `arg` como formato Qt (`dd/MM/yyyy` por omissão; `yyyy-MM-dd hh:mm` para data/hora).
+
+**Onda 18 — tipos novos:** `doc_info` com `arg` = `subject`|`keywords`|`created`|`modified`|`revision` (metadados do documento; `created`/`modified` podem vir de `doc.vars["doc.created"]` / `doc.modified`). `stat` com `arg` = `pages`|`words`|`chars`|`paragraphs`|`tables`|`images` (contagem de blocos visíveis; `pages` usa o layout quando disponível). `sender` com `arg` = `name`|`email`|`company`|`phone` lê `doc.vars["sender.<arg>"]`. `seq` com `arg` JSON `{name, format?}` (`format`: `arabic`|`roman`|`alpha`; contagem por `name` na ordem do documento). `input_list` com `arg` JSON `{options[], selected?}` mostra `selected` ou a primeira opção.
 
 **Fidelidade de round-trip ODT/DOCX (onda 12):** `page_number, page_count, date, title, author, filename, word_count, xref` mapeiam para elementos de campo nativos nos dois formatos e são lidos de volta ao reabrir. `merge, var, custom, input, time, cite` agora também mapeiam para instruções DOCX reais (`MERGEFIELD`, `DOCVARIABLE`, `FILLIN`, `TIME`, instr próprio para `cite`) e são lidos de volta; em ODT continuam via `text:user-field-get` genérico (nome do campo preservado, funcional mas não um elemento ODF dedicado). `chapter` vira `STYLEREF` no DOCX (aproximação — Word não tem equivalente exato).
 
@@ -424,7 +426,7 @@ Clona o corpo por registo, substitui `{{chave}}` e campos `merge`, e insere queb
 
 ### `set_image` / `insert_caption`
 
-Alt, caption, wrap, âncora, `width_mm`, `rotate` (graus), `opacity` (0–1) no bloco imagem (ou caption em tabela).
+Alt, caption, wrap, âncora, `width_mm`, `rotate` (graus), `opacity` (0–1) no bloco imagem (ou caption em tabela). `insert_caption` args: `{ id, text?, seq?: { name, format?: arabic|roman|alpha } }` — com `seq`, grava `caption_runs` (`"<name> "` + campo seq + texto) para numeração viva e xref `category_number`.
 
 ### `undo` / `redo`
 
