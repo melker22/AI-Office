@@ -22,7 +22,7 @@
 
 **Next suggested step:** Fleet integrate with the DOCX/`priorRuns` branch. Interop through LibreOffice is a later node.
 
-**Commits:** pending
+**Commits:** `47ac260` feat: round-trip ODT insert, delete, and format revisions
 
 ---
 
