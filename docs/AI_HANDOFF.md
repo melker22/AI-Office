@@ -23,7 +23,7 @@
 
 **Next suggested step:** Fleet integrate-2 with the ctest/fixtures branch. `t1` had not landed `priorRuns` on the integrate-1 branch; this node added the field so DOCX import can keep a real inner `w:rPr`.
 
-**Commits:**
+**Commits:** `49cad9c` feat: round-trip revision marks through LibreOffice
 
 ---
 
