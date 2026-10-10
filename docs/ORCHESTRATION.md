@@ -32,6 +32,58 @@ cockpit fleet run task --directory "$PWD" --arg task="Adicionar zoom na status b
 cockpit fleet run task --directory "$PWD" --arg task="..." --set 'implement.model=composer-2.5'   # tarefa simples
 ```
 
+## Contrato de executor (obrigatório em toda Fleet)
+
+Origem: na onda 17, (1) um executor caiu por erro de rede e a Fleet o marcou "completed" sem nenhum
+commit, e (2) um nó de integração juntou uma ponta velha do branch de um executor. Nenhum gate pegou
+isso porque o código antigo também passava nos testes. Regras:
+
+1. **Todo nó executor** (implementação, correção, integração) declara `output_contract` com
+   `commit` (sha de 40 hex = `git rev-parse HEAD` após o último commit), `qa_green` (bool) e
+   `summary`, e `success_output: qa_green`. Executor que não submete a saída é cobrado pela Fleet e
+   **falha** depois de 2 turnos corretivos — nunca vira "completed" em silêncio. `qa_green: false`
+   falha o nó com o `blocker` como erro.
+2. **Integração junta o hash, não o branch:** o prompt do nó de integração usa
+   `{{needs.<id>.output.commit}}` (`git merge <sha>`), nunca `{{needs.<id>.branch}}`.
+3. **Todo gate depois de executores verifica a entrega:** `scripts/fleet-verify-merged.sh <n> &&
+   scripts/qa-all.sh …`, com os executores listados **diretamente** em `needs` do gate (para receber
+   `FLEET_NEEDS_<ID>_OUTPUT`). O script falha se um commit reportado não existe, não está no HEAD
+   testado, ou se vieram menos de `<n>` commits.
+4. **Executores dentro de loop** (ex.: `fix-pass`): a verificação vai no `until` do loop
+   (`test … -eq 0 && scripts/fleet-verify-merged.sh 1`), que recebe a saída dos nós do corpo.
+   Nó opcional que pode ser pulado (ex.: adjudicação) também reporta `commit`, mas não entra no
+   mínimo `<n>` — o script verifica todo commit presente.
+
+Esqueleto para nós paralelos isolados:
+
+```yaml
+  t1:
+    workspace: isolated
+    prompt: |
+      … Ao terminar, submeta: commit = `git rev-parse HEAD`; qa_green; summary.
+    success_output: qa_green
+    output_contract:
+      type: object
+      required: [commit, qa_green, summary]
+      properties:
+        commit: { type: string, pattern: "^[0-9a-f]{40}$" }
+        qa_green: { type: boolean }
+        blocker: { type: string }
+        summary: { type: string }
+  integrate-1:
+    needs: [t1, t2]
+    prompt: |
+      git merge {{needs.t1.output.commit}} e {{needs.t2.output.commit}} …
+      Submeta commit = HEAD após o merge, qa_green, summary.
+    success_output: qa_green
+    output_contract: { … mesmo contrato … }
+  build-1:
+    type: gate
+    gate: command
+    needs: [integrate-1, t1, t2]
+    run: scripts/fleet-verify-merged.sh 3 && scripts/qa-all.sh --gui
+```
+
 ## Limites de uso
 
 Ver `cockpit usage --all`. Quando um provedor esgota, **não edite o YAML** — sobrescreva na hora:
