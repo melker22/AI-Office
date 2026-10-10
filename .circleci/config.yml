@@ -90,26 +90,14 @@ jobs:
             - /tmp/ccache
 
       - run:
-          name: Run qa/wave*.json playbooks (headless MCP tool smoke suite)
+          name: CTest playbooks and roundtrip fixtures (headless MCP smoke suite)
           command: |
-            status=0
-            for f in qa/wave*.json; do
-              case "$f" in
-                qa/wave1-foundation.json) continue ;; # template, needs a real path substituted first
-                qa/*.aio.json) continue ;;           # saved documents, not playbooks
-              esac
-              echo "=== $f ==="
-              if ! nix-shell --run "./build/linux/aioffice-cli play $f" > /tmp/last-playbook-output.json; then
-                echo "--- FAILED: $f ---"
-                cat /tmp/last-playbook-output.json
-                status=1
-              fi
-            done
-            exit $status
-
-      - run:
-          name: aioffice-cli tools (sanity check the tool catalog still parses)
-          command: nix-shell --run "./build/linux/aioffice-cli tools" > /tmp/tools.json
+            nix-shell --run "ctest --test-dir build/linux --output-on-failure -L 'playbook|roundtrip'" \
+              > /tmp/last-playbook-output.txt 2>&1 || {
+              echo "--- ctest FAILED ---"
+              tail -n 80 /tmp/last-playbook-output.txt
+              exit 1
+            }
 
       - store_artifacts:
           path: /tmp/last-playbook-output.json

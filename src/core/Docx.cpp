@@ -452,7 +452,7 @@ double mmTwips(int tw) { return tw * 25.4 / 1440.0; }
 
 } // namespace
 
-bool saveDocx(const Document &doc, const QString &path, QString *error)
+bool saveDocx(const Document &doc, const QString &path, QString *error, bool embedJson)
 {
     double wMm = 0, hMm = 0;
     doc.page.pageSizeMm(wMm, hMm);
@@ -630,8 +630,10 @@ bool saveDocx(const Document &doc, const QString &path, QString *error)
             "<Override PartName=\"/word/endnotes.xml\" "
             "ContentType=\"application/vnd.openxmlformats-officedocument.wordprocessingml.endnotes+xml\"/>");
     }
-    extraTypes += QLatin1String(
-        "<Override PartName=\"/word/aioffice.json\" ContentType=\"application/json\"/>");
+    if (embedJson) {
+        extraTypes += QLatin1String(
+            "<Override PartName=\"/word/aioffice.json\" ContentType=\"application/json\"/>");
+    }
 
     const QString contentTypes = QStringLiteral(
         "<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?>"
@@ -720,7 +722,8 @@ bool saveDocx(const Document &doc, const QString &path, QString *error)
     entries.push_back({QStringLiteral("word/document.xml"), documentXml.toUtf8(), false});
     entries.push_back({QStringLiteral("word/styles.xml"), styles.toUtf8(), false});
     entries.push_back({QStringLiteral("word/numbering.xml"), numbering.toUtf8(), false});
-    entries.push_back({QStringLiteral("word/aioffice.json"), QJsonDocument(extra).toJson(QJsonDocument::Compact), false});
+    if (embedJson)
+        entries.push_back({QStringLiteral("word/aioffice.json"), QJsonDocument(extra).toJson(QJsonDocument::Compact), false});
     if (!o.fnIds.isEmpty())
         entries.push_back({QStringLiteral("word/footnotes.xml"), notePart(o.fnIds, QStringLiteral("footnotes")).toUtf8(), false});
     if (!o.enIds.isEmpty())
@@ -1086,6 +1089,7 @@ bool loadDocx(const QByteArray &zipData, Document &doc, QString *error)
                 doc.bookmarks.push_back(bm);
                 pendingBookmarkIdx.push_back(doc.bookmarks.size() - 1);
             } else if (n == QLatin1String("ins") || n == QLatin1String("del")) {
+                doc.trackChanges = true;
                 curRevAuthor = xml.attributes().value(QStringLiteral("w:author")).toString();
                 curRevDate = QDateTime::fromString(xml.attributes().value(QStringLiteral("w:date")).toString(),
                                                     Qt::ISODate)
@@ -1207,10 +1211,21 @@ bool loadDocx(const QByteArray &zipData, Document &doc, QString *error)
                         rv.blockId = QStringLiteral("pending");
                         rv.start = before;
                         rv.end = curLen();
+                        QJsonObject payload;
+                        if (run.bold)
+                            payload[QStringLiteral("bold")] = true;
+                        if (run.italic)
+                            payload[QStringLiteral("italic")] = true;
+                        if (run.underline)
+                            payload[QStringLiteral("underline")] = true;
+                        if (run.strike)
+                            payload[QStringLiteral("strike")] = true;
+                        rv.payload = QString::fromUtf8(QJsonDocument(payload).toJson(QJsonDocument::Compact));
                         if (sawPriorRPr) {
                             priorRun.text = run.text;
                             rv.priorRuns.push_back(priorRun);
                         }
+                        doc.trackChanges = true;
                         doc.revisions.push_back(rv);
                         pendingRevisionIdx.push_back(doc.revisions.size() - 1);
                     }

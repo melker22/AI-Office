@@ -1,0 +1,78 @@
+{
+  "body": [
+    {
+      "block_index": 0,
+      "plain": "AC",
+      "runs": [
+        {"text": "A", "italic": true},
+        {"text": "C"}
+      ]
+    },
+    {
+      "block_index": 1,
+      "plain": "Heo",
+      "runs": [
+        {"text": "He"},
+        {"text": "o"}
+      ]
+    },
+    {
+      "block_index": 2,
+      "plain": "Plain",
+      "runs": [
+        {"text": "P"},
+        {"text": "lain"}
+      ]
+    }
+  ],
+  "revisions": [
+    {
+      "kind": "format",
+      "author": "Ada",
+      "block_index": 0,
+      "start": 0,
+      "end": 1,
+      "payload": "{\"italic\":true}"
+    },
+    {
+      "kind": "delete",
+      "author": "Ada",
+      "block_index": 0,
+      "start": 1,
+      "end": 1,
+      "text": "B",
+      "deleted_runs": [{"text": "B", "bold": true}]
+    },
+    {
+      "kind": "insert",
+      "author": "Ada",
+      "block_index": 0,
+      "start": 1,
+      "end": 2,
+      "text": "C"
+    },
+    {
+      "kind": "delete",
+      "author": "Bob",
+      "block_index": 1,
+      "start": 2,
+      "end": 2,
+      "text": "ll",
+      "deleted_runs": [
+        {"text": "l", "bold": true},
+        {"text": "l"}
+      ]
+    },
+    {
+      "kind": "format",
+      "author": "Cara",
+      "block_index": 2,
+      "start": 0,
+      "end": 1,
+      "payload": "{}"
+    }
+  ],
+  "reject_delete": {"kind": "delete", "author": "Ada", "block_index": 0, "start": 1},
+  "after_reject_plain": ["ABC", "Heo", "Plain"],
+  "accept_all_plain": ["AC", "Heo", "Plain"]
+}
