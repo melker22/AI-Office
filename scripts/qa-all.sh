@@ -1,9 +1,8 @@
 #!/usr/bin/env bash
-# Local mirror of the CircleCI gate: build aioffice-cli and run every
-# qa/wave*.json playbook headlessly. Exit code is the whole contract
-# (used by Cockpit Fleet command gates).
+# Local mirror of the CircleCI gate: build aioffice-cli and run CTest playbooks +
+# roundtrip fixtures. Exit code is the whole contract (Cockpit Fleet command gates).
 #
-#   scripts/qa-all.sh          # cli target + playbooks
+#   scripts/qa-all.sh          # cli target + ctest (playbook|roundtrip)
 #   scripts/qa-all.sh --gui    # also compile the full GUI target
 set -uo pipefail
 cd "$(dirname "$0")/.."
@@ -23,20 +22,7 @@ if [ "$gui" = 1 ]; then
 fi
 
 status=0
-out=$(mktemp)
-for f in qa/wave*.json; do
-  case "$f" in
-    qa/wave1-foundation.json) continue ;;
-    qa/*.aio.json) continue ;;
-  esac
-  if run "./build/linux/aioffice-cli play $f" >"$out" 2>&1; then
-    echo "ok   $f"
-  else
-    echo "FAIL $f"
-    tail -n 40 "$out"
-    status=1
-  fi
-done
-rm -f "$out"
-run "./build/linux/aioffice-cli tools" >/dev/null || { echo "FAIL tools catalog"; status=1; }
+if ! run "ctest --test-dir build/linux --output-on-failure -L 'playbook|roundtrip'"; then
+  status=1
+fi
 exit $status

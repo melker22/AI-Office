@@ -765,6 +765,15 @@ bool loadDocx(const QByteArray &zipData, Document &doc, QString *error)
     QString curRevAuthor;
     qint64 curRevDate = 0;
     int curRevStartOff = -1;
+    int inDelDepth = 0;
+    int inInsDepth = 0;
+    QVector<TextRun> delRunsBuffer;
+    bool inRPrChangePrior = false;
+    TextRun priorFmtRun;
+    bool runHadRPrChange = false;
+    int runStartOff = 0;
+    QString rPrChangeAuthor;
+    qint64 rPrChangeDate = 0;
     auto curLen = [&]() {
         int n = 0;
         for (const auto &r : runs)
@@ -889,21 +898,51 @@ bool loadDocx(const QByteArray &zipData, Document &doc, QString *error)
             } else if (n == QLatin1String("r")) {
                 inR = true;
                 run = TextRun{};
+                runStartOff = curLen();
+                runHadRPrChange = false;
+            } else if (n == QLatin1String("rPrChange")) {
+                inRPrChangePrior = true;
+                priorFmtRun = TextRun{};
+                runHadRPrChange = true;
+                rPrChangeAuthor = xml.attributes().value(QStringLiteral("w:author")).toString();
+                rPrChangeDate = QDateTime::fromString(xml.attributes().value(QStringLiteral("w:date")).toString(),
+                                                       Qt::ISODate)
+                                    .toMSecsSinceEpoch();
             } else if (n == QLatin1String("b") && inR) {
-                run.bold = true;
+                if (inRPrChangePrior)
+                    priorFmtRun.bold = true;
+                else
+                    run.bold = true;
             } else if (n == QLatin1String("i") && inR) {
-                run.italic = true;
+                if (inRPrChangePrior)
+                    priorFmtRun.italic = true;
+                else
+                    run.italic = true;
             } else if (n == QLatin1String("u") && inR) {
-                run.underline = true;
+                if (inRPrChangePrior)
+                    priorFmtRun.underline = true;
+                else
+                    run.underline = true;
             } else if (n == QLatin1String("strike") && inR) {
-                run.strike = true;
+                if (inRPrChangePrior)
+                    priorFmtRun.strike = true;
+                else
+                    run.strike = true;
             } else if (n == QLatin1String("vertAlign") && inR) {
                 const auto v = xml.attributes().value(QStringLiteral("w:val")).toString();
-                run.superscript = (v == QLatin1String("superscript"));
-                run.subscript = (v == QLatin1String("subscript"));
+                if (inRPrChangePrior) {
+                    priorFmtRun.superscript = (v == QLatin1String("superscript"));
+                    priorFmtRun.subscript = (v == QLatin1String("subscript"));
+                } else {
+                    run.superscript = (v == QLatin1String("superscript"));
+                    run.subscript = (v == QLatin1String("subscript"));
+                }
             } else if (n == QLatin1String("highlight") && inR) {
-                run.highlight = QStringLiteral("#FFF59D");
-            } else if ((n == QLatin1String("t") || n == QLatin1String("delText")) && inR) {
+                if (!inRPrChangePrior)
+                    run.highlight = QStringLiteral("#FFF59D");
+            } else if (n == QLatin1String("t") && inR) {
+                run.text += xml.readElementText();
+            } else if (n == QLatin1String("delText") && inR && inDelDepth > 0) {
                 run.text += xml.readElementText();
             } else if (n == QLatin1String("hyperlink")) {
                 const QString anchor = xml.attributes().value(QStringLiteral("w:anchor")).toString();
@@ -921,13 +960,27 @@ bool loadDocx(const QByteArray &zipData, Document &doc, QString *error)
                 bm.offset = curLen();
                 doc.bookmarks.push_back(bm);
                 pendingBookmarkIdx.push_back(doc.bookmarks.size() - 1);
-            } else if (n == QLatin1String("ins") || n == QLatin1String("del")) {
-                curRevKind = n == QLatin1String("ins") ? QStringLiteral("insert") : QStringLiteral("delete");
-                curRevAuthor = xml.attributes().value(QStringLiteral("w:author")).toString();
-                curRevDate = QDateTime::fromString(xml.attributes().value(QStringLiteral("w:date")).toString(),
-                                                    Qt::ISODate)
-                                 .toMSecsSinceEpoch();
-                curRevStartOff = curLen();
+            } else if (n == QLatin1String("ins")) {
+                if (inInsDepth++ == 0) {
+                    curRevKind = QStringLiteral("insert");
+                    curRevAuthor = xml.attributes().value(QStringLiteral("w:author")).toString();
+                    curRevDate = QDateTime::fromString(xml.attributes().value(QStringLiteral("w:date")).toString(),
+                                                        Qt::ISODate)
+                                     .toMSecsSinceEpoch();
+                    curRevStartOff = curLen();
+                }
+                doc.trackChanges = true;
+            } else if (n == QLatin1String("del")) {
+                if (inDelDepth++ == 0) {
+                    curRevKind = QStringLiteral("delete");
+                    curRevAuthor = xml.attributes().value(QStringLiteral("w:author")).toString();
+                    curRevDate = QDateTime::fromString(xml.attributes().value(QStringLiteral("w:date")).toString(),
+                                                        Qt::ISODate)
+                                     .toMSecsSinceEpoch();
+                    curRevStartOff = curLen();
+                    delRunsBuffer.clear();
+                }
+                doc.trackChanges = true;
             } else if (n == QLatin1String("fldSimple")) {
                 TextRun fr;
                 const QString instrRaw = xml.attributes().value(QStringLiteral("w:instr")).toString().trimmed();
@@ -1014,26 +1067,81 @@ bool loadDocx(const QByteArray &zipData, Document &doc, QString *error)
             }
         } else if (xml.isEndElement()) {
             const auto n = xml.name();
-            if (n == QLatin1String("r") && inR) {
+            if (n == QLatin1String("rPrChange")) {
+                inRPrChangePrior = false;
+            } else if (n == QLatin1String("r") && inR) {
                 if (!curLinkHref.isEmpty())
                     run.link = curLinkHref;
-                if (!run.text.isEmpty() || run.bold || run.italic || !run.noteId.isEmpty() || !run.field.isEmpty())
+                const bool hasContent = !run.text.isEmpty() || run.bold || run.italic || !run.noteId.isEmpty()
+                                        || !run.field.isEmpty();
+                if (inDelDepth > 0) {
+                    if (hasContent)
+                        delRunsBuffer.push_back(run);
+                } else if (hasContent) {
                     runs.push_back(run);
+                    if (runHadRPrChange) {
+                        Revision rv;
+                        rv.id = QStringLiteral("rev%1").arg(doc.revisions.size() + 1);
+                        rv.kind = QStringLiteral("format");
+                        rv.author = rPrChangeAuthor;
+                        rv.timestamp = rPrChangeDate;
+                        rv.blockId = QStringLiteral("pending");
+                        rv.start = runStartOff;
+                        rv.end = curLen();
+                        QJsonObject payload;
+                        if (run.bold)
+                            payload[QStringLiteral("bold")] = true;
+                        if (run.italic)
+                            payload[QStringLiteral("italic")] = true;
+                        if (run.underline)
+                            payload[QStringLiteral("underline")] = true;
+                        if (run.strike)
+                            payload[QStringLiteral("strike")] = true;
+                        rv.payload = QString::fromUtf8(QJsonDocument(payload).toJson(QJsonDocument::Compact));
+                        doc.revisions.push_back(rv);
+                        pendingRevisionIdx.push_back(doc.revisions.size() - 1);
+                        doc.trackChanges = true;
+                    }
+                }
                 inR = false;
             } else if (n == QLatin1String("hyperlink")) {
                 curLinkHref.clear();
-            } else if ((n == QLatin1String("ins") || n == QLatin1String("del")) && curRevStartOff >= 0) {
-                Revision rv;
-                rv.id = QStringLiteral("rev%1").arg(doc.revisions.size() + 1);
-                rv.kind = curRevKind;
-                rv.author = curRevAuthor;
-                rv.timestamp = curRevDate;
-                rv.blockId = QStringLiteral("pending");
-                rv.start = curRevStartOff;
-                rv.end = curLen();
-                doc.revisions.push_back(rv);
-                pendingRevisionIdx.push_back(doc.revisions.size() - 1);
-                curRevStartOff = -1;
+            } else if (n == QLatin1String("ins") && inInsDepth > 0) {
+                if (--inInsDepth == 0 && curRevStartOff >= 0) {
+                    Revision rv;
+                    rv.id = QStringLiteral("rev%1").arg(doc.revisions.size() + 1);
+                    rv.kind = QStringLiteral("insert");
+                    rv.author = curRevAuthor;
+                    rv.timestamp = curRevDate;
+                    rv.blockId = QStringLiteral("pending");
+                    rv.start = curRevStartOff;
+                    rv.end = curLen();
+                    QString blockPlain;
+                    for (const auto &rr : runs)
+                        blockPlain += rr.text;
+                    rv.text = blockPlain.mid(rv.start, rv.end - rv.start);
+                    doc.revisions.push_back(rv);
+                    pendingRevisionIdx.push_back(doc.revisions.size() - 1);
+                    curRevStartOff = -1;
+                }
+            } else if (n == QLatin1String("del") && inDelDepth > 0) {
+                if (--inDelDepth == 0 && curRevStartOff >= 0) {
+                    Revision rv;
+                    rv.id = QStringLiteral("rev%1").arg(doc.revisions.size() + 1);
+                    rv.kind = QStringLiteral("delete");
+                    rv.author = curRevAuthor;
+                    rv.timestamp = curRevDate;
+                    rv.blockId = QStringLiteral("pending");
+                    rv.start = curRevStartOff;
+                    rv.end = curRevStartOff;
+                    rv.deletedRuns = delRunsBuffer;
+                    for (const auto &dr : delRunsBuffer)
+                        rv.text += dr.text;
+                    delRunsBuffer.clear();
+                    doc.revisions.push_back(rv);
+                    pendingRevisionIdx.push_back(doc.revisions.size() - 1);
+                    curRevStartOff = -1;
+                }
             } else if (n == QLatin1String("drawing") && !blipRid.isEmpty()) {
                 QString target = rels.value(blipRid);
                 if (target.startsWith(QLatin1String("media/")))

@@ -8,6 +8,24 @@
 
 ---
 
+## 2026-10-09 — Composer — Wave 17 T3: ctest, foreign fixtures, roundtrip QA
+
+**Objective:** D6/D7/D9 — hand-built foreign DOCX/ODT fixtures, `check_roundtrip.py` foreign + fixture modes, CTest labels `playbook`/`roundtrip`, CI and `scripts/qa-all.sh` via ctest.
+
+**Done:**
+- `qa/fixtures/make_fixtures.py` emits minimal DOCX (w:ins, multi-run w:del, w:rPrChange bold→plain, mid-word delete) and ODT (insert/delete/format-change) without `word/aioffice.json`; sidecar `*.revisions.json` expectations drive ctest.
+- `qa/check_roundtrip.py`: `--fixture` (playbook session), `--foreign` (export → strip native JSON → reimport, D6), legacy wave12 dir/align path unchanged.
+- `enable_testing()` + one ctest per `qa/wave*.json` (excludes wave1-foundation and `*.aio.json`); roundtrip tests for fixtures + `roundtrip_foreign_odt_wave17`.
+- `scripts/qa-all.sh` and CircleCI run `ctest -L 'playbook|roundtrip' --output-on-failure` (still supports `--gui`).
+- Minimal `Docx.cpp` foreign import: `w:del` → `deletedRuns` (zero-width), `w:rPrChange` → format revision (payload only; full `priorRuns` remains t1).
+- `scripts/qa-all.sh --gui` green (28 ctests).
+
+**Next suggested step:** Fleet `t4-interop` / complete t1 DOCX export + `priorRuns`; add `--foreign docx` ctest when export path is ready.
+
+**Commits:** `cadb6bc` feat: add ctest roundtrip fixtures and foreign revision QA
+
+---
+
 ## 2026-10-09 — Composer — Wave 17 integrate-1 (t1 DOCX + t2 ODT)
 
 **Objective:** Merge `t1-docx-revisions` and `t2-odt-revisions` into `fleet/wave17-roundtrip-c574277e`; resolve doc conflicts; gate with `scripts/qa-all.sh --gui`.
