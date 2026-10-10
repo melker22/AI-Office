@@ -315,6 +315,9 @@ QJsonArray toolDefinitions()
                               {QStringLiteral("id"), prop(QStringLiteral("string"))},
                               {QStringLiteral("offset"), prop(QStringLiteral("integer"))}},
                   QJsonArray{QStringLiteral("text")}));
+    a.append(tool(QStringLiteral("backspace"),
+                  QStringLiteral("Delete the character before the caret. With track changes on, records a zero-width delete revision."),
+                  {}));
     a.append(tool(QStringLiteral("insert_line_break"),
                   QStringLiteral("Insert a line break (U+000A) at the caret without splitting the block."),
                   QJsonObject{{QStringLiteral("id"), prop(QStringLiteral("string"))},

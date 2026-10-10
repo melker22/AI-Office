@@ -552,23 +552,26 @@ QJsonObject Session::applyCharacterFormat(const QJsonObject &args)
     QVector<TextRun> priorSlices;
     int revStart = start;
     int revEnd = end;
+    QString priorBlockId;
     bool capturedPrior = false;
     for (int i : idx) {
         auto &b = doc_.body[i];
         if (b.runs.isEmpty())
             b.runs.push_back(TextRun{});
         if (doc_.trackChanges && !capturedPrior && b.type != QLatin1String("table")) {
+            int blockLen = 0;
+            for (const auto &r : b.runs)
+                blockLen += r.text.size();
             if (start >= 0 && end >= start) {
-                priorSlices = splitRuns(b.runs, start, end);
-                revStart = start;
-                revEnd = end;
+                revStart = qBound(0, start, blockLen);
+                revEnd = qBound(revStart, end, blockLen);
+                priorSlices = splitRuns(b.runs, revStart, revEnd);
             } else {
                 priorSlices = b.runs;
                 revStart = 0;
-                revEnd = 0;
-                for (const auto &r : b.runs)
-                    revEnd += r.text.size();
+                revEnd = blockLen;
             }
+            priorBlockId = b.id;
             capturedPrior = true;
         }
         if (start >= 0 && end >= start && b.type != QLatin1String("table"))
@@ -589,7 +592,7 @@ QJsonObject Session::applyCharacterFormat(const QJsonObject &args)
         rev.id = QStringLiteral("rev%1").arg(doc_.revisions.size() + 1);
         rev.author = doc_.author.isEmpty() ? QStringLiteral("IA") : doc_.author;
         rev.kind = QStringLiteral("format");
-        rev.blockId = doc_.body[idx.first()].id;
+        rev.blockId = priorBlockId.isEmpty() ? doc_.body[idx.first()].id : priorBlockId;
         rev.start = revStart;
         rev.end = revEnd;
         rev.priorRuns = priorSlices;
@@ -1567,7 +1570,7 @@ QJsonObject Session::insertAtCaret(const QJsonObject &args)
             del.kind = QStringLiteral("delete");
             del.blockId = id;
             del.start = startOff;
-            del.end = endOff;
+            del.end = startOff;
             del.text = replaced;
             del.deletedRuns = splitRuns(*runs, startOff, endOff);
             del.timestamp = QDateTime::currentMSecsSinceEpoch();
@@ -1652,7 +1655,7 @@ bool Session::deleteBackward(const QString &id, int offset, int row, int col)
             rev.kind = QStringLiteral("delete");
             rev.blockId = id;
             rev.start = offset - 1;
-            rev.end = offset;
+            rev.end = offset - 1;
             rev.text = gone;
             rev.deletedRuns = goneRuns;
             rev.timestamp = QDateTime::currentMSecsSinceEpoch();
@@ -2729,7 +2732,7 @@ QJsonObject Session::revisionReject(const QJsonObject &args)
             QVector<TextRun> before = splitRuns(b->runs, 0, found.start);
             QVector<TextRun> after = splitRuns(b->runs, found.start, b->plainText().size());
             b->runs = before + restored + after;
-            delta = found.end - found.start;
+            delta = revisionRunsLen(restored);
             pivot = found.start;
         }
     }
@@ -2790,6 +2793,22 @@ QJsonObject Session::revisionRejectAll(const QJsonObject &)
             QVector<TextRun> before = splitRuns(b->runs, 0, found.start);
             QVector<TextRun> after = splitRuns(b->runs, found.start, b->plainText().size());
             b->runs = before + restored + after;
+            const int delta = revisionRunsLen(restored);
+            const int pivot = found.start;
+            shiftRevisionOffsets(found.blockId, pivot, delta, found.id);
+            if (delta != 0) {
+                for (int j = 0; j < i; ++j) {
+                    Revision &other = revs[j];
+                    if (other.blockId != found.blockId)
+                        continue;
+                    if (other.start >= pivot) {
+                        other.start += delta;
+                        other.end += delta;
+                    } else if (other.end > pivot) {
+                        other.end = pivot;
+                    }
+                }
+            }
         }
     }
     doc_.revisions.clear();
@@ -5070,6 +5089,10 @@ QJsonObject Session::dispatchTool(const QString &tool, const QJsonObject &args)
         return setSelectionTool(args);
     if (tool == QLatin1String("insert_at_caret"))
         return insertAtCaret(args);
+    if (tool == QLatin1String("backspace")) {
+        commitBackspace();
+        return ok();
+    }
     if (tool == QLatin1String("move_blocks"))
         return moveBlocks(args);
     if (tool == QLatin1String("duplicate_blocks"))

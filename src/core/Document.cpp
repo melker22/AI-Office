@@ -259,6 +259,9 @@ Revision Revision::fromJson(const QJsonObject &o)
     // Format `text` is often empty; prior slices carry the range. Drop the field only when it is not objects.
     if (!priorObjects)
         r.priorRuns.clear();
+    // Legacy files stored delete as a range. The canonical point is where the text was (`start`).
+    if (r.kind == QLatin1String("delete") && r.end != r.start)
+        r.end = r.start;
     return r;
 }
 

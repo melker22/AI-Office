@@ -23,29 +23,35 @@ def play(cli, calls):
     fd, name = tempfile.mkstemp(suffix=".json")
     os.close(fd)
     path = Path(name)
-    path.write_text(json.dumps(calls), encoding="utf-8")
-    env = os.environ.copy()
-    env["AIOFFICE_HEADLESS"] = "1"
-    env["QT_QPA_PLATFORM"] = "offscreen"
-    proc = subprocess.run(
-        [cli, "play", str(path)],
-        cwd=ROOT,
-        env=env,
-        capture_output=True,
-        text=True,
-    )
-    path.unlink(missing_ok=True)
-    raw = proc.stdout
-    start = raw.find("{")
-    if proc.returncode != 0 or start < 0:
-        sys.stderr.write(proc.stdout)
-        sys.stderr.write(proc.stderr)
-        raise SystemExit(f"aioffice-cli play failed ({proc.returncode})")
-    data = json.loads(raw[start:])
-    if not data.get("ok"):
-        print(json.dumps(data, indent=2)[:4000])
-        raise SystemExit("aioffice-cli play returned ok:false")
-    return data
+    try:
+        path.write_text(json.dumps(calls), encoding="utf-8")
+        env = os.environ.copy()
+        env["AIOFFICE_HEADLESS"] = "1"
+        env["QT_QPA_PLATFORM"] = "offscreen"
+        try:
+            proc = subprocess.run(
+                [cli, "play", str(path)],
+                cwd=ROOT,
+                env=env,
+                capture_output=True,
+                text=True,
+                timeout=300,
+            )
+        except subprocess.TimeoutExpired as exc:
+            raise SystemExit("aioffice-cli play timed out after 300s") from exc
+        raw = proc.stdout
+        start = raw.find("{")
+        if proc.returncode != 0 or start < 0:
+            sys.stderr.write(proc.stdout)
+            sys.stderr.write(proc.stderr)
+            raise SystemExit(f"aioffice-cli play failed ({proc.returncode})")
+        data = json.loads(raw[start:])
+        if not data.get("ok"):
+            print(json.dumps(data, indent=2)[:4000])
+            raise SystemExit("aioffice-cli play returned ok:false")
+        return data
+    finally:
+        path.unlink(missing_ok=True)
 
 
 def convert(src, outdir, target):

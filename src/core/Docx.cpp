@@ -755,13 +755,18 @@ bool loadDocx(const QByteArray &zipData, Document &doc, QString *error)
     }
     doc = Document::blank();
     doc.body.clear();
+    // D6: a non-empty revisions array in word/aioffice.json is the truth.
+    // Native w:ins / w:del / w:rPrChange must not add a second copy.
+    bool jsonOwnsRevisions = false;
     const auto extraBytes = Zip::file(entries, QStringLiteral("word/aioffice.json"));
     if (!extraBytes.isEmpty()) {
         const auto extra = QJsonDocument::fromJson(extraBytes).object();
         doc.trackChanges = extra.value(QStringLiteral("track_changes")).toBool();
         for (const auto &b : extra.value(QStringLiteral("bookmarks")).toArray())
             doc.bookmarks.push_back(Bookmark::fromJson(b.toObject()));
-        for (const auto &r : extra.value(QStringLiteral("revisions")).toArray())
+        const QJsonArray jsonRevisions = extra.value(QStringLiteral("revisions")).toArray();
+        jsonOwnsRevisions = !jsonRevisions.isEmpty();
+        for (const auto &r : jsonRevisions)
             doc.revisions.push_back(Revision::fromJson(r.toObject()));
     }
     QMap<int, QString> footnoteText;
@@ -1226,8 +1231,10 @@ bool loadDocx(const QByteArray &zipData, Document &doc, QString *error)
                             rv.priorRuns.push_back(priorRun);
                         }
                         doc.trackChanges = true;
-                        doc.revisions.push_back(rv);
-                        pendingRevisionIdx.push_back(doc.revisions.size() - 1);
+                        if (!jsonOwnsRevisions) {
+                            doc.revisions.push_back(rv);
+                            pendingRevisionIdx.push_back(doc.revisions.size() - 1);
+                        }
                     }
                 }
                 inR = false;
@@ -1244,22 +1251,26 @@ bool loadDocx(const QByteArray &zipData, Document &doc, QString *error)
                 rv.start = curRevStartOff;
                 rv.end = curLen();
                 rv.text = plainOf(runs).mid(rv.start, qMax(0, rv.end - rv.start));
-                doc.revisions.push_back(rv);
-                pendingRevisionIdx.push_back(doc.revisions.size() - 1);
+                if (!jsonOwnsRevisions) {
+                    doc.revisions.push_back(rv);
+                    pendingRevisionIdx.push_back(doc.revisions.size() - 1);
+                }
                 curRevStartOff = -1;
             } else if (n == QLatin1String("del") && curRevStartOff >= 0) {
-                Revision rv;
-                rv.id = QStringLiteral("rev%1").arg(doc.revisions.size() + 1);
-                rv.kind = QStringLiteral("delete");
-                rv.author = curRevAuthor;
-                rv.timestamp = curRevDate;
-                rv.blockId = QStringLiteral("pending");
-                rv.start = curRevStartOff;
-                rv.end = curRevStartOff;
-                rv.deletedRuns = delAcc;
-                rv.text = plainOf(delAcc);
-                doc.revisions.push_back(rv);
-                pendingRevisionIdx.push_back(doc.revisions.size() - 1);
+                if (!jsonOwnsRevisions) {
+                    Revision rv;
+                    rv.id = QStringLiteral("rev%1").arg(doc.revisions.size() + 1);
+                    rv.kind = QStringLiteral("delete");
+                    rv.author = curRevAuthor;
+                    rv.timestamp = curRevDate;
+                    rv.blockId = QStringLiteral("pending");
+                    rv.start = curRevStartOff;
+                    rv.end = curRevStartOff;
+                    rv.deletedRuns = delAcc;
+                    rv.text = plainOf(delAcc);
+                    doc.revisions.push_back(rv);
+                    pendingRevisionIdx.push_back(doc.revisions.size() - 1);
+                }
                 inDel = false;
                 delAcc.clear();
                 curRevStartOff = -1;

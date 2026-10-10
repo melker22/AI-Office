@@ -26,12 +26,16 @@ def run_playbook(cli: Path, calls: list[dict]) -> list[dict]:
         json.dump(calls, tf)
         playbook = Path(tf.name)
     try:
-        proc = subprocess.run(
-            [str(cli), "play", str(playbook)],
-            capture_output=True,
-            text=True,
-            cwd=REPO,
-        )
+        try:
+            proc = subprocess.run(
+                [str(cli), "play", str(playbook)],
+                capture_output=True,
+                text=True,
+                cwd=REPO,
+                timeout=300,
+            )
+        except subprocess.TimeoutExpired as exc:
+            raise SystemExit("aioffice-cli timed out after 300s") from exc
         raw = proc.stdout.strip()
         if not raw:
             raise SystemExit(f"play failed: {proc.stderr.strip() or proc.returncode}")

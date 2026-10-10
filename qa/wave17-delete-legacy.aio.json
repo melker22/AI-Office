@@ -1,0 +1,35 @@
+{
+  "schema": 1,
+  "meta": {"title": "Legacy wide delete", "author": "Ada", "track_changes": true},
+  "body": [
+    {
+      "id": "p1",
+      "type": "paragraph",
+      "style": "Normal",
+      "runs": [{"text": "AYZX"}]
+    }
+  ],
+  "revisions": [
+    {
+      "id": "rev-del",
+      "author": "Ada",
+      "kind": "delete",
+      "block_id": "p1",
+      "start": 1,
+      "end": 2,
+      "text": "B",
+      "timestamp": 1700000000000,
+      "deleted_runs": [{"text": "B"}]
+    },
+    {
+      "id": "rev-ins",
+      "author": "Ada",
+      "kind": "insert",
+      "block_id": "p1",
+      "start": 3,
+      "end": 4,
+      "text": "X",
+      "timestamp": 1700000001000
+    }
+  ]
+}

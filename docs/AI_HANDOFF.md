@@ -8,6 +8,27 @@
 
 ---
 
+## 2026-10-10 — Cursor Grok — Wave 17 review: delete point, DOCX JSON precedence
+
+**Objective:** Fix the five CodeRabbit findings on the wave 17 branch. Keep D1 strict (`delete` is `start == end`). Do not touch `src/app/`.
+
+**Done:**
+- `deleteBackward` and selection replacement in `insertAtCaret` record a delete at the point where the text was (`start == end`). `revisionReject` / `revisionRejectAll` shift other revisions by the restored length (`revisionRunsLen`), not `end - start`. `Revision::fromJson` collapses a legacy wide delete to that point so old files still pass `validate`.
+- `loadDocx` skips native `w:ins` / `w:del` / `w:rPrChange` revisions when `word/aioffice.json` has a non-empty `revisions` array. The foreign path (no JSON) is unchanged.
+- `applyCharacterFormat` with track changes stores `blockId` of the non-table block that supplied `priorRuns`, and clamps the range to that block before `splitRuns`.
+- `qa/check_roundtrip.py` and `scripts/qa-interop.py` give `aioffice-cli` `timeout=300` and exit on `TimeoutExpired`. The interop playbook file is removed in a `finally`.
+- D9 in `docs/waves/wave17-roundtrip.md` escapes the `|` in ``playbook\|roundtrip``.
+- New playbook `qa/wave17-delete-point.json` plus `qa/wave17-delete-legacy.aio.json`. The DOCX playbook covers a format change across two runs saved with JSON (exactly one format revision).
+- `scripts/qa-all.sh --gui --interop`: **31/31** ctests passed; LibreOffice docx→odt and odt→docx ok.
+
+**Decisions:** `validate` still rejects an in-memory delete with `start != end`. Load normalizes legacy width, so the old negative expect on `wave17-docx-revisions-invalid.aio.json` now checks the remaining insert/format errors. `backspace` is an MCP tool so a playbook can drive `commitBackspace`.
+
+**Next suggested step:** Human `approve-pr` → open the PR to `main`.
+
+**Commits:** pending
+
+---
+
 ## 2026-10-10 — Fleet wave17 — Composer / Cursor Grok / Grok Build / Sonnet
 
 **Objective:** Close the fleet `review` loop on wave 17 revision round-trip (D1–D10): re-run the real gate, confirm the four prior review findings are fixed, record handoff + catalog.
