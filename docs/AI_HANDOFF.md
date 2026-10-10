@@ -22,7 +22,7 @@
 
 **Next suggested step:** Fleet integrate-2 merges this SHA with the ODT branch. LibreOffice round-trip of these fields is t4.
 
-**Commits:** hash recorded in the follow-up docs commit
+**Commits:** `711f1ff` feat: round-trip DOCX IF, SEQ, stat, and document-info fields
 
 ---
 
