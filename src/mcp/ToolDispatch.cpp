@@ -230,7 +230,7 @@ QJsonArray toolDefinitions()
     a.append(tool(QStringLiteral("caret_geometry"),
                   QStringLiteral("Caret position for a block offset, from the real line layout. Returns page, x_mm, y_mm, line (0-based), rtl."),
                   QJsonObject{{QStringLiteral("id"), prop(QStringLiteral("string"))},
-                              {QStringLiteral("offset"), prop(QStringLiteral("integer"), QStringLiteral("Model offset in the block plain text"))},
+                              {QStringLiteral("offset"), prop(QStringLiteral("integer"), QStringLiteral("Model offset in the block plain text, or in the cell when row and col are set"))},
                               {QStringLiteral("row"), prop(QStringLiteral("integer"), QStringLiteral("Table cell row; omit for body text"))},
                               {QStringLiteral("col"), prop(QStringLiteral("integer"), QStringLiteral("Table cell column"))}},
                   QJsonArray{QStringLiteral("id"), QStringLiteral("offset")}));

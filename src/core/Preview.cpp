@@ -1044,7 +1044,7 @@ CaretRect DocumentLayout::caret(const Document &doc, const QString &id, int offs
                         if (row < block->table.size() && col < block->table[row].size())
                             for (const auto &r : block->table[row][col].runs)
                                 t += r.text;
-                        const qreal frac = t.isEmpty() ? 0 : qreal(offset) / t.size();
+                        const qreal frac = t.isEmpty() ? 0 : qreal(qBound(0, offset, t.size())) / qMax(1, t.size());
                         const qreal x = g.rect.left() + 4 + frac * (g.rect.width() - 8);
                         c.rect = QRectF(x, g.rect.top() + 2, 1.5 * zoom, g.rect.height() - 4);
                         return c;

@@ -322,18 +322,19 @@ QString pPr(const Block &b)
     } else if (b.style == QLatin1String("Quote")) {
         xml += QLatin1String("<w:pStyle w:val=\"Quote\"/>");
     }
-    if (!b.align.isEmpty())
-        xml += QStringLiteral("<w:jc w:val=\"%1\"/>").arg(wAlign(b.align));
-    if (b.dir == QLatin1String("rtl"))
-        xml += QLatin1String("<w:bidi/>");
-    else if (b.dir == QLatin1String("ltr"))
-        xml += QLatin1String("<w:bidi w:val=\"0\"/>");
+    // EG_PPrBase order: pStyle, numPr, bidi, then jc. Strict OOXML rejects any other sequence.
     if (b.type == QLatin1String("list-item")) {
         const int numId = b.listKind == QLatin1String("decimal") ? 1 : 2;
         xml += QStringLiteral("<w:numPr><w:ilvl w:val=\"%1\"/><w:numId w:val=\"%2\"/></w:numPr>")
                    .arg(qMax(0, b.level - 1))
                    .arg(numId);
     }
+    if (b.dir == QLatin1String("rtl"))
+        xml += QLatin1String("<w:bidi/>");
+    else if (b.dir == QLatin1String("ltr"))
+        xml += QLatin1String("<w:bidi w:val=\"0\"/>");
+    if (!b.align.isEmpty())
+        xml += QStringLiteral("<w:jc w:val=\"%1\"/>").arg(wAlign(b.align));
     if (xml.isEmpty())
         return {};
     return QStringLiteral("<w:pPr>%1</w:pPr>").arg(xml);

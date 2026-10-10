@@ -77,6 +77,8 @@ static TextRun runAtOffset(const Block &b, int offset)
     return b.runs.last();
 }
 
+static QString cellPlain(const TableCell &cell);
+
 Session::Session()
 {
     doc_ = Document::blank();
@@ -1136,11 +1138,15 @@ QJsonObject Session::caretGeometry(const QJsonObject &args)
     if (!b)
         return fail(QStringLiteral("unknown block"));
     const int offset = args.value(QStringLiteral("offset")).toInt();
-    const int n = b->plainText().size();
-    if (offset < 0 || offset > n)
-        return fail(QStringLiteral("offset out of range"));
     const int row = args.contains(QStringLiteral("row")) ? args.value(QStringLiteral("row")).toInt() : -1;
     const int col = args.contains(QStringLiteral("col")) ? args.value(QStringLiteral("col")).toInt() : -1;
+    // A table's plainText() joins every cell. With row/col the offset is inside that cell only.
+    int n = b->plainText().size();
+    if (b->type == QLatin1String("table") && row >= 0 && row < b->table.size() && col >= 0
+        && col < b->table[row].size())
+        n = cellPlain(b->table[row][col]).size();
+    if (offset < 0 || offset > n)
+        return fail(QStringLiteral("offset out of range"));
     DocumentLayout lay;
     lay.relayout(doc_, 1.0);
     const CaretRect c = lay.caret(doc_, id, offset, row, col);
