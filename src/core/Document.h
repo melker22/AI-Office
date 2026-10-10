@@ -61,6 +61,7 @@ struct Revision {
     int end = 0;
     QString text;
     QVector<TextRun> deletedRuns; // kind=delete: original run fragments (formatting), for reject-restore
+    QVector<TextRun> priorRuns;   // kind=format: slices of the range before the change (DOCX w:rPr). Empty for ODT.
     QString payload; // format JSON when kind=format
     qint64 timestamp = 0;
 

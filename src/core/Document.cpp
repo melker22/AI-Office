@@ -214,6 +214,12 @@ QJsonObject Revision::toJson() const
             runs.push_back(r.toJson());
         o[QStringLiteral("deleted_runs")] = runs;
     }
+    if (!priorRuns.isEmpty()) {
+        QJsonArray runs;
+        for (const auto &r : priorRuns)
+            runs.push_back(r.toJson());
+        o[QStringLiteral("prior_runs")] = runs;
+    }
     return o;
 }
 
@@ -242,6 +248,17 @@ Revision Revision::fromJson(const QJsonObject &o)
     }
     if (!allObjects || (!r.deletedRuns.isEmpty() && reconstructed != r.text))
         r.deletedRuns.clear();
+    bool priorObjects = true;
+    for (const auto &rr : o.value(QStringLiteral("prior_runs")).toArray()) {
+        if (!rr.isObject()) {
+            priorObjects = false;
+            break;
+        }
+        r.priorRuns.push_back(TextRun::fromJson(rr.toObject()));
+    }
+    // Format `text` is often empty; prior slices carry the range. Drop the field only when it is not objects.
+    if (!priorObjects)
+        r.priorRuns.clear();
     return r;
 }
 
