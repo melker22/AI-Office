@@ -1,6 +1,6 @@
 # Catálogo Writer — ideias do Guide, código nosso
 
-Espelho git do board **Roadmap para Produção** no Notion ([hub](https://app.notion.com/p/3cb46a79156b819daef5ea9d7c41385a)). Sync: **2026-09-14** (Fase IA **onda 15**: tagged PDF de granularidade de parágrafo/heading — o compromisso da onda 13 foi cumprido). Totais: **190 Done**, **11 Partial**, **40 Todo**. Coluna **Fase** = `IA` | `Humano` | `Infra` | `Fora`.
+Espelho git do board **Roadmap para Produção** no Notion ([hub](https://app.notion.com/p/3cb46a79156b819daef5ea9d7c41385a)). Sync: **2026-10-09** (Fase IA **onda 16** em fecho: métricas/caret bidi + `Block.dir`/round-trip; item board **CTL/CJK completo** continua **Partial**). Totais: **190 Done**, **11 Partial**, **40 Todo**. Coluna **Fase** = `IA` | `Humano` | `Infra` | `Fora`.
 
 Fonte citável: The Document Foundation — [LibreOffice Writer Guide 26.2](https://books.libreoffice.org/en/WG262/WG262.html). Atribuição e limites: [`ATTRIBUTION.md`](ATTRIBUTION.md).
 
@@ -140,7 +140,7 @@ Camadas: `JSON+MCP+GUI` · `JSON+MCP` · `só JSON` · `infra`.
 | Índice de ilustrações | Writer | WG 26.2 cap. 15 | JSON+MCP |
 | AutoText, redact, repeat last | Writer | WG 26.2 cap. 2–3 | JSON+MCP |
 | Estatísticas, comparar, a11y | Writer | WG 26.2 cap. 3 | JSON+MCP |
-| Ruby, texto vertical, kashida | Writer | WG 26.2 cap. 4 | JSON+MCP |
+| Ruby (posição por linha real); texto vertical = bloco rodado 90°; kashida = só via `QTextEngine::justify` do Qt (justificação RTL por avanço de espaço/carácter — neste Qt 6.11 não observámos tatweel U+0640; sem código nosso) | Writer | WG 26.2 cap. 4 | JSON+MCP |
 | Tesauro e user.dic | Writer | WG 26.2 cap. 3 | JSON+MCP |
 | Papéis extra (B4/B5/Executive/Folio/Statement) | Writer | WG 26.2 cap. 5 | JSON+MCP |
 | Accept/reject all revisões | Writer | WG 26.2 cap. 3 | JSON+MCP |
@@ -181,7 +181,7 @@ Camadas: `JSON+MCP+GUI` · `JSON+MCP` · `só JSON` · `infra`.
 | Ortografia Hunspell | Writer | WG 26.2 cap. 3 | Build sem Hunspell |
 | PDF/A e PDF etiquetado | Formats | WG 26.2 cap. 7 | Onda 15: tagged PDF de granularidade de **parágrafo/heading** real (`/H1`–`/H6`, `/P`), com `BDC`/`EMC`+`MCID` de verdade e `/ParentTree`, via pós-processador que recupera os limites de bloco do content stream já escrito pelo `QPdfWriter` (`src/core/PdfPostProcess.cpp`) — validado com `qpdf --check`/`--show-object` (não é código nosso). Cobre parágrafo/heading/item de lista; tabelas, imagens, notas de rodapé/fim e TOC ainda caem no fallback de página inteira (`/Part` sem `/K` de conteúdo) — não quebram nada, só não têm granularidade ainda |
 | Citação CSL | Writer | WG 26.2 cap. 15 | Onda 14: formatador real (não genérico) para 4 estilos — APA/ABNT/MLA/Chicago — × 4 tipos de referência (book/article-journal/webpage/chapter), citação in-text e bibliografia com itálico real, `src/core/Csl.cpp`. Falta suporte a arquivo `.csl` arbitrário (processador CSL-XML genérico) — pesquisado antes de começar: não existe biblioteca C/C++ embutível com licença compatível (citeproc-rs é Rust sem FFI-C; citeproc-java é JVM) |
-| CTL/CJK completo | Writer | WG 26.2 cap. 4 | Ruby/vertical/kashida; sem shaping completo |
+| CTL/CJK completo | Writer | WG 26.2 cap. 4 | **Onda 16 entregue:** shaping/bidi/quebra via `QTextLayout` (HarfBuzz); `Block.dir` (`auto`/`ltr`/`rtl`) + `align` lógico (`start`/`end`); um `BlockTextLayout` para pintura, caret, hit-test e ruby; MCP `caret_geometry`, `hit_test`, `caret_move`; hit-test em fronteira bidi (D11); justificação RTL; round-trip DOCX/ODT (`w:bidi`, `w:jc` start/end, ordem `pPr` corrigida); caret em célula de tabela com bound-check no texto da célula; playbooks `qa/wave16-ctl-*` + Noto na CI. **Ainda Partial:** vertical CJK real (tate-chu-yoko — continua rotação 90°); tatweel/kashida como feature explícita; direção por run; teclas visuais/grafema no canvas (Humano) |
 | Tools MCP para cada mutação | MCP | infra | Chrome Humano |
 
 ## Todo (Humano / Infra — IA continua na próxima onda se restar JSON+MCP)
