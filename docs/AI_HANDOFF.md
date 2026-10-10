@@ -25,7 +25,7 @@
 
 **Next suggested step:** Human `approve-pr` → open the PR to `main`.
 
-**Commits:** pending
+**Commits:** `659da86` fix: keep tracked deletes zero-width and trust DOCX JSON revisions
 
 ---
 
