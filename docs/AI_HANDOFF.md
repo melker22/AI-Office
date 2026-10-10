@@ -22,7 +22,7 @@
 
 **Next suggested step:** Fleet review.
 
-**Commits:** HASHPLACEHOLDER fix: justify RTL lines on a width that includes the trailing space
+**Commits:** `8a4a035` fix: justify RTL lines on a width that includes the trailing space
 
 ---
 
