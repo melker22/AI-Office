@@ -158,6 +158,10 @@ def compare_expect(doc: dict, revs: list, expect_path: Path, fixture_path: Path,
         for g, w in zip(got_runs, want_runs):
             if not run_props_match(g, w):
                 raise SystemExit(f"block {bi} run {g!r} != {w!r}")
+        if "hide_if" in want_b and (body[bi].get("hide_if") or "") != want_b.get("hide_if"):
+            raise SystemExit(
+                f"block {bi} hide_if {body[bi].get('hide_if')!r} != {want_b.get('hide_if')!r}"
+            )
 
     want_revs = exp.get("revisions") or []
     if len(revs) != len(want_revs):
