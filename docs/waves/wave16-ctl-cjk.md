@@ -27,6 +27,7 @@
 | D8 | Testes headless: novas tools MCP `caret_geometry {id, offset}` → `{page, x_mm, y_mm, line, rtl}`, `hit_test {page, x_mm, y_mm}` → `{id, offset}` e `caret_move {id, offset, move: left\|right\|next\|prev}` → `{offset}`. `play` ganha operadores em `expect`: `{"$gt"|"$lt"|"$gte"|"$lte"|"$ne": n}` | Sem isso a CI não prova nada sobre geometria; igualdade exata em pixels é frágil |
 | D9 | Fontes de teste determinísticas: `noto-fonts` + `noto-fonts-cjk-sans` no `shell.nix` e `FONTCONFIG_FILE` apontando para elas | Sem fonte árabe/CJK a CI mede glifos `.notdef` e passa por acaso |
 | D10 | O tagging de PDF da onda 15 **não pode regredir**: a ordem de pintura (`orderedBlocksForPage`) e o único `setClipRect` por bloco ficam intactos | `wave15-pdf-tagging.json` é o guarda |
+| D11 | `hitTest` de texto (não células): depois de `xToCursor` dar `o`, se \|`cursorToX(o)` − x\| > ~0,5 px, usar o offset de cursor válido na mesma linha cujo `cursorToX` fica mais perto de x | Numa fronteira bidi um mesmo x corresponde a duas posições lógicas e `xToCursor` escolhe uma |
 
 ## Tarefas e roteamento
 

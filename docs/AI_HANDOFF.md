@@ -8,6 +8,23 @@
 
 ---
 
+## 2026-10-09 — Cursor Grok — Wave 16: bidi hit-test and RTL justify space
+
+**Objective:** Close the two `scripts/qa-all.sh --gui` failures: bidi boundary hit-test (D11) and the short right edge of a justified RTL line. Do not touch `src/app/` or the paint order / one clip per block (D10).
+
+**Done:**
+- `DocumentLayout::hitTest` (text only) keeps `xToCursor`, then if that offset's own caret is more than 0.5 px from the click, uses the grapheme boundary on the same line whose `cursorToX` is closer.
+- Non-final RTL justified lines are shifted with `QTextLine::setPosition` inside `blockTextLayout`, so paint, caret, and hit-test share the offset. D11 is recorded in `docs/waves/wave16-ctl-cjk.md`.
+- `scripts/qa-all.sh --gui` green, including `qa/wave15-pdf-tagging.json`.
+
+**Decisions:** The RTL shortfall is the trailing space. On the playbook line, `line.width() - cursorToX(start)` is 4.000 px (1.058 mm), equal to `horizontalAdvance` of U+0020; LTR justify already reaches page x 189.81. Shifting by that gap puts offset 0 at 189.81 mm. Offset 114 is the caret before that space, so it moves from 20.00 to 21.06; its expect is now `$lte: 21.6`. The right-edge bound `$gte: 189.25` is unchanged.
+
+**Next suggested step:** Fleet review of this diff.
+
+**Commits:** HASHPLACEHOLDER fix: snap bidi hit-test to the caret and hang RTL justify spaces
+
+---
+
 ## 2026-10-09 — Composer — Wave 16 T6 QA playbooks + Noto fonts
 
 **Objective:** Fleet `t6-qa`: deterministic fonts in `shell.nix` (D9) and MCP playbooks for wave 16 ready criteria (D8): caret/CJK/justify/RTL PDF; keep `wave15-pdf-tagging` unchanged.

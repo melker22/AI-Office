@@ -215,6 +215,42 @@ DropCapInfo dropCapInfo(const Document &doc, const Block &b, const QVector<TextR
     return d;
 }
 
+// RTL justify keeps the trailing space's advance inside the measure
+// (QTextEngine::leadingSpaceWidth subtracts it from the extra width)
+// instead of hanging it outside the way LTR justify does. The first glyph
+// then stops short of the right edge by that space. Slide non-final lines
+// so the space falls outside the box and the first glyph meets the edge.
+// Paint, caret, and hit-test all read this same QTextLine position.
+static void hangRtlJustifiedTrailingSpace(QTextLayout &layout)
+{
+    if ((layout.textOption().alignment() & Qt::AlignJustify) == 0)
+        return;
+    if (layout.lineCount() < 2)
+        return;
+    const QString text = layout.text();
+    QFontMetricsF fm(layout.font());
+    const qreal oneSpace = qMax(qreal(1), fm.horizontalAdvance(QLatin1Char(' ')));
+    const int last = layout.lineCount() - 1;
+    for (int i = 0; i < last; ++i) {
+        QTextLine line = layout.lineAt(i);
+        const int from = line.textStart();
+        const int len = line.textLength();
+        if (len <= 0 || from + len > text.size())
+            continue;
+        int trail = 0;
+        while (trail < len && text.at(from + len - 1 - trail).isSpace())
+            ++trail;
+        if (trail == 0)
+            continue;
+        const qreal gap = (line.x() + line.width()) - line.cursorToX(from);
+        // The inset we measured on a justified Arabic line is exactly one
+        // space (4 px). A much larger gap is a different cause; leave it.
+        if (gap <= 0.5 || gap > oneSpace * (trail + 1) + 1.0)
+            continue;
+        line.setPosition(QPointF(line.x() + gap, line.y()));
+    }
+}
+
 qreal layoutLines(QTextLayout &layout, qreal width, qreal dropW, int dropLines)
 {
     layout.beginLayout();
@@ -868,6 +904,39 @@ static BlockTextInput laidTextInput(const DocumentLayout &lay, const LaidBlock &
     return in;
 }
 
+// At a direction boundary one x belongs to two logical offsets and
+// QTextLine::xToCursor picks either. Prefer the offset whose own caret
+// (cursorToX) sits on the clicked x. D11. Cells stay on the linear path.
+static int cursorOnLineAtX(const QTextLayout &layout, const QTextLine &line, qreal x)
+{
+    const int from = line.textStart();
+    const int to = qMin(layout.text().size(), from + line.textLength());
+    int chosen = qBound(from, line.xToCursor(x), to);
+    const qreal chosenX = line.cursorToX(chosen);
+    constexpr qreal kFarPx = 0.5;
+    if (qAbs(chosenX - x) <= kFarPx)
+        return chosen;
+    int best = chosen;
+    qreal bestDist = qAbs(chosenX - x);
+    int p = from;
+    while (p <= to) {
+        if (layout.isValidCursorPosition(p)) {
+            const qreal d = qAbs(line.cursorToX(p) - x);
+            if (d < bestDist) {
+                bestDist = d;
+                best = p;
+            }
+        }
+        if (p >= to)
+            break;
+        const int n = layout.nextCursorPosition(p, QTextLayout::SkipCharacters);
+        if (n <= p)
+            break;
+        p = n > to ? to : n;
+    }
+    return best;
+}
+
 static bool glyphRtl(const QTextLayout &layout, int displayPos)
 {
     const QString t = layout.text();
@@ -935,7 +1004,8 @@ HitResult DocumentLayout::hitTest(const Document &doc, int page, QPointF posInPa
                             break;
                         }
                     }
-                    disp = btl.layout->lineAt(idx).xToCursor(localX);
+                    const QTextLine line = btl.layout->lineAt(idx);
+                    disp = cursorOnLineAtX(*btl.layout, line, localX);
                 }
                 disp = qBound(0, disp, btl.display.size());
                 h.offset = qBound(0, btl.toModel(disp), btl.modelLength);
@@ -1423,6 +1493,8 @@ BlockTextLayout blockTextLayout(const Document &doc, const Block &b, const Block
     }
 
     out.textHeight = layoutLines(*layout, in.width, dc.width, dc.lines);
+    if (resolvedParagraphDirection(b, text) == Qt::RightToLeft)
+        hangRtlJustifiedTrailingSpace(*layout);
     if (in.fragmentHeight >= 0 && layout->lineCount() > 0) {
         const qreal y0 = in.fragmentY0;
         const qreal y1 = y0 + in.fragmentHeight;
