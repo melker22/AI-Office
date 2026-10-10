@@ -11,3 +11,6 @@ e como trocar de executor quando um limite de uso esgota: [`docs/ORCHESTRATION.m
 - Se você é um executor num nó de Fleet: faça **só** a tarefa do seu prompt, siga a spec da onda
   (`docs/waves/`) sem reabrir decisões fechadas, rode `scripts/qa-all.sh` antes de reportar, commit sem push.
 - Decisão arquitetural não prevista na spec → pare e reporte "PRECISA OPUS: ..." em vez de decidir.
+- Em nó de Fleet com `output_contract`, submeta a saída antes de reportar
+  (`cockpit fleet output --json '{"commit":"<git rev-parse HEAD>","qa_green":true,"summary":"..."}'`).
+  `commit` é o HEAD depois do seu último commit; `qa_green` só é true se `scripts/qa-all.sh` passou nele.

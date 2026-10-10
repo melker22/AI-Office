@@ -42,12 +42,25 @@ nodes:
       {{needs.plan.report}}
       Implemente, crie/atualize o playbook indicado, rode `scripts/qa-all.sh --gui` até ficar
       verde. Commit em inglês (feat:/fix:), sem push. Reporte arquivos e decisões.
+      Ao terminar, submeta a saída estruturada: commit = `git rev-parse HEAD` depois do seu
+      último commit; qa_green = true só se `scripts/qa-all.sh --gui` passou nesse commit (se não,
+      false e explique em blocker); summary = 1–3 frases.
+    success_output: qa_green
+    output_contract:
+      type: object
+      required: [commit, qa_green, summary]
+      properties:
+        commit: { type: string, pattern: "^[0-9a-f]{40}$" }
+        qa_green: { type: boolean }
+        blocker: { type: string }
+        summary: { type: string }
 
   qa:
     type: gate
     gate: command
     needs: [implement]
-    run: scripts/qa-all.sh --gui
+    # O commit reportado pelo executor tem de estar no HEAD testado (fleet-verify-merged.sh).
+    run: scripts/fleet-verify-merged.sh 1 && scripts/qa-all.sh --gui
 
   review:
     type: loop
@@ -85,6 +98,17 @@ nodes:
           Findings do revisor: {{needs.review-pass.output.findings}}
           Lista vazia → não altere nada e reporte "nada a corrigir". Senão corrija, rode
           `scripts/qa-all.sh --gui`, commit `fix: ...` em inglês, sem push.
+          Ao terminar, submeta: commit = `git rev-parse HEAD` (mesmo sem mudanças); qa_green = true
+          só se `scripts/qa-all.sh --gui` passou nesse commit; summary = o que corrigiu ou "nada a corrigir".
+        success_output: qa_green
+        output_contract:
+          type: object
+          required: [commit, qa_green, summary]
+          properties:
+            commit: { type: string, pattern: "^[0-9a-f]{40}$" }
+            qa_green: { type: boolean }
+            blocker: { type: string }
+            summary: { type: string }
 
   adjudicate:
     needs: [review]
@@ -110,8 +134,9 @@ nodes:
   qa-final:
     type: gate
     gate: command
-    needs: [adjudicate]
-    run: scripts/qa-all.sh --gui
+    # implement listado explicitamente para o gate receber FLEET_NEEDS_IMPLEMENT_OUTPUT.
+    needs: [adjudicate, implement]
+    run: scripts/fleet-verify-merged.sh 1 && scripts/qa-all.sh --gui
 
   handoff:
     needs: [qa-final]
