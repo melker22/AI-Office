@@ -1,0 +1,64 @@
+[
+  {
+    "tool": "document_new",
+    "args": {
+      "title": "Wave16 CTL CJK",
+      "force": true
+    }
+  },
+  {
+    "tool": "insert_at_caret",
+    "args": {
+      "id": "p1",
+      "offset": 0,
+      "text": "日本語日本語日本語日本語日本語日本語日本語日本語日本語日本語日本語日本語日本語日本語日本語日本語日本語日本語日本語日本語日本語日本語日本語日本語日本語日本語日本語日本語日本語日本語日本語日本語日本語日本語日本語日本語日本語日本語日本語日本語"
+    }
+  },
+  {
+    "tool": "caret_geometry",
+    "args": {
+      "id": "p1",
+      "offset": 0
+    },
+    "expect": {
+      "line": 0
+    }
+  },
+  {
+    "tool": "caret_geometry",
+    "args": {
+      "id": "p1",
+      "offset": 39
+    },
+    "expect": {
+      "line": 0
+    }
+  },
+  {
+    "tool": "caret_geometry",
+    "args": {
+      "id": "p1",
+      "offset": 40
+    },
+    "expect": {
+      "line": 1
+    }
+  },
+  {
+    "tool": "caret_geometry",
+    "args": {
+      "id": "p1",
+      "offset": 80
+    },
+    "expect": {
+      "line": 2
+    }
+  },
+  {
+    "tool": "validate",
+    "args": {},
+    "expect": {
+      "valid": true
+    }
+  }
+]

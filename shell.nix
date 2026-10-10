@@ -31,9 +31,20 @@ pkgs.mkShell {
     ibm-plex
     source-serif
     jetbrains-mono
+    noto-fonts
+    noto-fonts-cjk-sans
   ];
   shellHook = ''
     echo "AI Office dev shell — cmake --preset linux && cmake --build --preset linux" >&2
     export DICPATH="${pkgs.hunspellDicts.pt_BR}/share/hunspell:${pkgs.hunspellDicts.en_US}/share/hunspell''${DICPATH:+:}$DICPATH"
+    export FONTCONFIG_FILE=${pkgs.makeFontsConf {
+      fontDirectories = [
+        "${pkgs.ibm-plex}/share/fonts"
+        "${pkgs.source-serif}/share/fonts"
+        "${pkgs.jetbrains-mono}/share/fonts"
+        "${pkgs.noto-fonts}/share/fonts"
+        "${pkgs.noto-fonts-cjk-sans}/share/fonts"
+      ];
+    }}
   '';
 }

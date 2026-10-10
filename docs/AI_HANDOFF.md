@@ -8,6 +8,23 @@
 
 ---
 
+## 2026-10-09 — Composer — Wave 16 T6 QA playbooks + Noto fonts
+
+**Objective:** Fleet `t6-qa`: deterministic fonts in `shell.nix` (D9) and MCP playbooks for wave 16 ready criteria (D8): caret/CJK/justify/RTL PDF; keep `wave15-pdf-tagging` unchanged.
+
+**Done:**
+- `shell.nix`: `noto-fonts`, `noto-fonts-cjk-sans`, `FONTCONFIG_FILE` via `pkgs.makeFontsConf` (IBM Plex, Source Serif, JetBrains Mono, Noto).
+- Playbooks: `qa/wave16-ctl-caret.json`, `qa/wave16-ctl-cjk.json`, `qa/wave16-ctl-justify.json`, `qa/wave16-ctl-pdf-rtl.json` with `expect` and `$gt`/`$lt`/`$gte`/`$lte`.
+- `scripts/qa-all.sh --gui`: `wave15-pdf-tagging`, CJK, model, roundtrip, PDF RTL pass.
+
+**Decisions:** Did not loosen expects on real failures (per spec).
+
+**Next suggested step:** Fleet `review`: fix `hit_test` at bidi boundary in `abc אבג def` (offset 7 → got 4); justified Arabic first-line span ~168.75 mm vs 170±0.5 mm (offset 0 `x_mm` 188.75, expect ≥189.25).
+
+**Commits:** `5d8476c` test: add wave16 CTL/CJK QA playbooks and Noto fontconfig
+
+---
+
 ## Template (copiar para o topo)
 
 ```
@@ -38,7 +55,7 @@
 
 **Next suggested step:** Fleet `t6-qa` (playbooks caret/CJK + fontes Nix).
 
-**Commits:** (merge commit abaixo)
+**Commits:** `0f10fdc` merge: integrate wave16 t4-wire-rtl and t5-roundtrip
 
 ---
 
