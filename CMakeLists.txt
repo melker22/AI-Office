@@ -181,20 +181,23 @@ endforeach()
 add_test(NAME tools_catalog COMMAND aioffice_cli tools)
 set_tests_properties(tools_catalog PROPERTIES LABELS "playbook" WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}")
 
+# Roundtrip tests run Python; require it at configure time so a missing interpreter
+# fails loudly here instead of as "no such file or directory" inside ctest (CI container).
+find_package(Python3 REQUIRED COMPONENTS Interpreter)
 set(_AIO_PYTHON "${CMAKE_SOURCE_DIR}/qa/check_roundtrip.py")
 file(GLOB _aio_fixtures CONFIGURE_DEPENDS "${CMAKE_SOURCE_DIR}/qa/fixtures/*-foreign.docx" "${CMAKE_SOURCE_DIR}/qa/fixtures/*-foreign.odt")
 foreach(_fx IN LISTS _aio_fixtures)
     get_filename_component(_fx_name "${_fx}" NAME)
     add_test(NAME "roundtrip_${_fx_name}" COMMAND "${CMAKE_COMMAND}" -E env AIOFFICE_HEADLESS=1 QT_QPA_PLATFORM=offscreen
-        python3 "${_AIO_PYTHON}" --cli "${AIOFFICE_CLI}" --fixture "${_fx}")
+        "${Python3_EXECUTABLE}" "${_AIO_PYTHON}" --cli "${AIOFFICE_CLI}" --fixture "${_fx}")
     set_tests_properties("roundtrip_${_fx_name}" PROPERTIES
         LABELS "roundtrip"
         WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}"
     )
 endforeach()
 add_test(NAME roundtrip_foreign_odt_wave17 COMMAND "${CMAKE_COMMAND}" -E env AIOFFICE_HEADLESS=1 QT_QPA_PLATFORM=offscreen
-    python3 "${_AIO_PYTHON}" --cli "${AIOFFICE_CLI}" --foreign "${CMAKE_SOURCE_DIR}/qa/wave17-odt-revisions.aio.json" odt)
+    "${Python3_EXECUTABLE}" "${_AIO_PYTHON}" --cli "${AIOFFICE_CLI}" --foreign "${CMAKE_SOURCE_DIR}/qa/wave17-odt-revisions.aio.json" odt)
 set_tests_properties(roundtrip_foreign_odt_wave17 PROPERTIES LABELS "roundtrip" WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}")
 add_test(NAME roundtrip_foreign_docx_wave17 COMMAND "${CMAKE_COMMAND}" -E env AIOFFICE_HEADLESS=1 QT_QPA_PLATFORM=offscreen
-    python3 "${_AIO_PYTHON}" --cli "${AIOFFICE_CLI}" --foreign "${CMAKE_SOURCE_DIR}/qa/wave17-docx-revisions.aio.json" docx)
+    "${Python3_EXECUTABLE}" "${_AIO_PYTHON}" --cli "${AIOFFICE_CLI}" --foreign "${CMAKE_SOURCE_DIR}/qa/wave17-docx-revisions.aio.json" docx)
 set_tests_properties(roundtrip_foreign_docx_wave17 PROPERTIES LABELS "roundtrip" WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}")
