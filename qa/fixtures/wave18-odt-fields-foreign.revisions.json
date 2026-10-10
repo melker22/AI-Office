@@ -1,0 +1,130 @@
+{
+  "body": [
+    {
+      "block_index": 0,
+      "plain": "YES",
+      "runs": [
+        {
+          "text": "YES",
+          "field": "if",
+          "field_arg": "{\"cond\":\"status == \\\"go\\\"\",\"else\":\"NO\",\"then\":\"YES\"}"
+        }
+      ]
+    },
+    {
+      "block_index": 1,
+      "plain": "1",
+      "runs": [
+        {
+          "text": "1",
+          "field": "seq",
+          "field_arg": "{\"format\":\"arabic\",\"name\":\"Figura\"}"
+        }
+      ]
+    },
+    {
+      "block_index": 2,
+      "plain": "a",
+      "runs": [
+        {
+          "text": "a",
+          "field": "seq",
+          "field_arg": "{\"format\":\"alpha\",\"name\":\"Letra\"}"
+        }
+      ]
+    },
+    {
+      "block_index": 3,
+      "plain": "2",
+      "runs": [{"text": "2", "field": "page_count"}]
+    },
+    {
+      "block_index": 4,
+      "plain": "3",
+      "runs": [{"text": "3", "field": "word_count"}]
+    },
+    {
+      "block_index": 5,
+      "plain": "4",
+      "runs": [{"text": "4", "field": "stat", "field_arg": "chars"}]
+    },
+    {
+      "block_index": 6,
+      "plain": "5",
+      "runs": [{"text": "5", "field": "stat", "field_arg": "paragraphs"}]
+    },
+    {
+      "block_index": 7,
+      "plain": "6",
+      "runs": [{"text": "6", "field": "stat", "field_arg": "tables"}]
+    },
+    {
+      "block_index": 8,
+      "plain": "7",
+      "runs": [{"text": "7", "field": "stat", "field_arg": "images"}]
+    },
+    {
+      "block_index": 9,
+      "plain": "Subj",
+      "runs": [{"text": "Subj", "field": "doc_info", "field_arg": "subject"}]
+    },
+    {
+      "block_index": 10,
+      "plain": "k1",
+      "runs": [{"text": "k1", "field": "doc_info", "field_arg": "keywords"}]
+    },
+    {
+      "block_index": 11,
+      "plain": "2020-01-02T03:04:05",
+      "runs": [{"text": "2020-01-02T03:04:05", "field": "doc_info", "field_arg": "created"}]
+    },
+    {
+      "block_index": 12,
+      "plain": "2021-02-03T04:05:06",
+      "runs": [{"text": "2021-02-03T04:05:06", "field": "doc_info", "field_arg": "modified"}]
+    },
+    {
+      "block_index": 13,
+      "plain": "9",
+      "runs": [{"text": "9", "field": "doc_info", "field_arg": "revision"}]
+    },
+    {
+      "block_index": 14,
+      "plain": "Ada",
+      "runs": [{"text": "Ada", "field": "sender", "field_arg": "name"}]
+    },
+    {
+      "block_index": 15,
+      "plain": "ada@example.com",
+      "runs": [{"text": "ada@example.com", "field": "sender", "field_arg": "email"}]
+    },
+    {
+      "block_index": 16,
+      "plain": "Analytical",
+      "runs": [{"text": "Analytical", "field": "sender", "field_arg": "company"}]
+    },
+    {
+      "block_index": 17,
+      "plain": "555",
+      "runs": [{"text": "555", "field": "sender", "field_arg": "phone"}]
+    },
+    {
+      "block_index": 18,
+      "plain": "Secret",
+      "hide_if": "status == \"go\"",
+      "runs": [{"text": "Secret"}]
+    },
+    {
+      "block_index": 19,
+      "plain": "Dois",
+      "runs": [
+        {
+          "text": "Dois",
+          "field": "input_list",
+          "field_arg": "{\"options\":[\"Um\",\"Dois\"],\"selected\":\"Dois\"}"
+        }
+      ]
+    }
+  ],
+  "revisions": []
+}

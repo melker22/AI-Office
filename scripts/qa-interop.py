@@ -1,9 +1,10 @@
 #!/usr/bin/env python3
-"""LibreOffice round-trip of insert+delete+format revisions (wave 17 D8).
+"""LibreOffice round-trip of revisions (wave 17) and dynamic fields (wave 18 D7).
 
-Exports a document through aioffice-cli, converts docx→odt and odt→docx with
-soffice, reimports the native markup, and compares kind, block, offsets, text
-and author. A format revision that passed through ODT must not carry prior_runs.
+Exports a document through aioffice-cli, converts with soffice, strips embedded
+JSON, and reimports. Revisions compare kind, block, offsets, text, and author.
+Fields compare the ODT resave (D6 elements) plus odt→docx instructions and the
+text that survives docx→odt.
 """
 
 import json
@@ -151,6 +152,289 @@ def check_prior(revs, label):
     return True
 
 
+def plain_of(body):
+    parts = []
+    for block in body:
+        text = "".join((run.get("text") or "") for run in (block.get("runs") or []))
+        hide = block.get("hide_if") or ""
+        if text or hide:
+            parts.append(text)
+    return "\n".join(parts)
+
+
+def load_arg(run):
+    raw = run.get("field_arg") or ""
+    if not raw:
+        return {}
+    try:
+        value = json.loads(raw)
+    except json.JSONDecodeError:
+        return {"_raw": raw}
+    return value if isinstance(value, dict) else {"_raw": raw}
+
+
+def fields_of(body):
+    found = []
+    for index, block in enumerate(body):
+        for run in block.get("runs") or []:
+            if not run.get("field"):
+                continue
+            found.append(
+                {
+                    "index": index,
+                    "field": run.get("field") or "",
+                    "arg": run.get("field_arg") or "",
+                    "obj": load_arg(run),
+                    "text": run.get("text") or "",
+                    "hide": block.get("hide_if") or "",
+                }
+            )
+        if not any(run.get("field") for run in (block.get("runs") or [])) and block.get("hide_if"):
+            found.append(
+                {
+                    "index": index,
+                    "field": "",
+                    "arg": "",
+                    "obj": {},
+                    "text": "".join((run.get("text") or "") for run in (block.get("runs") or [])),
+                    "hide": block.get("hide_if") or "",
+                }
+            )
+    return found
+
+
+def require(ok, label, detail):
+    if ok:
+        return True
+    print(f"FAIL interop {label}: {detail}")
+    return False
+
+
+def build_fields_doc(cli, work: Path):
+    odt = work / "fields.odt"
+    docx = work / "fields.docx"
+    calls = [
+        {"tool": "document_new", "args": {"title": "Wave18 interop fields", "force": True}},
+        {"tool": "document_set_title", "args": {"subject": "Subj", "keywords": "k1,k2"}},
+        {
+            "tool": "set_vars",
+            "args": {
+                "vars": {
+                    "status": "go",
+                    "sender.name": "Ada Lovelace",
+                    "doc.created": "2020-01-02T03:04:05",
+                    "doc.modified": "2021-02-03T04:05:06",
+                }
+            },
+        },
+        {
+            "tool": "insert_blocks",
+            "args": {
+                "after_id": "end",
+                "blocks": [
+                    {"id": "pIf", "type": "paragraph", "runs": [{"text": ""}]},
+                    {"id": "pSeq", "type": "paragraph", "runs": [{"text": ""}]},
+                    {"id": "pPages", "type": "paragraph", "runs": [{"text": ""}]},
+                    {"id": "pChars", "type": "paragraph", "runs": [{"text": ""}]},
+                    {"id": "pSubj", "type": "paragraph", "runs": [{"text": ""}]},
+                    {"id": "pKw", "type": "paragraph", "runs": [{"text": ""}]},
+                    {"id": "pCreated", "type": "paragraph", "runs": [{"text": ""}]},
+                    {"id": "pMod", "type": "paragraph", "runs": [{"text": ""}]},
+                    {"id": "pRev", "type": "paragraph", "runs": [{"text": ""}]},
+                    {"id": "pName", "type": "paragraph", "runs": [{"text": ""}]},
+                    {"id": "pList", "type": "paragraph", "runs": [{"text": ""}]},
+                    {"id": "pHide", "type": "paragraph", "runs": [{"text": "Secret"}]},
+                ],
+            },
+        },
+        {
+            "tool": "insert_field",
+            "args": {
+                "id": "pIf",
+                "offset": 0,
+                "kind": "if",
+                "arg": {"cond": 'status == "go"', "then": "YES", "else": "NO"},
+            },
+        },
+        {
+            "tool": "insert_field",
+            "args": {
+                "id": "pSeq",
+                "offset": 0,
+                "kind": "seq",
+                "arg": '{"name":"Cap","format":"arabic"}',
+            },
+        },
+        {"tool": "insert_field", "args": {"id": "pPages", "offset": 0, "kind": "stat", "arg": "pages"}},
+        {"tool": "insert_field", "args": {"id": "pChars", "offset": 0, "kind": "stat", "arg": "chars"}},
+        {"tool": "insert_field", "args": {"id": "pSubj", "offset": 0, "kind": "doc_info", "arg": "subject"}},
+        {"tool": "insert_field", "args": {"id": "pKw", "offset": 0, "kind": "doc_info", "arg": "keywords"}},
+        {"tool": "insert_field", "args": {"id": "pCreated", "offset": 0, "kind": "doc_info", "arg": "created"}},
+        {"tool": "insert_field", "args": {"id": "pMod", "offset": 0, "kind": "doc_info", "arg": "modified"}},
+        {"tool": "insert_field", "args": {"id": "pRev", "offset": 0, "kind": "doc_info", "arg": "revision"}},
+        {"tool": "insert_field", "args": {"id": "pName", "offset": 0, "kind": "sender", "arg": "name"}},
+        {
+            "tool": "insert_field",
+            "args": {
+                "id": "pList",
+                "offset": 0,
+                "kind": "input_list",
+                "arg": '{"options":["Um","Dois"],"selected":"Dois"}',
+            },
+        },
+        {"tool": "apply_paragraph_format", "args": {"id": "pHide", "hide_if": 'status == "go"'}},
+        {"tool": "document_save", "args": {"path": str(odt)}},
+        {"tool": "document_save", "args": {"path": str(docx)}},
+    ]
+    play(cli, calls)
+    return odt, docx
+
+
+def assert_odt_markup(odt: Path):
+    with zipfile.ZipFile(odt) as zf:
+        xml = zf.read("content.xml").decode("utf-8")
+    needed = [
+        "xmlns:ooow",
+        "<text:conditional-text",
+        "<text:sequence-decls>",
+        '<text:sequence text:name="Cap"',
+        "<text:page-count>",
+        "<text:character-count>",
+        "<text:subject>",
+        "<text:keywords>",
+        "<text:creation-date>",
+        "<text:modification-date>",
+        "<text:editing-cycles>",
+        "<text:sender-firstname>",
+        "<text:hidden-paragraph",
+        "<text:drop-down",
+    ]
+    missing = [tag for tag in needed if tag not in xml]
+    return require(not missing, "odt markup", "missing " + ", ".join(missing))
+
+
+def assert_resaved_fields(body):
+    """LibreOffice writer8 keeps D6 elements. Stat totals are recalculated; dates follow the locale."""
+    ok = True
+    rows = fields_of(body)
+    ifs = [row for row in rows if row["field"] == "if"]
+    ok = require(len(ifs) == 1, "odt resave if", f"count {len(ifs)}") and ok
+    if ifs:
+        obj = ifs[0]["obj"]
+        ok = require(
+            obj.get("cond") == 'status == "go"' and obj.get("then") == "YES" and obj.get("else") == "NO",
+            "odt resave if",
+            json.dumps(obj, ensure_ascii=False),
+        ) and ok
+        ok = require(ifs[0]["text"] == "YES", "odt resave if text", ifs[0]["text"]) and ok
+    seqs = [row for row in rows if row["field"] == "seq"]
+    ok = require(len(seqs) == 1, "odt resave seq", f"count {len(seqs)}") and ok
+    if seqs:
+        obj = seqs[0]["obj"]
+        ok = require(
+            obj.get("name") == "Cap" and obj.get("format") == "arabic" and seqs[0]["text"] == "1",
+            "odt resave seq",
+            json.dumps(seqs[0], ensure_ascii=False),
+        ) and ok
+    chars = [row for row in rows if row["field"] == "stat" and row["arg"] == "chars"]
+    ok = require(len(chars) == 1, "odt resave stat chars", f"count {len(chars)}") and ok
+    pages = [row for row in rows if row["field"] == "page_count"]
+    ok = require(len(pages) == 1, "odt resave stat pages", f"count {len(pages)}") and ok
+    subj = [row for row in rows if row["field"] == "doc_info" and row["arg"] == "subject"]
+    ok = require(len(subj) == 1 and subj[0]["text"] == "Subj", "odt resave subject", str(subj)) and ok
+    names = [row for row in rows if row["field"] == "sender" and row["arg"] == "name"]
+    ok = require(
+        len(names) == 1 and names[0]["text"] == "Ada Lovelace", "odt resave sender", str(names)
+    ) and ok
+    lists = [row for row in rows if row["field"] == "input_list"]
+    ok = require(len(lists) == 1, "odt resave drop-down", f"count {len(lists)}") and ok
+    if lists:
+        obj = lists[0]["obj"]
+        ok = require(
+            obj.get("selected") == "Dois" and obj.get("options") == ["Um", "Dois"],
+            "odt resave drop-down",
+            json.dumps(obj, ensure_ascii=False),
+        ) and ok
+    hidden = [block for block in body if (block.get("hide_if") or "") == 'status == "go"']
+    ok = require(len(hidden) == 1, "odt resave hide_if", f"count {len(hidden)}") and ok
+    if hidden:
+        text = "".join((run.get("text") or "") for run in (hidden[0].get("runs") or []))
+        ok = require(text == "Secret", "odt resave hide text", text) and ok
+    return ok
+
+
+def assert_docx_instructions(docx: Path):
+    with zipfile.ZipFile(docx) as zf:
+        xml = zf.read("word/document.xml").decode("utf-8")
+    needed = [
+        " IF ",
+        " SEQ Cap ",
+        " NUMPAGES ",
+        " NUMCHARS ",
+        " SUBJECT ",
+        " USERNAME ",
+    ]
+    missing = [token for token in needed if token not in xml]
+    return require(not missing, "odt→docx instructions", "missing " + ", ".join(missing))
+
+
+def assert_plain_contains(body, label, needles):
+    plain = plain_of(body)
+    missing = [needle for needle in needles if needle not in plain]
+    return require(not missing, label, f"missing {missing} in {plain!r}")
+
+
+def fields_roundtrip(cli):
+    """D7: if/seq/stat/hide_if through LibreOffice.
+
+    ODT resave keeps the D6 elements. odt→docx is checked on the Word instructions
+    LibreOffice writes and on the evaluated text our importer can see (complex
+    fields are not fldSimple). docx→odt checks the cached text that survives the
+    current DOCX export; native IF/SEQ export is the parallel DOCX task.
+    """
+    work = Path(tempfile.mkdtemp(prefix="aioffice-interop-fields-"))
+    try:
+        odt, docx = build_fields_doc(cli, work)
+        ok = assert_odt_markup(odt)
+        resaved = work / "resaved"
+        to_docx = work / "to-docx"
+        to_odt = work / "to-odt"
+        convert(odt, resaved, "odt")
+        convert(odt, to_docx, "docx")
+        convert(docx, to_odt, "odt")
+        resaved_odt = resaved / "fields.odt"
+        docx_out = to_docx / "fields.docx"
+        odt_out = to_odt / "fields.odt"
+        if not resaved_odt.is_file() or not docx_out.is_file() or not odt_out.is_file():
+            print("FAIL interop fields: soffice did not write a converted file")
+            return 1
+        strip_native_json(resaved_odt)
+        strip_native_json(docx_out)
+        strip_native_json(odt_out)
+        _revs, resaved_body = snapshot(cli, resaved_odt)
+        _revs, docx_body = snapshot(cli, docx_out)
+        _revs, odt_body = snapshot(cli, odt_out)
+        ok = assert_resaved_fields(resaved_body) and ok
+        ok = assert_docx_instructions(docx_out) and ok
+        ok = (
+            assert_plain_contains(
+                docx_body, "odt→docx text", ["YES", "1", "Subj", "Ada Lovelace", "Dois", "Secret"]
+            )
+            and ok
+        )
+        ok = (
+            assert_plain_contains(
+                odt_body, "docx→odt text", ["Subj", "Ada Lovelace", "Dois", "Secret"]
+            )
+            and ok
+        )
+        if ok:
+            print("ok   interop fields odt resave / odt→docx / docx→odt")
+        return 0 if ok else 1
+    finally:
+        shutil.rmtree(work, ignore_errors=True)
+
+
 def snapshot(cli, path):
     data = play(
         cli,
@@ -221,6 +505,7 @@ def main():
                 status = 1
             else:
                 print(f"ok   interop {label}")
+        status = fields_roundtrip(cli) or status
         return status
     finally:
         shutil.rmtree(work, ignore_errors=True)

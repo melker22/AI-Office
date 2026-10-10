@@ -8,6 +8,24 @@
 
 ---
 
+## 2026-10-10 — Cursor Grok — Wave 18 t4: ODT fields
+
+**Objective:** D6 and D7 for ODT only. Export and import conditional text, sequences, statistics, document info, sender, hidden paragraphs, and drop-downs. Foreign ODT fixture plus LibreOffice interop. Do not touch DOCX (`src/core/Docx.cpp` is the parallel task).
+
+**Done:**
+- `src/core/Odf.cpp` writes and reads `text:conditional-text`, `text:sequence` plus `text:sequence-decls`, the six count elements, `text:subject` / `keywords` / `creation-date` / `modification-date` / `editing-cycles`, `text:sender-firstname|email|company|phone-work`, `text:hidden-paragraph`, and `text:drop-down`. Content declares `xmlns:ooow`. Conditions use the LibreOffice formula words (`=`, `AND`, `OR`, `NOT`). User variables and meta subject, keywords, dates, and editing cycles travel with the package.
+- Playbook `qa/wave18-odt-fields.json` saves and reopens an ODT. Foreign fixture `qa/fixtures/wave18-odt-fields-foreign.odt`. `qa/check_roundtrip.py` compares `field`, `field_arg`, and `hide_if`.
+- `scripts/qa-interop.py` resaves that document with LibreOffice and also converts odt→docx and docx→odt.
+- `scripts/qa-all.sh --gui --interop`: 36/36 ctests passed; LibreOffice revision and field interop ok.
+
+**Decisions:** `stat` pages and words share `text:page-count` and `text:word-count` with the wave 12 fields, so a foreign reimport of those two comes back as `page_count` and `word_count`. The other four counts stay `stat`. Sender name is `text:sender-firstname` because ODF has no sender-name. LibreOffice 26.2 keeps the D6 elements on an ODT resave; the docx hop drops the condition operator (it writes `FORMULA`) and does not turn `text:hidden-paragraph` into `w:vanish`. Details in `docs/waves/wave18-fields.md`.
+
+**Next suggested step:** integrate-2 merges this with the DOCX field export. The interop docx→odt check compares surviving text, not a native IF, until that export lands.
+
+**Commits:** this entry's commit — `feat: round-trip wave 18 fields through ODT`
+
+---
+
 ## 2026-10-10 — Cursor Grok — Wave 18 t1: field expressions
 
 **Objective:** D1 + D3. Recursive-descent expression evaluator, `showIf` expressions, `Block.hideIf`, `if` field, `field_evaluate`, and `validate` `invalid_expression`. Do not touch `src/app/`. Leave the other `runDisplayText` field branches for the parallel field-kinds task.
@@ -338,23 +356,5 @@
 **Next suggested step:** Round-trip of `dir` / `align start|end` (T5) and the wave 16 playbooks. A hit on the caret x of offset 4 in `abc אבג def` (the LTR/RTL boundary) came back as offset 7; the other sampled offsets round-tripped. Do not wire `DocumentCanvas` keys in the AI phase.
 
 **Commits:** `e069582` feat: apply paragraph direction, ruby cursors, and caret movement
-
----
-
-## 2026-10-09 — Cursor Grok — Wave 16 layout core (BlockTextLayout, caret, hit-test)
-
-**Objective:** D2+D3+D4 (caret/hit) and D8 tools: one function builds a block's QTextLayout for measurement and painting, caret and hit-test use real line geometry, and MCP exposes `caret_geometry` and `hit_test`. Do not touch `Block.dir` or the paint order / single clip per block (D10).
-
-**Done:**
-- `blockTextLayout` builds display text, formats, `QTextOption`, already-broken lines, and the model ↔ display offset map (soft hyphens, rendered fields, drop-cap skip, and the page-fragment skip of a block split across pages).
-- `measureTextHeight` and `paintPage` both call it. Painting still uses one `setClipRect` per block and `orderedBlocksForPage`.
-- `DocumentLayout::caret` and `hitTest` use `QTextLine::cursorToX` / `xToCursor` for body text. Table cells stay on the previous linear placement.
-- MCP tools `caret_geometry` and `hit_test` follow `{ok:false,error}` and are documented in `docs/mcp-tools.md`.
-
-**Decisions:** The tools lay out at zoom 1 (96 dpi) so `x_mm`/`y_mm` are a shared millimetre space. `rtl` is the glyph run at the caret, not `Block.dir` (that field is a parallel task). A split block is still painted as the full layout clipped by `layoutY0`; `pageSkipModel` records where the visible fragment starts.
-
-**Next suggested step:** Wire `Block.dir` into this layout, then ruby and `caret_move` (T4). Do not change the clip or paint order.
-
-**Commits:** `6a74100` feat: share one block text layout for paint, caret, and hit-test
 
 ---

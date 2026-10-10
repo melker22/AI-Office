@@ -48,6 +48,16 @@
 | `notion-sync` | Sonnet (low) | Board/hub/snapshot do Notion | Baixo | — | handoff |
 | humano `approve-pr` → `open-pr` | Sonnet | push/PR | Baixo | — | notion-sync |
 
+## Limites medidos no LibreOffice 26.2 (D6)
+
+Medido com `soffice` 26.2.1.2 (pt_BR) sobre o ODT que este Writer exporta. Não contradiz o elemento escolhido em D6: o resave writer8 mantém `conditional-text`, `sequence` (nome próprio, não o nome localizado "Figura"), as seis contagens, `subject`/`keywords`/`creation-date`/`modification-date`/`editing-cycles`, `sender-*`, `hidden-paragraph` e `drop-down`. O prefixo `ooow:` só é reconhecido se `xmlns:ooow="http://openoffice.org/2004/writer"` estiver declarado.
+
+- `text:page-count` e `text:word-count` já são `page_count` e `word_count` desde a onda 12. `stat` `pages`/`words` exportam esses mesmos elementos e, na reimportação, voltam como `page_count`/`word_count`. `chars`/`paragraphs`/`tables`/`images` continuam `stat`.
+- ODF não tem `text:sender-name`. `sender` `name` usa `text:sender-firstname`.
+- No resave ODT o LibreOffice recalcula as contagens e formata as datas no locale. O teste de interop compara o tipo do campo, não o número nem a data.
+- odt→docx: o LibreOffice escreve campos complexos (`IF`, `SEQ`, `NUMPAGES`, `NUMWORDS`, `NUMCHARS`, `SUBJECT`, `CREATEDATE`, `SAVEDATE`, `REVNUM`, `USERNAME`). `paragraph-count`/`table-count`/`image-count` e `sender-email`/`company`/`phone` viram texto. `text:hidden-paragraph` não vira `w:vanish`; o parágrafo continua visível. O importador DOCX deste branch ainda não lê `w:fldChar` (D5 é a tarefa paralela), então a reimportação desse docx compara o texto avaliado.
+- docx→odt do export DOCX atual (antes de D5) não reconstrói `IF`/`SEQ`. A ida e volta da condição `=` pelo Word vira o token `FORMULA` mesmo quando o LibreOffice escreveu o `IF`. O teste compara o texto que sobrevive (`Subj`, remetente, lista, parágrafo oculto), não a expressão.
+
 ## Critério de pronto
 
 - `field_evaluate` cobre precedência, comparação número×string e erro (`#ERR` + `validate` com `invalid_expression`).

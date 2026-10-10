@@ -2,6 +2,24 @@
 
 Entradas antigas de `docs/AI_HANDOFF.md` (manter o arquivo vivo com ~20 itens).
 
+## 2026-10-09 — Cursor Grok — Wave 16 layout core (BlockTextLayout, caret, hit-test)
+
+**Objective:** D2+D3+D4 (caret/hit) and D8 tools: one function builds a block's QTextLayout for measurement and painting, caret and hit-test use real line geometry, and MCP exposes `caret_geometry` and `hit_test`. Do not touch `Block.dir` or the paint order / single clip per block (D10).
+
+**Done:**
+- `blockTextLayout` builds display text, formats, `QTextOption`, already-broken lines, and the model ↔ display offset map (soft hyphens, rendered fields, drop-cap skip, and the page-fragment skip of a block split across pages).
+- `measureTextHeight` and `paintPage` both call it. Painting still uses one `setClipRect` per block and `orderedBlocksForPage`.
+- `DocumentLayout::caret` and `hitTest` use `QTextLine::cursorToX` / `xToCursor` for body text. Table cells stay on the previous linear placement.
+- MCP tools `caret_geometry` and `hit_test` follow `{ok:false,error}` and are documented in `docs/mcp-tools.md`.
+
+**Decisions:** The tools lay out at zoom 1 (96 dpi) so `x_mm`/`y_mm` are a shared millimetre space. `rtl` is the glyph run at the caret, not `Block.dir` (that field is a parallel task). A split block is still painted as the full layout clipped by `layoutY0`; `pageSkipModel` records where the visible fragment starts.
+
+**Next suggested step:** Wire `Block.dir` into this layout, then ruby and `caret_move` (T4). Do not change the clip or paint order.
+
+**Commits:** `6a74100` feat: share one block text layout for paint, caret, and hit-test
+
+---
+
 ## 2026-09-14 — Claude — PR #2 CodeRabbit follow-up round 2 (same branch)
 
 **Objective:** Verificar todos os achados do CodeRabbit na PR #2 (2 reviews, 9 comentários) contra o código atual e resolver os 2 que ainda não tinham commit corretivo (achados na review do commit `3b86267`, sem review seguinte).
