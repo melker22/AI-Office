@@ -149,10 +149,24 @@ nodes:
       "{{args.task}}", com os hashes de `git log main..HEAD --oneline`; atualize
       docs/WRITER_FEATURE_CATALOG.md se um item mudou de status. Commit `docs: ...`, sem push.
 
+  notion-sync:
+    needs: [handoff]
+    agent: claude
+    model: claude-sonnet-5
+    effort: low
+    prompt: |
+      Sincronize o Notion com o repositório (regra do projeto: documentação sempre atualizada). Use
+      as tools MCP do Notion; NÃO altere código; NÃO apague nem arquive páginas.
+      Tarefa concluída: "{{args.task}}". Fontes: docs/WRITER_FEATURE_CATALOG.md e topo de
+      docs/AI_HANDOFF.md. Notion: hub page 3cb46a79156b819daef5ea9d7c41385a; board data source
+      collection://f3cc11ed-9e5e-4389-b49a-ca98f98dda62; snapshot page 3cb46a79156b8117a87fc72cd190f8c6.
+      Alinhe ao catálogo as linhas tocadas, atualize o callout "Última sync" do hub e o snapshot.
+      Reporte as linhas alteradas.
+
   approve-pr:
     type: gate
     gate: human
-    needs: [handoff]
+    needs: [notion-sync]
     ask: |
       AI Office — tarefa concluída num branch local da Fleet, QA verde e revisada pelo Sonnet:
       "{{args.task}}". Aprovar = push do branch + PR para main (CI e CodeRabbit rodam no

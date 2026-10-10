@@ -84,6 +84,14 @@ Esqueleto para nós paralelos isolados:
     run: scripts/fleet-verify-merged.sh 3 && scripts/qa-all.sh --gui
 ```
 
+## Notion sempre sincronizado (regra do utilizador)
+
+A documentação no Notion nunca pode ficar atrás do repositório, para outros agentes e serviços não
+lerem informação velha. Toda Fleet tem um nó `notion-sync` (Sonnet, effort low, só tools do Notion,
+sem código) depois do `handoff` e antes da aprovação humana: alinha o board "Roadmap para Produção" ao
+`docs/WRITER_FEATURE_CATALOG.md`, atualiza o callout "Última sync" do hub e o snapshot. Trabalho feito
+fora de Fleet (correções avulsas, merges) também termina com uma sincronização do Notion.
+
 ## Limites de uso
 
 Ver `cockpit usage --all`. Quando um provedor esgota, **não edite o YAML** — sobrescreva na hora:

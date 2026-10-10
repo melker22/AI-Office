@@ -1,0 +1,286 @@
+version: 1
+name: wave18-fields
+description: >
+  Onda 18 — campos dinâmicos e texto condicional. Spec: docs/waves/wave18-fields.md.
+  Primeira Fleet com o contrato de executor (commit/qa_green + fleet-verify-merged.sh) e com
+  sincronização automática do Notion. Ver docs/ORCHESTRATION.md.
+args:
+  opus_audit:
+    default: "false"
+    description: "true = auditoria final do Opus antes do PR"
+defaults:
+  agent: cursor
+  model: composer-2.5
+  approval: full-access
+max_parallel: 2
+nodes:
+  # ── Fase 1: avaliador + condicional (Grok) ∥ tipos de campo (Composer) ──────────
+  t1-expr:
+    title: T1 avaliador + condicional (Cursor Grok 4.7)
+    model: grok-4.7-high
+    workspace: isolated
+    prompt: |
+      Projeto AI Office Writer (C++20/Qt 6). Leia docs/waves/wave18-fields.md (D1, D3, D8 fechadas),
+      docs/ORCHESTRATION.md (contrato de executor) e .cursor/rules/*.mdc. Não toque em src/app/.
+      Em paralelo outra tarefa adiciona os tipos de campo novos (D2/D4) em runDisplayText: mexa nele
+      só no ramo de showIf e no novo ramo `if`.
+      1. D1: src/core/FieldExpr.{h,cpp} (adicione ao CMake): avaliador por descida recursiva conforme a
+         spec; API `FieldExpr::evaluate(const QString &expr, const Document &doc, const FieldContext &ctx)`
+         → {ok, value (QVariant número|string|bool), error}. Sem eval/scripting.
+      2. D3: showIf aceita expressão (nome sozinho mantém a semântica antiga); Block.hideIf (JSON
+         `hide_if`), aplicado no layout/preview/PDF (parágrafo some) e mantido no JSON/busca; campo `if`
+         com arg JSON {cond, then, else}; expressão inválida → `#ERR` e `validate` → invalid_expression.
+      3. Tool MCP `field_evaluate {expr}` → {value, type} ou {ok:false,error}; `hide_if` aceito em
+         apply_paragraph_format; docs/mcp-tools.md.
+      4. Playbook qa/wave18-expr.json com `expect` (precedência, número×string, erro, if then/else
+         mudando com set_vars, hide_if some do page_preview e volta).
+      `scripts/qa-all.sh --gui` verde. Commit em inglês, sem push. Ao terminar, submeta a saída:
+      commit = `git rev-parse HEAD`; qa_green = true só se qa-all passou nesse commit (senão false +
+      blocker); summary.
+    success_output: qa_green
+    output_contract: &executor_contract
+      type: object
+      required: [commit, qa_green, summary]
+      properties:
+        commit: { type: string, pattern: "^[0-9a-f]{40}$" }
+        qa_green: { type: boolean }
+        blocker: { type: string }
+        summary: { type: string }
+
+  t2-kinds:
+    title: T2 tipos de campo + seq/legenda (Composer)
+    workspace: isolated
+    prompt: |
+      Projeto AI Office Writer (C++20/Qt 6). Leia docs/waves/wave18-fields.md (D2, D4, D8) e
+      docs/ORCHESTRATION.md (contrato de executor). Não toque em src/app/ nem no ramo showIf/`if` de
+      runDisplayText (outra tarefa em paralelo).
+      1. D2: tipos doc_info, stat, sender, seq, input_list em runDisplayText + validação de args em
+         Session (insert_field) + schema/descrição em ToolDispatch e docs/mcp-tools.md. `stat` conta
+         blocos visíveis. `seq` conta por nome na ordem do documento, formatos arabic/roman/alpha.
+      2. D4: insert_caption ganha `seq {name}`; insert_crossref kind=category_number resolve o número
+         do seq do alvo.
+      3. Playbook qa/wave18-kinds.json com `expect` para cada tipo; 3 legendas "Figura" numeradas
+         1,2,3; inserir uma no meio renumera; xref category_number acompanha.
+      `scripts/qa-all.sh --gui` verde. Commit em inglês, sem push. Ao terminar, submeta a saída:
+      commit = `git rev-parse HEAD`; qa_green; summary (e blocker se qa_green=false).
+    success_output: qa_green
+    output_contract: *executor_contract
+
+  integrate-1:
+    title: Integrar T1+T2 (Composer)
+    needs: [t1-expr, t2-kinds]
+    prompt: |
+      Neste worktree, faça `git merge {{needs.t1-expr.output.commit}}` e depois
+      `git merge {{needs.t2-kinds.output.commit}}` (os commits EXATOS reportados — não use nomes de
+      branch). Conflito esperado em runDisplayText (Document.cpp), docs/mcp-tools.md e
+      docs/AI_HANDOFF.md: mantenha as duas adições. Rode `scripts/qa-all.sh --gui`; corrija só quebras
+      de merge e commit. Submeta: commit = HEAD após o merge; qa_green; summary.
+    success_output: qa_green
+    output_contract: *executor_contract
+
+  build-1:
+    type: gate
+    gate: command
+    needs: [integrate-1, t1-expr, t2-kinds]
+    run: scripts/fleet-verify-merged.sh 3 && scripts/qa-all.sh --gui
+
+  # ── Fase 2: DOCX (Grok) ∥ ODT + interop (Grok) ─────────────────────────────────
+  t3-docx:
+    title: T3 round-trip DOCX dos campos (Cursor Grok 4.7)
+    needs: [build-1]
+    model: grok-4.7-high
+    workspace: isolated
+    prompt: |
+      Projeto AI Office Writer. Leia docs/waves/wave18-fields.md (D5, D7, D8) e
+      docs/ORCHESTRATION.md. Só src/core/Docx.cpp, qa/ e docs/ (outra tarefa faz o ODT em paralelo).
+      1. D5 export/import DOCX de if (IF real quando é uma comparação; senão resultado como texto),
+         seq (SEQ), stat (NUMPAGES/NUMWORDS/NUMCHARS), doc_info (DOCPROPERTY/CREATEDATE/SAVEDATE/REVNUM),
+         hideIf (w:vanish no parágrafo quando a condição é verdadeira no export).
+      2. D7: fixture estrangeira DOCX em qa/fixtures (estenda qa/fixtures/make_fixtures.py) com IF,
+         SEQ e NUMPAGES + `.revisions.json`-style de expectativa (ou um .fields.json equivalente),
+         teste ctest roundtrip; caminho estrangeiro (sem word/aioffice.json) do nosso export.
+      `scripts/qa-all.sh --gui` verde. Commit em inglês, sem push. Submeta commit/qa_green/summary.
+    success_output: qa_green
+    output_contract: *executor_contract
+
+  t4-odt:
+    title: T4 round-trip ODT dos campos + interop (Cursor Grok 4.7)
+    needs: [build-1]
+    model: grok-4.7-high
+    workspace: isolated
+    prompt: |
+      Projeto AI Office Writer. Leia docs/waves/wave18-fields.md (D6, D7, D8) e
+      docs/ORCHESTRATION.md. Só src/core/Odf.cpp, scripts/qa-interop.py, qa/ e docs/ (outra tarefa
+      faz o DOCX em paralelo).
+      1. D6 export/import ODT: conditional-text, sequence (+ sequence-decls), page/word/character/
+         paragraph/table/image-count, subject/keywords/creation-date/modification-date/editing-cycles,
+         sender-*, hidden-paragraph com condição, drop-down.
+      2. D7: fixture estrangeira ODT + teste ctest roundtrip; estenda scripts/qa-interop.py para levar
+         um documento com if/seq/stat/hide_if pelo LibreOffice (odt→docx e docx→odt) e comparar os
+         campos reimportados (ou o texto avaliado, quando a spec diz exportado-como-texto).
+      `scripts/qa-all.sh --gui --interop` verde. Se o LibreOffice real contrariar uma decisão,
+      PARE e reporte "PRECISA OPUS: ..." com evidência. Commit em inglês, sem push.
+      Submeta commit/qa_green/summary.
+    success_output: qa_green
+    output_contract: *executor_contract
+
+  integrate-2:
+    title: Integrar T3+T4 (Composer)
+    needs: [t3-docx, t4-odt]
+    prompt: |
+      Neste worktree, `git merge {{needs.t3-docx.output.commit}}` e
+      `git merge {{needs.t4-odt.output.commit}}` (commits exatos). Conflitos esperados em
+      qa/fixtures/make_fixtures.py, CMakeLists.txt (testes) e docs: mantenha tudo. Rode
+      `scripts/qa-all.sh --gui --interop`; corrija só quebras de merge e commit.
+      Submeta commit/qa_green/summary.
+    success_output: qa_green
+    output_contract: *executor_contract
+
+  qa-full:
+    type: gate
+    gate: command
+    needs: [integrate-2, t3-docx, t4-odt]
+    run: scripts/fleet-verify-merged.sh 3 && scripts/qa-all.sh --gui --interop
+
+  # ── Fase 3: revisão Sonnet + correção Grok Build ─────────────────────────────
+  review:
+    type: loop
+    needs: [qa-full]
+    max_iterations: 3
+    on_exhausted: review-adjudication
+    until:
+      # Encerra só com 0 findings E com o commit do fix-pass presente no HEAD.
+      run: test "{{needs.review-pass.output.issues}}" -eq 0 && scripts/fleet-verify-merged.sh 1
+    nodes:
+      review-pass:
+        agent: claude
+        model: claude-sonnet-5
+        effort: high
+        session: continue
+        prompt: |
+          Você é o Tech Lead. Revise `git diff main...HEAD` contra docs/waves/wave18-fields.md: D1–D8
+          (especialmente: avaliador sem eval e com erros tratados; showIf compatível; hideIf fora do
+          layout/PDF/stat; seq renumera; mapeamentos DOCX/ODT corretos ou documentados como texto),
+          critério de pronto coberto por testes com expect real, regressões das ondas 12/14–17.
+          Rode `scripts/qa-all.sh --gui --interop`. Não corrija nada. Só defeitos reais. Submeta
+          issues e findings ("arquivo:linha — defeito — correção sugerida").
+        followup_prompt: |
+          Houve correção. Revise de novo `git diff main...HEAD`, rode
+          `scripts/qa-all.sh --gui --interop` e submeta só os findings que continuam ou surgiram.
+        output_contract:
+          type: object
+          required: [issues, findings]
+          properties:
+            issues: { type: integer, minimum: 0 }
+            findings: { type: array, items: { type: string } }
+      fix-pass:
+        needs: [review-pass]
+        agent: grok
+        model: grok-4.7
+        effort: high
+        prompt: |
+          Projeto AI Office Writer (spec: docs/waves/wave18-fields.md). Findings do revisor:
+          {{needs.review-pass.output.findings}}
+          Lista vazia → não altere nada. Senão corrija, rode `scripts/qa-all.sh --gui --interop` e
+          commit `fix: ...` em inglês, sem push. Submeta: commit = `git rev-parse HEAD` (mesmo sem
+          mudanças); qa_green; summary.
+        success_output: qa_green
+        output_contract: *executor_contract
+
+  review-adjudication:
+    title: Adjudicação final (Sonnet)
+    needs: [review]
+    agent: claude
+    model: claude-sonnet-5
+    effort: high
+    prompt: |
+      Três passadas não zeraram os findings. Descarte os que não são defeitos (com motivo), faça UMA
+      correção direta dos reais (com commit), rode `scripts/qa-all.sh --gui --interop` e pare. Nunca
+      pergunte a um humano. Submeta também commit = `git rev-parse HEAD`.
+    output_contract:
+      type: object
+      required: [verdict, accepted, dismissed, commit]
+      properties:
+        verdict: { type: string, enum: [resolved, failed] }
+        accepted: { type: array, items: { type: string } }
+        dismissed: { type: array, items: { type: string } }
+        commit: { type: string, pattern: "^[0-9a-f]{40}$" }
+
+  opus-audit:
+    title: Auditoria Opus (opcional)
+    needs: [review-adjudication]
+    enabled: "{{args.opus_audit}}"
+    agent: claude
+    model: claude-opus-5-5
+    effort: high
+    prompt: |
+      Auditoria final de `git diff main...HEAD` contra docs/waves/wave18-fields.md (foco: avaliador
+      de expressões e mapeamentos de formato). Corrija só o crítico, commit, reporte em 10 linhas.
+
+  qa-final:
+    type: gate
+    gate: command
+    # integrate-2 listado para o gate receber o commit de referência do branch final.
+    needs: [opus-audit, integrate-2]
+    run: scripts/fleet-verify-merged.sh 1 && scripts/qa-all.sh --gui --interop
+
+  handoff:
+    title: Handoff + catálogo (Composer)
+    needs: [qa-final]
+    prompt: |
+      Atualize só estes arquivos e faça commit `docs: ...` em inglês, sem push:
+      - docs/AI_HANDOFF.md: entrada nova no topo (formato do template; modelo "Fleet wave18 —
+        Composer/Cursor Grok/Grok Build/Sonnet"), com o resultado REAL de
+        `scripts/qa-all.sh --gui --interop` (rode-o) e `git log main..HEAD --oneline`. Não cite o hash
+        do próprio commit de docs.
+      - docs/WRITER_FEATURE_CATALOG.md: "Campos dinâmicos", "Texto condicional", "Legenda de figura"
+        e linhas afins conforme o que foi entregue e o que falta de verdade.
+      Submeta commit/qa_green/summary.
+      Resumo da revisão: {{needs.review.report}}
+    success_output: qa_green
+    output_contract: *executor_contract
+
+  notion-sync:
+    title: Sincronizar Notion (Sonnet)
+    needs: [handoff]
+    agent: claude
+    model: claude-sonnet-5
+    effort: low
+    prompt: |
+      Sincronize o Notion com o repositório (regra do projeto: documentação sempre atualizada). Use
+      as tools MCP do Notion; NÃO altere código; NÃO apague nem arquive páginas.
+      Fontes: docs/WRITER_FEATURE_CATALOG.md, topo de docs/AI_HANDOFF.md, docs/waves/wave18-fields.md.
+      Notion: hub page 3cb46a79156b819daef5ea9d7c41385a; board "Roadmap para Produção" data source
+      collection://f3cc11ed-9e5e-4389-b49a-ca98f98dda62 (Name, Status, Fase, Area, Camada, Fonte,
+      Production Action); snapshot page 3cb46a79156b8117a87fc72cd190f8c6.
+      1. Alinhe ao catálogo as linhas tocadas pela onda 18 (Campos dinâmicos, Texto condicional,
+         Legenda de figura, Xref a heading/lista/legenda e novas linhas para os tipos de campo).
+      2. Hub: callout "Última sync" com a data de hoje e a onda 18 (branch/PR em andamento).
+      3. Snapshot: resumo do topo atual de docs/AI_HANDOFF.md.
+      Reporte as linhas alteradas e a contagem Fase×Status depois.
+
+  approve-pr:
+    type: gate
+    gate: human
+    needs: [notion-sync]
+    ask: |
+      Onda 18 (campos dinâmicos e texto condicional: avaliador de expressões próprio, campo if,
+      hide_if de parágrafo, doc_info/stat/sender/seq/input_list, legendas numeradas, round-trip
+      DOCX/ODT e LibreOffice) está pronta num branch local da Fleet: scripts/qa-all.sh --gui --interop
+      verde no branch final, revisão Sonnet concluída e Notion já sincronizado.
+      Aprovar = push do branch e PR para main (CI e CodeRabbit rodam no GitHub).
+      Rejeitar = nada sai da máquina.
+
+  open-pr:
+    title: Push + PR (Sonnet)
+    needs: [approve-pr]
+    when: "needs.approve-pr.approved"
+    agent: claude
+    model: claude-sonnet-5
+    effort: medium
+    prompt: |
+      Push deste branch para origin (nunca main) e PR para `main` em melker22/AI-Office via tool MCP
+      do GitHub (`gh` não está instalado). Título em inglês
+      `feat: wave 18 — dynamic fields, expressions, and conditional text`. Corpo: resumo de
+      docs/waves/wave18-fields.md, test plan e o handoff: {{needs.handoff.report}}
+      Não reescreva commits já criados. Reporte a URL.
