@@ -23,7 +23,7 @@
 
 **Next suggested step:** Human `approve-pr` → open the PR to `main`.
 
-**Commits:** pending
+**Commits:** `a7b199d` fix: restore every formatted block and a delete inside an insert
 
 ---
 
