@@ -24,7 +24,7 @@
 
 **Next suggested step:** Fleet integrate-1 merges this with the field-kinds branch (`if` is the only new `runDisplayText` arm here).
 
-**Commits:** hash recorded after the commit
+**Commits:** `7848309` feat: evaluate field expressions for conditional text
 
 ---
 
