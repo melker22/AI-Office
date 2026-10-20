@@ -5,7 +5,7 @@
 > verificável para a onda N+1. **Só entra lição com evidência** (thread de review, commit ou incidente).
 > O checklist curto que executores e revisores aplicam está em `.cursor/rules/lessons.mdc`.
 
-Última PR processada: **#6** (onda 18; lições semeadas manualmente pelo arquiteto a partir dos PRs #2–#6).
+Última PR processada: **#5** (lições semeadas manualmente pelo arquiteto a partir dos PRs #2–#6; o PR #6 será reprocessado pelo nó `lessons` da onda 19 para incluir a 2ª rodada do CodeRabbit).
 
 Formato: `L<n> — regra` · onde falhou (evidência) · ocorrências.
 
