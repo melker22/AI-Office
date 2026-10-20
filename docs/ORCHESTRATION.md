@@ -54,6 +54,12 @@ isso porque o código antigo também passava nos testes. Regras:
    Nó opcional que pode ser pulado (ex.: adjudicação) também reporta `commit`, mas não entra no
    mínimo `<n>` — o script verifica todo commit presente.
 
+5. **Nós isolados de fases posteriores** (ex.: `t3`/`t4` depois de `integrate-1`) nascem no commit
+   base da Run, não no branch já integrado. O prompt deles começa com
+   `git merge {{needs.integrate-1.output.commit}}` (e o nó lista `integrate-1` em `needs`), para
+   trabalharem sobre o código integrado e reportarem um commit que já o contém. Origem: onda 18, em que
+   T3/T4 só perceberam por conta própria que estavam sem os tipos de campo da fase 1.
+
 Esqueleto para nós paralelos isolados:
 
 ```yaml
