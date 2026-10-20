@@ -8,6 +8,26 @@
 
 ---
 
+## 2026-10-20 — Composer 2.5 — Wave 19 t3 PDF QA (D1)
+
+**Objective:** Fleet `t3-pdf-qa`: veraPDF/qpdf/pdffonts in Nix, `qa/check_pdf.py`, ctest label `pdf`, `--pdf` in `qa-all.sh`, CI label, wave19 playbooks + `.pdf.json` expectations. No `src/`. No push.
+
+**Done:**
+- `shell.nix`: `verapdf`, `qpdf`, `poppler_utils` (flake.lock pin).
+- `qa/check_pdf.py`: playbook export, veraPDF flavours, qpdf struct checks, pdffonts, `.pdf.json` schema, `--self-test`, subprocess timeouts.
+- Playbooks `qa/wave19-pdf-{pdfa,ua,reading-order,fonts-ar-cjk,watermark-pdfa}.json` + expectations; `wave19-pdf-reading-order.aio.json`; fixture `qa/fixtures/wave19-dot.png`.
+- CMake: exclude `wave19-pdf-*` from plain playbooks; `pdf_*` tests + `pdf_check_selftest` (playbook label).
+- `scripts/qa-all.sh --pdf`; CircleCI `playbook|roundtrip|pdf`.
+- Doc: `docs/waves/wave19-pdf-qa.md`.
+
+**Decisions:** PDF ctests fail until T1/T2/T4; node `qa_green` = `scripts/qa-all.sh --gui` only. CI already runs `pdf` label (red until compliance node).
+
+**Next suggested step:** Fleet `t1-tagging` + `t2-metadata`, then `integrate-1` / `t4-compliance`.
+
+**Commits:** `fd5b6db` feat: add wave 19 PDF compliance QA harness (veraPDF, qpdf, pdffonts)
+
+---
+
 ## 2026-10-20 — Cursor Grok 4.7 — DOCX conditional type and occurrence
 
 **Objective:** CodeRabbit major on PR #6: `rememberConditionals` / `applyFieldConditionals` matched only the block-text fingerprint and took the first candidate from `boundCi+1`. A TOC entry with the same text as a heading, or an earlier copy of the same paragraph, received `hide_if` / `if`. Do not touch `src/app/` or `.cockpit/`. No push.
