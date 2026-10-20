@@ -57,4 +57,9 @@ struct PdfTaggedBlock {
 bool pdfPostProcessTagStructure(const QString &path, const QVector<QVector<PdfTaggedBlock>> &perPageBlocks,
                                  QString *error);
 
+// PDF/UA DisplayDocTitle is applied in post-processing (wave 19 T1). T2 sets the flag before calling
+// pdfPostProcessAddExtras when `ua` is requested on export.
+void pdfPostProcessSetDisplayDocTitle(bool enable);
+bool pdfPostProcessPendingDisplayDocTitle();
+
 } // namespace aioffice

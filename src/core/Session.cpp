@@ -399,15 +399,38 @@ QJsonObject Session::exportPdf(const QJsonObject &args)
     QString nativeErr;
     const bool pdfa = args.value(QStringLiteral("pdfa")).toBool()
         || args.value(QStringLiteral("pdf_a")).toBool();
+    const bool ua = args.value(QStringLiteral("ua")).toBool();
+    QStringList missingAlt;
+    for (const auto &b : doc_.body) {
+        if (b.type == QLatin1String("image") && b.altText.trimmed().isEmpty())
+            missingAlt.append(b.id);
+    }
+    if (ua && !missingAlt.isEmpty()) {
+        return fail(QStringLiteral("PDF/UA export requires alt text on all images (missing: %1)")
+                        .arg(missingAlt.join(QStringLiteral(", "))));
+    }
+    QStringList warnings;
     if (exportNativePdf(doc_, pdf, &nativeErr, pdfa,
                         args.value(QStringLiteral("from")).toInt(),
                         args.value(QStringLiteral("to")).toInt(),
                         args.value(QStringLiteral("booklet")).toBool() || doc_.page.booklet,
                         qMax(1, args.value(QStringLiteral("copies")).toInt(1)),
-                        args.value(QStringLiteral("comments")).toBool())) {
+                        args.value(QStringLiteral("comments")).toBool(), ua, &warnings)) {
+        if (!ua) {
+            for (const auto &id : missingAlt)
+                warnings.append(QStringLiteral("PDF export: image %1 has no alt text").arg(id));
+        }
         auto r = ok();
         if (pdfa)
             r[QStringLiteral("pdfa")] = true;
+        if (ua)
+            r[QStringLiteral("ua")] = true;
+        if (!warnings.isEmpty()) {
+            QJsonArray wa;
+            for (const auto &w : warnings)
+                wa.append(w);
+            r[QStringLiteral("warnings")] = wa;
+        }
         return r;
     }
     QTemporaryDir tmp;

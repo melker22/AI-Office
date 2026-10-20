@@ -8,6 +8,22 @@
 
 ---
 
+## 2026-10-20 — Fleet wave19 t2-metadata — Composer 2.5
+
+**Objective:** Wave 19 D2/D3/D7: custom PDF XMP on every export, PDF/A transparency flattening with `warnings[]`, `document_export_pdf {ua}` MCP arg, playbook `qa/wave19-metadata.json`. No `PdfPostProcess.cpp` or `paintPage` edits.
+
+**Done:**
+- `exportNativePdf`: `QPdfWriter::setDocumentXmpMetadata` (dc/pdf/xmp, `pdfaid` when `pdfa`, `pdfuaid` + PDF/A extension schema when `ua`+`pdfa`; no `pdf:Trapped`); PDF/A paints via document copy + opaque watermark overlay; `pdfPostProcessSetDisplayDocTitle(ua)` for T1 post-process.
+- `Session::exportPdf`: `ua` validation (missing image alt → error); non-UA missing alt → `warnings[]`; returns `pdfa`/`ua` flags.
+- MCP schema + `docs/mcp-tools.md`; playbook covers flatten warnings and UA alt error.
+- `scripts/qa-all.sh --gui`: **43/43** ctest passed.
+
+**Next suggested step:** Fleet integrate-1 merges T1/T2/T3; T1 consumes `pdfPostProcessPendingDisplayDocTitle()`.
+
+**Commits:** _(see commit below)_
+
+---
+
 ## 2026-10-20 — Cursor Grok 4.7 — DOCX conditional type and occurrence
 
 **Objective:** CodeRabbit major on PR #6: `rememberConditionals` / `applyFieldConditionals` matched only the block-text fingerprint and took the first candidate from `boundCi+1`. A TOC entry with the same text as a heading, or an earlier copy of the same paragraph, received `hide_if` / `if`. Do not touch `src/app/` or `.cockpit/`. No push.

@@ -56,14 +56,15 @@ QJsonArray toolDefinitions()
                   QStringLiteral("Save the current document. Format is taken from the path extension."),
                   QJsonObject{{QStringLiteral("path"), prop(QStringLiteral("string"))}}));
     a.append(tool(QStringLiteral("document_export_pdf"),
-                  QStringLiteral("Export PDF natively (QPainter). pdfa=true writes PDF/A-1b. LibreOffice is not required."),
+                  QStringLiteral("Export PDF natively (QPainter). pdfa=true writes PDF/A-1b with opaque flattening warnings. ua=true requires PDF/UA-1 (alt on every image). LibreOffice is not required."),
                   QJsonObject{{QStringLiteral("path"), prop(QStringLiteral("string"))},
                               {QStringLiteral("pdfa"), prop(QStringLiteral("boolean"), QStringLiteral("PDF/A-1b via QPdfWriter"))},
+                              {QStringLiteral("ua"), prop(QStringLiteral("boolean"), QStringLiteral("PDF/UA-1: pdfuaid XMP, DisplayDocTitle; missing image alt is an error"))},
                               {QStringLiteral("from"), prop(QStringLiteral("integer"))},
                               {QStringLiteral("to"), prop(QStringLiteral("integer"))},
                               {QStringLiteral("booklet"), prop(QStringLiteral("boolean"))},
                               {QStringLiteral("copies"), prop(QStringLiteral("integer"))},
-                              {QStringLiteral("comments"), prop(QStringLiteral("boolean"), QStringLiteral("Append a comments page (not PDF annotations)"))}},
+                              {QStringLiteral("comments"), prop(QStringLiteral("boolean"), QStringLiteral("Real PDF sticky-note annotations"))}},
                   QJsonArray{QStringLiteral("path")}));
     a.append(tool(QStringLiteral("document_get"),
                   QStringLiteral("Return the full semantic JSON (stable block ids, styles, page layout)."),
