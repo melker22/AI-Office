@@ -100,6 +100,11 @@ fora de Fleet (correções avulsas, merges) também termina com uma sincronizaç
 
 ## Fallback quando o limite do Claude acaba (autorizado pelo utilizador)
 
+Regra do utilizador: o Sonnet da Cursor é **só reserva** — cota mensal e pequena (menor que a do Grok e
+a do Composer). Use-o **apenas enquanto o Claude estiver esgotado** e devolva os nós ao Claude assim que
+a janela renovar (inclusive interrompendo um nó que esteja rodando na Cursor: o gasto dali em diante é o
+que importa). Com o Claude disponível, nenhum nó roda no Sonnet da Cursor.
+
 Quando a janela do Claude (5 h ou semanal) esgota, os nós `agent: claude` **não esperam o reset**:
 são movidos para outro provedor até o limite voltar, sem editar o YAML:
 
@@ -119,7 +124,9 @@ cockpit fleet resume <runId> \
 ```
 
 Mudar o agente de um nó `session: continue` cria uma task nova na próxima iteração (o prompt inicial
-revisa o diff inteiro, então nada se perde). Quando o Claude voltar, `--unset` devolve o nó ao YAML.
+revisa o diff inteiro, então nada se perde). Quando o Claude voltar: `cockpit fleet pause`, `cockpit task
+cancel` no nó que estiver na Cursor, e `cockpit fleet resume --unset '<nó>.agent' --unset '<nó>.model'`
+para todos os nós movidos — eles voltam ao YAML (Claude).
 
 ## Limites de uso
 
