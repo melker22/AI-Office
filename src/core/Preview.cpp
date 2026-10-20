@@ -20,9 +20,14 @@
 #include <QTextCharFormat>
 #include <QTextLayout>
 #include <QTextOption>
+#include <QXmlStreamWriter>
+#include <QDateTime>
 #include <algorithm>
 
 namespace aioffice {
+
+bool g_pdfPostProcessDisplayDocTitle = false;
+
 namespace {
 
 const StyleDef *styleNamed(const Document &doc, const QString &name)
@@ -2348,13 +2353,177 @@ QByteArray renderPagePng(const Document &doc, int page, double zoom)
     return bytes;
 }
 
-bool exportNativePdf(const Document &doc, const QString &path, QString *error, bool pdfa,
-                     int fromPage, int toPage, bool booklet, int copies, bool comments)
+static QString documentPdfLanguage(const Document &doc)
 {
+    const QString fromVar = doc.vars.value(QStringLiteral("doc.language")).trimmed();
+    if (!fromVar.isEmpty())
+        return fromVar;
+    return QStringLiteral("pt-BR");
+}
+
+static QByteArray buildPdfDocumentXmp(const Document &doc, bool pdfa, bool ua)
+{
+    const QString producer = QStringLiteral("AI Office");
+    const QString creatorTool = QStringLiteral("AI Office");
+    const QDateTime now = QDateTime::currentDateTime();
+    const QString createDate = doc.vars.value(QStringLiteral("doc.created")).trimmed();
+    const QString modifyDate = doc.vars.value(QStringLiteral("doc.modified")).trimmed();
+    const QString isoCreate = createDate.isEmpty() ? now.toString(Qt::ISODate) : createDate;
+    const QString isoModify = modifyDate.isEmpty() ? isoCreate : modifyDate;
+    const QString language = documentPdfLanguage(doc);
+
+    QByteArray out;
+    QBuffer buf(&out);
+    buf.open(QIODevice::WriteOnly);
+    buf.write("<?xpacket begin=\"\" id=\"W5M0MpCehiHzreSzNTczkc9d\"?>");
+
+    QXmlStreamWriter w(&buf);
+    w.setAutoFormatting(true);
+    constexpr auto adobeNS = "adobe:ns:meta/";
+    constexpr auto rdfNS = "http://www.w3.org/1999/02/22-rdf-syntax-ns#";
+    constexpr auto dcNS = "http://purl.org/dc/elements/1.1/";
+    constexpr auto xmpNS = "http://ns.adobe.com/xap/1.0/";
+    constexpr auto pdfNS = "http://ns.adobe.com/pdf/1.3/";
+    constexpr auto pdfaidNS = "http://www.aiim.org/pdfa/ns/id/";
+    constexpr auto pdfuaidNS = "http://www.aiim.org/pdfua/ns/id/";
+    constexpr auto pdfaExtNS = "http://www.aiim.org/pdfa/ns/extension/";
+    constexpr auto pdfaSchemaNS = "http://www.aiim.org/pdfa/ns/schema#";
+    constexpr auto pdfaPropNS = "http://www.aiim.org/pdfa/ns/property#";
+    constexpr auto xmlNS = "http://www.w3.org/XML/1998/namespace";
+
+    w.writeNamespace(adobeNS, "x");
+    w.writeNamespace(rdfNS, "rdf");
+    w.writeStartElement(adobeNS, "xmpmeta");
+    w.writeStartElement(rdfNS, "RDF");
+
+    w.writeStartElement(rdfNS, "Description");
+    w.writeAttribute(rdfNS, "about", "");
+    w.writeAttribute(dcNS, "title", doc.title);
+    if (!doc.author.isEmpty())
+        w.writeAttribute(dcNS, "creator", doc.author);
+    if (!doc.subject.isEmpty())
+        w.writeAttribute(dcNS, "description", doc.subject);
+    w.writeAttribute(dcNS, "language", language);
+    w.writeEndElement();
+
+    w.writeStartElement(rdfNS, "Description");
+    w.writeAttribute(rdfNS, "about", "");
+    if (!doc.keywords.isEmpty())
+        w.writeAttribute(pdfNS, "Keywords", doc.keywords);
+    w.writeAttribute(pdfNS, "Producer", producer);
+    w.writeEndElement();
+
+    w.writeStartElement(rdfNS, "Description");
+    w.writeAttribute(rdfNS, "about", "");
+    w.writeAttribute(xmpNS, "CreatorTool", creatorTool);
+    w.writeAttribute(xmpNS, "CreateDate", isoCreate);
+    w.writeAttribute(xmpNS, "ModifyDate", isoModify);
+    w.writeEndElement();
+
+    if (pdfa) {
+        w.writeStartElement(rdfNS, "Description");
+        w.writeAttribute(rdfNS, "about", "");
+        w.writeAttribute(pdfaidNS, "part", "1");
+        w.writeAttribute(pdfaidNS, "conformance", "B");
+        w.writeEndElement();
+    }
+
+    if (ua && pdfa) {
+        w.writeStartElement(rdfNS, "Description");
+        w.writeAttribute(rdfNS, "about", "");
+        w.writeStartElement(pdfaExtNS, "schemas");
+        w.writeStartElement(rdfNS, "Bag");
+        w.writeStartElement(rdfNS, "li");
+        w.writeAttribute(rdfNS, "parseType", "Resource");
+        w.writeTextElement(pdfaSchemaNS, "schema", QStringLiteral("PDF/UA identification schema"));
+        w.writeTextElement(pdfaSchemaNS, "namespaceURI", pdfuaidNS);
+        w.writeTextElement(pdfaSchemaNS, "prefix", QStringLiteral("pdfuaid"));
+        w.writeStartElement(pdfaSchemaNS, "property");
+        w.writeStartElement(rdfNS, "Seq");
+        w.writeStartElement(rdfNS, "li");
+        w.writeAttribute(rdfNS, "parseType", "Resource");
+        w.writeTextElement(pdfaPropNS, "name", QStringLiteral("part"));
+        w.writeTextElement(pdfaPropNS, "valueType", QStringLiteral("Integer"));
+        w.writeTextElement(pdfaPropNS, "category", QStringLiteral("internal"));
+        w.writeTextElement(pdfaPropNS, "description", QStringLiteral("Part of PDF/UA standard"));
+        w.writeEndElement(); // li
+        w.writeEndElement(); // Seq
+        w.writeEndElement(); // property
+        w.writeEndElement(); // li
+        w.writeEndElement(); // Bag
+        w.writeEndElement(); // schemas
+        w.writeEndElement(); // Description
+    }
+
+    if (ua) {
+        w.writeStartElement(rdfNS, "Description");
+        w.writeAttribute(rdfNS, "about", "");
+        w.writeAttribute(pdfuaidNS, "part", "1");
+        w.writeEndElement();
+    }
+
+    w.writeEndElement(); // RDF
+    w.writeEndElement(); // xmpmeta
+    w.writeEndDocument();
+    buf.write("<?xpacket end=\"w\"?>");
+    Q_UNUSED(xmlNS);
+    return out;
+}
+
+static Document documentForPdfaPaint(const Document &doc, QStringList *warnings, bool *paintOpaqueWatermark)
+{
+    Document d = doc;
+    *paintOpaqueWatermark = false;
+    if (!doc.watermark.isEmpty()) {
+        if (warnings)
+            warnings->append(QStringLiteral("PDF/A: flattened translucent watermark to opaque"));
+        d.watermark.clear();
+        *paintOpaqueWatermark = true;
+    }
+    for (auto &b : d.body) {
+        if (b.type == QLatin1String("image") && b.opacity < 0.999) {
+            if (warnings)
+                warnings->append(QStringLiteral("PDF/A: flattened image %1 opacity to opaque").arg(b.id));
+            b.opacity = 1.0;
+        }
+        if (b.shadowPt > 0.0) {
+            if (warnings)
+                warnings->append(QStringLiteral("PDF/A: removed drop shadow on %1").arg(b.id));
+            b.shadowPt = 0.0;
+        }
+    }
+    return d;
+}
+
+static void paintOpaqueWatermarkOverlay(QPainter *p, const DocumentLayout &lay, const QString &text)
+{
+    if (text.isEmpty())
+        return;
+    p->save();
+    QFont wf(QStringLiteral("IBM Plex Sans"));
+    wf.setPointSizeF(42 * lay.zoom);
+    wf.setBold(true);
+    p->setFont(wf);
+    p->setPen(QColor(QStringLiteral("#2A2420")));
+    p->translate(lay.paperW / 2.0, lay.paperH / 2.0);
+    p->rotate(-38);
+    p->drawText(QRectF(-lay.paperW, -50 * lay.zoom, lay.paperW * 2, 100 * lay.zoom), Qt::AlignCenter, text);
+    p->restore();
+}
+
+bool exportNativePdf(const Document &doc, const QString &path, QString *error, bool pdfa,
+                     int fromPage, int toPage, bool booklet, int copies, bool comments, bool ua,
+                     QStringList *warnings)
+{
+    pdfPostProcessSetDisplayDocTitle(ua);
+    const QString watermarkForOpaque = doc.watermark;
+    bool paintOpaqueWatermark = false;
+    const Document paintDoc = pdfa ? documentForPdfaPaint(doc, warnings, &paintOpaqueWatermark) : doc;
+
     double wMm = 0, hMm = 0;
-    doc.page.pageSizeMm(wMm, hMm);
+    paintDoc.page.pageSizeMm(wMm, hMm);
     DocumentLayout lay;
-    lay.relayout(doc, 1.0);
+    lay.relayout(paintDoc, 1.0);
     int lo = fromPage > 0 ? fromPage : 1;
     int hi = toPage > 0 ? toPage : lay.pages;
     lo = qBound(1, lo, qMax(1, lay.pages));
@@ -2386,6 +2555,8 @@ bool exportNativePdf(const Document &doc, const QString &path, QString *error, b
     writer.setPageMargins(QMarginsF(0, 0, 0, 0));
     writer.setTitle(doc.title);
     writer.setCreator(QStringLiteral("AI Office"));
+    writer.setAuthor(doc.author);
+    writer.setDocumentXmpMetadata(buildPdfDocumentXmp(doc, pdfa, ua));
     if (pdfa)
         writer.setPdfVersion(QPagedPaintDevice::PdfVersion_A1b);
     QPainter p(&writer);
@@ -2402,7 +2573,9 @@ bool exportNativePdf(const Document &doc, const QString &path, QString *error, b
         const qreal sx = slot.width() / qreal(qMax(1, lay.paperW));
         const qreal sy = slot.height() / qreal(qMax(1, lay.paperH));
         p.scale(sx, sy);
-        paintPage(&p, doc, lay, pg);
+        paintPage(&p, paintDoc, lay, pg);
+        if (pdfa && paintOpaqueWatermark)
+            paintOpaqueWatermarkOverlay(&p, lay, watermarkForOpaque);
         p.restore();
     };
     bool first = true;
@@ -2510,7 +2683,7 @@ bool exportNativePdf(const Document &doc, const QString &path, QString *error, b
     for (int phys = 0; phys < physPageDocPage.size(); ++phys) {
         const int docPage = physPageDocPage[phys];
         if (docPage < 1)
-            continue;
+            continue; // booklet halves: ambiguous mapping, skip fine-grained tagging for this page
         perPageMarkers[phys] = pdfTagMarkersForPage(doc, lay, docPage);
     }
     QString tagErr;
@@ -2521,5 +2694,8 @@ bool exportNativePdf(const Document &doc, const QString &path, QString *error, b
     }
     return true;
 }
+
+void pdfPostProcessSetDisplayDocTitle(bool enable) { g_pdfPostProcessDisplayDocTitle = enable; }
+bool pdfPostProcessPendingDisplayDocTitle() { return g_pdfPostProcessDisplayDocTitle; }
 
 } // namespace aioffice
