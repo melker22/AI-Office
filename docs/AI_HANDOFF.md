@@ -23,7 +23,7 @@
 
 **Next suggested step:** t2 XMP / `pdfuaid` / `DisplayDocTitle`, then t3 QA infra, then t4 full veraPDF UA and PDF/A.
 
-**Commits:** pending
+**Commits:** `64c8cea` feat: tag PDF structure for lists, tables, figures, notes, and TOC
 
 ---
 
