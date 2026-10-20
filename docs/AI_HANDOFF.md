@@ -8,6 +8,26 @@
 
 ---
 
+## 2026-10-20 — Fleet wave18 — Composer / Cursor Grok / Grok Build / Sonnet
+
+**Objective:** Close the fleet wave 18 branch (dynamic fields + conditional text): record real QA on the integrated branch after the review loop fixes, sync `WRITER_FEATURE_CATALOG.md`.
+
+**Done:**
+- Fleet `review` closed with **`{"issues":0,"findings":[]}`** on the third pass; fix commits landed on the branch before handoff.
+- **`refreshIfFields`** on dirty `document_get`/`document_save` recalculates live `stat`/`seq` after structural edits (`insert_blocks`, `insert_at_caret`, `delete_range`); a **clean** foreign open keeps imported evaluated text until the session is marked dirty. `stat chars` self-reference converges (up to 6 passes) to match `document_stats`.
+- **`6845533`:** renumber `seq` on mid-document insert; `stat` counts exclude `hideIf` hidden paragraphs (aligned with `document_stats`).
+- **`f4e6cb1`:** stat refresh after structural edits (playbook `qa/wave18-expr.json` insert/delete/text-edit expects).
+- Manual re-checks (outside official playbooks): mid-insert `seq` + xref `category_number`; `stat` with `hideIf`; structural stat updates — all green.
+- **`scripts/qa-all.sh --gui --interop`** (nix-shell, full build): **38/38 ctest** passed (includes `playbook_wave18-expr.json`, `wave18-kinds`, `wave18-docx-fields`, `wave18-odt-fields`, foreign round-trips); **interop** LibreOffice **docx→odt**, **odt→docx**, and **wave18 fields** resave/hops green (exit 0).
+
+**Decisions:** Wave 18 D5/D6 honest limits stay as in `docs/waves/wave18-fields.md` (compound `if` on DOCX export, foreign `stat` paragraphs/tables/images, LO docx hop for `hideIf`). Do not re-open integrate merges on handoff.
+
+**Next suggested step:** Fleet **`notion-sync`** → human **`approve-pr`** → open PR to **`main`**.
+
+**Commits (branch vs `main`):** `f4e6cb1` fix: refresh stat fields after structural edits · `6845533` fix: renumber seq fields and drop hidden blocks from stat counts · `1d6c55d` merge: integrate wave18 DOCX and ODT field round-trip branches · `b1d50f4` docs: record the DOCX field commit hash in the handoff · `711f1ff` feat: round-trip DOCX IF, SEQ, stat, and document-info fields · `0c9fcd1` feat: round-trip wave 18 fields through ODT · `7778b7c` merge: integrate wave18 field kinds with field expressions · `2937c4a` docs: record the wave18 expression commit hash in the handoff · `7848309` feat: evaluate field expressions for conditional text · `486ddf3` feat: add wave18 field kinds, numbered captions, and seq xrefs · `f4c5323` docs: add wave 18 fields spec and Fleet; sync Notion from every Fleet
+
+---
+
 ## 2026-10-10 — Cursor Grok — Wave 18 t3: DOCX fields
 
 **Objective:** D5 + D7 for DOCX only. Export and import `if`, `seq`, `stat`, `doc_info`, and `hideIf`. Foreign fixture plus the foreign path of our own export (`embed_json: false`). Do not touch ODT or the field model.
