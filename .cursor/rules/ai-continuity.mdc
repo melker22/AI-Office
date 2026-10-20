@@ -30,3 +30,7 @@ alwaysApply: true
 
 - Manter no máximo ~20 entradas em `AI_HANDOFF.md`.
 - Mover entradas antigas para `docs/AI_HANDOFF_ARCHIVE.md` quando ultrapassar esse limite.
+
+## Notion (regra do utilizador)
+
+- Ao concluir trabalho que muda o estado do produto, **sincronize o Notion** (board "Roadmap para Produção", hub e snapshot) com `docs/WRITER_FEATURE_CATALOG.md` e o topo do `AI_HANDOFF.md`. Em Fleets isso é o nó `notion-sync`; fora delas, faça (ou peça ao orquestrador) uma sincronização ao final. Ver `docs/ORCHESTRATION.md`.

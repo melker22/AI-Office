@@ -131,6 +131,43 @@ def write_docx(path: Path) -> None:
     path.write_bytes(buf.getvalue())
 
 
+# Hand-written foreign fields: IF (comparison), SEQ, NUMPAGES, plus the other D5 instructions.
+# No word/aioffice.json. fldSimple stays on one line so cached text has no extra whitespace.
+DOCX_FIELDS_XML = """<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">
+<w:body>
+<w:p><w:r><w:t xml:space="preserve">See </w:t></w:r><w:fldSimple w:instr=" IF page &gt; 1 &quot;Later&quot; &quot;First&quot; "><w:r><w:t>First</w:t></w:r></w:fldSimple></w:p>
+<w:p><w:fldSimple w:instr=" IF &quot;a&quot; = &quot;a&quot; &quot;SIM&quot; &quot;NAO&quot; "><w:r><w:t>SIM</w:t></w:r></w:fldSimple></w:p>
+<w:p><w:fldSimple w:instr=" IF 1 &lt;&gt; 2 &quot;T&quot; &quot;F&quot; "><w:r><w:t>T</w:t></w:r></w:fldSimple></w:p>
+<w:p><w:fldSimple w:instr=" SEQ Figura \\* ARABIC "><w:r><w:t>1</w:t></w:r></w:fldSimple></w:p>
+<w:p><w:fldSimple w:instr=" NUMPAGES "><w:r><w:t>2</w:t></w:r></w:fldSimple></w:p>
+<w:p><w:fldSimple w:instr=" NUMWORDS "><w:r><w:t>9</w:t></w:r></w:fldSimple></w:p>
+<w:p><w:fldSimple w:instr=" NUMCHARS "><w:r><w:t>4</w:t></w:r></w:fldSimple></w:p>
+<w:p><w:fldSimple w:instr=" DOCPROPERTY &quot;Subject&quot; "><w:r><w:t>Tema</w:t></w:r></w:fldSimple></w:p>
+<w:p><w:fldSimple w:instr=" DOCPROPERTY Keywords "><w:r><w:t>alfa</w:t></w:r></w:fldSimple></w:p>
+<w:p><w:fldSimple w:instr=" CREATEDATE "><w:r><w:t>2020-01-01T00:00:00</w:t></w:r></w:fldSimple></w:p>
+<w:p><w:fldSimple w:instr=" SAVEDATE "><w:r><w:t>2020-01-02T00:00:00</w:t></w:r></w:fldSimple></w:p>
+<w:p><w:fldSimple w:instr=" REVNUM "><w:r><w:t>4</w:t></w:r></w:fldSimple></w:p>
+<w:p><w:pPr><w:rPr><w:vanish/></w:rPr></w:pPr><w:r><w:rPr><w:vanish/></w:rPr><w:t>Secret</w:t></w:r></w:p>
+<w:p><w:r><w:rPr><w:vanish/></w:rPr><w:t>HiddenRun</w:t></w:r></w:p>
+<w:p><w:r><w:rPr><w:vanish/></w:rPr><w:t>H</w:t></w:r><w:r><w:t>V</w:t></w:r></w:p>
+<w:sectPr><w:pgSz w:w="12240" w:h="15840"/><w:pgMar w:top="1440" w:right="1440" w:bottom="1440" w:left="1440"/></w:sectPr>
+</w:body>
+</w:document>
+"""
+
+
+def write_fields_docx(path: Path) -> None:
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w", compression=zipfile.ZIP_DEFLATED) as z:
+        z.writestr("[Content_Types].xml", CONTENT_TYPES)
+        z.writestr("_rels/.rels", RELS_ROOT)
+        z.writestr("word/document.xml", DOCX_FIELDS_XML)
+        z.writestr("word/_rels/document.xml.rels", DOC_RELS)
+        z.writestr("docProps/core.xml", CORE_PROPS)
+    path.write_bytes(buf.getvalue())
+
+
 def write_odt(path: Path) -> None:
     buf = io.BytesIO()
     with zipfile.ZipFile(buf, "w", compression=zipfile.ZIP_DEFLATED) as z:
@@ -140,11 +177,72 @@ def write_odt(path: Path) -> None:
     path.write_bytes(buf.getvalue())
 
 
+# Hand-built ODT fields (wave 18 D6). No aioffice JSON. One paragraph per field,
+# with no whitespace text nodes inside the paragraph.
+ODT_FIELDS_CONTENT_XML = (
+    '<?xml version="1.0" encoding="UTF-8"?>'
+    '<office:document-content xmlns:office="urn:oasis:names:tc:opendocument:xmlns:office:1.0" '
+    'xmlns:text="urn:oasis:names:tc:opendocument:xmlns:text:1.0" '
+    'xmlns:style="urn:oasis:names:tc:opendocument:xmlns:style:1.0" '
+    'xmlns:fo="urn:oasis:names:tc:opendocument:xmlns:xsl-fo-compatible:1.0" '
+    'xmlns:ooow="http://openoffice.org/2004/writer" office:version="1.3">'
+    "<office:body><office:text>"
+    "<text:user-field-decls>"
+    '<text:user-field-decl office:value-type="string" office:string-value="go" text:name="status"/>'
+    "</text:user-field-decls>"
+    "<text:sequence-decls>"
+    '<text:sequence-decl text:display-outline-level="0" text:name="Figura"/>'
+    '<text:sequence-decl text:display-outline-level="0" text:name="Letra"/>'
+    "</text:sequence-decls>"
+    '<text:p text:style-name="Standard"><text:conditional-text text:condition="ooow:status = &quot;go&quot;" '
+    'text:string-value-if-true="YES" text:string-value-if-false="NO">YES</text:conditional-text></text:p>'
+    '<text:p text:style-name="Standard"><text:sequence text:name="Figura" text:formula="ooow:Figura+1" '
+    'style:num-format="1">1</text:sequence></text:p>'
+    '<text:p text:style-name="Standard"><text:sequence text:name="Letra" text:formula="ooow:Letra+1" '
+    'style:num-format="a">a</text:sequence></text:p>'
+    '<text:p text:style-name="Standard"><text:page-count>2</text:page-count></text:p>'
+    '<text:p text:style-name="Standard"><text:word-count>3</text:word-count></text:p>'
+    '<text:p text:style-name="Standard"><text:character-count>4</text:character-count></text:p>'
+    '<text:p text:style-name="Standard"><text:paragraph-count>5</text:paragraph-count></text:p>'
+    '<text:p text:style-name="Standard"><text:table-count>6</text:table-count></text:p>'
+    '<text:p text:style-name="Standard"><text:image-count>7</text:image-count></text:p>'
+    '<text:p text:style-name="Standard"><text:subject>Subj</text:subject></text:p>'
+    '<text:p text:style-name="Standard"><text:keywords>k1</text:keywords></text:p>'
+    '<text:p text:style-name="Standard"><text:creation-date>2020-01-02T03:04:05</text:creation-date></text:p>'
+    '<text:p text:style-name="Standard"><text:modification-date>2021-02-03T04:05:06</text:modification-date></text:p>'
+    '<text:p text:style-name="Standard"><text:editing-cycles>9</text:editing-cycles></text:p>'
+    '<text:p text:style-name="Standard"><text:sender-firstname>Ada</text:sender-firstname></text:p>'
+    '<text:p text:style-name="Standard"><text:sender-email>ada@example.com</text:sender-email></text:p>'
+    '<text:p text:style-name="Standard"><text:sender-company>Analytical</text:sender-company></text:p>'
+    '<text:p text:style-name="Standard"><text:sender-phone-work>555</text:sender-phone-work></text:p>'
+    '<text:p text:style-name="Standard"><text:hidden-paragraph text:condition="ooow:status = &quot;go&quot;" '
+    'text:is-hidden="true"/>Secret</text:p>'
+    '<text:p text:style-name="Standard"><text:drop-down text:name="List1">'
+    '<text:label text:value="Um"/>'
+    '<text:label text:current-selected="true" text:value="Dois"/>'
+    "</text:drop-down></text:p>"
+    "</office:text></office:body></office:document-content>"
+)
+
+
+def write_fields_odt(path: Path) -> None:
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w", compression=zipfile.ZIP_DEFLATED) as z:
+        z.writestr("mimetype", ODT_MIMETYPE, compress_type=zipfile.ZIP_STORED)
+        z.writestr("META-INF/manifest.xml", ODT_MANIFEST)
+        z.writestr("content.xml", ODT_FIELDS_CONTENT_XML)
+    path.write_bytes(buf.getvalue())
+
+
 def main() -> None:
     write_odt(ROOT / "wave17-odt-revisions-foreign.odt")
     write_docx(ROOT / "wave17-docx-revisions-foreign.docx")
+    write_fields_docx(ROOT / "wave18-docx-fields-foreign.docx")
+    write_fields_odt(ROOT / "wave18-odt-fields-foreign.odt")
     print("wrote", ROOT / "wave17-odt-revisions-foreign.odt")
     print("wrote", ROOT / "wave17-docx-revisions-foreign.docx")
+    print("wrote", ROOT / "wave18-docx-fields-foreign.docx")
+    print("wrote", ROOT / "wave18-odt-fields-foreign.odt")
 
 
 if __name__ == "__main__":

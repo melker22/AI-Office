@@ -12,6 +12,18 @@ QJsonObject prop(const QString &type, const QString &desc = {})
     return o;
 }
 
+QJsonObject stringOrObject(const QString &desc)
+{
+    QJsonObject o;
+    QJsonArray anyOf;
+    anyOf.append(QJsonObject{{QStringLiteral("type"), QStringLiteral("string")}});
+    anyOf.append(QJsonObject{{QStringLiteral("type"), QStringLiteral("object")}});
+    o.insert(QStringLiteral("anyOf"), anyOf);
+    if (!desc.isEmpty())
+        o.insert(QStringLiteral("description"), desc);
+    return o;
+}
+
 QJsonObject tool(const QString &name, const QString &desc, const QJsonObject &properties,
                  const QJsonArray &required = {})
 {
@@ -125,6 +137,7 @@ QJsonArray toolDefinitions()
                               {QStringLiteral("list_bullet"), prop(QStringLiteral("string"))},
                               {QStringLiteral("lang"), prop(QStringLiteral("string"))},
                               {QStringLiteral("section_hidden"), prop(QStringLiteral("boolean"))},
+                              {QStringLiteral("hide_if"), prop(QStringLiteral("string"), QStringLiteral("Expression; paragraph is omitted from layout, preview, and PDF when true"))},
                               {QStringLiteral("writing_mode"), prop(QStringLiteral("string"))},
                               {QStringLiteral("z_index"), prop(QStringLiteral("integer"))},
                               {QStringLiteral("connect_to"), prop(QStringLiteral("string"))},
@@ -399,19 +412,24 @@ QJsonArray toolDefinitions()
                               {QStringLiteral("offset"), prop(QStringLiteral("integer"))}},
                   QJsonArray{QStringLiteral("name")}));
     a.append(tool(QStringLiteral("insert_crossref"),
-                  QStringLiteral("Insert a cross-reference field to a block or bookmark id. kind: text (default, target's text/caption) | page (target's live page number) | heading_number (target heading's outline number, e.g. 1.2) | above_below (resolved once at insert time to \"acima\"/\"abaixo\") | category_number (target's ordinal among same-type figures/tables) | footnote_number | endnote_number."),
+                  QStringLiteral("Insert a cross-reference field to a block or bookmark id. kind: text (default, target's text/caption) | page (target's live page number) | heading_number (target heading's outline number, e.g. 1.2) | above_below (resolved once at insert time to \"acima\"/\"abaixo\") | category_number (target caption seq number, or same-type ordinal fallback) | footnote_number | endnote_number."),
                   QJsonObject{{QStringLiteral("target"), prop(QStringLiteral("string"))},
                               {QStringLiteral("kind"), prop(QStringLiteral("string"))},
                               {QStringLiteral("id"), prop(QStringLiteral("string"))},
                               {QStringLiteral("offset"), prop(QStringLiteral("integer"))}},
                   QJsonArray{QStringLiteral("target")}));
     a.append(tool(QStringLiteral("insert_field"),
-                  QStringLiteral("Insert a field: page_number, page_count, date, title, author, xref, filename, word_count, custom, merge, chapter, var, input, time, cite, filepath."),
+                  QStringLiteral("Insert a field: page_number, page_count, date, title, author, xref, filename, word_count, custom, merge, chapter, var, input, time, cite, filepath, if, doc_info, stat, sender, seq, input_list. if takes arg {cond, then, else}; doc_info/stat/sender use arg key; seq/input_list take arg as a JSON object or that object as a string."),
                   QJsonObject{{QStringLiteral("kind"), prop(QStringLiteral("string"))},
-                              {QStringLiteral("arg"), prop(QStringLiteral("string"))},
+                              {QStringLiteral("arg"), stringOrObject(QStringLiteral("String, or object for if {cond, then, else}, seq {name, format}, and input_list {options, selected}"))},
                               {QStringLiteral("id"), prop(QStringLiteral("string"))},
-                              {QStringLiteral("offset"), prop(QStringLiteral("integer"))}},
+                              {QStringLiteral("offset"), prop(QStringLiteral("integer"))},
+                              {QStringLiteral("xref_kind"), prop(QStringLiteral("string"))}},
                   QJsonArray{QStringLiteral("kind")}));
+    a.append(tool(QStringLiteral("field_evaluate"),
+                  QStringLiteral("Evaluate an expression (numbers, strings, variables, page/pages/words/chars/paragraphs/tables/images, comparisons, && || !, parentheses). Returns {value, type} or {ok:false, error}."),
+                  QJsonObject{{QStringLiteral("expr"), prop(QStringLiteral("string"))}},
+                  QJsonArray{QStringLiteral("expr")}));
     a.append(tool(QStringLiteral("insert_footnote"),
                   QStringLiteral("Insert a footnote marker at the caret and a footnote block."),
                   QJsonObject{{QStringLiteral("text"), prop(QStringLiteral("string"))},
@@ -511,10 +529,11 @@ QJsonArray toolDefinitions()
                               {QStringLiteral("group_id"), prop(QStringLiteral("string"))}},
                   QJsonArray{QStringLiteral("id")}));
     a.append(tool(QStringLiteral("insert_caption"),
-                  QStringLiteral("Set caption text on an image or table block."),
+                  QStringLiteral("Set caption on an image or table. Optional seq {name, format?} inserts \"<name> \" + seq field before text (arabic|roman|alpha)."),
                   QJsonObject{{QStringLiteral("id"), prop(QStringLiteral("string"))},
-                              {QStringLiteral("text"), prop(QStringLiteral("string"))}},
-                  QJsonArray{QStringLiteral("id"), QStringLiteral("text")}));
+                              {QStringLiteral("text"), prop(QStringLiteral("string"))},
+                              {QStringLiteral("seq"), prop(QStringLiteral("object"))}},
+                  QJsonArray{QStringLiteral("id")}));
     a.append(tool(QStringLiteral("nest_table"),
                   QStringLiteral("Insert a one-level nested table inside a cell (rows x cols of runs)."),
                   QJsonObject{{QStringLiteral("id"), prop(QStringLiteral("string"))},

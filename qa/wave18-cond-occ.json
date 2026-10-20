@@ -1,0 +1,198 @@
+[
+  {
+    "tool": "document_new",
+    "args": {"title": "cond-occ-toc", "force": true}
+  },
+  {
+    "tool": "set_vars",
+    "args": {"name": "flag", "value": "on"}
+  },
+  {
+    "tool": "insert_at_caret",
+    "args": {"id": "p1", "offset": 0, "text": "Intro"}
+  },
+  {
+    "tool": "insert_blocks",
+    "args": {
+      "after_id": "p1",
+      "blocks": [
+        {"id": "hA", "type": "heading", "level": 1, "runs": [{"text": "Alpha"}]},
+        {"id": "hB", "type": "heading", "level": 1, "runs": [{"text": "Beta"}]},
+        {"id": "hC", "type": "heading", "level": 1, "runs": [{"text": ""}]}
+      ]
+    }
+  },
+  {"tool": "toc_update", "args": {}},
+  {
+    "tool": "apply_paragraph_format",
+    "args": {"id": "hB", "hide_if": "flag == \"on\""}
+  },
+  {
+    "tool": "insert_field",
+    "args": {
+      "id": "hC",
+      "offset": 0,
+      "kind": "if",
+      "arg": {"cond": "1 == 1 && 2 == 2", "then": "SIMSE", "else": "NAO"}
+    }
+  },
+  {
+    "tool": "document_get",
+    "args": {},
+    "expect": {
+      "document.body.0.type": "toc",
+      "document.body.1.runs.0.text": "Intro",
+      "document.body.3.hide_if": "flag == \"on\"",
+      "document.body.3.runs.0.text": "Beta",
+      "document.body.4.runs.0.field": "if",
+      "document.body.4.runs.0.text": "SIMSE"
+    }
+  },
+  {
+    "tool": "document_save",
+    "args": {"path": "/tmp/wave18-cond-occ-toc.docx"}
+  },
+  {
+    "tool": "document_open",
+    "args": {"path": "/tmp/wave18-cond-occ-toc.docx"}
+  },
+  {
+    "tool": "document_get",
+    "args": {},
+    "expect": {
+      "document.body.0": {
+        "id": "toc1",
+        "type": "toc",
+        "style": "Normal",
+        "runs": [{"text": "Alpha", "bold": false, "italic": false, "underline": false}]
+      },
+      "document.body.1": {
+        "id": "toc2",
+        "type": "toc",
+        "style": "Normal",
+        "runs": [{"text": "Beta", "bold": false, "italic": false, "underline": false}]
+      },
+      "document.body.2": {
+        "id": "toc3",
+        "type": "toc",
+        "style": "Normal",
+        "runs": [{"text": "SIMSE", "bold": false, "italic": false, "underline": false}]
+      },
+      "document.body.3.runs.0.text": "Intro",
+      "document.body.4.type": "heading",
+      "document.body.4.runs.0.text": "Alpha",
+      "document.body.4.runs.0": {"text": "Alpha", "bold": false, "italic": false, "underline": false},
+      "document.body.5.type": "heading",
+      "document.body.5.runs.0.text": "Beta",
+      "document.body.5.hide_if": "flag == \"on\"",
+      "document.body.5.runs.0": {"text": "Beta", "bold": false, "italic": false, "underline": false},
+      "document.body.6.type": "heading",
+      "document.body.6.runs.0.field": "if",
+      "document.body.6.runs.0.text": "SIMSE",
+      "document.body.6.runs.0.field_arg": "{\"cond\":\"1 == 1 && 2 == 2\",\"else\":\"NAO\",\"then\":\"SIMSE\"}"
+    }
+  },
+  {
+    "tool": "document_new",
+    "args": {"title": "cond-occ-empty", "force": true}
+  },
+  {
+    "tool": "set_vars",
+    "args": {"name": "flag", "value": "on"}
+  },
+  {
+    "tool": "insert_blocks",
+    "args": {
+      "after_id": "p1",
+      "blocks": [
+        {"id": "pEmpty", "type": "paragraph", "align": "left", "runs": [{"text": ""}]}
+      ]
+    }
+  },
+  {
+    "tool": "apply_paragraph_format",
+    "args": {"id": "pEmpty", "hide_if": "flag == \"on\""}
+  },
+  {
+    "tool": "document_save",
+    "args": {"path": "/tmp/wave18-cond-occ-empty.docx"}
+  },
+  {
+    "tool": "document_open",
+    "args": {"path": "/tmp/wave18-cond-occ-empty.docx"}
+  },
+  {
+    "tool": "document_get",
+    "args": {},
+    "expect": {
+      "document.body.0": {
+        "id": "p1",
+        "type": "paragraph",
+        "style": "Normal",
+        "align": "left",
+        "runs": [{"text": "", "bold": false, "italic": false, "underline": false}]
+      },
+      "document.body.1.type": "paragraph",
+      "document.body.1.runs.0.text": "",
+      "document.body.1.hide_if": "flag == \"on\""
+    }
+  },
+  {
+    "tool": "document_new",
+    "args": {"title": "cond-occ-repeat", "force": true}
+  },
+  {
+    "tool": "set_vars",
+    "args": {"name": "flag", "value": "on"}
+  },
+  {
+    "tool": "insert_at_caret",
+    "args": {"id": "p1", "offset": 0, "text": "Mesmo"}
+  },
+  {
+    "tool": "insert_blocks",
+    "args": {
+      "after_id": "p1",
+      "blocks": [
+        {"id": "pB", "type": "paragraph", "align": "left", "runs": [{"text": "Mesmo"}]},
+        {"id": "pC", "type": "paragraph", "align": "left", "runs": [{"text": "Mesmo"}]}
+      ]
+    }
+  },
+  {
+    "tool": "apply_paragraph_format",
+    "args": {"id": "pC", "hide_if": "flag == \"on\""}
+  },
+  {
+    "tool": "document_save",
+    "args": {"path": "/tmp/wave18-cond-occ-repeat.docx"}
+  },
+  {
+    "tool": "document_open",
+    "args": {"path": "/tmp/wave18-cond-occ-repeat.docx"}
+  },
+  {
+    "tool": "document_get",
+    "args": {},
+    "expect": {
+      "document.body.0": {
+        "id": "p1",
+        "type": "paragraph",
+        "style": "Normal",
+        "align": "left",
+        "runs": [{"text": "Mesmo", "bold": false, "italic": false, "underline": false}]
+      },
+      "document.body.1": {
+        "id": "p2",
+        "type": "paragraph",
+        "style": "Normal",
+        "align": "left",
+        "runs": [{"text": "Mesmo", "bold": false, "italic": false, "underline": false}]
+      },
+      "document.body.2.type": "paragraph",
+      "document.body.2.runs.0.text": "Mesmo",
+      "document.body.2.hide_if": "flag == \"on\"",
+      "document.body.2.runs.0": {"text": "Mesmo", "bold": false, "italic": false, "underline": false}
+    }
+  }
+]

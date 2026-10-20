@@ -1,0 +1,79 @@
+[
+  {"tool": "field_evaluate", "args": {"expr": "1 == 1 || 1 == 1 && 1 == 0"}, "expect": {"value": true, "type": "bool"}},
+  {"tool": "field_evaluate", "args": {"expr": "(1 == 0 || 1 == 1) && (2 < 10)"}, "expect": {"value": true, "type": "bool"}},
+  {"tool": "field_evaluate", "args": {"expr": "!(1 == 0)"}, "expect": {"value": true, "type": "bool"}},
+  {"tool": "field_evaluate", "args": {"expr": "! 1 == 0"}, "expect": {"value": false, "type": "bool"}},
+  {"tool": "field_evaluate", "args": {"expr": "2 < 10"}, "expect": {"value": true, "type": "bool"}},
+  {"tool": "field_evaluate", "args": {"expr": "2 < \"10\""}, "expect": {"value": false, "type": "bool"}},
+  {"tool": "field_evaluate", "args": {"expr": "2 == \"2\""}, "expect": {"value": true, "type": "bool"}},
+  {"tool": "field_evaluate", "args": {"expr": "page == 1"}, "expect": {"value": true, "type": "bool"}},
+  {"tool": "field_evaluate", "args": {"expr": "42"}, "expect": {"value": 42, "type": "number"}},
+  {"tool": "field_evaluate", "args": {"expr": "\"ola\""}, "expect": {"value": "ola", "type": "string"}},
+  {"tool": "field_evaluate", "args": {"expr": "1 + 2"}, "expect": {"ok": false, "error": "invalid expression"}},
+
+  {"tool": "document_new", "args": {"title": "Wave18 if"}},
+  {"tool": "set_vars", "args": {"vars": {"show": "yes"}}},
+  {"tool": "insert_field", "args": {"id": "p1", "offset": 0, "kind": "if", "arg": {"cond": "show == \"yes\"", "then": "SIM", "else": "NAO"}}},
+  {"tool": "document_get", "args": {}, "expect": {
+    "document.body.0.runs.0.field": "if",
+    "document.body.0.runs.0.text": "SIM"
+  }},
+  {"tool": "set_vars", "args": {"name": "show", "value": "no"}},
+  {"tool": "document_get", "args": {}, "expect": {"document.body.0.runs.0.text": "NAO"}},
+  {"tool": "page_preview", "args": {"page": 1}, "expect": {"ids": ["p1"]}},
+  {"tool": "validate", "args": {}, "expect": {"valid": true}},
+
+  {"tool": "document_new", "args": {"title": "Wave18 hide", "force": true}},
+  {"tool": "insert_at_caret", "args": {"id": "p1", "offset": 0, "text": "Visivel"}},
+  {"tool": "insert_blocks", "args": {"after_id": "p1", "blocks": [{"type": "paragraph", "runs": [{"text": "Oculto"}]}]}},
+  {"tool": "apply_paragraph_format", "args": {"id": "p2", "hide_if": "flag == \"on\""}},
+  {"tool": "page_preview", "args": {"page": 1}, "expect": {"ids": ["p1", "p2"]}},
+  {"tool": "set_vars", "args": {"name": "flag", "value": "on"}},
+  {"tool": "page_preview", "args": {"page": 1}, "expect": {"ids": ["p1"]}},
+  {"tool": "document_get", "args": {}, "expect": {
+    "document.body.1.hide_if": "flag == \"on\"",
+    "document.body.1.runs.0.text": "Oculto"
+  }},
+  {"tool": "search", "args": {"find": "Oculto"}, "expect": {"hits.0.id": "p2"}},
+  {"tool": "document_stats", "args": {}, "expect": {"paragraphs": 1}},
+  {"tool": "set_vars", "args": {"name": "flag", "value": "off"}},
+  {"tool": "page_preview", "args": {"page": 1}, "expect": {"ids": ["p1", "p2"]}},
+  {"tool": "document_stats", "args": {}, "expect": {"paragraphs": 2}},
+  {"tool": "set_vars", "args": {"name": "flag", "value": "on"}},
+  {"tool": "insert_field", "args": {"id": "p1", "offset": 0, "kind": "stat", "arg": "paragraphs"}},
+  {"tool": "document_get", "args": {}, "expect": {
+    "document.body.0.runs.0.field": "stat",
+    "document.body.0.runs.0.text": "1"
+  }},
+  {"tool": "document_stats", "args": {}, "expect": {"paragraphs": 1}},
+  {"tool": "set_vars", "args": {"name": "flag", "value": "off"}},
+  {"tool": "document_get", "args": {}, "expect": {"document.body.0.runs.0.text": "2"}},
+  {"tool": "document_stats", "args": {}, "expect": {"paragraphs": 2}},
+  {"tool": "insert_blocks", "args": {"after_id": "p2", "blocks": [{"id": "p3", "type": "paragraph", "runs": [{"text": "Mais"}]}]}},
+  {"tool": "document_get", "args": {}, "expect": {"document.body.0.runs.0.text": "3"}},
+  {"tool": "document_stats", "args": {}, "expect": {"paragraphs": 3}},
+  {"tool": "document_get", "args": {}, "expect": {"document.body.0.runs.0.text": "3"}},
+  {"tool": "insert_at_caret", "args": {"id": "p3", "offset": 4, "text": "!"}},
+  {"tool": "document_get", "args": {}, "expect": {"document.body.0.runs.0.text": "3"}},
+  {"tool": "delete_range", "args": {"id": "p3"}},
+  {"tool": "document_get", "args": {}, "expect": {"document.body.0.runs.0.text": "2"}},
+  {"tool": "document_stats", "args": {}, "expect": {"paragraphs": 2}},
+  {"tool": "insert_field", "args": {"id": "p2", "offset": 100, "kind": "stat", "arg": "chars"}},
+  {"tool": "document_get", "args": {}, "expect": {
+    "document.body.0.runs.0.text": "2",
+    "document.body.1.runs.1.field": "stat",
+    "document.body.1.runs.1.text": "16"
+  }},
+  {"tool": "insert_at_caret", "args": {"id": "p2", "offset": 100, "text": "!"}},
+  {"tool": "document_get", "args": {}, "expect": {"document.body.1.runs.1.text": "17"}},
+
+  {"tool": "document_new", "args": {"title": "Wave18 err", "force": true}},
+  {"tool": "insert_field", "args": {"id": "p1", "offset": 0, "kind": "if", "arg": {"cond": "1 +", "then": "A", "else": "B"}}},
+  {"tool": "document_get", "args": {}, "expect": {"document.body.0.runs.0.text": "#ERR"}},
+  {"tool": "validate", "args": {}, "expect": {
+    "valid": false,
+    "errors.0.code": "invalid_expression",
+    "errors.0.id": "p1",
+    "errors.0.message": "invalid expression"
+  }}
+]

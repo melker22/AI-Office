@@ -1,5 +1,6 @@
 #include "core/Odf.h"
 
+#include "core/FieldExpr.h"
 #include "core/Xml.h"
 #include "core/Zip.h"
 
@@ -40,6 +41,7 @@ QString fromOdfStyleName(QString name)
 
 struct SpanCounter {
     int n = 0;
+    int dropN = 0;
     QString stylesXml;
     QMap<QString, int> seen;
 };
@@ -121,6 +123,239 @@ void applyParaStyleProps(const QMap<QString, ParaStyleProps> &paraStyles, const 
         dir = p.dir;
 }
 
+// LibreOffice formulas require the ooow prefix to be bound
+// (xmlns:ooow="http://openoffice.org/2004/writer"). Equality in that formula
+// language is "="; AND/OR/NOT are words. Our evaluator uses ==, &&, ||, !.
+QString exprToOoow(const QString &expr)
+{
+    QString out;
+    for (int i = 0; i < expr.size();) {
+        const QChar c = expr.at(i);
+        if (c == QLatin1Char('"') || c == QLatin1Char('\'')) {
+            const QChar q = c;
+            ++i;
+            QString lit;
+            while (i < expr.size() && expr.at(i) != q) {
+                if (expr.at(i) == QLatin1Char('\\') && i + 1 < expr.size()) {
+                    lit += expr.at(i + 1);
+                    i += 2;
+                    continue;
+                }
+                lit += expr.at(i);
+                ++i;
+            }
+            if (i < expr.size())
+                ++i;
+            lit.replace(QLatin1Char('"'), QLatin1String("\\\""));
+            out += QLatin1Char('"');
+            out += lit;
+            out += QLatin1Char('"');
+            continue;
+        }
+        auto spacedWord = [&](const QString &word) {
+            if (!out.isEmpty() && !out.back().isSpace())
+                out += QLatin1Char(' ');
+            out += word;
+            if (i + 2 < expr.size() && !expr.at(i + 2).isSpace())
+                out += QLatin1Char(' ');
+        };
+        if (expr.mid(i, 2) == QLatin1String("&&")) {
+            spacedWord(QStringLiteral("AND"));
+            i += 2;
+            continue;
+        }
+        if (expr.mid(i, 2) == QLatin1String("||")) {
+            spacedWord(QStringLiteral("OR"));
+            i += 2;
+            continue;
+        }
+        if (expr.mid(i, 2) == QLatin1String("!=")) {
+            out += QLatin1String("<>");
+            i += 2;
+            continue;
+        }
+        if (expr.mid(i, 2) == QLatin1String("==")) {
+            out += QLatin1Char('=');
+            i += 2;
+            continue;
+        }
+        if (c == QLatin1Char('!')) {
+            out += QLatin1String("NOT");
+            if (i + 1 < expr.size() && !expr.at(i + 1).isSpace())
+                out += QLatin1Char(' ');
+            ++i;
+            continue;
+        }
+        out += c;
+        ++i;
+    }
+    return out.trimmed();
+}
+
+QString ooowToExpr(QString cond)
+{
+    if (cond.startsWith(QLatin1String("ooow:"), Qt::CaseInsensitive))
+        cond = cond.mid(5);
+    QString out;
+    for (int i = 0; i < cond.size();) {
+        const QChar c = cond.at(i);
+        if (c == QLatin1Char('"') || c == QLatin1Char('\'')) {
+            const QChar q = c;
+            ++i;
+            QString lit;
+            while (i < cond.size() && cond.at(i) != q) {
+                if (cond.at(i) == QLatin1Char('\\') && i + 1 < cond.size()) {
+                    lit += cond.at(i + 1);
+                    i += 2;
+                    continue;
+                }
+                lit += cond.at(i);
+                ++i;
+            }
+            if (i < cond.size())
+                ++i;
+            lit.replace(QLatin1Char('"'), QLatin1String("\\\""));
+            out += QLatin1Char('"');
+            out += lit;
+            out += QLatin1Char('"');
+            continue;
+        }
+        if (c.isLetter() || c == QLatin1Char('_')) {
+            int j = i + 1;
+            while (j < cond.size()
+                   && (cond.at(j).isLetterOrNumber() || cond.at(j) == QLatin1Char('_')
+                       || cond.at(j) == QLatin1Char('.')))
+                ++j;
+            const QString word = cond.mid(i, j - i);
+            const QString u = word.toUpper();
+            if (u == QLatin1String("AND"))
+                out += QLatin1String("&&");
+            else if (u == QLatin1String("OR"))
+                out += QLatin1String("||");
+            else if (u == QLatin1String("NOT"))
+                out += QLatin1Char('!');
+            else
+                out += word;
+            i = j;
+            continue;
+        }
+        if (cond.mid(i, 2) == QLatin1String("<>")) {
+            out += QLatin1String("!=");
+            i += 2;
+            continue;
+        }
+        if (cond.mid(i, 2) == QLatin1String("<=") || cond.mid(i, 2) == QLatin1String(">=")
+            || cond.mid(i, 2) == QLatin1String("==")) {
+            out += cond.mid(i, 2);
+            i += 2;
+            continue;
+        }
+        if (c == QLatin1Char('=')) {
+            out += QLatin1String("==");
+            ++i;
+            continue;
+        }
+        out += c;
+        ++i;
+    }
+    return out.trimmed();
+}
+
+QString ooowCondition(const QString &expr)
+{
+    return QStringLiteral("ooow:") + exprToOoow(expr);
+}
+
+QString compactJson(const QJsonObject &o)
+{
+    return QString::fromUtf8(QJsonDocument(o).toJson(QJsonDocument::Compact));
+}
+
+QString seqNumFormat(const QString &format)
+{
+    if (format == QLatin1String("roman"))
+        return QStringLiteral("i");
+    if (format == QLatin1String("alpha"))
+        return QStringLiteral("a");
+    return QStringLiteral("1");
+}
+
+QString seqFormatFromOdf(const QString &numFormat)
+{
+    const QString f = numFormat.toLower();
+    if (f == QLatin1String("i") || f == QLatin1String("roman"))
+        return QStringLiteral("roman");
+    if (f == QLatin1String("a") || f == QLatin1String("alpha"))
+        return QStringLiteral("alpha");
+    return QStringLiteral("arabic");
+}
+
+QString hiddenParagraphXml(const Document &doc, const Block &b)
+{
+    if (b.hideIf.isEmpty())
+        return {};
+    const bool hidden = blockHiddenByExpr(doc, b, 1, 1);
+    QString xml = QStringLiteral("<text:hidden-paragraph text:condition=\"%1\"")
+                      .arg(xmlEscape(ooowCondition(b.hideIf)));
+    if (hidden)
+        xml += QLatin1String(" text:is-hidden=\"true\"");
+    xml += QLatin1String("/>");
+    return xml;
+}
+
+void considerSeqName(const TextRun &r, QStringList &names)
+{
+    if (r.field != QLatin1String("seq"))
+        return;
+    const QString name =
+        QJsonDocument::fromJson(r.fieldArg.toUtf8()).object().value(QStringLiteral("name")).toString();
+    if (!name.isEmpty() && !names.contains(name))
+        names.push_back(name);
+}
+
+QString sequenceDeclsXml(const Document &doc)
+{
+    QStringList names;
+    for (const auto &b : doc.body) {
+        for (const auto &r : b.runs)
+            considerSeqName(r, names);
+        for (const auto &r : b.captionRuns)
+            considerSeqName(r, names);
+        for (const auto &row : b.table) {
+            for (const auto &cell : row) {
+                for (const auto &r : cell.runs)
+                    considerSeqName(r, names);
+            }
+        }
+    }
+    if (names.isEmpty())
+        return {};
+    QString xml = QLatin1String("<text:sequence-decls>");
+    for (const auto &name : names) {
+        xml += QStringLiteral(
+                   "<text:sequence-decl text:display-outline-level=\"0\" text:name=\"%1\"/>")
+                   .arg(xmlEscape(name));
+    }
+    xml += QLatin1String("</text:sequence-decls>");
+    return xml;
+}
+
+QString userFieldDeclsXml(const Document &doc)
+{
+    if (doc.vars.isEmpty())
+        return {};
+    QString xml = QLatin1String("<text:user-field-decls>");
+    for (auto it = doc.vars.cbegin(); it != doc.vars.cend(); ++it) {
+        if (it.key().isEmpty())
+            continue;
+        xml += QStringLiteral(
+                   "<text:user-field-decl office:value-type=\"string\" office:string-value=\"%1\" text:name=\"%2\"/>")
+                   .arg(xmlEscape(it.value()), xmlEscape(it.key()));
+    }
+    xml += QLatin1String("</text:user-field-decls>");
+    return xml;
+}
+
 QString emitSpan(SpanCounter &sc, const TextRun &r, const Document &doc)
 {
     const bool fmt = r.bold || r.italic || r.underline || r.strike || r.superscript || r.subscript
@@ -144,7 +379,88 @@ QString emitSpan(SpanCounter &sc, const TextRun &r, const Document &doc)
             inner = QStringLiteral("<text:file-name>%1</text:file-name>").arg(xmlEscape(txt));
         else if (r.field == QLatin1String("word_count"))
             inner = QStringLiteral("<text:word-count>%1</text:word-count>").arg(xmlEscape(txt));
-        else {
+        else if (r.field == QLatin1String("if")) {
+            const QJsonObject jo = QJsonDocument::fromJson(r.fieldArg.toUtf8()).object();
+            inner = QStringLiteral(
+                        "<text:conditional-text text:condition=\"%1\" text:string-value-if-true=\"%2\" "
+                        "text:string-value-if-false=\"%3\">%4</text:conditional-text>")
+                        .arg(xmlEscape(ooowCondition(jo.value(QStringLiteral("cond")).toString())),
+                             xmlEscape(jo.value(QStringLiteral("then")).toString()),
+                             xmlEscape(jo.value(QStringLiteral("else")).toString()),
+                             xmlEscape(txt));
+        } else if (r.field == QLatin1String("seq")) {
+            const QJsonObject jo = QJsonDocument::fromJson(r.fieldArg.toUtf8()).object();
+            const QString name = jo.value(QStringLiteral("name")).toString();
+            const QString format = jo.value(QStringLiteral("format")).toString(QStringLiteral("arabic"));
+            inner = QStringLiteral(
+                        "<text:sequence text:name=\"%1\" text:formula=\"ooow:%2+1\" style:num-format=\"%3\">%4</text:sequence>")
+                        .arg(xmlEscape(name), xmlEscape(name), seqNumFormat(format), xmlEscape(txt));
+        } else if (r.field == QLatin1String("stat")) {
+            const QString arg = r.fieldArg;
+            QString el;
+            if (arg == QLatin1String("pages"))
+                el = QStringLiteral("page-count");
+            else if (arg == QLatin1String("words"))
+                el = QStringLiteral("word-count");
+            else if (arg == QLatin1String("chars"))
+                el = QStringLiteral("character-count");
+            else if (arg == QLatin1String("paragraphs"))
+                el = QStringLiteral("paragraph-count");
+            else if (arg == QLatin1String("tables"))
+                el = QStringLiteral("table-count");
+            else if (arg == QLatin1String("images"))
+                el = QStringLiteral("image-count");
+            if (!el.isEmpty())
+                inner = QStringLiteral("<text:%1>%2</text:%1>").arg(el, xmlEscape(txt));
+        } else if (r.field == QLatin1String("doc_info")) {
+            const QString arg = r.fieldArg;
+            QString el;
+            if (arg == QLatin1String("subject"))
+                el = QStringLiteral("subject");
+            else if (arg == QLatin1String("keywords"))
+                el = QStringLiteral("keywords");
+            else if (arg == QLatin1String("created"))
+                el = QStringLiteral("creation-date");
+            else if (arg == QLatin1String("modified"))
+                el = QStringLiteral("modification-date");
+            else if (arg == QLatin1String("revision"))
+                el = QStringLiteral("editing-cycles");
+            if (!el.isEmpty())
+                inner = QStringLiteral("<text:%1>%2</text:%1>").arg(el, xmlEscape(txt));
+        } else if (r.field == QLatin1String("sender")) {
+            const QString arg = r.fieldArg;
+            QString el;
+            if (arg == QLatin1String("name"))
+                el = QStringLiteral("sender-firstname");
+            else if (arg == QLatin1String("email"))
+                el = QStringLiteral("sender-email");
+            else if (arg == QLatin1String("company"))
+                el = QStringLiteral("sender-company");
+            else if (arg == QLatin1String("phone"))
+                el = QStringLiteral("sender-phone-work");
+            if (!el.isEmpty())
+                inner = QStringLiteral("<text:%1>%2</text:%1>").arg(el, xmlEscape(txt));
+        } else if (r.field == QLatin1String("input_list")) {
+            const QJsonObject jo = QJsonDocument::fromJson(r.fieldArg.toUtf8()).object();
+            const QString selected = jo.value(QStringLiteral("selected")).toString();
+            const QJsonArray opts = jo.value(QStringLiteral("options")).toArray();
+            ++sc.dropN;
+            QString labels;
+            bool marked = false;
+            for (const auto &v : opts) {
+                const QString opt = v.toString();
+                const bool cur = !marked && ((!selected.isEmpty() && opt == selected) || selected.isEmpty());
+                if (cur)
+                    marked = true;
+                labels += QStringLiteral("<text:label text:value=\"%1\"%2/>")
+                              .arg(xmlEscape(opt),
+                                   cur ? QStringLiteral(" text:current-selected=\"true\"") : QString());
+            }
+            const QString shown = !selected.isEmpty() ? selected : txt;
+            inner = QStringLiteral("<text:drop-down text:name=\"List%1\">%2%3</text:drop-down>")
+                        .arg(sc.dropN)
+                        .arg(labels, xmlEscape(shown));
+        } else {
             QString fieldName = r.field;
             if (!r.fieldArg.isEmpty())
                 fieldName += QLatin1Char(':') + r.fieldArg;
@@ -414,8 +730,9 @@ bool saveOdt(const Document &doc, const QString &path, QString *error)
             const QString kind = b.listKind;
             bodyXml += QLatin1String("<text:list>");
             while (i < body.size() && body[i].type == QLatin1String("list-item") && body[i].listKind == kind) {
-                QString inner = QStringLiteral("<text:p text:style-name=\"%1\">%2</text:p>")
+                QString inner = QStringLiteral("<text:p text:style-name=\"%1\">%2%3</text:p>")
                                     .arg(paraStyleForBlock(psc, body[i]),
+                                         hiddenParagraphXml(doc, body[i]),
                                          revisedSpansXml(sc, body[i].id, body[i].runs, doc, usedRevisions));
                 const int lv = qMax(1, body[i].level);
                 for (int n = 1; n < lv; ++n)
@@ -428,10 +745,11 @@ bool saveOdt(const Document &doc, const QString &path, QString *error)
         }
         if (b.type == QLatin1String("heading")) {
             bodyXml += bookmarksAround(b.id,
-                QStringLiteral("<text:h text:style-name=\"%1\" text:outline-level=\"%2\">%3</text:h>")
+                QStringLiteral("<text:h text:style-name=\"%1\" text:outline-level=\"%2\">%3%4</text:h>")
                     .arg(paraStyleForBlock(psc, b))
                     .arg(b.level > 0 ? b.level : 1)
-                    .arg(revisedSpansXml(sc, b.id, b.runs, doc, usedRevisions)));
+                    .arg(hiddenParagraphXml(doc, b),
+                         revisedSpansXml(sc, b.id, b.runs, doc, usedRevisions)));
         } else if (b.type == QLatin1String("break")) {
             bodyXml += b.breakKind == QLatin1String("column")
                 ? QLatin1String("<text:p text:style-name=\"PColBreak\"/>")
@@ -486,8 +804,9 @@ bool saveOdt(const Document &doc, const QString &path, QString *error)
                            .arg(xmlEscape(href));
         } else {
             bodyXml += bookmarksAround(b.id,
-                QStringLiteral("<text:p text:style-name=\"%1\">%2</text:p>")
-                    .arg(paraStyleForBlock(psc, b), revisedSpansXml(sc, b.id, b.runs, doc, usedRevisions)));
+                QStringLiteral("<text:p text:style-name=\"%1\">%2%3</text:p>")
+                    .arg(paraStyleForBlock(psc, b), hiddenParagraphXml(doc, b),
+                         revisedSpansXml(sc, b.id, b.runs, doc, usedRevisions)));
         }
         ++i;
     }
@@ -552,10 +871,13 @@ bool saveOdt(const Document &doc, const QString &path, QString *error)
         "xmlns:draw=\"urn:oasis:names:tc:opendocument:xmlns:drawing:1.0\" "
         "xmlns:svg=\"urn:oasis:names:tc:opendocument:xmlns:svg-compatible:1.0\" "
         "xmlns:xlink=\"http://www.w3.org/1999/xlink\" "
-        "xmlns:dc=\"http://purl.org/dc/elements/1.1/\" office:version=\"1.3\">"
+        "xmlns:dc=\"http://purl.org/dc/elements/1.1/\" "
+        "xmlns:ooow=\"http://openoffice.org/2004/writer\" office:version=\"1.3\">"
         "<office:automatic-styles>%1</office:automatic-styles>"
-        "<office:body><office:text>%2%3</office:text></office:body></office:document-content>")
-                                   .arg(psc.stylesXml + sc.stylesXml, trackedChangesXml, bodyXml);
+        "<office:body><office:text>%2%3%4</office:text></office:body></office:document-content>")
+                                   .arg(psc.stylesXml + sc.stylesXml,
+                                        sequenceDeclsXml(doc) + userFieldDeclsXml(doc),
+                                        trackedChangesXml, bodyXml);
 
     QString manifest = QStringLiteral(
         "<?xml version=\"1.0\" encoding=\"UTF-8\"?>"
@@ -585,15 +907,27 @@ bool saveOdt(const Document &doc, const QString &path, QString *error)
         rvA.append(rv.toJson());
     extra[QStringLiteral("revisions")] = rvA;
     const QString extraJson = QString::fromUtf8(QJsonDocument(extra).toJson(QJsonDocument::Compact));
+    QString metaFields;
+    if (!doc.subject.isEmpty())
+        metaFields += QStringLiteral("<dc:subject>%1</dc:subject>").arg(xmlEscape(doc.subject));
+    if (!doc.keywords.isEmpty())
+        metaFields += QStringLiteral("<meta:keyword>%1</meta:keyword>").arg(xmlEscape(doc.keywords));
+    const QString created = doc.vars.value(QStringLiteral("doc.created"));
+    const QString modified = doc.vars.value(QStringLiteral("doc.modified"));
+    if (!created.isEmpty())
+        metaFields += QStringLiteral("<meta:creation-date>%1</meta:creation-date>").arg(xmlEscape(created));
+    if (!modified.isEmpty())
+        metaFields += QStringLiteral("<dc:date>%1</dc:date>").arg(xmlEscape(modified));
+    metaFields += QStringLiteral("<meta:editing-cycles>%1</meta:editing-cycles>").arg(qMax(1, doc.revisions.size()));
     const QString meta = QStringLiteral(
         "<?xml version=\"1.0\" encoding=\"UTF-8\"?>"
         "<office:document-meta xmlns:office=\"urn:oasis:names:tc:opendocument:xmlns:office:1.0\" "
         "xmlns:dc=\"http://purl.org/dc/elements/1.1/\" "
         "xmlns:meta=\"urn:oasis:names:tc:opendocument:xmlns:meta:1.0\" office:version=\"1.3\">"
-        "<office:meta><dc:title>%1</dc:title>"
+        "<office:meta><dc:title>%1</dc:title>%3"
         "<meta:user-defined meta:name=\"aioffice:extra\">%2</meta:user-defined>"
         "</office:meta></office:document-meta>")
-                             .arg(xmlEscape(doc.title), xmlEscape(extraJson));
+                             .arg(xmlEscape(doc.title), xmlEscape(extraJson), metaFields);
 
     QVector<ZipEntry> entries;
     entries.push_back({QStringLiteral("mimetype"),
@@ -830,6 +1164,21 @@ bool loadOdt(const QByteArray &zipData, Document &doc, QString *error)
             meta.readNext();
             if (meta.isStartElement() && meta.name().toString() == QLatin1String("title"))
                 doc.title = meta.readElementText();
+            else if (meta.isStartElement() && meta.name() == QLatin1String("subject"))
+                doc.subject = meta.readElementText();
+            else if (meta.isStartElement() && meta.name() == QLatin1String("keyword")) {
+                const QString kw = meta.readElementText();
+                if (!kw.isEmpty()) {
+                    if (!doc.keywords.isEmpty())
+                        doc.keywords += QLatin1String(", ");
+                    doc.keywords += kw;
+                }
+            } else if (meta.isStartElement() && meta.name() == QLatin1String("creation-date"))
+                doc.vars.insert(QStringLiteral("doc.created"), meta.readElementText());
+            else if (meta.isStartElement() && meta.name() == QLatin1String("date"))
+                doc.vars.insert(QStringLiteral("doc.modified"), meta.readElementText());
+            else if (meta.isStartElement() && meta.name() == QLatin1String("editing-cycles"))
+                doc.vars.insert(QStringLiteral("doc.editing-cycles"), meta.readElementText());
             else if (meta.isStartElement() && meta.name().toString() == QLatin1String("user-defined")
                      && meta.attributes().value(QStringLiteral("meta:name")) == QLatin1String("aioffice:extra")) {
                 const auto extra = QJsonDocument::fromJson(meta.readElementText().toUtf8()).object();
@@ -901,6 +1250,7 @@ bool loadOdt(const QByteArray &zipData, Document &doc, QString *error)
     // aioffice:extra revisions stay authoritative when present. Native marks fill ids the JSON did not load.
     QMap<QString, int> changeStartOff;   // change-id -> offset at change-start, within current block
     QString curLinkHref; // set while inside <text:a>, applied to runs started within it
+    QString pendingHideIf;
 
     auto startRun = [&]() { spanRun = TextRun{}; spanRun.link = curLinkHref; };
     auto curLen = [&]() {
@@ -922,6 +1272,8 @@ bool loadOdt(const QByteArray &zipData, Document &doc, QString *error)
         b.align = pendingAlign;
         b.dir = pendingDir;
         b.listKind = listKind;
+        b.hideIf = pendingHideIf;
+        pendingHideIf.clear();
         b.runs = runs;
         if (b.runs.isEmpty())
             b.runs.push_back(TextRun{});
@@ -968,6 +1320,7 @@ bool loadOdt(const QByteArray &zipData, Document &doc, QString *error)
             } else if (n == QLatin1String("h")) {
                 runs.clear();
                 startRun();
+                pendingHideIf.clear();
                 currentType = QStringLiteral("heading");
                 currentLevel = xml.attributes().value(QStringLiteral("text:outline-level")).toInt();
                 if (currentLevel <= 0)
@@ -992,6 +1345,7 @@ bool loadOdt(const QByteArray &zipData, Document &doc, QString *error)
                 if (!inText) {
                     runs.clear();
                     startRun();
+                    pendingHideIf.clear();
                     if (currentType != QLatin1String("list-item"))
                         currentType = QStringLiteral("paragraph");
                     currentStyle = fromOdfStyleName(stn);
@@ -1043,13 +1397,73 @@ bool loadOdt(const QByteArray &zipData, Document &doc, QString *error)
                 runs.push_back(spanRun);
                 startRun();
                 doc.body.push_back(nb);
-            } else if (n == QLatin1String("page-number") || n == QLatin1String("page-count")
-                       || n == QLatin1String("date") || n == QLatin1String("title")
-                       || n == QLatin1String("author-name") || n == QLatin1String("file-name")
-                       || n == QLatin1String("word-count") || n == QLatin1String("user-field-get")) {
+            } else if (n == QLatin1String("user-field-decl")) {
+                const QString name = xml.attributes().value(QStringLiteral("text:name")).toString();
+                QString val = xml.attributes().value(QStringLiteral("office:string-value")).toString();
+                if (val.isEmpty())
+                    val = xml.attributes().value(QStringLiteral("office:value")).toString();
+                if (!name.isEmpty() && !doc.vars.contains(name))
+                    doc.vars.insert(name, val);
+            } else if (n == QLatin1String("hidden-paragraph")) {
+                if (inText && !inTable)
+                    pendingHideIf = ooowToExpr(xml.attributes().value(QStringLiteral("text:condition")).toString());
+            } else if (n == QLatin1String("s") && inText) {
+                int count = xml.attributes().value(QStringLiteral("text:c")).toInt();
+                if (count <= 0)
+                    count = 1;
+                spanRun.text += QString(count, QLatin1Char(' '));
+            } else if (n == QLatin1String("drop-down")) {
                 if (!spanRun.text.isEmpty() || !spanRun.field.isEmpty())
                     runs.push_back(spanRun);
                 startRun();
+                QStringList options;
+                QString selected;
+                QString loose;
+                if (!xml.isEndElement()) {
+                    while (!xml.atEnd()) {
+                        xml.readNext();
+                        if (xml.isStartElement() && xml.name() == QLatin1String("label")) {
+                            const QString val = xml.attributes().value(QStringLiteral("text:value")).toString();
+                            if (!val.isEmpty())
+                                options.push_back(val);
+                            if (xml.attributes().value(QStringLiteral("text:current-selected"))
+                                == QLatin1String("true"))
+                                selected = val;
+                        } else if (xml.isCharacters() && !xml.isWhitespace()) {
+                            loose += xml.text();
+                        } else if (xml.isEndElement() && xml.name() == QLatin1String("drop-down"))
+                            break;
+                    }
+                }
+                if (selected.isEmpty())
+                    selected = loose.trimmed();
+                QJsonArray opts;
+                for (const auto &opt : options)
+                    opts.append(opt);
+                QJsonObject jo;
+                jo.insert(QStringLiteral("options"), opts);
+                jo.insert(QStringLiteral("selected"), selected);
+                spanRun.field = QStringLiteral("input_list");
+                spanRun.fieldArg = compactJson(jo);
+                spanRun.text = selected;
+                runs.push_back(spanRun);
+                startRun();
+            } else if (n == QLatin1String("page-number") || n == QLatin1String("page-count")
+                       || n == QLatin1String("date") || n == QLatin1String("title")
+                       || n == QLatin1String("author-name") || n == QLatin1String("file-name")
+                       || n == QLatin1String("word-count") || n == QLatin1String("user-field-get")
+                       || n == QLatin1String("conditional-text") || n == QLatin1String("sequence")
+                       || n == QLatin1String("character-count") || n == QLatin1String("paragraph-count")
+                       || n == QLatin1String("table-count") || n == QLatin1String("image-count")
+                       || n == QLatin1String("subject") || n == QLatin1String("keywords")
+                       || n == QLatin1String("creation-date") || n == QLatin1String("modification-date")
+                       || n == QLatin1String("editing-cycles") || n == QLatin1String("sender-firstname")
+                       || n == QLatin1String("sender-email") || n == QLatin1String("sender-company")
+                       || n == QLatin1String("sender-phone-work")) {
+                if (!spanRun.text.isEmpty() || !spanRun.field.isEmpty())
+                    runs.push_back(spanRun);
+                startRun();
+                const QXmlStreamAttributes attrs = xml.attributes();
                 if (n == QLatin1String("page-number"))
                     spanRun.field = QStringLiteral("page_number");
                 else if (n == QLatin1String("page-count"))
@@ -1064,8 +1478,61 @@ bool loadOdt(const QByteArray &zipData, Document &doc, QString *error)
                     spanRun.field = QStringLiteral("filename");
                 else if (n == QLatin1String("word-count"))
                     spanRun.field = QStringLiteral("word_count");
-                else {
-                    const QString raw = xml.attributes().value(QStringLiteral("text:name")).toString();
+                else if (n == QLatin1String("conditional-text")) {
+                    spanRun.field = QStringLiteral("if");
+                    QJsonObject jo;
+                    jo.insert(QStringLiteral("cond"),
+                              ooowToExpr(attrs.value(QStringLiteral("text:condition")).toString()));
+                    jo.insert(QStringLiteral("then"),
+                              attrs.value(QStringLiteral("text:string-value-if-true")).toString());
+                    jo.insert(QStringLiteral("else"),
+                              attrs.value(QStringLiteral("text:string-value-if-false")).toString());
+                    spanRun.fieldArg = compactJson(jo);
+                } else if (n == QLatin1String("sequence")) {
+                    spanRun.field = QStringLiteral("seq");
+                    QJsonObject jo;
+                    jo.insert(QStringLiteral("name"), attrs.value(QStringLiteral("text:name")).toString());
+                    jo.insert(QStringLiteral("format"),
+                              seqFormatFromOdf(attrs.value(QStringLiteral("style:num-format")).toString()));
+                    spanRun.fieldArg = compactJson(jo);
+                } else if (n == QLatin1String("character-count") || n == QLatin1String("paragraph-count")
+                           || n == QLatin1String("table-count") || n == QLatin1String("image-count")) {
+                    spanRun.field = QStringLiteral("stat");
+                    if (n == QLatin1String("character-count"))
+                        spanRun.fieldArg = QStringLiteral("chars");
+                    else if (n == QLatin1String("paragraph-count"))
+                        spanRun.fieldArg = QStringLiteral("paragraphs");
+                    else if (n == QLatin1String("table-count"))
+                        spanRun.fieldArg = QStringLiteral("tables");
+                    else
+                        spanRun.fieldArg = QStringLiteral("images");
+                } else if (n == QLatin1String("subject") || n == QLatin1String("keywords")
+                           || n == QLatin1String("creation-date") || n == QLatin1String("modification-date")
+                           || n == QLatin1String("editing-cycles")) {
+                    spanRun.field = QStringLiteral("doc_info");
+                    if (n == QLatin1String("subject"))
+                        spanRun.fieldArg = QStringLiteral("subject");
+                    else if (n == QLatin1String("keywords"))
+                        spanRun.fieldArg = QStringLiteral("keywords");
+                    else if (n == QLatin1String("creation-date"))
+                        spanRun.fieldArg = QStringLiteral("created");
+                    else if (n == QLatin1String("modification-date"))
+                        spanRun.fieldArg = QStringLiteral("modified");
+                    else
+                        spanRun.fieldArg = QStringLiteral("revision");
+                } else if (n == QLatin1String("sender-firstname") || n == QLatin1String("sender-email")
+                           || n == QLatin1String("sender-company") || n == QLatin1String("sender-phone-work")) {
+                    spanRun.field = QStringLiteral("sender");
+                    if (n == QLatin1String("sender-firstname"))
+                        spanRun.fieldArg = QStringLiteral("name");
+                    else if (n == QLatin1String("sender-email"))
+                        spanRun.fieldArg = QStringLiteral("email");
+                    else if (n == QLatin1String("sender-company"))
+                        spanRun.fieldArg = QStringLiteral("company");
+                    else
+                        spanRun.fieldArg = QStringLiteral("phone");
+                } else {
+                    const QString raw = attrs.value(QStringLiteral("text:name")).toString();
                     const int colon = raw.indexOf(QLatin1Char(':'));
                     if (colon >= 0) {
                         spanRun.field = raw.left(colon);
@@ -1075,6 +1542,22 @@ bool loadOdt(const QByteArray &zipData, Document &doc, QString *error)
                     }
                 }
                 spanRun.text = xml.readElementText();
+                if (spanRun.field == QLatin1String("doc_info")) {
+                    if (spanRun.fieldArg == QLatin1String("subject") && doc.subject.isEmpty())
+                        doc.subject = spanRun.text;
+                    else if (spanRun.fieldArg == QLatin1String("keywords") && doc.keywords.isEmpty())
+                        doc.keywords = spanRun.text;
+                    else if (spanRun.fieldArg == QLatin1String("created")
+                             && !doc.vars.contains(QStringLiteral("doc.created")))
+                        doc.vars.insert(QStringLiteral("doc.created"), spanRun.text);
+                    else if (spanRun.fieldArg == QLatin1String("modified")
+                             && !doc.vars.contains(QStringLiteral("doc.modified")))
+                        doc.vars.insert(QStringLiteral("doc.modified"), spanRun.text);
+                } else if (spanRun.field == QLatin1String("sender") && !spanRun.fieldArg.isEmpty()) {
+                    const QString key = QStringLiteral("sender.") + spanRun.fieldArg;
+                    if (!doc.vars.contains(key))
+                        doc.vars.insert(key, spanRun.text);
+                }
                 runs.push_back(spanRun);
                 startRun();
             } else if (n == QLatin1String("table-of-content")) {

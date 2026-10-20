@@ -144,12 +144,12 @@ Args: `{ "ids": ["p1"] }`
 ### `apply_character_format`
 
 Args: `{ "ids": ["p1"], "start"?: int, "end"?: int, "bold"?: bool, "italic"?: bool, "underline"?: bool, "strike"?: bool, "superscript"?: bool, "subscript"?: bool, "font"?: string, "size_pt"?: number, "color"?: string, "highlight"?: string, "link"?: string, "small_caps"?: bool, "caps"?: "upper"|"lower"|"title", "hidden"?: bool, "char_style"?: string, "lang"?: string, "kerning"?: number }`  
-With `start`/`end`, applies to that range of the block’s plain text. Otherwise all runs. `highlight` is painted in `page_preview`. `hidden` omits the run from preview. `char_style` names a `create_style` with `kind=character`. `kerning` is extra letter-spacing percent (preview + ligatures). `lang` is stored on the run (BCP 47).
+With `start`/`end`, applies to that range of the block’s plain text. Otherwise all runs. `highlight` is painted in `page_preview`. `hidden` omits the run from preview. `char_style` names a `create_style` with `kind=character`. `kerning` is extra letter-spacing percent (preview + ligatures). `lang` is stored on the run (BCP 47). `show_if`: a single variable name keeps the old rule (the run is hidden when `doc.vars[name]` is empty, `0`, or `false`). Any other value is an expression (`field_evaluate`); a syntax error displays `#ERR`.
 
 ### `apply_paragraph_format`
 
-Args: `{ "ids": ["p1"], "align"?: "left"|"center"|"right"|"justify"|"start"|"end", "dir"?: "auto"|"ltr"|"rtl", "style"?: string, "indent_left_mm"?: number, "indent_right_mm"?: number, "indent_first_mm"?: number, "space_before_pt"?: number, "space_after_pt"?: number, "line_height"?: number, "keep_with_next"?: bool, "break_before"?: bool, "orphans"?: int, "widows"?: int, "drop_cap_lines"?: int, "tabs"?: [{"pos_mm": number, "align"?: "left"|"right"|"center"|"decimal"}], "border_pt"?: number, "border_color"?: string, "list_restart"?: bool, "list_bullet"?: string, "lang"?: string, "writing_mode"?: string }`  
-`drop_cap_lines` ≥ 2 paints a visual drop cap in `page_preview`. Tab stops pair with `insert_tab` / `\t` in run text. `list_restart` resets decimal numbering; `list_bullet` is the custom marker. `keep_with_next` holds the next block on the same page; `break_before` starts a new page.
+Args: `{ "ids": ["p1"], "align"?: "left"|"center"|"right"|"justify"|"start"|"end", "dir"?: "auto"|"ltr"|"rtl", "style"?: string, "indent_left_mm"?: number, "indent_right_mm"?: number, "indent_first_mm"?: number, "space_before_pt"?: number, "space_after_pt"?: number, "line_height"?: number, "keep_with_next"?: bool, "break_before"?: bool, "orphans"?: int, "widows"?: int, "drop_cap_lines"?: int, "tabs"?: [{"pos_mm": number, "align"?: "left"|"right"|"center"|"decimal"}], "border_pt"?: number, "border_color"?: string, "list_restart"?: bool, "list_bullet"?: string, "lang"?: string, "writing_mode"?: string, "hide_if"?: string }`  
+`drop_cap_lines` ≥ 2 paints a visual drop cap in `page_preview`. Tab stops pair with `insert_tab` / `\t` in run text. `list_restart` resets decimal numbering; `list_bullet` is the custom marker. `keep_with_next` holds the next block on the same page; `break_before` starts a new page. `hide_if` is an expression (same language as `field_evaluate`). When it is true the block is omitted from layout, `page_preview`, PDF, and the `document_stats` paragraph count; the block stays in the JSON and in `search`. An invalid expression does not hide the block. `validate` reports `invalid_expression` with the block id. Pass `""` to clear it.
 
 ### `apply_style`
 
@@ -298,12 +298,19 @@ Markdown → blocks. Inline: `**bold**`, `*italic*`, `[text](url)`. Nested lists
 
 Hiperlink na seleção (`url`). Marcador nomeado no bloco (`name`, `id` opcional). Referência cruzada (`target` = id de bloco ou bookmark) como campo `xref`.
 
-`insert_crossref` args: `{ "target": string, "kind"?: "text"|"page"|"heading_number"|"above_below"|"category_number"|"footnote_number"|"endnote_number", "id"?, "offset"? }`. `text` (default) insere o texto/legenda do alvo — comportamento de antes. `page` mostra o **número de página vivo** do alvo (recalculado a cada `page_preview`/export; sem layout — ex. round-trip ODT/DOCX — cai de volta no texto do alvo). `heading_number` mostra o número de contorno do heading alvo (`1.2`). `category_number` mostra o ordinal do alvo entre blocos do mesmo tipo (image/table/chart/equation/qr/form). `footnote_number`/`endnote_number` mostram a ordem da nota entre as notas referenciadas. `above_below` é resolvido **uma vez**, no momento do insert (compara a posição do alvo com `id`/caret atual) e vira texto "acima"/"abaixo" fixo — não é um campo vivo (simplificação documentada, `Session::insertCrossref`).
+`insert_crossref` args: `{ "target": string, "kind"?: "text"|"page"|"heading_number"|"above_below"|"category_number"|"footnote_number"|"endnote_number", "id"?, "offset"? }`. `text` (default) insere o texto/legenda do alvo — comportamento de antes. `page` mostra o **número de página vivo** do alvo (recalculado a cada `page_preview`/export; sem layout — ex. round-trip ODT/DOCX — cai de volta no texto do alvo). `heading_number` mostra o número de contorno do heading alvo (`1.2`). `category_number` mostra o número do campo **seq** da legenda numerada do alvo (`insert_caption` com `seq`); se não houver seq, cai no ordinal entre blocos do mesmo tipo (image/table/…). `footnote_number`/`endnote_number` mostram a ordem da nota entre as notas referenciadas. `above_below` é resolvido **uma vez**, no momento do insert (compara a posição do alvo com `id`/caret atual) e vira texto "acima"/"abaixo" fixo — não é um campo vivo (simplificação documentada, `Session::insertCrossref`).
 
 ### `insert_field`
 
-Args: `{ "kind": "page_number"|"page_count"|"date"|"title"|"author"|"xref"|"filename"|"word_count"|"custom"|"merge", "arg"?: string }`  
-Insere no caret. `xref`/`custom`/`merge` usam `arg`. Campo `merge` mostra `«arg»` até `mail_merge`. `date` usa `arg` como formato Qt (`dd/MM/yyyy` por omissão; `yyyy-MM-dd hh:mm` para data/hora).
+Args: `{ "kind": "page_number"|"page_count"|"date"|"title"|"author"|"xref"|"filename"|"word_count"|"custom"|"merge"|"if"|"doc_info"|"stat"|"sender"|"seq"|"input_list", "arg"?: string|object, "xref_kind"?: string }`  
+Insere no caret. `xref`/`custom`/`merge` usam `arg`. Campo `merge` mostra `«arg»` até `mail_merge`. `date` usa `arg` como formato Qt (`dd/MM/yyyy` por omissão; `yyyy-MM-dd hh:mm` para data/hora). `if` takes `arg` as `{ "cond": string, "then": string, "else": string }` (object or JSON string). `cond` is an expression; the field shows `then` or `else`. A syntax error shows `#ERR` and `validate` reports `invalid_expression`.
+
+### `field_evaluate`
+
+Args: `{ "expr": string }`  
+Evaluates `expr` against the open document. Literals: numbers (`1`, `2.5`, `-3`) and strings (`"..."` or `'...'`). Names other than the numeric fields below read `doc.vars` as strings. Numeric fields: `page`, `pages`, `words`, `chars`, `paragraphs`, `tables`, `images`. Operators, tightest first: parentheses, `!`, comparisons (`== != < > <= >=`), `&&`, `||`. A comparison is numeric only when both sides are numbers; otherwise both sides are compared as strings (`2 < "10"` is false). Returns `{ "value", "type": "number"|"string"|"bool" }`. Syntax errors return `{ "ok": false, "error": "invalid expression" }`. `paragraphs` counts paragraphs that are not hidden by `hide_if`.
+
+**Onda 18 — tipos novos:** `doc_info` com `arg` = `subject`|`keywords`|`created`|`modified`|`revision` (metadados do documento; `created`/`modified` podem vir de `doc.vars["doc.created"]` / `doc.modified`). `stat` com `arg` = `pages`|`words`|`chars`|`paragraphs`|`tables`|`images` (contagem de blocos visíveis; `pages` usa o layout quando disponível). `sender` com `arg` = `name`|`email`|`company`|`phone` lê `doc.vars["sender.<arg>"]`. `seq` com `arg` JSON `{name, format?}` (`format`: `arabic`|`roman`|`alpha`; contagem por `name` na ordem do documento). `input_list` com `arg` JSON `{options[], selected?}` mostra `selected` ou a primeira opção.
 
 **Fidelidade de round-trip ODT/DOCX (onda 12):** `page_number, page_count, date, title, author, filename, word_count, xref` mapeiam para elementos de campo nativos nos dois formatos e são lidos de volta ao reabrir. `merge, var, custom, input, time, cite` agora também mapeiam para instruções DOCX reais (`MERGEFIELD`, `DOCVARIABLE`, `FILLIN`, `TIME`, instr próprio para `cite`) e são lidos de volta; em ODT continuam via `text:user-field-get` genérico (nome do campo preservado, funcional mas não um elemento ODF dedicado). `chapter` vira `STYLEREF` no DOCX (aproximação — Word não tem equivalente exato).
 
@@ -424,7 +431,7 @@ Clona o corpo por registo, substitui `{{chave}}` e campos `merge`, e insere queb
 
 ### `set_image` / `insert_caption`
 
-Alt, caption, wrap, âncora, `width_mm`, `rotate` (graus), `opacity` (0–1) no bloco imagem (ou caption em tabela).
+Alt, caption, wrap, âncora, `width_mm`, `rotate` (graus), `opacity` (0–1) no bloco imagem (ou caption em tabela). `insert_caption` args: `{ id, text?, seq?: { name, format?: arabic|roman|alpha } }` — com `seq`, grava `caption_runs` (`"<name> "` + campo seq + texto) para numeração viva e xref `category_number`.
 
 ### `undo` / `redo`
 
@@ -433,7 +440,7 @@ Args: `{}`
 ### `page_preview`
 
 Args: `{ "page"?: 1, "zoom"?: 1.15 }` or `{ "page": "all", "zoom"?: 1.15 }` or `{ "from": 1, "to": 3, "zoom"?: 1.15 }`  
-Default zoom **1.15**. `from`/`to` are inclusive page numbers. `page:"all"` returns `{previews:[{page,png_base64}]}`.
+Default zoom **1.15**. `from`/`to` are inclusive page numbers. `page:"all"` returns `{previews:[{page,png_base64,ids}]}`. A single page also returns `ids`: the block ids laid out on that page. A block whose `hide_if` is true is absent.
 
 ### `caret_geometry`
 

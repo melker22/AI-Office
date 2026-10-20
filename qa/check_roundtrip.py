@@ -75,6 +75,9 @@ def run_props_match(got: dict, want: dict) -> bool:
         elif key in ("bold", "italic", "underline", "strike", "superscript", "subscript"):
             if bool(got.get(key)) != bool(val):
                 return False
+        elif key in ("field", "field_arg", "xref_kind"):
+            if (got.get(key) or "") != (val or ""):
+                return False
     return True
 
 
@@ -144,6 +147,10 @@ def compare_expect(doc: dict, revs: list, expect_path: Path, fixture_path: Path,
             raise SystemExit(
                 f"block {bi} plain {plain_block(body, bi)!r} != {want_b.get('plain')!r}"
             )
+        if "hide_if" in want_b and (body[bi].get("hide_if") or "") != want_b.get("hide_if"):
+            raise SystemExit(
+                f"block {bi} hide_if {(body[bi].get('hide_if') or '')!r} != {want_b.get('hide_if')!r}"
+            )
         got_runs = body[bi].get("runs") or []
         want_runs = want_b.get("runs") or []
         if len(got_runs) != len(want_runs):
@@ -151,6 +158,10 @@ def compare_expect(doc: dict, revs: list, expect_path: Path, fixture_path: Path,
         for g, w in zip(got_runs, want_runs):
             if not run_props_match(g, w):
                 raise SystemExit(f"block {bi} run {g!r} != {w!r}")
+        if "hide_if" in want_b and (body[bi].get("hide_if") or "") != want_b.get("hide_if"):
+            raise SystemExit(
+                f"block {bi} hide_if {body[bi].get('hide_if')!r} != {want_b.get('hide_if')!r}"
+            )
 
     want_revs = exp.get("revisions") or []
     if len(revs) != len(want_revs):
@@ -309,12 +320,19 @@ def foreign_roundtrip(cli: Path, aio_path: Path, fmt: str, tmp: Path) -> None:
     print(f"foreign {fmt} round-trip OK", aio_path.name)
 
 
+def expectation_beside(fixture: Path) -> Path:
+    candidates = []
+    for suf in (".revisions.json", ".fields.json"):
+        candidates.append(fixture.with_suffix(suf))
+        candidates.append(Path(str(fixture) + suf))
+    for candidate in candidates:
+        if candidate.is_file():
+            return candidate
+    raise SystemExit(f"missing expectation JSON beside {fixture}")
+
+
 def fixture_test(cli: Path, fixture: Path) -> None:
-    expect = fixture.with_suffix(".revisions.json")
-    if not expect.is_file():
-        expect = Path(str(fixture) + ".revisions.json")
-    if not expect.is_file():
-        raise SystemExit(f"missing expectation JSON beside {fixture}")
+    expect = expectation_beside(fixture)
     fp = str(fixture.resolve())
     open_res, get_res, rev_res = run_playbook(
         cli,

@@ -95,6 +95,41 @@ static bool expectValueMatches(const QJsonValue &actual, const QJsonValue &expec
     return actual == expected;
 }
 
+// A tool result always has "ok", including {ok:false}. ipcCall sets ipcError for
+// a dead GUI, a timeout, or a payload that is not a tool result. That is a
+// transport failure: play aborts even when the step's expect is {"ok":false}.
+enum class PlayReplyKind { Tool, Transport };
+
+PlayReplyKind classifyPlayReply(const QString &ipcError, bool responseHasOk)
+{
+    if (!ipcError.isEmpty() || !responseHasOk)
+        return PlayReplyKind::Transport;
+    return PlayReplyKind::Tool;
+}
+
+int playClassifySelfCheck()
+{
+    struct Case {
+        const char *err;
+        bool hasOk;
+        PlayReplyKind want;
+    };
+    const Case cases[] = {
+        {"IPC timeout", true, PlayReplyKind::Transport},
+        {"GUI not running", true, PlayReplyKind::Transport},
+        {"Bad IPC response", false, PlayReplyKind::Transport},
+        {"", false, PlayReplyKind::Transport},
+        {"", true, PlayReplyKind::Tool},
+    };
+    for (const Case &c : cases) {
+        if (classifyPlayReply(QString::fromUtf8(c.err), c.hasOk) != c.want) {
+            fprintf(stderr, "play classify mismatch for ipcError='%s' hasOk=%d\n", c.err, c.hasOk ? 1 : 0);
+            return 1;
+        }
+    }
+    return 0;
+}
+
 QJsonObject parseArgsJson(const QString &s)
 {
     if (s.isEmpty())
@@ -142,6 +177,8 @@ Skill: skills/SKILL.md
 
 int runCli(const QStringList &args)
 {
+    if (qEnvironmentVariableIntValue("AIOFFICE_PLAY_CLASSIFY_CHECK") == 1)
+        return playClassifySelfCheck();
     if (args.size() <= 1 || args[1] == QLatin1String("-h") || args[1] == QLatin1String("--help")) {
         usage();
         return args.size() <= 1 ? 2 : 0;
@@ -198,25 +235,37 @@ int runCli(const QStringList &args)
             const QJsonObject c = v.toObject();
             const QString t = c.value(QStringLiteral("tool")).toString();
             const QJsonObject a = c.value(QStringLiteral("args")).toObject();
+            if (c.contains(QStringLiteral("expect"))) {
+                const QJsonValue expectV = c.value(QStringLiteral("expect"));
+                if (!expectV.isObject() || expectV.toObject().isEmpty()) {
+                    QJsonObject out;
+                    out[QStringLiteral("ok")] = false;
+                    out[QStringLiteral("error")] = QStringLiteral("expect must be a non-empty object");
+                    out[QStringLiteral("results")] = results;
+                    printJson(out);
+                    return 1;
+                }
+            }
             QJsonObject r;
             if (live) {
-                QString err;
-                r = ipcCall(t, a, &err);
-                if (!err.isEmpty() && !r.value(QStringLiteral("ok")).toBool())
-                    r = toolResultErr(err);
+                QString ipcError;
+                r = ipcCall(t, a, &ipcError);
+                if (classifyPlayReply(ipcError, r.contains(QStringLiteral("ok"))) == PlayReplyKind::Transport) {
+                    const QString why = ipcError.isEmpty() ? QStringLiteral("IPC failed") : ipcError;
+                    results.append(toolResultErr(why));
+                    QJsonObject out;
+                    out[QStringLiteral("ok")] = false;
+                    out[QStringLiteral("error")] = QStringLiteral("playbook transport failure: %1").arg(why);
+                    out[QStringLiteral("results")] = results;
+                    printJson(out);
+                    return 1;
+                }
             } else {
                 r = session.call(t, a);
             }
             results.append(r);
-            if (!r.value(QStringLiteral("ok")).toBool()) {
-                QJsonObject out;
-                out[QStringLiteral("ok")] = false;
-                out[QStringLiteral("error")] = r.value(QStringLiteral("error"));
-                out[QStringLiteral("results")] = results;
-                printJson(out);
-                return 1;
-            }
-            if (c.contains(QStringLiteral("expect"))) {
+            const bool hasExpect = c.contains(QStringLiteral("expect"));
+            if (hasExpect) {
                 const QJsonObject expect = c.value(QStringLiteral("expect")).toObject();
                 for (auto it = expect.begin(); it != expect.end(); ++it) {
                     const QJsonValue actual = valueAtPath(r, it.key());
@@ -232,6 +281,13 @@ int runCli(const QStringList &args)
                         return 1;
                     }
                 }
+            } else if (!r.value(QStringLiteral("ok")).toBool()) {
+                QJsonObject out;
+                out[QStringLiteral("ok")] = false;
+                out[QStringLiteral("error")] = r.value(QStringLiteral("error"));
+                out[QStringLiteral("results")] = results;
+                printJson(out);
+                return 1;
             }
         }
         QJsonObject out;

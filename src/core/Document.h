@@ -36,7 +36,7 @@ struct TextRun {
     QString noteId;   // footnote/endnote block id
     QString ruby;
     bool redact = false;
-    QString showIf; // hide run unless doc.vars[showIf] is non-empty / not "0"
+    QString showIf; // bare var name: hide unless doc.vars[name] is non-empty / not "0"/"false"; otherwise an expression
 
     QJsonObject toJson() const;
     static TextRun fromJson(const QJsonObject &o);
@@ -137,6 +137,7 @@ struct Block {
     double borderPt = 0;
     QString altText;
     QString caption;
+    QVector<TextRun> captionRuns; // numbered caption prefix + seq field + text (image/table)
     QString wrap;
     QString anchor;
     bool checked = false;
@@ -165,6 +166,7 @@ struct Block {
     QString formKind; // text | checkbox | dropdown
     QString writingMode; // vertical
     bool sectionHidden = false;
+    QString hideIf; // expression: omit this block from layout/PDF when true; kept in JSON and search
     bool numbered = false;
     QString connectTo;
 
@@ -317,7 +319,10 @@ struct Document {
     int wordCount() const;
 };
 
-QString runDisplayText(const Document &doc, const TextRun &r, int page = 1, int pages = 1);
+QString runDisplayText(const Document &doc, const TextRun &r, int page = 1, int pages = 1,
+                       const TextRun *fieldInstance = nullptr);
+QString captionDisplayText(const Document &doc, const Block &b, int page = 1, int pages = 1);
+bool blockHasCaption(const Block &b);
 QString formatPageNumber(int n, const QString &format);
 StyleDef defaultStyle(const QString &name);
 QVector<TextRun> splitRuns(const QVector<TextRun> &runs, int start, int end);

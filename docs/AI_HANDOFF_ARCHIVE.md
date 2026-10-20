@@ -2,6 +2,79 @@
 
 Entradas antigas de `docs/AI_HANDOFF.md` (manter o arquivo vivo com ~20 itens).
 
+## 2026-10-09 — Cursor — Wave 16 integrate T4+T5 merge
+
+**Objective:** Merge `t4-wire-rtl` and `t5-roundtrip` into integration branch; resolve conflicts; QA.
+
+**Done:**
+- Fast-forward merge of `t4-wire-rtl`; merge commit for `t5-roundtrip` with conflict resolution (keep T3/T4 `normalizedBlockDir`, `auto` clearing in `apply_paragraph_format`, richer MCP schema for align/dir).
+- `scripts/qa-all.sh --gui` verde (incl. `qa/wave16-ctl-roundtrip.json`).
+
+**Decisions:** T5’s raw `dir` in JSON import superseded by `normalizedBlockDir` from T3. Conflitos T5 vs T3/T4 em `Session.cpp`, `ToolDispatch.cpp`, `Document.{h,cpp}`, `AI_HANDOFF.md` — mantida semântica T3/T4 (auto→vazio, schema align/dir, `normalizedBlockDir`).
+
+**Next suggested step:** Fleet `t6-qa` (playbooks caret/CJK + fontes Nix).
+
+**Commits:** `0f10fdc` merge: integrate wave16 t4-wire-rtl and t5-roundtrip
+
+---
+
+## 2026-10-09 — Composer — Wave 16 T5 dir/align DOCX/ODT round-trip
+
+**Objective:** Fleet `t5-roundtrip` (spec D7): mapear `Block.dir` e `align` lógico (`start`/`end`) na importação/exportação DOCX e ODT; QA e playbook.
+
+**Done:**
+- Modelo: campo `Block.dir` (`auto`|`ltr`|`rtl`) no JSON/MCP (`apply_paragraph_format`, schema).
+- `Docx.cpp`: export/import `w:jc` start/end; `w:bidi` ↔ `rtl`, `w:bidi w:val="0"` ↔ `ltr`; `w:rtl` em run ignorado na leitura.
+- `Odf.cpp`: estilos automáticos com `fo:text-align` e `style:writing-mode` (`rl-tb`/`lr-tb`); import via `paragraph-properties`.
+- `qa/check_roundtrip.py`: confere `dir`/`align` nos JSON reabertos; `qa/wave16-ctl-roundtrip.json` com `expect`.
+- `scripts/qa-all.sh` verde.
+
+**Decisions:** DOCX usa `w:bidi w:val="0"` para `dir=ltr` explícito (só `rtl` omitiria o atributo no reimport).
+
+**Next suggested step:** Fleet `integrate-2`: merge com branch `t4-wire-rtl` (layout/caret) e `t6-qa` (playbooks caret/CJK + fontes Nix).
+
+**Commits:** `ba208c3` feat: round-trip Block.dir and logical align in DOCX and ODT
+
+---
+
+## 2026-10-09 — Cursor Grok — Wave 16 T4: dir, ruby, caret_move
+
+**Objective:** Wire `Block.dir` into `BlockTextLayout`, place ruby from the real line, and expose visual and grapheme caret movement in the core and as MCP `caret_move`. Do not touch `src/app/`. Do not implement kashida by hand. Keep one clip per block and `orderedBlocksForPage`.
+
+**Done:**
+- `blockTextLayout` calls `QTextOption::setTextDirection`: `rtl` → `RightToLeft`, `ltr` → `LeftToRight`, `auto` (empty) → `LayoutDirectionAuto`. `align` `start`/`end` map to the resolved direction (explicit dir, or the first strong character when auto). `left`/`right` stay physical via `Qt::AlignAbsolute`.
+- Ruby is centered on the line that contains the run, between `cursorToX` of the run's display start and end. A wrapped run is clamped to that line. A block split across pages only draws ruby for lines inside the fragment.
+- `DocumentLayout::caretMove` and MCP `caret_move {id, offset, move: left|right|next|prev}` → `{offset}`. `left`/`right` use `leftCursorPosition`/`rightCursorPosition`. `next`/`prev` use `nextCursorPosition`/`previousCursorPosition` (`SkipCharacters`). Documented in `docs/mcp-tools.md`. Canvas keys are not wired.
+- `scripts/qa-all.sh --gui` passed, including `qa/wave15-pdf-tagging.json` and `qa/wave16-ctl-model.json`.
+
+**Decisions:** Empty `align` stays physical left, same as an explicit `left`. A `dir: rtl` paragraph sits on the right when `align` is `start` (probed: «مرحبا» offset 0 at 189.8 mm, the end of that short word still on the right). `align: left` with `dir: rtl` stays on the left margin. Kashida was not added.
+
+**Kashida (Qt 6.11.1, observed, not implemented):** `QTextEngine::justify` still has a kashida path (`nKashidas`, and `QFontEngine::getGlyphPositions` emits U+0640 for an RTL item when that count is non-zero). This Qt never assigns the classes that arm it (`Justification_Arabic_Normal` and above). Arabic runs are marked `Justification_Character` or `Justification_Arabic_Space`, so the extra width is inter-character and space advance. With Noto Naskh Arabic, Noto Sans Arabic, and DejaVu Sans, a non-final justified line grew toward the full measure and `glyphRuns` gained no U+0640 versus the same line aligned right. In the app, a justified Arabic paragraph's first-line carets run from the left margin (20.00 mm) to 188.49 mm; the content box is 20–190 mm.
+
+**Next suggested step:** Round-trip of `dir` / `align start|end` (T5) and the wave 16 playbooks. A hit on the caret x of offset 4 in `abc אבג def` (the LTR/RTL boundary) came back as offset 7; the other sampled offsets round-tripped. Do not wire `DocumentCanvas` keys in the AI phase.
+
+**Commits:** `e069582` feat: apply paragraph direction, ruby cursors, and caret movement
+
+---
+
+## 2026-10-09 — Cursor Grok — Wave 16 layout core (BlockTextLayout, caret, hit-test)
+
+**Objective:** D2+D3+D4 (caret/hit) and D8 tools: one function builds a block's QTextLayout for measurement and painting, caret and hit-test use real line geometry, and MCP exposes `caret_geometry` and `hit_test`. Do not touch `Block.dir` or the paint order / single clip per block (D10).
+
+**Done:**
+- `blockTextLayout` builds display text, formats, `QTextOption`, already-broken lines, and the model ↔ display offset map (soft hyphens, rendered fields, drop-cap skip, and the page-fragment skip of a block split across pages).
+- `measureTextHeight` and `paintPage` both call it. Painting still uses one `setClipRect` per block and `orderedBlocksForPage`.
+- `DocumentLayout::caret` and `hitTest` use `QTextLine::cursorToX` / `xToCursor` for body text. Table cells stay on the previous linear placement.
+- MCP tools `caret_geometry` and `hit_test` follow `{ok:false,error}` and are documented in `docs/mcp-tools.md`.
+
+**Decisions:** The tools lay out at zoom 1 (96 dpi) so `x_mm`/`y_mm` are a shared millimetre space. `rtl` is the glyph run at the caret, not `Block.dir` (that field is a parallel task). A split block is still painted as the full layout clipped by `layoutY0`; `pageSkipModel` records where the visible fragment starts.
+
+**Next suggested step:** Wire `Block.dir` into this layout, then ruby and `caret_move` (T4). Do not change the clip or paint order.
+
+**Commits:** `6a74100` feat: share one block text layout for paint, caret, and hit-test
+
+---
+
 ## 2026-09-14 — Claude — PR #2 CodeRabbit follow-up round 2 (same branch)
 
 **Objective:** Verificar todos os achados do CodeRabbit na PR #2 (2 reviews, 9 comentários) contra o código atual e resolver os 2 que ainda não tinham commit corretivo (achados na review do commit `3b86267`, sem review seguinte).

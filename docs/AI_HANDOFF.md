@@ -8,6 +8,122 @@
 
 ---
 
+## 2026-10-20 — Cursor Grok 4.7 — DOCX conditional type and occurrence
+
+**Objective:** CodeRabbit major on PR #6: `rememberConditionals` / `applyFieldConditionals` matched only the block-text fingerprint and took the first candidate from `boundCi+1`. A TOC entry with the same text as a heading, or an earlier copy of the same paragraph, received `hide_if` / `if`. Do not touch `src/app/` or `.cockpit/`. No push.
+
+**Done:**
+- DOCX `conditionals` also store the block type and the 1-based occurrence of that (type, fingerprint) pair in export order. Import ignores other types and applies the record to the n-th block with the same type and fingerprint. No exact candidate means the record is not applied. A field still requires a plain run with the same text.
+- Playbook `qa/wave18-cond-occ.json`: a TOC of 3 entries with `hide_if` on one heading and a compound `if` on another; two empty paragraphs with `hide_if` only on the second; three paragraphs with the same text and `hide_if` only on the third.
+- `scripts/qa-all.sh --gui --interop`: **42/42** ctest passed; LibreOffice interop ok.
+
+**Decisions:** Occurrence counts every content block, including ones with no conditional. A TOC expands into `toc` blocks only, so heading and paragraph counts do not move. A fingerprint without a type or an occurrence is not applied.
+
+**Next suggested step:** Fleet `notion-sync`, then human `approve-pr`.
+
+**Commits:** `0f4bcae` fix: match DOCX conditionals by block type and occurrence
+
+---
+
+## 2026-10-20 — Cursor Grok 4.7 — CodeRabbit wave 18 field fixes
+
+**Objective:** Fix the nine CodeRabbit defects on the wave 18 branch. The Fleet finding was already fixed. Do not touch `src/app/` or `.cockpit/`. No push.
+
+**Done:**
+- DOCX `conditionals` store the block id, a SHA-256 of the block text, and the run text. Import finds the block by that fingerprint in order and applies a field only when the run text matches a run that is still plain text. A TOC of 3 entries no longer moves `hide_if` / `if` onto an earlier paragraph. A native field that happens to show the same cached text is left as native.
+- Field expressions share a depth limit of 64 for parentheses and `!`. Past that, the error is `expression too deeply nested`, the `if` field shows `#ERR`, and `validate` reports `invalid_expression`.
+- `aioffice play` treats IPC/timeout/bad payload as a transport failure and aborts even when `expect` is `{"ok":false}`. A tool result `{ok:false}` still honors `expect`. `AIOFFICE_PLAY_CLASSIFY_CHECK=1` runs the classifier self-check.
+- A native Word `IF` is written only when both operands are a number or a double-quoted string. An identifier or single quotes exports the evaluated text; the expression comes back from the embedded JSON.
+- `stat` `words` uses `blockVisibleForStat` (`hide_if` and `section_hidden`), the same filter as chars and paragraphs.
+- An `expect` that is empty or not an object fails the playbook before the call.
+- `insert_field` serializes an object `arg` once for `seq` and `input_list`.
+- The `insert_field.arg` schema is `anyOf` string or object.
+- `FieldExpr.h` forward-declares `struct Document`.
+
+**Tests:** `qa/wave18-review.json` (TOC round-trip, depth, `stat` words, IF operands, object args). `qa/check_play_expect.py`. `play_classify`. `scripts/qa-all.sh --gui --interop`: **41/41** ctest passed; LibreOffice interop ok.
+
+**Decisions:** `document_stats.words` and the `word_count` field still use `Document::wordCount()` over every block. Only the `stat` field filters hidden blocks. A foreign `IF page > 1` from our export is evaluated text; `word/aioffice.json` restores the expression.
+
+**Next suggested step:** Fleet `notion-sync`, then human `approve-pr` and open the PR to `main`.
+
+**Commits:** `98194e3` fix: match DOCX conditionals by block text and harden fields
+
+---
+
+## 2026-10-20 — Fleet wave18 — Composer / Cursor Grok / Grok Build / Sonnet
+
+**Objective:** Close the fleet wave 18 branch (dynamic fields + conditional text): record real QA on the integrated branch after the review loop fixes, sync `WRITER_FEATURE_CATALOG.md`.
+
+**Done:**
+- Fleet `review` closed with **`{"issues":0,"findings":[]}`** on the third pass; fix commits landed on the branch before handoff.
+- **`refreshIfFields`** on dirty `document_get`/`document_save` recalculates live `stat`/`seq` after structural edits (`insert_blocks`, `insert_at_caret`, `delete_range`); a **clean** foreign open keeps imported evaluated text until the session is marked dirty. `stat chars` self-reference converges (up to 6 passes) to match `document_stats`.
+- **`6845533`:** renumber `seq` on mid-document insert; `stat` counts exclude `hideIf` hidden paragraphs (aligned with `document_stats`).
+- **`f4e6cb1`:** stat refresh after structural edits (playbook `qa/wave18-expr.json` insert/delete/text-edit expects).
+- Manual re-checks (outside official playbooks): mid-insert `seq` + xref `category_number`; `stat` with `hideIf`; structural stat updates — all green.
+- **`scripts/qa-all.sh --gui --interop`** (nix-shell, full build): **38/38 ctest** passed (includes `playbook_wave18-expr.json`, `wave18-kinds`, `wave18-docx-fields`, `wave18-odt-fields`, foreign round-trips); **interop** LibreOffice **docx→odt**, **odt→docx**, and **wave18 fields** resave/hops green (exit 0).
+
+**Decisions:** Wave 18 D5/D6 honest limits stay as in `docs/waves/wave18-fields.md` (compound `if` on DOCX export, foreign `stat` paragraphs/tables/images, LO docx hop for `hideIf`). Do not re-open integrate merges on handoff.
+
+**Next suggested step:** Fleet **`notion-sync`** → human **`approve-pr`** → open PR to **`main`**.
+
+**Commits (branch vs `main`):** `f4e6cb1` fix: refresh stat fields after structural edits · `6845533` fix: renumber seq fields and drop hidden blocks from stat counts · `1d6c55d` merge: integrate wave18 DOCX and ODT field round-trip branches · `b1d50f4` docs: record the DOCX field commit hash in the handoff · `711f1ff` feat: round-trip DOCX IF, SEQ, stat, and document-info fields · `0c9fcd1` feat: round-trip wave 18 fields through ODT · `7778b7c` merge: integrate wave18 field kinds with field expressions · `2937c4a` docs: record the wave18 expression commit hash in the handoff · `7848309` feat: evaluate field expressions for conditional text · `486ddf3` feat: add wave18 field kinds, numbered captions, and seq xrefs · `f4c5323` docs: add wave 18 fields spec and Fleet; sync Notion from every Fleet
+
+---
+
+## 2026-10-10 — Cursor Grok — Wave 18 t3: DOCX fields
+
+**Objective:** D5 + D7 for DOCX only. Export and import `if`, `seq`, `stat`, `doc_info`, and `hideIf`. Foreign fixture plus the foreign path of our own export (`embed_json: false`). Do not touch ODT or the field model.
+
+**Done:**
+- `src/core/Docx.cpp`: one comparison becomes a Word `IF`; a compound expression is the evaluated text, restored from `word/aioffice.json` `conditionals` when that part is present. `SEQ` with `ARABIC`/`ROMAN`/`ALPHABETIC`. `stat` pages/words/chars → `NUMPAGES`/`NUMWORDS`/`NUMCHARS`. `doc_info` → `DOCPROPERTY` Subject/Keywords, `CREATEDATE`, `SAVEDATE`, `REVNUM`. `hideIf` true at export writes `w:vanish` on the paragraph mark and each run.
+- Import matches `IF` and `SEQ` by the first instruction token, then the existing substring checks (`CREATEDATE`/`SAVEDATE` still before `DATE`). A vanished paragraph mark, or every run vanished, sets `hideIf` to `1`.
+- `qa/fixtures/make_fixtures.py` writes `wave18-docx-fields-foreign.docx` (no `word/aioffice.json`) with `IF`, `SEQ`, and `NUMPAGES`, plus `wave18-docx-fields-foreign.fields.json`. `qa/check_roundtrip.py` compares `field`, `field_arg`, and `hide_if`, and loads a `.fields.json` beside the fixture. Playbook `qa/wave18-docx-fields.json` saves with JSON and with `embed_json: false`.
+- `scripts/qa-all.sh --gui`: **36/36** ctests passed.
+
+**Decisions:** Wave 12 names stay: foreign `NUMPAGES` comes back as `page_count`, `NUMWORDS` as `word_count`. `NUMCHARS` is `stat`/`chars`. `stat` paragraphs/tables/images have no Word field, so the foreign path keeps the evaluated text. `document_get` re-evaluates `if` at page 1, so a condition that needs `doc.vars` changes its cached text after a foreign open. Qt stores JSON object keys alphabetically (`cond`, `else`, `then`; `format`, `name`).
+
+**Next suggested step:** Fleet integrate-2 merges this SHA with the ODT branch. LibreOffice round-trip of these fields is t4.
+
+**Commits:** `711f1ff` feat: round-trip DOCX IF, SEQ, stat, and document-info fields
+
+## 2026-10-10 — Cursor Grok — Wave 18 t4: ODT fields
+
+**Objective:** D6 and D7 for ODT only. Export and import conditional text, sequences, statistics, document info, sender, hidden paragraphs, and drop-downs. Foreign ODT fixture plus LibreOffice interop. Do not touch DOCX (`src/core/Docx.cpp` is the parallel task).
+
+**Done:**
+- `src/core/Odf.cpp` writes and reads `text:conditional-text`, `text:sequence` plus `text:sequence-decls`, the six count elements, `text:subject` / `keywords` / `creation-date` / `modification-date` / `editing-cycles`, `text:sender-firstname|email|company|phone-work`, `text:hidden-paragraph`, and `text:drop-down`. Content declares `xmlns:ooow`. Conditions use the LibreOffice formula words (`=`, `AND`, `OR`, `NOT`). User variables and meta subject, keywords, dates, and editing cycles travel with the package.
+- Playbook `qa/wave18-odt-fields.json` saves and reopens an ODT. Foreign fixture `qa/fixtures/wave18-odt-fields-foreign.odt`. `qa/check_roundtrip.py` compares `field`, `field_arg`, and `hide_if`.
+- `scripts/qa-interop.py` resaves that document with LibreOffice and also converts odt→docx and docx→odt.
+- `scripts/qa-all.sh --gui --interop`: 36/36 ctests passed; LibreOffice revision and field interop ok.
+
+**Decisions:** `stat` pages and words share `text:page-count` and `text:word-count` with the wave 12 fields, so a foreign reimport of those two comes back as `page_count` and `word_count`. The other four counts stay `stat`. Sender name is `text:sender-firstname` because ODF has no sender-name. LibreOffice 26.2 keeps the D6 elements on an ODT resave; the docx hop drops the condition operator (it writes `FORMULA`) and does not turn `text:hidden-paragraph` into `w:vanish`. Details in `docs/waves/wave18-fields.md`.
+
+**Next suggested step:** integrate-2 merges this with the DOCX field export. The interop docx→odt check compares surviving text, not a native IF, until that export lands.
+
+**Commits:** `0c9fcd1` feat: round-trip wave 18 fields through ODT
+
+---
+
+## 2026-10-10 — Cursor Grok — Wave 18 t1: field expressions
+
+**Objective:** D1 + D3. Recursive-descent expression evaluator, `showIf` expressions, `Block.hideIf`, `if` field, `field_evaluate`, and `validate` `invalid_expression`. Do not touch `src/app/`. Leave the other `runDisplayText` field branches for the parallel field-kinds task.
+
+**Done:**
+- `src/core/FieldExpr.{h,cpp}`: literals, `doc.vars`, numeric refs (`page`, `pages`, `words`, `chars`, `paragraphs`, `tables`, `images`), comparisons, `&&` `||` `!`, parentheses. Numeric compare only when both sides are numbers; otherwise string. No eval/scripting.
+- A bare `showIf` name keeps the old variable rule. Any other `showIf` is an expression; a syntax error displays `#ERR`.
+- `hide_if` on a block (JSON and `apply_paragraph_format`) drops the paragraph from layout, `page_preview`, and PDF, and from `document_stats` paragraphs. The block stays in the JSON and in search. `page_preview` returns `ids` of the blocks laid out on the page.
+- Field `if` with arg `{cond, then, else}` follows `set_vars`. Invalid cond shows `#ERR`. `validate` reports `invalid_expression` with the block id.
+- MCP tool `field_evaluate {expr}` → `{value, type}` or `{ok:false, error}`.
+- Playbook `qa/wave18-expr.json`. `scripts/qa-all.sh --gui`: **33/33** ctests passed.
+
+**Decisions:** `hideIf` is judged against unfiltered totals so the decision does not recurse. The reported `paragraphs` count (expression and `document_stats`) excludes hidden paragraphs. A single identifier in `showIf`, including `page`, stays a variable name.
+
+**Next suggested step:** Fleet integrate-1 merges this with the field-kinds branch (`if` is the only new `runDisplayText` arm here).
+
+**Commits:** `7848309` feat: evaluate field expressions for conditional text
+
+---
+
 ## 2026-10-10 — Cursor Grok — Wave 17: format per block, delete inside insert
 
 **Objective:** Fix the two new CodeRabbit majors. One `format` revision per changed non-table block. Rejecting a delete inside an insert must put the restored text back inside that insert. Do not touch `src/app/`. Do not change `shiftRevisionOffsets` for ordinary typing.
@@ -263,78 +379,3 @@
 
 **Commits:** nenhum (usuário não pediu) | `<hash>` <mensagem>
 ```
-
----
-
-## 2026-10-09 — Cursor — Wave 16 integrate T4+T5 merge
-
-**Objective:** Merge `t4-wire-rtl` and `t5-roundtrip` into integration branch; resolve conflicts; QA.
-
-**Done:**
-- Fast-forward merge of `t4-wire-rtl`; merge commit for `t5-roundtrip` with conflict resolution (keep T3/T4 `normalizedBlockDir`, `auto` clearing in `apply_paragraph_format`, richer MCP schema for align/dir).
-- `scripts/qa-all.sh --gui` verde (incl. `qa/wave16-ctl-roundtrip.json`).
-
-**Decisions:** T5’s raw `dir` in JSON import superseded by `normalizedBlockDir` from T3. Conflitos T5 vs T3/T4 em `Session.cpp`, `ToolDispatch.cpp`, `Document.{h,cpp}`, `AI_HANDOFF.md` — mantida semântica T3/T4 (auto→vazio, schema align/dir, `normalizedBlockDir`).
-
-**Next suggested step:** Fleet `t6-qa` (playbooks caret/CJK + fontes Nix).
-
-**Commits:** `0f10fdc` merge: integrate wave16 t4-wire-rtl and t5-roundtrip
-
----
-
-## 2026-10-09 — Composer — Wave 16 T5 dir/align DOCX/ODT round-trip
-
-**Objective:** Fleet `t5-roundtrip` (spec D7): mapear `Block.dir` e `align` lógico (`start`/`end`) na importação/exportação DOCX e ODT; QA e playbook.
-
-**Done:**
-- Modelo: campo `Block.dir` (`auto`|`ltr`|`rtl`) no JSON/MCP (`apply_paragraph_format`, schema).
-- `Docx.cpp`: export/import `w:jc` start/end; `w:bidi` ↔ `rtl`, `w:bidi w:val="0"` ↔ `ltr`; `w:rtl` em run ignorado na leitura.
-- `Odf.cpp`: estilos automáticos com `fo:text-align` e `style:writing-mode` (`rl-tb`/`lr-tb`); import via `paragraph-properties`.
-- `qa/check_roundtrip.py`: confere `dir`/`align` nos JSON reabertos; `qa/wave16-ctl-roundtrip.json` com `expect`.
-- `scripts/qa-all.sh` verde.
-
-**Decisions:** DOCX usa `w:bidi w:val="0"` para `dir=ltr` explícito (só `rtl` omitiria o atributo no reimport).
-
-**Next suggested step:** Fleet `integrate-2`: merge com branch `t4-wire-rtl` (layout/caret) e `t6-qa` (playbooks caret/CJK + fontes Nix).
-
-**Commits:** `ba208c3` feat: round-trip Block.dir and logical align in DOCX and ODT
-
----
-
-## 2026-10-09 — Cursor Grok — Wave 16 T4: dir, ruby, caret_move
-
-**Objective:** Wire `Block.dir` into `BlockTextLayout`, place ruby from the real line, and expose visual and grapheme caret movement in the core and as MCP `caret_move`. Do not touch `src/app/`. Do not implement kashida by hand. Keep one clip per block and `orderedBlocksForPage`.
-
-**Done:**
-- `blockTextLayout` calls `QTextOption::setTextDirection`: `rtl` → `RightToLeft`, `ltr` → `LeftToRight`, `auto` (empty) → `LayoutDirectionAuto`. `align` `start`/`end` map to the resolved direction (explicit dir, or the first strong character when auto). `left`/`right` stay physical via `Qt::AlignAbsolute`.
-- Ruby is centered on the line that contains the run, between `cursorToX` of the run's display start and end. A wrapped run is clamped to that line. A block split across pages only draws ruby for lines inside the fragment.
-- `DocumentLayout::caretMove` and MCP `caret_move {id, offset, move: left|right|next|prev}` → `{offset}`. `left`/`right` use `leftCursorPosition`/`rightCursorPosition`. `next`/`prev` use `nextCursorPosition`/`previousCursorPosition` (`SkipCharacters`). Documented in `docs/mcp-tools.md`. Canvas keys are not wired.
-- `scripts/qa-all.sh --gui` passed, including `qa/wave15-pdf-tagging.json` and `qa/wave16-ctl-model.json`.
-
-**Decisions:** Empty `align` stays physical left, same as an explicit `left`. A `dir: rtl` paragraph sits on the right when `align` is `start` (probed: «مرحبا» offset 0 at 189.8 mm, the end of that short word still on the right). `align: left` with `dir: rtl` stays on the left margin. Kashida was not added.
-
-**Kashida (Qt 6.11.1, observed, not implemented):** `QTextEngine::justify` still has a kashida path (`nKashidas`, and `QFontEngine::getGlyphPositions` emits U+0640 for an RTL item when that count is non-zero). This Qt never assigns the classes that arm it (`Justification_Arabic_Normal` and above). Arabic runs are marked `Justification_Character` or `Justification_Arabic_Space`, so the extra width is inter-character and space advance. With Noto Naskh Arabic, Noto Sans Arabic, and DejaVu Sans, a non-final justified line grew toward the full measure and `glyphRuns` gained no U+0640 versus the same line aligned right. In the app, a justified Arabic paragraph's first-line carets run from the left margin (20.00 mm) to 188.49 mm; the content box is 20–190 mm.
-
-**Next suggested step:** Round-trip of `dir` / `align start|end` (T5) and the wave 16 playbooks. A hit on the caret x of offset 4 in `abc אבג def` (the LTR/RTL boundary) came back as offset 7; the other sampled offsets round-tripped. Do not wire `DocumentCanvas` keys in the AI phase.
-
-**Commits:** `e069582` feat: apply paragraph direction, ruby cursors, and caret movement
-
----
-
-## 2026-10-09 — Cursor Grok — Wave 16 layout core (BlockTextLayout, caret, hit-test)
-
-**Objective:** D2+D3+D4 (caret/hit) and D8 tools: one function builds a block's QTextLayout for measurement and painting, caret and hit-test use real line geometry, and MCP exposes `caret_geometry` and `hit_test`. Do not touch `Block.dir` or the paint order / single clip per block (D10).
-
-**Done:**
-- `blockTextLayout` builds display text, formats, `QTextOption`, already-broken lines, and the model ↔ display offset map (soft hyphens, rendered fields, drop-cap skip, and the page-fragment skip of a block split across pages).
-- `measureTextHeight` and `paintPage` both call it. Painting still uses one `setClipRect` per block and `orderedBlocksForPage`.
-- `DocumentLayout::caret` and `hitTest` use `QTextLine::cursorToX` / `xToCursor` for body text. Table cells stay on the previous linear placement.
-- MCP tools `caret_geometry` and `hit_test` follow `{ok:false,error}` and are documented in `docs/mcp-tools.md`.
-
-**Decisions:** The tools lay out at zoom 1 (96 dpi) so `x_mm`/`y_mm` are a shared millimetre space. `rtl` is the glyph run at the caret, not `Block.dir` (that field is a parallel task). A split block is still painted as the full layout clipped by `layoutY0`; `pageSkipModel` records where the visible fragment starts.
-
-**Next suggested step:** Wire `Block.dir` into this layout, then ruby and `caret_move` (T4). Do not change the clip or paint order.
-
-**Commits:** `6a74100` feat: share one block text layout for paint, caret, and hit-test
-
----

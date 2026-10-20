@@ -1,12 +1,14 @@
 #include "core/Document.h"
 
 #include "core/Csl.h"
+#include "core/FieldExpr.h"
 #include <QDateTime>
 #include <QJsonArray>
 #include <QJsonDocument>
 #include <QRegularExpression>
 #include <QSet>
 #include <algorithm>
+#include <functional>
 
 namespace aioffice {
 
@@ -494,6 +496,8 @@ QJsonObject Block::toJson() const
             o[QStringLiteral("alt")] = altText;
         if (!caption.isEmpty())
             o[QStringLiteral("caption")] = caption;
+        if (!captionRuns.isEmpty())
+            o[QStringLiteral("caption_runs")] = runsToJson(captionRuns);
         if (!wrap.isEmpty())
             o[QStringLiteral("wrap")] = wrap;
         if (!anchor.isEmpty())
@@ -614,6 +618,8 @@ QJsonObject Block::toJson() const
         o[QStringLiteral("writing_mode")] = writingMode;
     if (sectionHidden)
         o[QStringLiteral("section_hidden")] = true;
+    if (!hideIf.isEmpty())
+        o[QStringLiteral("hide_if")] = hideIf;
     return o;
 }
 
@@ -693,6 +699,8 @@ Block Block::fromJson(const QJsonObject &o)
     b.borderColor = o.value(QStringLiteral("border_color")).toString();
     b.altText = o.value(QStringLiteral("alt")).toString();
     b.caption = o.value(QStringLiteral("caption")).toString();
+    for (const auto &rv : o.value(QStringLiteral("caption_runs")).toArray())
+        b.captionRuns.push_back(TextRun::fromJson(rv.toObject()));
     b.wrap = o.value(QStringLiteral("wrap")).toString();
     b.anchor = o.value(QStringLiteral("anchor")).toString();
     b.checked = o.value(QStringLiteral("checked")).toBool();
@@ -724,6 +732,7 @@ Block Block::fromJson(const QJsonObject &o)
     b.formKind = o.value(QStringLiteral("form")).toString();
     b.writingMode = o.value(QStringLiteral("writing_mode")).toString();
     b.sectionHidden = o.value(QStringLiteral("section_hidden")).toBool();
+    b.hideIf = o.value(QStringLiteral("hide_if")).toString();
     b.numbered = o.value(QStringLiteral("numbered")).toBool();
     b.connectTo = o.value(QStringLiteral("connect_to")).toString();
     return b;
@@ -1411,14 +1420,157 @@ static int categoryOrdinalOf(const Document &doc, const QString &blockId)
     return 0;
 }
 
-QString runDisplayText(const Document &doc, const TextRun &r, int page, int pages)
+static QJsonObject seqFieldJson(const TextRun &r)
+{
+    const auto doc = QJsonDocument::fromJson(r.fieldArg.toUtf8());
+    return doc.isObject() ? doc.object() : QJsonObject{};
+}
+
+static QString seqFieldName(const TextRun &r)
+{
+    return seqFieldJson(r).value(QStringLiteral("name")).toString();
+}
+
+// Hidden paragraphs (section or hideIf) leave the layout, the PDF, and these counts (D3).
+// hideIf is decided on the unfiltered field context, so this does not recurse.
+static bool blockVisibleForStat(const Document &doc, const Block &b, int page, int pages)
+{
+    if (b.sectionHidden)
+        return false;
+    return !blockHiddenByExpr(doc, b, page, pages);
+}
+
+static int statCount(const Document &doc, const QString &kind, int page, int pages)
+{
+    if (kind == QLatin1String("pages"))
+        return qMax(1, pages);
+    if (kind == QLatin1String("words")) {
+        int n = 0;
+        for (const auto &b : doc.body) {
+            if (!blockVisibleForStat(doc, b, page, pages))
+                continue;
+            const auto parts = b.plainText().split(QRegularExpression(QStringLiteral("\\s+")), Qt::SkipEmptyParts);
+            n += parts.size();
+        }
+        return n;
+    }
+    if (kind == QLatin1String("chars")) {
+        int n = 0;
+        for (const auto &b : doc.body) {
+            if (!blockVisibleForStat(doc, b, page, pages))
+                continue;
+            n += b.plainText().size();
+        }
+        return n;
+    }
+    int n = 0;
+    for (const auto &b : doc.body) {
+        if (!blockVisibleForStat(doc, b, page, pages))
+            continue;
+        if (kind == QLatin1String("paragraphs") && b.type == QLatin1String("paragraph"))
+            ++n;
+        else if (kind == QLatin1String("tables") && b.type == QLatin1String("table"))
+            ++n;
+        else if (kind == QLatin1String("images") && b.type == QLatin1String("image"))
+            ++n;
+    }
+    return n;
+}
+
+static void forEachFieldRun(const Document &doc,
+                            const std::function<bool(const Block &, const TextRun &, const TextRun *)> &fn)
+{
+    for (const auto &block : doc.body) {
+        for (const auto &run : block.runs) {
+            if (fn(block, run, &run))
+                return;
+        }
+        for (const auto &run : block.captionRuns) {
+            if (fn(block, run, &run))
+                return;
+        }
+        if (block.type == QLatin1String("table")) {
+            for (const auto &row : block.table) {
+                for (const auto &cell : row) {
+                    for (const auto &run : cell.runs) {
+                        if (fn(block, run, &run))
+                            return;
+                    }
+                }
+            }
+        }
+    }
+}
+
+static int seqOrdinal(const Document &doc, const QString &seqName, const TextRun *target)
+{
+    if (seqName.isEmpty() || !target)
+        return 0;
+    int n = 0;
+    int found = 0;
+    forEachFieldRun(doc, [&](const Block &, const TextRun &run, const TextRun *ptr) {
+        if (run.field != QLatin1String("seq"))
+            return false;
+        if (seqFieldName(run) != seqName)
+            return false;
+        ++n;
+        if (ptr == target)
+            found = n;
+        return false;
+    });
+    if (found == 0 && target && target->field == QLatin1String("seq") && seqFieldName(*target) == seqName)
+        return n + 1;
+    return found;
+}
+
+static int seqNumberOfBlock(const Document &doc, const QString &blockId)
+{
+    const Block *target = doc.findBlock(blockId);
+    if (!target)
+        return 0;
+    int found = 0;
+    forEachFieldRun(doc, [&](const Block &block, const TextRun &run, const TextRun *ptr) {
+        if (block.id != blockId || run.field != QLatin1String("seq"))
+            return false;
+        found = seqOrdinal(doc, seqFieldName(run), ptr);
+        return true;
+    });
+    if (found > 0)
+        return found;
+    return categoryOrdinalOf(doc, blockId);
+}
+
+bool blockHasCaption(const Block &b)
+{
+    return !b.caption.isEmpty() || !b.captionRuns.isEmpty();
+}
+
+QString captionDisplayText(const Document &doc, const Block &b, int page, int pages)
+{
+    if (b.captionRuns.isEmpty())
+        return b.caption;
+    QString t;
+    for (const auto &r : b.captionRuns)
+        t += runDisplayText(doc, r, page, pages, &r);
+    return t;
+}
+
+QString runDisplayText(const Document &doc, const TextRun &r, int page, int pages, const TextRun *fieldInstance)
 {
     if (r.hidden)
         return {};
     if (!r.showIf.isEmpty()) {
-        const QString v = doc.vars.value(r.showIf);
-        if (v.isEmpty() || v == QLatin1String("0") || v == QLatin1String("false"))
-            return {};
+        if (showIfIsBareName(r.showIf)) {
+            const QString v = doc.vars.value(r.showIf);
+            if (v.isEmpty() || v == QLatin1String("0") || v == QLatin1String("false"))
+                return {};
+        } else {
+            const FieldExprResult ev = FieldExpr::evaluate(r.showIf, doc, fieldContextFor(doc, page, pages));
+            if (!ev.ok)
+                return QStringLiteral("#ERR");
+            if (!fieldExprIsTruthy(ev.value))
+                return {};
+        }
     }
     QString t;
     if (r.redact)
@@ -1470,6 +1622,39 @@ QString runDisplayText(const Document &doc, const TextRun &r, int page, int page
         }
         if (t.isEmpty())
             t = QStringLiteral("[") + key + QLatin1Char(']');
+    } else if (r.field == QLatin1String("doc_info")) {
+        const QString key = r.fieldArg;
+        if (key == QLatin1String("subject"))
+            t = doc.subject;
+        else if (key == QLatin1String("keywords"))
+            t = doc.keywords;
+        else if (key == QLatin1String("created"))
+            t = doc.vars.value(QStringLiteral("doc.created"),
+                               QDateTime::currentDateTime().toString(Qt::ISODate));
+        else if (key == QLatin1String("modified"))
+            t = doc.vars.value(QStringLiteral("doc.modified"),
+                               QDateTime::currentDateTime().toString(Qt::ISODate));
+        else if (key == QLatin1String("revision"))
+            t = QString::number(qMax(1, doc.revisions.size()));
+    } else if (r.field == QLatin1String("stat")) {
+        t = QString::number(statCount(doc, r.fieldArg, page, pages));
+    } else if (r.field == QLatin1String("sender")) {
+        t = doc.vars.value(QStringLiteral("sender.") + r.fieldArg);
+    } else if (r.field == QLatin1String("seq")) {
+        const QJsonObject jo = seqFieldJson(r);
+        const QString name = jo.value(QStringLiteral("name")).toString();
+        const QString format = jo.value(QStringLiteral("format")).toString(QStringLiteral("arabic"));
+        const int ord = seqOrdinal(doc, name, fieldInstance);
+        t = ord > 0 ? formatPageNumber(ord, format) : QStringLiteral("?");
+    } else if (r.field == QLatin1String("input_list")) {
+        const QJsonObject jo = QJsonDocument::fromJson(r.fieldArg.toUtf8()).object();
+        const QString sel = jo.value(QStringLiteral("selected")).toString();
+        if (!sel.isEmpty())
+            t = sel;
+        else {
+            const QJsonArray opts = jo.value(QStringLiteral("options")).toArray();
+            t = opts.isEmpty() ? QStringLiteral("—") : opts.at(0).toString();
+        }
     } else if (r.field == QLatin1String("xref")) {
         if (r.xrefKind == QLatin1String("heading_number")) {
             t = headingNumberOf(doc, r.fieldArg);
@@ -1480,7 +1665,7 @@ QString runDisplayText(const Document &doc, const TextRun &r, int page, int page
             const int n = noteOrdinalOf(doc, r.fieldArg, true);
             t = n > 0 ? QString::number(n) : QString();
         } else if (r.xrefKind == QLatin1String("category_number")) {
-            const int n = categoryOrdinalOf(doc, r.fieldArg);
+            const int n = seqNumberOfBlock(doc, r.fieldArg);
             t = n > 0 ? QString::number(n) : QString();
         }
         // "page" is resolved by the layout-aware caller (Preview.cpp); falls through to the
@@ -1489,8 +1674,10 @@ QString runDisplayText(const Document &doc, const TextRun &r, int page, int page
             const Block *tgt = doc.findBlock(r.fieldArg);
             if (tgt) {
                 if (tgt->type == QLatin1String("image") || tgt->type == QLatin1String("table")
-                    || tgt->type == QLatin1String("equation") || tgt->type == QLatin1String("chart"))
-                    t = tgt->caption.isEmpty() ? tgt->id : tgt->caption;
+                    || tgt->type == QLatin1String("equation") || tgt->type == QLatin1String("chart")) {
+                    const QString cap = captionDisplayText(doc, *tgt, page, pages);
+                    t = cap.isEmpty() ? tgt->id : cap;
+                }
                 else if (tgt->type == QLatin1String("list-item"))
                     t = tgt->plainText().left(48);
                 else
@@ -1507,6 +1694,8 @@ QString runDisplayText(const Document &doc, const TextRun &r, int page, int page
                     t = r.fieldArg;
             }
         }
+    } else if (r.field == QLatin1String("if")) {
+        t = evalIfField(doc, r.fieldArg, page, pages);
     } else {
         t = r.text;
     }
@@ -1561,7 +1750,7 @@ QVector<TextRun> spliceRuns(QVector<TextRun> runs, int start, int end, const Tex
     QVector<TextRun> before = splitRuns(runs, 0, s);
     QVector<TextRun> after = splitRuns(runs, e, plain.size());
     QVector<TextRun> out = before;
-    if (!insert.text.isEmpty() || insert.bold || insert.italic || insert.underline)
+    if (!insert.text.isEmpty() || insert.bold || insert.italic || insert.underline || !insert.field.isEmpty())
         out.push_back(insert);
     out += after;
     if (out.isEmpty())

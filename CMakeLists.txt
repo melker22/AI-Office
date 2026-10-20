@@ -28,6 +28,7 @@ qt_standard_project_setup(REQUIRES 6.5)
 
 add_library(aioffice_core STATIC
     src/core/Document.cpp
+    src/core/FieldExpr.cpp
     src/core/Session.cpp
     src/core/Odf.cpp
     src/core/Docx.cpp
@@ -180,11 +181,17 @@ foreach(_pb IN LISTS _aio_playbooks)
 endforeach()
 add_test(NAME tools_catalog COMMAND aioffice_cli tools)
 set_tests_properties(tools_catalog PROPERTIES LABELS "playbook" WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}")
+add_test(NAME play_classify COMMAND "${CMAKE_COMMAND}" -E env AIOFFICE_PLAY_CLASSIFY_CHECK=1 AIOFFICE_HEADLESS=1 QT_QPA_PLATFORM=offscreen
+    "${AIOFFICE_CLI}")
+set_tests_properties(play_classify PROPERTIES LABELS "playbook" WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}")
 
 # Roundtrip tests run Python; require it at configure time so a missing interpreter
 # fails loudly here instead of as "no such file or directory" inside ctest (CI container).
 find_package(Python3 REQUIRED COMPONENTS Interpreter)
 set(_AIO_PYTHON "${CMAKE_SOURCE_DIR}/qa/check_roundtrip.py")
+add_test(NAME play_expect_shape COMMAND "${CMAKE_COMMAND}" -E env AIOFFICE_HEADLESS=1 QT_QPA_PLATFORM=offscreen
+    "${Python3_EXECUTABLE}" "${CMAKE_SOURCE_DIR}/qa/check_play_expect.py" "${AIOFFICE_CLI}")
+set_tests_properties(play_expect_shape PROPERTIES LABELS "playbook" WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}")
 file(GLOB _aio_fixtures CONFIGURE_DEPENDS "${CMAKE_SOURCE_DIR}/qa/fixtures/*-foreign.docx" "${CMAKE_SOURCE_DIR}/qa/fixtures/*-foreign.odt")
 foreach(_fx IN LISTS _aio_fixtures)
     get_filename_component(_fx_name "${_fx}" NAME)
