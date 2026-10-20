@@ -29,7 +29,7 @@
 
 **Next suggested step:** Fleet `notion-sync`, then human `approve-pr` and open the PR to `main`.
 
-**Commits:** hash recorded after the fix commit.
+**Commits:** `98194e3` fix: match DOCX conditionals by block text and harden fields
 
 ---
 
