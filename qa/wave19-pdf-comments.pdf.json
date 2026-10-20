@@ -1,0 +1,13 @@
+{
+  "pdf": "/tmp/wave19-comments.pdf",
+  "verapdf": {
+    "1b": {"compliant": true},
+    "ua1": {"compliant": true}
+  },
+  "pdffonts": {"all_embedded": true},
+  "qpdf": {
+    "no_part_fallback": true,
+    "catalog_lang": "pt-PT",
+    "struct_types": ["P", "Annot"]
+  }
+}

@@ -17,6 +17,8 @@
 #include <QSet>
 #include <QStringList>
 #include <QGlyphRun>
+#include <QHash>
+#include <QRawFont>
 #include <QTextCharFormat>
 #include <QTextLayout>
 #include <QTextOption>
@@ -1511,6 +1513,171 @@ BlockTextLayout blockTextLayout(const Document &doc, const Block &b, const Block
     return out;
 }
 
+// Glyphs QPdfWriter embeds are subset indexes in first-seen order per face
+// (index 0 is .notdef). Shaped Arabic ligatures are absent from the cmap
+// ToUnicode Qt writes, so export records the Unicode of each new glyph here
+// and pdfPostProcessFixToUnicode fills only the missing CIDs.
+struct PdfFaceCapture {
+    QVector<quint32> rawGids;
+    QHash<quint32, int> rawToCid;
+    QVector<QString> unicode;
+};
+
+static bool g_pdfCapture = false;
+static QHash<QString, PdfFaceCapture> g_pdfFaces;
+
+static QString pdfFaceKeyFromRaw(const QRawFont &font)
+{
+    QString key;
+    const QString family = font.familyName();
+    for (const QChar c : family) {
+        if (c.isLetterOrNumber())
+            key += c.toLower();
+    }
+    if (key.isEmpty())
+        return {};
+    if (font.weight() >= QFont::Bold)
+        key += QStringLiteral("bold");
+    if (font.style() != QFont::StyleNormal)
+        key += QStringLiteral("italic");
+    return key;
+}
+
+static void pdfNoteGlyphRuns(const QList<QGlyphRun> &runs)
+{
+    if (!g_pdfCapture)
+        return;
+    for (const QGlyphRun &run : runs) {
+        const QRawFont font = run.rawFont();
+        if (!font.isValid())
+            continue;
+        const QString key = pdfFaceKeyFromRaw(font);
+        if (key.isEmpty())
+            continue;
+        PdfFaceCapture &face = g_pdfFaces[key];
+        if (face.rawGids.isEmpty()) {
+            face.rawGids.push_back(0);
+            face.rawToCid.insert(0, 0);
+            face.unicode.push_back(QString());
+        }
+        const QList<quint32> gids = run.glyphIndexes();
+        const QList<qsizetype> indexes = run.stringIndexes();
+        const QString src = run.sourceString();
+        QVector<int> starts;
+        starts.reserve(indexes.size());
+        for (qsizetype s : indexes) {
+            if (s >= 0)
+                starts.push_back(int(s));
+        }
+        std::sort(starts.begin(), starts.end());
+        starts.erase(std::unique(starts.begin(), starts.end()), starts.end());
+        QHash<int, QString> cluster;
+        for (int i = 0; i < starts.size(); ++i) {
+            const int a = starts[i];
+            if (a > src.size())
+                continue;
+            int b = (i + 1 < starts.size()) ? starts[i + 1] : src.size();
+            if (b < a)
+                b = a;
+            if (b > src.size())
+                b = src.size();
+            cluster.insert(a, src.mid(a, b - a));
+        }
+        for (int i = 0; i < gids.size(); ++i) {
+            const quint32 gid = gids[i];
+            int cid = face.rawToCid.value(gid, -1);
+            if (cid < 0) {
+                cid = face.rawGids.size();
+                face.rawGids.push_back(gid);
+                face.rawToCid.insert(gid, cid);
+                face.unicode.push_back(QString());
+            }
+            if (cid <= 0 || i >= indexes.size())
+                continue;
+            const QString text = cluster.value(int(indexes[i]));
+            if (text.size() > face.unicode[cid].size())
+                face.unicode[cid] = text;
+        }
+    }
+}
+
+static void pdfNoteTextLine(const QTextLine &line)
+{
+    if (!g_pdfCapture || !line.isValid())
+        return;
+    const auto flags = QTextLayout::RetrieveGlyphIndexes | QTextLayout::RetrieveStringIndexes
+        | QTextLayout::RetrieveString;
+    pdfNoteGlyphRuns(line.glyphRuns(-1, -1, flags));
+}
+
+static void pdfNotePainterText(const QFont &font, const QString &text, qreal wrapWidth, QPaintDevice *device)
+{
+    if (!g_pdfCapture || text.isEmpty())
+        return;
+    QTextLayout layout(text, font, device);
+    QTextOption opt;
+    opt.setWrapMode(wrapWidth > 0 ? QTextOption::WordWrap : QTextOption::NoWrap);
+    layout.setTextOption(opt);
+    layout.beginLayout();
+    const qreal width = wrapWidth > 0 ? wrapWidth : 1000000.0;
+    while (true) {
+        QTextLine line = layout.createLine();
+        if (!line.isValid())
+            break;
+        line.setLineWidth(width);
+    }
+    layout.endLayout();
+    for (int i = 0; i < layout.lineCount(); ++i)
+        pdfNoteTextLine(layout.lineAt(i));
+}
+
+static void pdfDrawText(QPainter *p, const QPointF &pos, const QString &text)
+{
+    pdfNotePainterText(p->font(), text, -1, p->device());
+    QPainter *painter = p;
+    painter->drawText(pos, text);
+}
+
+static void pdfDrawText(QPainter *p, const QRectF &rect, int flags, const QString &text)
+{
+    const qreal wrap = (flags & Qt::TextWordWrap) ? rect.width() : -1;
+    pdfNotePainterText(p->font(), text, wrap, p->device());
+    QPainter *painter = p;
+    painter->drawText(rect, flags, text);
+}
+
+static void pdfDrawLine(QPainter *p, const QTextLine &line, const QPointF &origin)
+{
+    pdfNoteTextLine(line);
+    line.draw(p, origin);
+}
+
+static void pdfCaptureBegin()
+{
+    g_pdfFaces.clear();
+    g_pdfCapture = true;
+}
+
+static QVector<PdfSubsetUnicode> pdfCaptureEnd()
+{
+    g_pdfCapture = false;
+    QVector<PdfSubsetUnicode> out;
+    for (auto it = g_pdfFaces.constBegin(); it != g_pdfFaces.constEnd(); ++it) {
+        const PdfFaceCapture &face = it.value();
+        for (int cid = 1; cid < face.unicode.size(); ++cid) {
+            if (face.unicode[cid].isEmpty())
+                continue;
+            PdfSubsetUnicode mapped;
+            mapped.faceKey = it.key();
+            mapped.cid = cid;
+            mapped.unicode = face.unicode[cid];
+            out.push_back(mapped);
+        }
+    }
+    g_pdfFaces.clear();
+    return out;
+}
+
 // Ruby sits on the line that holds the run, centered between cursorToX of the
 // run's display start and end (clamped to that line when the run wraps).
 static void paintRuby(QPainter *p, const BlockTextLayout &btl, const Block &b, const LaidBlock &lb, const QColor &col)
@@ -1557,7 +1724,7 @@ static void paintRuby(QPainter *p, const BlockTextLayout &btl, const Block &b, c
         const qreal span = qAbs(x1 - x0);
         const qreal rw = rfm.horizontalAdvance(r.ruby);
         const qreal x = left + (span - rw) / 2.0;
-        p->drawText(QPointF(originX + x, originY + line.y() - 1), r.ruby);
+        pdfDrawText(p, QPointF(originX + x, originY + line.y() - 1), r.ruby);
     }
 }
 
@@ -1845,7 +2012,7 @@ static void paintArtifactPass(QPainter *p, const Document &doc, const DocumentLa
             p->setPen(QColor(QStringLiteral("#2A2420")));
             p->translate(lay.paperW / 2.0, lay.paperH / 2.0);
             p->rotate(-38);
-            p->drawText(QRectF(-lay.paperW, -50 * lay.zoom, lay.paperW * 2, 100 * lay.zoom), Qt::AlignCenter,
+            pdfDrawText(p, QRectF(-lay.paperW, -50 * lay.zoom, lay.paperW * 2, 100 * lay.zoom), Qt::AlignCenter,
                         doc.watermark);
             p->rotate(38);
             p->translate(-lay.paperW / 2.0, -lay.paperH / 2.0);
@@ -1882,7 +2049,7 @@ static void paintArtifactPass(QPainter *p, const Document &doc, const DocumentLa
                 t = t.isEmpty() ? chapter : t + QStringLiteral("  ·  ") + chapter;
             if (hdr.pageNumbers)
                 t = t.isEmpty() ? pageLabel() : t + QStringLiteral("  ·  ") + pageLabel();
-            p->drawText(QRectF(lay.marginL, 8 * lay.zoom, lay.contentW, 18 * lay.zoom), Qt::AlignLeft | Qt::AlignVCenter,
+            pdfDrawText(p, QRectF(lay.marginL, 8 * lay.zoom, lay.contentW, 18 * lay.zoom), Qt::AlignLeft | Qt::AlignVCenter,
                         t);
             if (!hdr.imagePath.isEmpty()) {
                 QImage himg(hdr.imagePath);
@@ -1900,7 +2067,7 @@ static void paintArtifactPass(QPainter *p, const Document &doc, const DocumentLa
                 t = t.isEmpty() ? chapter : t + QStringLiteral("  ·  ") + chapter;
             if (ftr.pageNumbers)
                 t = t.isEmpty() ? pageLabel() : t + QStringLiteral("  ·  ") + pageLabel();
-            p->drawText(QRectF(lay.marginL, lay.paperH - lay.marginB + 2, lay.contentW, 18 * lay.zoom),
+            pdfDrawText(p, QRectF(lay.marginL, lay.paperH - lay.marginB + 2, lay.contentW, 18 * lay.zoom),
                         Qt::AlignLeft | Qt::AlignVCenter, t);
         }
         if (doc.page.columnSeparator && doc.page.columns > 1) {
@@ -1928,7 +2095,7 @@ static void paintArtifactPass(QPainter *p, const Document &doc, const DocumentLa
                 QFont lf(QStringLiteral("IBM Plex Sans"));
                 lf.setPointSizeF(7 * lay.zoom);
                 p->setFont(lf);
-                p->drawText(QRectF(4, lb.rect.top(), lay.marginL - 8, 14 * lay.zoom), Qt::AlignRight | Qt::AlignVCenter,
+                pdfDrawText(p, QRectF(4, lb.rect.top(), lay.marginL - 8, 14 * lay.zoom), Qt::AlignRight | Qt::AlignVCenter,
                             QString::number(lineNo));
             }
         }
@@ -1962,7 +2129,7 @@ static void paintArtifactPass(QPainter *p, const Document &doc, const DocumentLa
         mf.setPointSizeF(8 * lay.zoom);
         mf.setBold(true);
         p->setFont(mf);
-        p->drawText(mark, Qt::AlignCenter, QString::number(openComments));
+        pdfDrawText(p, mark, Qt::AlignCenter, QString::number(openComments));
     }
     p->setPen(QPen(QColor(QStringLiteral("#B5651D")), qMax(1.0, 0.75 * lay.zoom), Qt::DashLine));
     for (const auto &lb : ordered) {
@@ -2045,7 +2212,7 @@ static void paintTableCellMarker(QPainter *p, const Document &doc, const Documen
                 QFont tf(QStringLiteral("Liberation Serif"));
                 tf.setPointSizeF(9 * lay.zoom);
                 p->setFont(tf);
-                p->drawText(nr.adjusted(3, 1, -3, -1), Qt::AlignVCenter | Qt::AlignLeft | Qt::TextWordWrap, t);
+                pdfDrawText(p, nr.adjusted(3, 1, -3, -1), Qt::AlignVCenter | Qt::AlignLeft | Qt::TextWordWrap, t);
                 ix += icw;
             }
             iy += rh;
@@ -2068,7 +2235,7 @@ static void paintTableCellMarker(QPainter *p, const Document &doc, const Documen
             else if (cellp->vAlign == QLatin1String("bottom"))
                 va = Qt::AlignBottom;
         }
-        p->drawText(g.rect.adjusted(pad, pad, -pad, -pad), va | Qt::AlignLeft | Qt::TextWordWrap, t);
+        pdfDrawText(p, g.rect.adjusted(pad, pad, -pad, -pad), va | Qt::AlignLeft | Qt::TextWordWrap, t);
     }
 }
 
@@ -2115,7 +2282,7 @@ static void paintFigureMarker(QPainter *p, const Document &doc, const DocumentLa
             p->setBrush(QColor(QStringLiteral("#F3EDE3")));
             p->drawRect(box);
             p->setPen(QColor(QStringLiteral("#6B6258")));
-            p->drawText(box, Qt::AlignCenter, b.imagePath.isEmpty() ? QStringLiteral("imagem") : b.imagePath);
+            pdfDrawText(p, box, Qt::AlignCenter, b.imagePath.isEmpty() ? QStringLiteral("imagem") : b.imagePath);
         }
         if (blockHasCaption(b)) {
             p->setPen(QColor(QStringLiteral("#6B6258")));
@@ -2123,7 +2290,7 @@ static void paintFigureMarker(QPainter *p, const Document &doc, const DocumentLa
             cf.setPointSizeF(8 * lay.zoom);
             p->setFont(cf);
             const QString cap = captionDisplayText(doc, b, lb.page, lay.pages);
-            p->drawText(QRectF(lb.rect.left(), box.bottom(), lb.rect.width(), 16 * lay.zoom),
+            pdfDrawText(p, QRectF(lb.rect.left(), box.bottom(), lb.rect.width(), 16 * lay.zoom),
                         Qt::AlignHCenter | Qt::AlignVCenter, cap);
         }
         return;
@@ -2176,9 +2343,9 @@ static void paintFigureMarker(QPainter *p, const Document &doc, const DocumentLa
         ef.setPointSizeF(12 * lay.zoom);
         p->setFont(ef);
         p->setPen(QColor(QStringLiteral("#1A1F24")));
-        p->drawText(box.adjusted(8, 0, -28, 0), Qt::AlignVCenter | Qt::AlignLeft, b.plainText());
+        pdfDrawText(p, box.adjusted(8, 0, -28, 0), Qt::AlignVCenter | Qt::AlignLeft, b.plainText());
         if (b.numbered)
-            p->drawText(box.adjusted(0, 0, -8, 0), Qt::AlignVCenter | Qt::AlignRight,
+            pdfDrawText(p, box.adjusted(0, 0, -8, 0), Qt::AlignVCenter | Qt::AlignRight,
                         QStringLiteral("(%1)").arg(b.level > 0 ? b.level : 1));
     } else {
         p->setPen(QPen(QColor(QStringLiteral("#B5651D")), 1));
@@ -2188,7 +2355,7 @@ static void paintFigureMarker(QPainter *p, const Document &doc, const DocumentLa
         if (b.formKind == QLatin1String("checkbox"))
             label = (b.checked ? QStringLiteral("☑ ") : QStringLiteral("☐ ")) + label;
         p->setPen(QColor(QStringLiteral("#1A1F24")));
-        p->drawText(box.adjusted(6, 0, -6, 0), Qt::AlignVCenter | Qt::AlignLeft, label);
+        pdfDrawText(p, box.adjusted(6, 0, -6, 0), Qt::AlignVCenter | Qt::AlignLeft, label);
     }
 }
 
@@ -2211,7 +2378,7 @@ static void paintTextMarker(QPainter *p, const Document &doc, const DocumentLayo
 
     if (!lb.marker.isEmpty()) {
         p->setPen(col);
-        p->drawText(QPointF(lb.rect.left(), lb.rect.top() + QFontMetricsF(f).ascent()), lb.marker);
+        pdfDrawText(p, QPointF(lb.rect.left(), lb.rect.top() + QFontMetricsF(f).ascent()), lb.marker);
     }
     if (borderPt > 0) {
         QPen bp(QColor(b.borderColor.isEmpty() ? QStringLiteral("#B5651D") : b.borderColor),
@@ -2247,7 +2414,7 @@ static void paintTextMarker(QPainter *p, const Document &doc, const DocumentLayo
                     continue;
                 p->setFont(f);
                 p->setPen(col);
-                p->drawText(QPointF(origin.x() + line.cursorToX(a), origin.y() + line.y() + line.ascent()),
+                pdfDrawText(p, QPointF(origin.x() + line.cursorToX(a), origin.y() + line.y() + line.ascent()),
                             btl.display.mid(a, bend - a));
             }
         }
@@ -2257,7 +2424,7 @@ static void paintTextMarker(QPainter *p, const Document &doc, const DocumentLayo
     if (btl.dropLines > 0 && !btl.dropLetter.isEmpty()) {
         p->setFont(btl.dropFont);
         p->setPen(col);
-        p->drawText(QPointF(lb.rect.left() + lb.markerWidth, lb.rect.top() + QFontMetricsF(btl.dropFont).ascent()),
+        pdfDrawText(p, QPointF(lb.rect.left() + lb.markerWidth, lb.rect.top() + QFontMetricsF(btl.dropFont).ascent()),
                     btl.dropLetter);
         p->setFont(f);
     }
@@ -2275,11 +2442,11 @@ static void paintTextMarker(QPainter *p, const Document &doc, const DocumentLayo
                     continue;
                 p->setFont(f);
                 p->setPen(col);
-                p->drawText(QPointF(origin.x() + line.cursorToX(a), origin.y() + line.y() + line.ascent()),
+                pdfDrawText(p, QPointF(origin.x() + line.cursorToX(a), origin.y() + line.y() + line.ascent()),
                             btl.display.mid(a, bend - a));
                 continue;
             }
-            line.draw(p, origin);
+            pdfDrawLine(p, line, origin);
         }
     }
     paintRuby(p, btl, b, lb, col);
@@ -2530,7 +2697,7 @@ static void paintOpaqueWatermarkOverlay(QPainter *p, const DocumentLayout &lay, 
     p->setPen(QColor(QStringLiteral("#2A2420")));
     p->translate(lay.paperW / 2.0, lay.paperH / 2.0);
     p->rotate(-38);
-    p->drawText(QRectF(-lay.paperW, -50 * lay.zoom, lay.paperW * 2, 100 * lay.zoom), Qt::AlignCenter, text);
+    pdfDrawText(p, QRectF(-lay.paperW, -50 * lay.zoom, lay.paperW * 2, 100 * lay.zoom), Qt::AlignCenter, text);
     p->restore();
 }
 
@@ -2590,6 +2757,7 @@ bool exportNativePdf(const Document &doc, const QString &path, QString *error, b
             *error = QStringLiteral("Cannot write PDF ") + path;
         return false;
     }
+    pdfCaptureBegin();
     auto paintDocPage = [&](int pg, const QRectF &slot) {
         if (pg < 1 || pg > lay.pages)
             return;
@@ -2649,12 +2817,12 @@ bool exportNativePdf(const Document &doc, const QString &path, QString *error, b
             p.setFont(cf);
             p.setPen(QColor(QStringLiteral("#2A2420")));
             qreal y = 48;
-            p.drawText(QPointF(36, y), QStringLiteral("Comentários"));
+            pdfDrawText(&p, QPointF(36, y), QStringLiteral("Comentários"));
             y += 28;
             cf.setPointSize(9);
             p.setFont(cf);
             for (const auto &line : lines) {
-                p.drawText(QRectF(36, y, writer.width() - 72, 40), Qt::TextWordWrap, line);
+                pdfDrawText(&p, QRectF(36, y, writer.width() - 72, 40), Qt::TextWordWrap, line);
                 y += 36;
                 if (y > writer.height() - 48)
                     break;
@@ -2662,6 +2830,7 @@ bool exportNativePdf(const Document &doc, const QString &path, QString *error, b
         }
     }
     p.end();
+    const QVector<PdfSubsetUnicode> subsetUnicode = pdfCaptureEnd();
 
     const double pageWidthPt = wMm * 72.0 / 25.4;
     const double pageHeightPt = hMm * 72.0 / 25.4;
@@ -2715,6 +2884,12 @@ bool exportNativePdf(const Document &doc, const QString &path, QString *error, b
     if (!pdfPostProcessTagStructure(path, perPageMarkers, documentLanguage(doc), doc.readingOrder, &tagErr)) {
         if (error)
             *error = tagErr;
+        return false;
+    }
+    QString unicodeErr;
+    if (!pdfPostProcessFixToUnicode(path, subsetUnicode, &unicodeErr)) {
+        if (error)
+            *error = unicodeErr;
         return false;
     }
     return true;

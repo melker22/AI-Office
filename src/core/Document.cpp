@@ -429,6 +429,21 @@ QString validateTableShorthand(const QJsonObject &block)
     return {};
 }
 
+QString validateDocumentBody(const QJsonObject &root)
+{
+    const QJsonValue body = root.value(QStringLiteral("body"));
+    if (!body.isArray())
+        return {};
+    for (const QJsonValue &v : body.toArray()) {
+        if (!v.isObject())
+            continue;
+        const QString err = validateTableShorthand(v.toObject());
+        if (!err.isEmpty())
+            return err;
+    }
+    return {};
+}
+
 QString validateParagraphFormatArgs(const QJsonObject &args)
 {
     if (args.contains(QStringLiteral("align"))) {

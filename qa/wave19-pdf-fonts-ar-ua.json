@@ -1,0 +1,9 @@
+[
+  {"tool": "document_new", "args": {"title": "Wave19 Arabic UA", "force": true}},
+  {"tool": "insert_blocks", "args": {"after_id": "p1", "blocks": [
+    {"type": "paragraph", "dir": "rtl", "lang": "ar", "runs": [{"text": "مرحبا بالعالم"}]},
+    {"type": "table", "header": true, "lang": "ar", "dir": "rtl", "rows": 2, "cols": 2, "header_texts": ["اسم", "قيمة"], "cells": ["مرحبا", "بالعالم"]},
+    {"type": "list-item", "dir": "rtl", "lang": "ar", "list_kind": "bullet", "runs": [{"text": "مرحبا بالعالم"}]}
+  ]}},
+  {"tool": "document_export_pdf", "args": {"path": "/tmp/wave19-fonts-ar-ua.pdf", "pdfa": true, "ua": true}}
+]

@@ -1,0 +1,8 @@
+[
+  {"tool": "document_new", "args": {"title": "Wave19 comments", "force": true}},
+  {"tool": "insert_blocks", "args": {"after_id": "start", "blocks": [
+    {"type": "paragraph", "lang": "pt-PT", "runs": [{"text": "Texto com comentario."}]}
+  ]}},
+  {"tool": "comment_add", "args": {"id": "p2", "author": "IA", "text": "Nota de revisao"}},
+  {"tool": "document_export_pdf", "args": {"path": "/tmp/wave19-comments.pdf", "comments": true, "pdfa": true, "ua": true}}
+]

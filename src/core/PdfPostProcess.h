@@ -77,6 +77,20 @@ struct PdfTagMarker {
 bool pdfPostProcessTagStructure(const QString &path, const QVector<QVector<PdfTagMarker>> &perPageMarkers,
                                  const QString &docLang, const QStringList &readingOrder, QString *error);
 
+// One shaped glyph's Unicode, keyed by the face captured at paint time.
+// `faceKey` is the font family with spaces and hyphens removed, lowercased, plus
+// "bold" and/or "italic" when that face is bold or italic. `cid` is the subset
+// index QPdfWriter writes in `<HHHH> Tj` (0 is .notdef and is never recorded).
+struct PdfSubsetUnicode {
+    QString faceKey;
+    int cid = 0;
+    QString unicode;
+};
+
+// Fills ToUnicode holes for glyphs the font cmap does not encode (Arabic
+// presentation forms and ligatures). Existing bfchar/bfrange entries are kept.
+bool pdfPostProcessFixToUnicode(const QString &path, const QVector<PdfSubsetUnicode> &maps, QString *error);
+
 // PDF/UA DisplayDocTitle is applied in post-processing (wave 19 T1). T2 sets the flag before calling
 // pdfPostProcessAddExtras when `ua` is requested on export.
 void pdfPostProcessSetDisplayDocTitle(bool enable);

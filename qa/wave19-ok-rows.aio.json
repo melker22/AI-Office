@@ -1,0 +1,7 @@
+{
+  "schema": 1,
+  "meta": {"title": "Ok rows"},
+  "body": [
+    {"type": "table", "header": true, "rows": 2, "cols": 2, "header_texts": ["A", "B"], "cells": ["C", "D"]}
+  ]
+}

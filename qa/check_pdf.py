@@ -256,6 +256,18 @@ def check_expectations(pdf: Path, exp: dict[str, Any], play_warnings: list[str] 
                 t = str(tag).lstrip("/")
                 if t not in types:
                     errors.append(f"qpdf struct: missing /{t} (have {sorted(set(types))[:20]})")
+        mins = qpdf_exp.get("min_struct_counts")
+        if isinstance(mins, dict):
+            for tag, raw_n in mins.items():
+                t = str(tag).lstrip("/")
+                try:
+                    need = int(raw_n)
+                except (TypeError, ValueError):
+                    errors.append(f"qpdf min_struct_counts: bad count for /{t}")
+                    continue
+                got = types.count(t)
+                if got < need:
+                    errors.append(f"qpdf struct: /{t} count {got} < {need}")
         lang = qpdf_exp.get("catalog_lang")
         if isinstance(lang, str):
             got = catalog_lang(data)

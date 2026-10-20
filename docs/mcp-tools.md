@@ -227,7 +227,7 @@ Builds a table (no header) filled left-to-right, top-to-bottom.
 
 ### `set_cell` / `insert_row` / `insert_col` / `delete_row` / `delete_col`
 
-Table surgery on a table `id` (the selected table in the GUI). `set_cell`: `{id, row, col, text|runs, nested_row?, nested_col?, border_pt?, border_color?, background?, v_align?: top|middle|bottom, padding_mm?, formula?: "sum:0"|"avg:1"|"count:0"}`. `nested_*` writes into a nested table created by `nest_table`. Omit `text`/`runs` to change only cell format. `table_formulas {id?}` evaluates formulas (skips other formula cells) and writes the result into the cell text. `table_auto_width {id}` sets `col_widths_mm` from text length. `create_style {kind:table, color}` + `apply_style` fills the header row. Tables taller than a page split across pages and **repeat row 0** when `header` is set.
+Table surgery on a table `id` (the selected table in the GUI). `set_cell`: `{id, row, col, text|runs, nested_row?, nested_col?, border_pt?, border_color?, background?, v_align?: top|middle|bottom, padding_mm?, formula?: "sum:0"|"avg:1"|"count:0"}`. `nested_*` writes into a nested table created by `nest_table`. Omit `text`/`runs` to change only cell format. `table_formulas {id?}` evaluates formulas (skips other formula cells) and writes the result into the cell text. `table_auto_width {id}` sets `col_widths_mm` from text length. `create_style {kind:table, color}` + `apply_style` fills the header row. Tables taller than a page split across pages and **repeat row 0** when `header` is set. No PDF etiquetado, o conteúdo de `cell.nested` (lista ou tabela aninhada) fica dentro do `/TD` da célula, como texto corrido: não ganha `/L`/`LI`/`LBody` nem um `/Table` próprio. `insert_footnote` não ancora numa célula — `TableCell` não tem id.
 
 ### `selection_get` / `set_selection` / `insert_at_caret`
 
@@ -317,7 +317,7 @@ Evaluates `expr` against the open document. Literals: numbers (`1`, `2.5`, `-3`)
 ### `insert_footnote` / `insert_endnote`
 
 Args: `{ "text"?: string }`  
-Marca sobrescrita no caret + bloco `footnote`/`endnote` com id `fn*`/`en*`.
+Marca sobrescrita no caret + bloco `footnote`/`endnote` com id `fn*`/`en*`. A âncora tem de ser um bloco com id (parágrafo, heading, item de lista). Uma célula de tabela não tem id, então a nota não gruda no conteúdo da célula.
 
 ### `toc_update`
 
@@ -415,7 +415,7 @@ Mapa `{from: to}` no JSON do documento (sem GUI). O caret aplica a lista + defau
 ### `merge_cells` / `split_cells` / `table_sort` / `nest_table`
 
 `merge_cells {id, row, col, col_span?, row_span?}`. `table_sort {id, col}` ordena linhas de dados.  
-`nest_table {id, row, col, rows?, cols?}` cria uma tabela de um nível dentro da célula (`cell.nested` no JSON).
+`nest_table {id, row, col, rows?, cols?}` cria uma tabela de um nível dentro da célula (`cell.nested` no JSON). No PDF etiquetado esse miolo continua no `/TD` pai, sem `/Table` aninhado.
 
 ### `mail_merge`
 

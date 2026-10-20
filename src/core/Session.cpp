@@ -284,6 +284,12 @@ bool Session::loadFrom(const QString &path, QString *error)
                 *error = QStringLiteral("Invalid JSON document");
             return false;
         }
+        const QString tableErr = validateDocumentBody(docj.object());
+        if (!tableErr.isEmpty()) {
+            if (error)
+                *error = tableErr;
+            return false;
+        }
         doc_ = Document::fromJson(docj.object());
         doc_.fileName = QFileInfo(path).fileName();
         for (const auto &b : doc_.body) {
@@ -4623,6 +4629,9 @@ QJsonObject Session::documentCompare(const QJsonObject &args)
     const auto docj = QJsonDocument::fromJson(f.readAll());
     if (!docj.isObject())
         return fail(QStringLiteral("not a document JSON"));
+    const QString tableErr = validateDocumentBody(docj.object());
+    if (!tableErr.isEmpty())
+        return fail(tableErr);
     return diffDocs(Document::fromJson(docj.object()), doc_);
 }
 
@@ -4974,6 +4983,9 @@ QJsonObject Session::documentInclude(const QJsonObject &args)
     const auto docj = QJsonDocument::fromJson(f.readAll(), &pe);
     if (pe.error != QJsonParseError::NoError || !docj.isObject())
         return fail(QStringLiteral("invalid JSON: ") + pe.errorString());
+    const QString tableErr = validateDocumentBody(docj.object());
+    if (!tableErr.isEmpty())
+        return fail(tableErr);
     Document other = Document::fromJson(docj.object());
     QString err;
     int at = insertIndex(args.value(QStringLiteral("after_id")).toString(QStringLiteral("end")), &err);
