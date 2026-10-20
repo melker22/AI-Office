@@ -1,0 +1,22 @@
+---
+description: Checklist de lições com evidência (atualizado pelo nó lessons de cada Fleet)
+alwaysApply: true
+---
+
+# Checklist de lições (aplicar ao implementar E ao revisar)
+
+Detalhes e evidências: [`docs/LESSONS.md`](../../docs/LESSONS.md). Revisor: verifique cada item no diff
+**antes** de comentar estilo; executor: confira cada item antes de submeter `qa_green: true`.
+
+1. Entrada externa (arquivo importado, arg MCP, expressão) tem limite, tipo validado e erro tratado — sem crash, sem aceitar em silêncio.
+2. Export/import mapeia por identidade (id, texto), nunca por índice de bloco/run.
+3. Mudou um invariante? Todos os criadores, accept/reject, import e arquivos antigos seguem.
+4. Valor derivado (stat/seq/xref/contagens) recalculado num ponto único, não por gatilho de ferramenta.
+5. Operação em vários blocos grava dados por bloco.
+6. Construção nativa DOCX/ODT só com semântica idêntica no Word/LibreOffice; senão, resultado avaliado.
+7. Schema MCP, `docs/mcp-tools.md` e código concordam em tipos e args.
+8. Forward declaration com a mesma tag (`struct`/`class`) da definição.
+9. Teste cobre o critério inteiro, incluindo a ordem de operações que quebra.
+10. Todo `expect` pode falhar; falha de transporte nunca é sucesso esperado.
+11. CI e local usam só o ambiente Nix (teste com `nix-shell --pure`).
+12. Em Fleet: submeta `commit`/`qa_green`; integração junta o hash reportado.
