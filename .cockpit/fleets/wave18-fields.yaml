@@ -216,12 +216,16 @@ nodes:
     prompt: |
       Auditoria final de `git diff main...HEAD` contra docs/waves/wave18-fields.md (foco: avaliador
       de expressões e mapeamentos de formato). Corrija só o crítico, commit, reporte em 10 linhas.
+      Submeta commit = `git rev-parse HEAD` (mesmo sem mudanças), qa_green e summary.
+    success_output: qa_green
+    output_contract: *executor_contract
 
   qa-final:
     type: gate
     gate: command
-    # integrate-2 listado para o gate receber o commit de referência do branch final.
-    needs: [opus-audit, integrate-2]
+    # Executores listados diretamente para o gate receber FLEET_NEEDS_<ID>_OUTPUT (regra 3):
+    # integrate-2 sempre; review-adjudication e opus-audit quando rodaram (regra 4: mínimo 1).
+    needs: [opus-audit, review-adjudication, integrate-2]
     run: scripts/fleet-verify-merged.sh 1 && scripts/qa-all.sh --gui --interop
 
   handoff:
