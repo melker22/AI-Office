@@ -114,13 +114,20 @@ são movidos para outro provedor até o limite voltar, sem editar o YAML:
 | `notion-sync` | `grok` / `grok-4.7` (effort low) | A Cursor não tem o MCP do Notion; o Grok tem a credencial |
 | auditoria Opus | `cursor` / `claude-opus-5-5-high` | Mesmo Opus via Cursor |
 
-Como aplicar numa Run em andamento (o nó ativo continua; só os próximos mudam):
+Como aplicar numa Run em andamento (o nó ativo continua; só os próximos mudam). Inclua **todo** nó
+`agent: claude` que ainda não rodou — o exemplo abaixo cobre os nós das Fleets de onda:
 
 ```bash
 cockpit fleet pause <runId>
+S=claude-sonnet-5-thinking-high
 cockpit fleet resume <runId> \
-  --set 'review.review-pass.agent=cursor' --set 'review.review-pass.model=claude-sonnet-5-thinking-high' \
-  --set 'notion-sync.agent=grok' --set 'notion-sync.model=grok-4.7' --set 'notion-sync.effort=low'
+  --set "lessons.agent=cursor" --set "lessons.model=$S" \
+  --set "review.review-pass.agent=cursor" --set "review.review-pass.model=$S" \
+  --set "review-adjudication.agent=cursor" --set "review-adjudication.model=$S" \
+  --set "open-pr.agent=cursor" --set "open-pr.model=$S" \
+  --set "opus-audit.agent=cursor" --set "opus-audit.model=claude-opus-5-5-high" \
+  --set "notion-sync.agent=grok" --set "notion-sync.model=grok-4.7" --set "notion-sync.effort=low"
+# Fleet genérica `task`: troque/adicione `plan` e `adjudicate` no lugar de review-adjudication.
 ```
 
 Mudar o agente de um nó `session: continue` cria uma task nova na próxima iteração (o prompt inicial

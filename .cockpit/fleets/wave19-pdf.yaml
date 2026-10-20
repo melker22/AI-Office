@@ -24,7 +24,8 @@ nodes:
       1. Veja em docs/LESSONS.md a linha "Última PR processada". Liste os PRs mergeados depois dela em
          melker22/AI-Office (tool MCP do GitHub; `gh` não existe). Nenhum novo → não mude nada.
       2. Para cada PR novo, leia as threads do CodeRabbit (pull_request_read get_review_comments) e as
-         entradas correspondentes de docs/AI_HANDOFF.md (achados do Sonnet, intervenções).
+         entradas correspondentes em docs/AI_HANDOFF.md E docs/AI_HANDOFF_ARCHIVE.md (achados do
+         Sonnet, intervenções) — entradas antigas podem ter sido arquivadas.
       3. Para cada defeito real que chegou ao CodeRabbit ou exigiu intervenção: se é instância de uma
          lição existente, acrescente a evidência e incremente a contagem; se é padrão novo que pode se
          repetir, crie lição com regra VERIFICÁVEL. Sem evidência (link de thread/commit) não entra.
@@ -128,8 +129,8 @@ nodes:
   build-1:
     type: gate
     gate: command
-    needs: [integrate-1, t1-tagging, t2-metadata, t3-pdf-qa]
-    run: scripts/fleet-verify-merged.sh 4 && scripts/qa-all.sh --gui
+    needs: [integrate-1, t1-tagging, t2-metadata, t3-pdf-qa, lessons]
+    run: scripts/fleet-verify-merged.sh 5 && scripts/qa-all.sh --gui
 
   # ── Fase 2: conformidade (Grok, no worktree integrado) ───────────────────────
   t4-compliance:
@@ -205,12 +206,15 @@ nodes:
     prompt: |
       Três passadas não zeraram os findings. Descarte os que não são defeitos (com motivo), faça UMA
       correção direta dos reais (com commit), rode `scripts/qa-all.sh --gui --interop --pdf` e pare.
-      Nunca pergunte a um humano. Submeta também commit = `git rev-parse HEAD`.
+      Nunca pergunte a um humano. Submeta também commit = `git rev-parse HEAD` e resolved = true só se
+      nenhum defeito real ficou aberto.
+    success_output: resolved
     output_contract:
       type: object
-      required: [verdict, accepted, dismissed, commit]
+      required: [verdict, resolved, accepted, dismissed, commit]
       properties:
         verdict: { type: string, enum: [resolved, failed] }
+        resolved: { type: boolean }
         accepted: { type: array, items: { type: string } }
         dismissed: { type: array, items: { type: string } }
         commit: { type: string, pattern: "^[0-9a-f]{40}$" }
