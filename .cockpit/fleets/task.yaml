@@ -30,7 +30,8 @@ nodes:
       1. Veja em docs/LESSONS.md a linha "Última PR processada". Liste os PRs mergeados depois dela em
          melker22/AI-Office (tool MCP do GitHub; `gh` não existe). Nenhum novo → não mude nada.
       2. Para cada PR novo, leia as threads do CodeRabbit (pull_request_read get_review_comments) e as
-         entradas correspondentes do topo de docs/AI_HANDOFF.md (achados do Sonnet, intervenções).
+         entradas correspondentes em docs/AI_HANDOFF.md E docs/AI_HANDOFF_ARCHIVE.md (achados do
+         Sonnet, intervenções) — entradas antigas podem ter sido arquivadas.
       3. Para cada defeito real que chegou ao CodeRabbit ou exigiu intervenção: se é instância de uma
          lição existente, acrescente a evidência e incremente a contagem; se é um padrão novo que pode
          se repetir, crie uma lição com regra VERIFICÁVEL. Sem evidência (link de thread/commit) não entra.
