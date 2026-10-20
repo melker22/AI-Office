@@ -8,6 +8,7 @@
 #include <QCryptographicHash>
 #include <QDateTime>
 #include <QFile>
+#include <QHash>
 #include <QJsonArray>
 #include <QJsonDocument>
 #include <QJsonObject>
@@ -512,16 +513,30 @@ QString blockTextFingerprint(const QString &text)
     return QString::fromLatin1(QCryptographicHash::hash(text.toUtf8(), QCryptographicHash::Sha256).toHex());
 }
 
-// Identity is the block id, a fingerprint of the block text, and (for a field)
-// the run text. A content index is not stable: a TOC of N entries is one block
-// here and N paragraphs after import.
-void rememberConditionals(QJsonArray &out, const Block &b)
+// A TOC of N entries is one block here and N `toc` paragraphs after import, so a
+// content index is not stable. Identity is the block type, the 1-based occurrence
+// of that (type, text fingerprint) pair in export order, and (for a field) the
+// run text. Import inserts only `toc` blocks for the TOC, so occurrences of every
+// other type stay put. `occ` counts every content block, including ones with no
+// conditional, so the n-th pair is the same block on the way back.
+QString conditionalOccKey(const QString &type, const QString &fp)
+{
+    return type + QLatin1Char('\n') + fp;
+}
+
+void rememberConditionals(QJsonArray &out, const Block &b, QHash<QString, int> &occ)
 {
     const QString fp = blockTextFingerprint(b.plainText());
+    const int n = ++occ[conditionalOccKey(b.type, fp)];
+    auto stamp = [&](QJsonObject &o) {
+        o.insert(QStringLiteral("id"), b.id);
+        o.insert(QStringLiteral("type"), b.type);
+        o.insert(QStringLiteral("fp"), fp);
+        o.insert(QStringLiteral("n"), n);
+    };
     if (!b.hideIf.isEmpty()) {
         QJsonObject o;
-        o.insert(QStringLiteral("id"), b.id);
-        o.insert(QStringLiteral("fp"), fp);
+        stamp(o);
         o.insert(QStringLiteral("hide_if"), b.hideIf);
         out.append(o);
     }
@@ -531,8 +546,7 @@ void rememberConditionals(QJsonArray &out, const Block &b)
         if (!fieldNeedsJson(b.runs.at(i)))
             continue;
         QJsonObject o;
-        o.insert(QStringLiteral("id"), b.id);
-        o.insert(QStringLiteral("fp"), fp);
+        stamp(o);
         o.insert(QStringLiteral("run_text"), b.runs.at(i).text);
         o.insert(QStringLiteral("field"), b.runs.at(i).field);
         o.insert(QStringLiteral("field_arg"), b.runs.at(i).fieldArg);
@@ -663,10 +677,12 @@ void applyFieldConditionals(Document &doc, const QJsonArray &conds)
             continue;
         content.push_back(i);
     }
-    // Walk fingerprints in document order. Records that share an export block id
-    // stay on the block already matched. A field is applied only to a run whose
-    // text matches and that is still plain text: a native field with the same
-    // cached text (two paragraphs that both show "17") is left alone.
+    // Pick the n-th content block with the same type and text fingerprint.
+    // A TOC entry shares the heading text but its type is `toc`, so it is not a
+    // candidate. No exact (type, fingerprint, n) candidate means the record is
+    // left unused. A field is applied only to a run whose text matches and that
+    // is still plain text: a native field with the same cached text (two
+    // paragraphs that both show "17") is left alone.
     auto plainRun = [](const Block &b, const QString &want, const QSet<int> &used) {
         for (int i = 0; i < b.runs.size(); ++i) {
             if (used.contains(i))
@@ -678,47 +694,29 @@ void applyFieldConditionals(Document &doc, const QJsonArray &conds)
         }
         return -1;
     };
-    QString boundId;
-    int boundCi = -1;
+    QHash<QString, QVector<int>> byOcc;
+    for (int i = 0; i < content.size(); ++i) {
+        const Block &b = doc.body.at(content.at(i));
+        byOcc[conditionalOccKey(b.type, blockTextFingerprint(b.plainText()))].append(i);
+    }
     QMap<int, QSet<int>> usedRuns;
     for (const QJsonValue &v : conds) {
         const QJsonObject o = v.toObject();
         const QString fp = o.value(QStringLiteral("fp")).toString();
-        const QString id = o.value(QStringLiteral("id")).toString();
         const bool isField = o.contains(QStringLiteral("field"));
         const bool hasRunText = o.contains(QStringLiteral("run_text"));
         const QString want = o.value(QStringLiteral("run_text")).toString();
         int ci = -1;
         int ri = -1;
         if (!fp.isEmpty()) {
-            const bool sameBlock = !id.isEmpty() && id == boundId && boundCi >= 0
-                && blockTextFingerprint(doc.body.at(content.at(boundCi)).plainText()) == fp;
-            if (sameBlock) {
-                ci = boundCi;
-                if (isField && hasRunText)
-                    ri = plainRun(doc.body.at(content.at(ci)), want, usedRuns.value(ci));
-            } else {
-                const int start = boundCi >= 0 ? boundCi + 1 : 0;
-                for (int i = start; i < content.size(); ++i) {
-                    const Block &cand = doc.body.at(content.at(i));
-                    if (blockTextFingerprint(cand.plainText()) != fp)
-                        continue;
-                    if (isField && hasRunText) {
-                        const int found = plainRun(cand, want, usedRuns.value(i));
-                        if (found < 0)
-                            continue;
-                        ri = found;
-                    }
-                    ci = i;
-                    break;
-                }
-                if (ci >= 0 && !id.isEmpty()) {
-                    boundId = id;
-                    boundCi = ci;
-                }
-            }
-            if (ci < 0)
+            const QString type = o.value(QStringLiteral("type")).toString();
+            const int n = o.value(QStringLiteral("n")).toInt(0);
+            if (type.isEmpty() || n < 1)
                 continue;
+            const QVector<int> hits = byOcc.value(conditionalOccKey(type, fp));
+            if (n > hits.size())
+                continue;
+            ci = hits.at(n - 1);
         } else {
             const int bi = o.value(QStringLiteral("block")).toInt(-1);
             if (bi < 0 || bi >= content.size())
@@ -1063,10 +1061,11 @@ bool saveDocx(const Document &doc, const QString &path, QString *error, bool emb
     DocumentLayout lay;
     lay.relayout(doc, 1.0);
     QJsonArray conditionals;
+    QHash<QString, int> condOcc;
     for (const auto &b : doc.body) {
         if (b.type == QLatin1String("footnote") || b.type == QLatin1String("endnote"))
             continue;
-        rememberConditionals(conditionals, b);
+        rememberConditionals(conditionals, b, condOcc);
         const bool van = paragraphVanished(doc, lay, b);
         if (b.type == QLatin1String("table")) {
             accountSeqRuns(o, b.runs);
