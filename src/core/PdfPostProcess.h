@@ -1,6 +1,8 @@
 #pragma once
 
+#include <QRectF>
 #include <QString>
+#include <QStringList>
 #include <QVector>
 
 namespace aioffice {
@@ -24,37 +26,55 @@ struct PdfCommentAnnot {
 bool pdfPostProcessAddExtras(const QString &path, const QVector<PdfCommentAnnot> &comments,
                               int physicalPageCount, QString *error);
 
-// One text-bearing block (paragraph/heading/list-item) expected on a page, in paint order.
-// structTag is a PDF structure type: "P" for body text, "H1".."H6" for headings.
-struct PdfTaggedBlock {
-    QString structTag;
+// One clip emitted by paintPage, in the same order as pdfTagMarkersForPage (Preview.cpp).
+// Painting wraps each marker in exactly one setClipRect; the post-processor correlates those
+// clip paths, in this order, with the content stream. Artifact markers are page furniture
+// (background, header, footer, page number, watermark, page border, and the other chrome
+// painted in the same passes). Content markers are the taggable elements.
+enum class PdfTagRole {
+    Artifact,
+    Paragraph,
+    Heading,
+    ListItem,
+    TableCell,
+    Figure,
+    Note,
+    TocItem,
 };
 
-// Post-processes an already-written PDF to add real, paragraph/heading-granularity tagged-PDF
-// structure: /MarkInfo <</Marked true>>, a /StructTreeRoot whose leaf elements carry real
-// /K [mcid...] marked-content references (not just a bare per-page /Part placeholder), and
-// /StructParents + a /ParentTree so readers can resolve MCID -> structure element.
+struct PdfTagMarker {
+    PdfTagRole role = PdfTagRole::Artifact;
+    QString blockId;
+    int docOrder = 0;
+    int level = 1;
+    int row = -1;
+    int col = -1;
+    int fragment = 0; // nth laid fragment of blockId on this page
+    int tocEntry = -1;
+    int textFrom = -1; // display range painted for a TOC entry; -1 = whole fragment
+    int textTo = -1;
+    bool headerCell = false;
+    bool listLabel = false; // first text object inside the clip is /Lbl
+    QString alt;
+    // Empty: the clip is one marked-content sequence. Otherwise one entry per body text
+    // object in paint order (list label not included). An empty string means the document
+    // language; any other value is a /Span /Lang.
+    QStringList pieceLangs;
+    QRectF clip;
+    int artifactPass = -1; // 0 background, 1 chrome, 2 overlay; content stays -1
+};
+
+// Tagged PDF structure from the marker list above.
 //
-// QPdfWriter/QPainter expose no API to inject BDC/EMC+MCID marked-content operators while
-// painting, so this recovers block boundaries from the *already-written* content stream: every
-// text-bearing block is painted through exactly one `p->setClipRect(lb.rect...)` call
-// (Preview.cpp's paintPage), which QPdfWriter's PDF engine renders as a distinctive
-// `x y m ... l ... l ... l h W* n` clip-path sequence found nowhere else in our output (tables,
-// images, shapes all use different operators — verified empirically against real generated
-// output before relying on it). Each `BT...ET` text object between one such clip-path and the
-// next belongs to exactly one block, in the same order Preview.cpp painted them. This is decoded,
-// each BT/ET is wrapped in `/<Tag> <</MCID n>> BDC ... EMC`, the content stream is recompressed,
-// and the page's Contents object is redefined via the same incremental-update mechanism.
+// QPdfWriter/QPainter cannot emit BDC/EMC while painting. Each marker is one
+// `setClipRect`, which this writer turns into an `m ... h W* n` clip. When the clip count
+// matches the marker list, artifacts become `/Artifact BMC ... EMC` (not in the tree) and
+// each taggable element becomes a real structure element with MCIDs. `/Document` children
+// follow `readingOrder` when that list is non-empty, otherwise document order.
+// A page whose clips do not match falls back to one `/Part` and is not given a wrong tag.
 //
-// Per page, this only proceeds if the clip-pattern count found in the real content stream exactly
-// matches perPageBlocks[page].size() — if anything doesn't line up (an unexpected block type, a
-// future rendering change, ...), that page silently falls back to a bare page-level /Part element
-// instead of risking a wrong/misaligned tag. Never produces a wrong tag; at worst, a coarser one.
-//
-// Scope: only paragraph/heading/list-item body text is covered (the common case). Tables, images,
-// shapes, footnotes/endnotes, and TOC entries are not yet tagged at this granularity — tracked as
-// a follow-up, not silently dropped (see docs/WRITER_FEATURE_CATALOG.md).
-bool pdfPostProcessTagStructure(const QString &path, const QVector<QVector<PdfTaggedBlock>> &perPageBlocks,
-                                 QString *error);
+// `docLang` is written as the catalog `/Lang` (BCP 47).
+bool pdfPostProcessTagStructure(const QString &path, const QVector<QVector<PdfTagMarker>> &perPageMarkers,
+                                 const QString &docLang, const QStringList &readingOrder, QString *error);
 
 } // namespace aioffice

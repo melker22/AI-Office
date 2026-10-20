@@ -1,0 +1,25 @@
+[
+  {"tool": "document_new", "args": {"title": "Wave19 tags"}},
+  {"tool": "document_set_title", "args": {"title": "Wave19 tags", "watermark": "RASCUNHO"}},
+  {"tool": "set_page_layout", "args": {"border_pt": 0.5, "border_color": "#B5651D"}},
+  {"tool": "set_header", "args": {"text": "Cabecalho", "page_numbers": true}},
+  {"tool": "set_footer", "args": {"text": "Rodape", "page_numbers": true}},
+  {"tool": "insert_blocks", "args": {"after_id": "start", "blocks": [
+    {"type": "heading", "level": 1, "lang": "pt-PT", "runs": [{"text": "Titulo"}]},
+    {"type": "paragraph", "lang": "pt-PT", "runs": [
+      {"text": "Ola "},
+      {"text": "English", "lang": "en-US"},
+      {"text": " fim."}
+    ]},
+    {"type": "paragraph", "lang": "pt-PT", "runs": [{"text": "Com nota."}]}
+  ]}},
+  {"tool": "insert_list", "args": {"after_id": "end", "kind": "bullet", "items": ["Item um", "Item dois"]}},
+  {"tool": "insert_table", "args": {"after_id": "end", "rows": 2, "cols": 2, "header": true, "header_texts": ["Nome", "Valor"], "cells": ["Alpha", "1"]}},
+  {"tool": "insert_image", "args": {"after_id": "end", "path": "qa/fixtures/wave19-pixel.png", "width_mm": 20}},
+  {"tool": "set_image", "args": {"id": "img1", "alt": "Ponto de teste"}},
+  {"tool": "insert_footnote", "args": {"id": "p3", "offset": 4, "text": "Nota de rodape."}},
+  {"tool": "toc_update", "args": {}},
+  {"tool": "document_save", "args": {"path": "/tmp/wave19-tags.aio.json"}},
+  {"tool": "document_export_pdf", "args": {"path": "/tmp/wave19-tags.pdf"}},
+  {"tool": "validate", "args": {}}
+]

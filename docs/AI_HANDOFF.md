@@ -8,6 +8,25 @@
 
 ---
 
+## 2026-10-20 — Cursor Grok 4.7 — Wave 19 PDF structure tags
+
+**Objective:** Fleet t1-tagging (D4–D6, D9). Copy the original trailer `/ID` on every incremental update. Paint each taggable element inside exactly one `setClipRect`, with header, footer, page number, watermark, background, and page border inside artifact clips. One ordered marker list drives both painting and the post-processor. Structure is `/L`>`/LI`>(`/Lbl`,`/LBody`), `/Table`>`/TR`>(`/TH`|`/TD`), `/Figure` with `/Alt`, `/Note`, `/TOC`>`/TOCI`, artifacts outside the tree, catalog `/Lang`, and `/Span` `/Lang` when a run's language differs. `/Document` children follow `readingOrder` when it is set. The proof document has zero fallback `/Part`.
+
+**Done:**
+- `pdfTagMarkersForPage` is the shared order: artifact passes for background, page chrome, and overlay, and content clips in `orderedBlocksForPage` z-order. `paintPage` issues one `setClipRect` per marker. The post-processor rewrites the page stream only when the `W*` count matches that list.
+- Structure elements follow `doc.readingOrder`, then any tagged id not listed, by document order. Header cells are `/TH` with `/ID` and `/Scope /Column`; body cells name that header. Notes carry `/ID`. A run whose language differs from the document language is its own `/Span`.
+- Every new trailer copies the first trailer's `/ID` array.
+- Proof document (heading, mixed-language paragraph, list, header-row table, image with alt, footnote, TOC, header/footer, watermark, border): `qpdf --json=1` shows `/Figure` first when `reading_order` puts the image first, catalog `/Lang (pt-PT)`, span `/Lang (en-US)`, figure alt, and no `/Part`. veraPDF UA-1: 104 passed, 2 failed — PDF/UA XMP identification and `DisplayDocTitle`, both t2 (D7).
+- `scripts/qa-all.sh --gui`: **43/43** passed, including `qa/wave19-pdf-tags.json`.
+
+**Decisions:** There is no document-level language field. Catalog `/Lang` is the first non-empty block or run language, otherwise `pt-PT`. Booklet physical pages and comment-only pages stay empty and keep the `/Part` safety net. Missing-alt warnings, XMP, and `DisplayDocTitle` stay with t2. Watermark opacity is not flattened here.
+
+**Next suggested step:** t2 XMP / `pdfuaid` / `DisplayDocTitle`, then t3 QA infra, then t4 full veraPDF UA and PDF/A.
+
+**Commits:** pending
+
+---
+
 ## 2026-10-20 — Cursor Grok 4.7 — DOCX conditional type and occurrence
 
 **Objective:** CodeRabbit major on PR #6: `rememberConditionals` / `applyFieldConditionals` matched only the block-text fingerprint and took the first candidate from `boundCi+1`. A TOC entry with the same text as a heading, or an earlier copy of the same paragraph, received `hide_if` / `if`. Do not touch `src/app/` or `.cockpit/`. No push.
