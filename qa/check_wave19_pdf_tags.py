@@ -5,9 +5,13 @@ The playbook exports the document in body order. This script then sets
 reading_order so the image precedes the heading and exports again.
 """
 import json
+import os
 import subprocess
 import sys
 from pathlib import Path
+
+os.environ.setdefault("AIOFFICE_HEADLESS", "1")
+os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 ROOT = Path(__file__).resolve().parents[1]
 PLAY = ROOT / "qa" / "wave19-pdf-tags.json"
@@ -16,12 +20,17 @@ PDF = Path("/tmp/wave19-tags-order.pdf")
 CLI = ROOT / "build" / "linux" / "aioffice-cli"
 
 
-def run(cmd):
-    r = subprocess.run(cmd, cwd=ROOT, text=True, capture_output=True)
+def run(cmd, timeout=300):
+    try:
+        r = subprocess.run(cmd, cwd=str(ROOT), text=True, capture_output=True, check=False, timeout=timeout)
+    except FileNotFoundError as exc:
+        raise SystemExit(f"command not found: {cmd[0]}") from exc
+    except subprocess.TimeoutExpired as exc:
+        raise SystemExit(f"timeout after {timeout}s: {' '.join(cmd)}") from exc
     if r.returncode != 0:
         sys.stderr.write(r.stdout)
         sys.stderr.write(r.stderr)
-        raise SystemExit(f"failed: {' '.join(cmd)}")
+        raise SystemExit(f"failed ({r.returncode}): {' '.join(cmd)}")
     return r.stdout
 
 
@@ -42,7 +51,7 @@ def main():
     ordered_path.write_text(json.dumps(doc))
     play = [
         {"tool": "document_open", "args": {"path": str(ordered_path)}},
-        {"tool": "document_export_pdf", "args": {"path": str(PDF)}},
+        {"tool": "document_export_pdf", "args": {"path": str(PDF), "ua": True}},
     ]
     play_path = Path("/tmp/wave19-tags-order-play.json")
     play_path.write_text(json.dumps(play))
@@ -55,8 +64,8 @@ def main():
     if b"/ID" not in trailers[-1]:
         raise SystemExit("incremental trailer has no /ID")
 
-    run(["qpdf", "--check", str(PDF)])
-    out = run(["qpdf", "--json=1", str(PDF)])
+    run(["qpdf", "--check", str(PDF)], timeout=60)
+    out = run(["qpdf", "--json=1", str(PDF)], timeout=60)
     data = json.loads(out)
     objects = data["objects"]
 
@@ -112,13 +121,25 @@ def main():
         raise SystemExit(f"heading not near the front after the figure: {doc_kids}")
 
     try:
-        verapdf = subprocess.run(["verapdf", "--flavour", "ua1", str(PDF)], text=True, capture_output=True)
+        verapdf = subprocess.run(
+            ["verapdf", "--flavour", "ua1", str(PDF)],
+            text=True,
+            capture_output=True,
+            check=False,
+            timeout=120,
+        )
     except FileNotFoundError:
         print("verapdf not on PATH")
+    except subprocess.TimeoutExpired as exc:
+        raise SystemExit("verapdf timed out after 120s") from exc
     else:
-        sys.stdout.write(verapdf.stdout[-4000:])
-        sys.stderr.write(verapdf.stderr[-2000:])
+        report = (verapdf.stdout or "") + (verapdf.stderr or "")
+        sys.stdout.write(verapdf.stdout[-4000:] if verapdf.stdout else "")
+        sys.stderr.write(verapdf.stderr[-2000:] if verapdf.stderr else "")
         print("verapdf exit", verapdf.returncode)
+        noncompliant = verapdf.returncode != 0 or 'isCompliant="false"' in report or "isCompliant='false'" in report
+        if noncompliant:
+            raise SystemExit(f"verapdf ua1 not compliant (exit {verapdf.returncode})")
     print("ok")
 
 

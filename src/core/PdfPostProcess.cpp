@@ -736,13 +736,22 @@ bool pdfPostProcessTagStructure(const QString &path, const QVector<QVector<PdfTa
                             bodySpans = spans.mid(1);
                         }
 
-                        const bool split = !clip.marker.pieceLangs.isEmpty()
-                            && clip.marker.pieceLangs.size() == bodySpans.size();
+                        QStringList langs = clip.marker.pieceLangs;
+                        // A clip that is one language slice can still emit several text
+                        // objects (one glyph run is not always one BT). Stamp that language
+                        // on each of them instead of dropping /Lang.
+                        if (langs.size() == 1 && bodySpans.size() > 1) {
+                            const QString only = langs.at(0);
+                            langs.clear();
+                            for (int j = 0; j < bodySpans.size(); ++j)
+                                langs.push_back(only);
+                        }
+                        const bool split = !langs.isEmpty() && langs.size() == bodySpans.size();
                         if (split) {
                             for (int j = 0; j < bodySpans.size(); ++j) {
                                 const int from = (j == 0) ? bodyFrom : bodySpans[j].first;
                                 const int to = (j + 1 < bodySpans.size()) ? bodySpans[j + 1].first : rg.ownerEnd;
-                                const QString lang = clip.marker.pieceLangs[j];
+                                const QString lang = langs.at(j);
                                 const int id = pushBody(lang);
                                 QByteArray props = "<</MCID " + QByteArray::number(id);
                                 QByteArray name = lang.isEmpty() ? bdcNameFor(clip.marker) : QByteArray("/Span");

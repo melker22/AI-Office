@@ -6,6 +6,8 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import re
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -111,14 +113,31 @@ def parse_verapdf_xml(xml_text: str) -> tuple[bool | None, list[str]]:
     return compliant, failed
 
 
+def verapdf_is_missing(resolved: str | None, exc: BaseException | None = None) -> bool:
+    """verapdf is absent when PATH has no binary or exec raises FileNotFoundError.
+
+    Do not sniff stderr: a normal JVM/veraPDF message can contain "not found".
+    """
+    if isinstance(exc, FileNotFoundError):
+        return True
+    return resolved is None
+
+
 def run_verapdf(pdf: Path, flavour: str) -> tuple[bool | None, list[str], str]:
+    resolved = shutil.which("verapdf")
+    if verapdf_is_missing(resolved):
+        raise SystemExit("verapdf not found (add verapdf to shell.nix)")
+    proc: subprocess.CompletedProcess[str] | None = None
     for fmt in ("xml", "mrr"):
-        proc = run_cmd(
-            ["verapdf", f"--flavour={flavour}", f"--format={fmt}", str(pdf)],
-            timeout=VERAPDF_TIMEOUT,
-        )
-        if proc.returncode == 127 or "not found" in (proc.stderr or "").lower():
-            raise SystemExit("verapdf not found (add verapdf to shell.nix)")
+        try:
+            proc = run_cmd(
+                ["verapdf", f"--flavour={flavour}", f"--format={fmt}", str(pdf)],
+                timeout=VERAPDF_TIMEOUT,
+            )
+        except FileNotFoundError as exc:
+            if verapdf_is_missing(resolved, exc):
+                raise SystemExit("verapdf not found (add verapdf to shell.nix)") from exc
+            raise
         out = proc.stdout or proc.stderr or ""
         compliant, failed = parse_verapdf_xml(out)
         if compliant is not None or failed:
@@ -127,7 +146,9 @@ def run_verapdf(pdf: Path, flavour: str) -> tuple[bool | None, list[str], str]:
             return True, [], out
         if "failed" in out.lower() or "non-compliant" in out.lower():
             return False, failed or ["non-compliant"], out
-    return None, [], proc.stdout + proc.stderr
+    if proc is None:
+        return None, [], ""
+    return None, [], (proc.stdout or "") + (proc.stderr or "")
 
 
 def qpdf_json(pdf: Path) -> dict[str, Any]:
@@ -163,6 +184,85 @@ def pdffonts_report(pdf: Path) -> list[dict[str, str]]:
             }
         )
     return rows
+
+
+def pdftotext_report(pdf: Path) -> str:
+    proc = run_cmd(["pdftotext", "-layout", str(pdf), "-"], timeout=TOOL_TIMEOUT)
+    if proc.returncode != 0:
+        raise SystemExit(f"pdftotext failed ({proc.returncode}): {proc.stderr.strip()}")
+    return proc.stdout
+
+
+def uncompressed_pdf(pdf: Path) -> str:
+    try:
+        proc = subprocess.run(
+            ["qpdf", "--qdf", "--stream-data=uncompress", str(pdf), "-"],
+            capture_output=True,
+            timeout=TOOL_TIMEOUT,
+            cwd=REPO,
+            check=False,
+        )
+    except subprocess.TimeoutExpired as exc:
+        raise SystemExit(f"timeout after {TOOL_TIMEOUT}s: qpdf uncompress") from exc
+    if proc.returncode != 0:
+        err = proc.stderr.decode("latin-1", errors="replace")[:500]
+        raise SystemExit(f"qpdf uncompress failed ({proc.returncode}): {err}")
+    return proc.stdout.decode("latin-1", errors="replace")
+
+
+def stream_has_rgb(data: str, rgb: tuple[float, float, float], tol: float = 0.02) -> bool:
+    for match in re.finditer(
+        r"([0-9]*\.?[0-9]+)\s+([0-9]*\.?[0-9]+)\s+([0-9]*\.?[0-9]+)\s+(?:rg|RG|scn|SCN)\b",
+        data,
+    ):
+        vals = tuple(float(part) for part in match.groups())
+        if all(abs(got - want) <= tol for got, want in zip(vals, rgb)):
+            return True
+    return False
+
+
+def font_names(pdf: Path) -> list[str]:
+    return sorted({row["name"] for row in pdffonts_report(pdf)})
+
+
+def strip_lang(value: Any) -> None:
+    if isinstance(value, dict):
+        value.pop("lang", None)
+        for child in value.values():
+            strip_lang(child)
+    elif isinstance(value, list):
+        for child in value:
+            strip_lang(child)
+
+
+def export_cleared_lang(cli: Path, aio_path: Path, pdfa: bool, ua: bool) -> Path:
+    try:
+        doc = json.loads(aio_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
+        raise SystemExit(f"cannot read {aio_path}: {exc}") from exc
+    if not isinstance(doc, dict) or not isinstance(doc.get("body"), list):
+        raise SystemExit(f"{aio_path} has no body array")
+    strip_lang(doc["body"])
+    cleared = aio_path.with_name(aio_path.stem + "-nolang.aio.json")
+    cleared.write_text(json.dumps(doc), encoding="utf-8")
+    out_pdf = aio_path.with_name(aio_path.stem + "-nolang.pdf")
+    play_path = aio_path.with_name(aio_path.stem + "-nolang-play.json")
+    play_path.write_text(
+        json.dumps(
+            [
+                {"tool": "document_open", "args": {"path": str(cleared)}},
+                {
+                    "tool": "document_export_pdf",
+                    "args": {"path": str(out_pdf), "pdfa": pdfa, "ua": ua},
+                },
+            ]
+        ),
+        encoding="utf-8",
+    )
+    play(cli, play_path)
+    if not out_pdf.is_file():
+        raise SystemExit(f"cleared-lang export missing: {out_pdf}")
+    return out_pdf
 
 
 def iter_json_nodes(obj: Any):
@@ -227,7 +327,12 @@ def document_struct_child_types(qpdf_data: dict[str, Any]) -> list[str]:
     return []
 
 
-def check_expectations(pdf: Path, exp: dict[str, Any], play_warnings: list[str] | None = None) -> list[str]:
+def check_expectations(
+    pdf: Path,
+    exp: dict[str, Any],
+    play_warnings: list[str] | None = None,
+    cli: Path | None = None,
+) -> list[str]:
     errors: list[str] = []
     verapdf_exp = exp.get("verapdf") or {}
     if isinstance(verapdf_exp, dict):
@@ -299,14 +404,65 @@ def check_expectations(pdf: Path, exp: dict[str, Any], play_warnings: list[str] 
                 errors.append("qpdf /Document child order: could not read struct tree (T1 pending?)")
 
     fonts_exp = exp.get("pdffonts") or {}
-    if isinstance(fonts_exp, dict) and fonts_exp.get("all_embedded") is True:
-        rows = pdffonts_report(pdf)
-        if not rows:
-            errors.append("pdffonts: no fonts listed")
-        else:
-            bad = [r["name"] for r in rows if r.get("emb", "").lower() != "yes"]
-            if bad:
-                errors.append(f"pdffonts: not embedded: {', '.join(bad)}")
+    if isinstance(fonts_exp, dict) and fonts_exp:
+        if fonts_exp.get("all_embedded") is True or fonts_exp.get("name_contains") or fonts_exp.get("same_as_cleared_lang"):
+            rows = pdffonts_report(pdf)
+            if not rows:
+                errors.append("pdffonts: no fonts listed")
+            else:
+                if fonts_exp.get("all_embedded") is True:
+                    bad = [r["name"] for r in rows if r.get("emb", "").lower() != "yes"]
+                    if bad:
+                        errors.append(f"pdffonts: not embedded: {', '.join(bad)}")
+                needles = fonts_exp.get("name_contains")
+                if isinstance(needles, list):
+                    names = [r["name"] for r in rows]
+                    for needle in needles:
+                        if not isinstance(needle, str) or not any(needle in name for name in names):
+                            errors.append(f"pdffonts: no font name contains {needle!r} in {names!r}")
+                cleared = fonts_exp.get("same_as_cleared_lang")
+                if isinstance(cleared, dict):
+                    if cli is None:
+                        errors.append("pdffonts same_as_cleared_lang: cli is required")
+                    else:
+                        aio = Path(str(cleared.get("aio") or ""))
+                        if not aio.is_file():
+                            errors.append(f"pdffonts same_as_cleared_lang: missing {aio}")
+                        else:
+                            other = export_cleared_lang(
+                                cli,
+                                aio,
+                                bool(cleared.get("pdfa")),
+                                bool(cleared.get("ua")),
+                            )
+                            got = font_names(pdf)
+                            want = font_names(other)
+                            if got != want:
+                                errors.append(
+                                    f"pdffonts: bilingual fonts {got} != same document without foreign lang {want}"
+                                )
+
+    text_needles = exp.get("text_contains")
+    if isinstance(text_needles, list):
+        text = pdftotext_report(pdf)
+        for needle in text_needles:
+            if isinstance(needle, str) and needle not in text:
+                errors.append(f"pdftotext: missing {needle!r}")
+
+    rgb_needles = exp.get("content_rgb")
+    if isinstance(rgb_needles, list):
+        stream = uncompressed_pdf(pdf)
+        for raw in rgb_needles:
+            if not isinstance(raw, list) or len(raw) != 3:
+                errors.append(f"content_rgb: expected [r, g, b], got {raw!r}")
+                continue
+            try:
+                rgb = (float(raw[0]), float(raw[1]), float(raw[2]))
+            except (TypeError, ValueError):
+                errors.append(f"content_rgb: bad triple {raw!r}")
+                continue
+            if not stream_has_rgb(stream, rgb):
+                errors.append(f"content stream: missing rg near {rgb}")
 
     warn_exp = exp.get("export_warnings")
     if warn_exp is not None:
@@ -384,6 +540,28 @@ def self_test() -> int:
             print("ok   load_expectations rejects empty object")
 
     bad.unlink(missing_ok=True)
+
+    if not verapdf_is_missing(None):
+        print("FAIL self-test verapdf_is_missing(None)")
+        ok = False
+    elif verapdf_is_missing("/usr/bin/verapdf"):
+        print("FAIL self-test verapdf present path treated as missing")
+        ok = False
+    elif not verapdf_is_missing("/usr/bin/verapdf", FileNotFoundError("verapdf")):
+        print("FAIL self-test FileNotFoundError should mean verapdf is missing")
+        ok = False
+    else:
+        print("ok   verapdf absence is FileNotFoundError or no PATH entry")
+
+    if not stream_has_rgb("0.769 0.118 0.227 scn", (0.768627, 0.117647, 0.227451)):
+        print("FAIL self-test stream_has_rgb")
+        ok = False
+    elif stream_has_rgb("0.1 0.2 0.3 rg", (0.768627, 0.117647, 0.227451)):
+        print("FAIL self-test stream_has_rgb false positive")
+        ok = False
+    else:
+        print("ok   stream_has_rgb")
+
     return 0 if ok else 1
 
 
@@ -419,7 +597,7 @@ def main() -> int:
     if not pdf.is_file():
         raise SystemExit(f"PDF not found after play: {pdf}")
 
-    errors = check_expectations(pdf, exp, play_warnings)
+    errors = check_expectations(pdf, exp, play_warnings, cli)
     if errors:
         for err in errors:
             print(f"FAIL {err}")

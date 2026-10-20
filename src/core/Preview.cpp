@@ -1678,53 +1678,68 @@ static QVector<PdfSubsetUnicode> pdfCaptureEnd()
     return out;
 }
 
+static bool lineInFragment(const QTextLine &line, const LaidBlock &lb);
+
+static QFont rubyFont(const QFont &blockFont)
+{
+    QFont rf = blockFont;
+    rf.setPointSizeF(qMax(6.0, blockFont.pointSizeF() * 0.45));
+    return rf;
+}
+
+// Baseline point of one run's ruby, or false when that run has no ruby on this fragment.
+static bool rubyDrawPoint(const BlockTextLayout &btl, const Block &b, const LaidBlock &lb, int runIndex,
+                          const QFont &rf, QPointF *out)
+{
+    if (!btl.layout || runIndex < 0 || runIndex >= b.runs.size())
+        return false;
+    const TextRun &r = b.runs.at(runIndex);
+    if (r.ruby.isEmpty())
+        return false;
+    int model = 0;
+    for (int i = 0; i < runIndex; ++i)
+        model += b.runs.at(i).text.size();
+    const int m0 = model;
+    const int m1 = model + r.text.size();
+    const int d0 = btl.toDisplay(m0);
+    const int d1 = btl.toDisplay(m1);
+    QTextLine line = btl.layout->lineForTextPosition(qBound(0, d0, btl.display.size()));
+    if (!line.isValid() || !lineInFragment(line, lb))
+        return false;
+    const int lineLast = line.textStart() + line.textLength();
+    const int a = qBound(line.textStart(), d0, lineLast);
+    const int c = qBound(line.textStart(), qMax(d0, d1), lineLast);
+    const qreal x0 = line.cursorToX(a);
+    const qreal x1 = line.cursorToX(c);
+    const qreal left = qMin(x0, x1);
+    const qreal span = qAbs(x1 - x0);
+    const qreal rw = QFontMetricsF(rf).horizontalAdvance(r.ruby);
+    const qreal x = left + (span - rw) / 2.0;
+    const qreal originX = lb.rect.left() + lb.markerWidth;
+    const qreal originY = lb.rect.top() - lb.layoutY0;
+    if (out)
+        *out = QPointF(originX + x, originY + line.y() - 1);
+    return true;
+}
+
 // Ruby sits on the line that holds the run, centered between cursorToX of the
 // run's display start and end (clamped to that line when the run wraps).
 static void paintRuby(QPainter *p, const BlockTextLayout &btl, const Block &b, const LaidBlock &lb, const QColor &col)
 {
     if (!btl.layout)
         return;
-    bool any = false;
-    for (const auto &r : b.runs) {
-        if (!r.ruby.isEmpty()) {
-            any = true;
-            break;
+    const QFont rf = rubyFont(btl.font);
+    bool prepared = false;
+    for (int i = 0; i < b.runs.size(); ++i) {
+        QPointF pos;
+        if (!rubyDrawPoint(btl, b, lb, i, rf, &pos))
+            continue;
+        if (!prepared) {
+            p->setFont(rf);
+            p->setPen(col);
+            prepared = true;
         }
-    }
-    if (!any)
-        return;
-    QFont rf = btl.font;
-    rf.setPointSizeF(qMax(6.0, btl.font.pointSizeF() * 0.45));
-    p->setFont(rf);
-    p->setPen(col);
-    const QFontMetricsF rfm(rf);
-    const qreal originX = lb.rect.left() + lb.markerWidth;
-    const qreal originY = lb.rect.top() - lb.layoutY0;
-    const qreal vis0 = lb.layoutY0;
-    const qreal vis1 = lb.layoutY0 + lb.rect.height();
-    int model = 0;
-    for (const auto &r : b.runs) {
-        const int m0 = model;
-        model += r.text.size();
-        if (r.ruby.isEmpty())
-            continue;
-        const int d0 = btl.toDisplay(m0);
-        const int d1 = btl.toDisplay(model);
-        QTextLine line = btl.layout->lineForTextPosition(qBound(0, d0, btl.display.size()));
-        if (!line.isValid())
-            continue;
-        if (line.y() + line.height() <= vis0 + 0.01 || line.y() >= vis1 - 0.01)
-            continue;
-        const int lineLast = line.textStart() + line.textLength();
-        const int a = qBound(line.textStart(), d0, lineLast);
-        const int c = qBound(line.textStart(), qMax(d0, d1), lineLast);
-        const qreal x0 = line.cursorToX(a);
-        const qreal x1 = line.cursorToX(c);
-        const qreal left = qMin(x0, x1);
-        const qreal span = qAbs(x1 - x0);
-        const qreal rw = rfm.horizontalAdvance(r.ruby);
-        const qreal x = left + (span - rw) / 2.0;
-        pdfDrawText(p, QPointF(originX + x, originY + line.y() - 1), r.ruby);
+        pdfDrawText(p, pos, b.runs.at(i).ruby);
     }
 }
 
@@ -1826,6 +1841,101 @@ static QStringList pieceLangsFor(const QVector<RunPiece> &pieces, const BlockTex
         }
     }
     return langs;
+}
+
+struct LangSlice {
+    int paintSlice = 1; // 1 glyph run, 2 drop cap, 3 ruby
+    QString lang;
+    int line = -1;
+    int from = -1;
+    int to = -1;
+    int glyph = 0;
+    int ruby = -1;
+};
+
+static QTextLayout::GlyphRunRetrievalFlags glyphRetrievalFlags()
+{
+    return QTextLayout::RetrieveGlyphIndexes | QTextLayout::RetrieveGlyphPositions
+        | QTextLayout::RetrieveStringIndexes | QTextLayout::RetrieveString;
+}
+
+static QList<QGlyphRun> glyphRunsForRange(const QTextLine &line, int from, int len)
+{
+    QList<QGlyphRun> out;
+    if (!line.isValid() || len <= 0)
+        return out;
+    const QList<QGlyphRun> all = line.glyphRuns(from, len, glyphRetrievalFlags());
+    for (const QGlyphRun &gr : all) {
+        if (!gr.glyphIndexes().isEmpty())
+            out.push_back(gr);
+    }
+    return out;
+}
+
+static QString runLang(const Block &b, const TextRun &r)
+{
+    return (r.lang.isEmpty() ? b.lang : r.lang).trimmed();
+}
+
+// One clip per shaped slice when this fragment has a run in another language.
+// Empty means the fragment is painted as a normal QTextLayout (no /Span split).
+static QVector<LangSlice> foreignLangSlices(const Block &b, const BlockTextLayout &btl, const LaidBlock &lb,
+                                            const QString &docLang)
+{
+    QVector<LangSlice> slices;
+    const QVector<RunPiece> pieces = foreignRunPieces(b, btl, docLang);
+    if (pieceLangsFor(pieces, btl, lb).isEmpty())
+        return slices;
+
+    if (btl.dropLines > 0 && !btl.dropLetter.isEmpty()) {
+        LangSlice s;
+        s.paintSlice = 2;
+        if (!b.runs.isEmpty()) {
+            const QString lang = runLang(b, b.runs.first());
+            if (foreignLang(lang, docLang))
+                s.lang = lang;
+        }
+        slices.push_back(s);
+    }
+    if (btl.layout) {
+        for (int li = 0; li < btl.layout->lineCount(); ++li) {
+            const QTextLine line = btl.layout->lineAt(li);
+            if (!lineInFragment(line, lb))
+                continue;
+            const int ls = line.textStart();
+            const int le = ls + line.textLength();
+            for (const auto &pc : pieces) {
+                const int a = qMax(pc.d0, ls);
+                const int bend = qMin(pc.d1, le);
+                if (a >= bend)
+                    continue;
+                const QList<QGlyphRun> runs = glyphRunsForRange(line, a, bend - a);
+                for (int gi = 0; gi < runs.size(); ++gi) {
+                    LangSlice s;
+                    s.paintSlice = 1;
+                    s.lang = pc.lang;
+                    s.line = li;
+                    s.from = a;
+                    s.to = bend;
+                    s.glyph = gi;
+                    slices.push_back(s);
+                }
+            }
+        }
+    }
+    const QFont rf = rubyFont(btl.font);
+    for (int ri = 0; ri < b.runs.size(); ++ri) {
+        if (!rubyDrawPoint(btl, b, lb, ri, rf, nullptr))
+            continue;
+        LangSlice s;
+        s.paintSlice = 3;
+        s.ruby = ri;
+        const QString lang = runLang(b, b.runs.at(ri));
+        if (foreignLang(lang, docLang))
+            s.lang = lang;
+        slices.push_back(s);
+    }
+    return slices;
 }
 
 static QRectF pageArtifactClip(const DocumentLayout &lay)
@@ -1965,8 +2075,28 @@ static QVector<PdfTagMarker> pdfTagMarkersForPage(const Document &doc, const Doc
         }
         m.clip = lb.rect.adjusted(-4, -top, 4, 4);
         const BlockTextLayout btl = blockTextLayout(doc, b, laidTextInput(lay, lb));
-        m.pieceLangs = pieceLangsFor(foreignRunPieces(b, btl, docLang), btl, lb);
-        out.push_back(m);
+        const QVector<LangSlice> slices = foreignLangSlices(b, btl, lb, docLang);
+        if (slices.isEmpty()) {
+            out.push_back(m);
+            continue;
+        }
+        // /Lang wraps each slice of the layout. The clip list, not a second
+        // draw with the block font, is what marks the span.
+        for (int si = 0; si < slices.size(); ++si) {
+            PdfTagMarker sm = m;
+            const LangSlice &s = slices.at(si);
+            sm.paintSlice = s.paintSlice;
+            sm.sliceLine = s.line;
+            sm.textFrom = s.from;
+            sm.textTo = s.to;
+            sm.sliceGlyph = s.glyph;
+            sm.sliceRuby = s.ruby;
+            sm.paintChrome = si == 0;
+            sm.listLabel = sm.paintChrome && role == PdfTagRole::ListItem && !lb.marker.isEmpty();
+            if (!s.lang.isEmpty())
+                sm.pieceLangs = QStringList{s.lang};
+            out.push_back(sm);
+        }
     }
     out.push_back(art(2));
     return out;
@@ -2359,10 +2489,69 @@ static void paintFigureMarker(QPainter *p, const Document &doc, const DocumentLa
     }
 }
 
+static QTextCharFormat formatAtDisplay(const QTextLayout *layout, int pos)
+{
+    if (!layout)
+        return {};
+    const auto fmts = layout->formats();
+    for (const auto &fr : fmts) {
+        if (pos >= fr.start && pos < fr.start + fr.length)
+            return fr.format;
+    }
+    return {};
+}
+
+static qreal formatBaselineShift(const QTextCharFormat &format, const QRawFont &font)
+{
+    const auto valign = format.verticalAlignment();
+    const bool super = valign == QTextCharFormat::AlignSuperScript;
+    const bool sub = valign == QTextCharFormat::AlignSubScript;
+    const qreal baseLineOffset = format.baselineOffset() / 100.0;
+    if (!super && !sub && qAbs(baseLineOffset) < 0.0001)
+        return 0;
+    const qreal height = font.ascent() + font.descent();
+    qreal delta = -height * baseLineOffset;
+    if (sub)
+        delta += height * (format.subScriptBaseline() / 100.0);
+    else if (super)
+        delta -= height * (format.superScriptBaseline() / 100.0);
+    return delta;
+}
+
+// Draw one glyph run QTextLayout already shaped, with that run's font and color.
+static void paintGlyphSlice(QPainter *p, const BlockTextLayout &btl, const QPointF &origin, const PdfTagMarker &m,
+                            const QColor &fallback)
+{
+    if (!btl.layout || m.sliceLine < 0 || m.sliceLine >= btl.layout->lineCount())
+        return;
+    const QTextLine line = btl.layout->lineAt(m.sliceLine);
+    const QList<QGlyphRun> runs = glyphRunsForRange(line, m.textFrom, m.textTo - m.textFrom);
+    if (m.sliceGlyph < 0 || m.sliceGlyph >= runs.size())
+        return;
+    const QGlyphRun &gr = runs.at(m.sliceGlyph);
+    int pos = m.textFrom;
+    const QList<qsizetype> idxs = gr.stringIndexes();
+    if (!idxs.isEmpty() && idxs.first() >= 0)
+        pos = int(idxs.first());
+    const QTextCharFormat format = formatAtDisplay(btl.layout.get(), pos);
+    const QBrush fg = format.foreground();
+    p->setPen(fg.style() == Qt::NoBrush ? QPen(fallback) : QPen(fg, 0));
+    const QBrush bg = format.background();
+    if (bg.style() != Qt::NoBrush) {
+        QRectF br = gr.boundingRect();
+        br.translate(origin);
+        p->fillRect(br, bg);
+    }
+    const qreal dy = gr.rawFont().isValid() ? formatBaselineShift(format, gr.rawFont()) : 0;
+    pdfNoteGlyphRuns(QList<QGlyphRun>{gr});
+    p->drawGlyphRun(origin + QPointF(0, dy), gr);
+}
+
 static void paintTextMarker(QPainter *p, const Document &doc, const DocumentLayout &lay, const LaidBlock &lb,
                              const Block &b, const PdfTagMarker &m, const QString &docLang, const QString &selId,
                              int selStart, int selEnd)
 {
+    Q_UNUSED(docLang);
     const qreal borderPt = b.borderPt > 0 ? b.borderPt : (b.type == QLatin1String("frame") ? 0.75 : 0);
     const BlockTextLayout btl = blockTextLayout(doc, b, laidTextInput(lay, lb));
     const QFont &f = btl.font;
@@ -2376,18 +2565,20 @@ static void paintTextMarker(QPainter *p, const Document &doc, const DocumentLayo
     if (!probe.color.isEmpty())
         col = QColor(probe.color);
 
-    if (!lb.marker.isEmpty()) {
+    const bool whole = m.paintSlice == 0;
+    const bool chrome = whole || m.paintChrome;
+    if (chrome && !lb.marker.isEmpty()) {
         p->setPen(col);
         pdfDrawText(p, QPointF(lb.rect.left(), lb.rect.top() + QFontMetricsF(f).ascent()), lb.marker);
     }
-    if (borderPt > 0) {
+    if (chrome && borderPt > 0) {
         QPen bp(QColor(b.borderColor.isEmpty() ? QStringLiteral("#B5651D") : b.borderColor),
                 qMax(qreal(0.5), borderPt * lay.zoom));
         p->setPen(bp);
         p->setBrush(Qt::NoBrush);
         p->drawRect(lb.rect.adjusted(-2, -1, 2, 1));
     }
-    if (selId == lb.id && selStart >= 0 && selEnd > selStart) {
+    if (chrome && selId == lb.id && selStart >= 0 && selEnd > selStart) {
         const QString t = btl.display;
         const int n = qMax(1, t.size());
         const qreal x0 = lb.rect.left() + lb.markerWidth + qreal(selStart) / n * (lb.rect.width() - lb.markerWidth);
@@ -2397,30 +2588,28 @@ static void paintTextMarker(QPainter *p, const Document &doc, const DocumentLayo
     }
 
     const QPointF origin(lb.rect.left() + lb.markerWidth, lb.rect.top() - lb.layoutY0);
-    p->setPen(col);
-    p->setFont(f);
-    if (!m.pieceLangs.isEmpty() && btl.layout) {
-        const QVector<RunPiece> pieces = foreignRunPieces(b, btl, docLang);
-        for (int li = 0; li < btl.layout->lineCount(); ++li) {
-            const QTextLine line = btl.layout->lineAt(li);
-            if (!lineInFragment(line, lb))
-                continue;
-            const int ls = line.textStart();
-            const int le = ls + line.textLength();
-            for (const auto &pc : pieces) {
-                const int a = qMax(pc.d0, ls);
-                const int bend = qMin(pc.d1, le);
-                if (a >= bend)
-                    continue;
-                p->setFont(f);
+    if (!whole) {
+        if (m.paintSlice == 2 && btl.dropLines > 0 && !btl.dropLetter.isEmpty()) {
+            p->setFont(btl.dropFont);
+            p->setPen(col);
+            pdfDrawText(p, QPointF(lb.rect.left() + lb.markerWidth, lb.rect.top() + QFontMetricsF(btl.dropFont).ascent()),
+                        btl.dropLetter);
+        } else if (m.paintSlice == 3 && m.sliceRuby >= 0 && m.sliceRuby < b.runs.size()) {
+            const QFont rf = rubyFont(btl.font);
+            QPointF pos;
+            if (rubyDrawPoint(btl, b, lb, m.sliceRuby, rf, &pos)) {
+                p->setFont(rf);
                 p->setPen(col);
-                pdfDrawText(p, QPointF(origin.x() + line.cursorToX(a), origin.y() + line.y() + line.ascent()),
-                            btl.display.mid(a, bend - a));
+                pdfDrawText(p, pos, b.runs.at(m.sliceRuby).ruby);
             }
+        } else if (m.paintSlice == 1) {
+            paintGlyphSlice(p, btl, origin, m, col);
         }
         return;
     }
 
+    p->setPen(col);
+    p->setFont(f);
     if (btl.dropLines > 0 && !btl.dropLetter.isEmpty()) {
         p->setFont(btl.dropFont);
         p->setPen(col);

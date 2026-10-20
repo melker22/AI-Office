@@ -1,4 +1,6 @@
 [
+  {"tool": "document_open", "args": {"path": "qa/wave19-no-type-rows.aio.json"}, "expect": {"ok": false, "error": "numeric rows/cols are only valid on a table block"}},
+  {"tool": "document_open", "args": {"path": "qa/wave19-paragraph-rows.aio.json"}, "expect": {"ok": false, "error": "numeric rows/cols are only valid on a table block"}},
   {"tool": "document_open", "args": {"path": "qa/wave19-bad-rows.aio.json"}, "expect": {"ok": false, "error": "table rows/cols out of range"}},
   {"tool": "document_open", "args": {"path": "qa/wave19-ok-rows.aio.json"}, "expect": {"ok": true, "document.body.0.rows.0.0.runs.0.text": "A"}},
   {"tool": "document_compare", "args": {"path": "qa/wave19-bad-rows.aio.json"}, "expect": {"ok": false, "error": "table rows/cols out of range"}},

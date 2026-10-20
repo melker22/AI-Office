@@ -412,13 +412,20 @@ QString validateBlock(const Block &b)
 
 QString validateTableShorthand(const QJsonObject &block)
 {
-    if (block.value(QStringLiteral("type")).toString() != QLatin1String("table"))
-        return {};
     const QJsonValue rows = block.value(QStringLiteral("rows"));
+    const QJsonValue cols = block.value(QStringLiteral("cols"));
+    const bool numericRows = rows.isDouble();
+    const bool numericCols = cols.isDouble();
+    // The integer rows/cols shortcut builds a grid. It is only valid on a table.
+    // Any other type, including a block with no type, must fail validation (L1).
+    if (block.value(QStringLiteral("type")).toString() != QLatin1String("table")) {
+        if (numericRows || numericCols)
+            return QStringLiteral("numeric rows/cols are only valid on a table block");
+        return {};
+    }
     if (rows.isArray() || rows.isUndefined() || rows.isNull())
         return {};
-    const QJsonValue cols = block.value(QStringLiteral("cols"));
-    if (!rows.isDouble() || !cols.isDouble())
+    if (!numericRows || !numericCols)
         return QStringLiteral("table rows and cols must be integers");
     const double rd = rows.toDouble();
     const double cd = cols.toDouble();
@@ -703,7 +710,7 @@ Block Block::fromJson(const QJsonObject &o)
             b.headerRow = o.value(QStringLiteral("header")).toBool();
             for (const auto &w : o.value(QStringLiteral("col_widths_mm")).toArray())
                 b.colWidthsMm.push_back(w.toDouble());
-        } else if (validateTableShorthand(o).isEmpty() && rowsVal.isDouble()) {
+        } else if (b.type == QLatin1String("table") && rowsVal.isDouble() && validateTableShorthand(o).isEmpty()) {
             // Same grid insert_table builds: header cells are named so /TH is not empty.
             int rows = rowsVal.toInt();
             int cols = o.value(QStringLiteral("cols")).toInt();

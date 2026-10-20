@@ -51,15 +51,23 @@ struct PdfTagMarker {
     int col = -1;
     int fragment = 0; // nth laid fragment of blockId on this page
     int tocEntry = -1;
-    int textFrom = -1; // display range painted for a TOC entry; -1 = whole fragment
+    int textFrom = -1; // display range painted for a TOC entry or one glyph slice; -1 = whole fragment
     int textTo = -1;
     bool headerCell = false;
     bool listLabel = false; // first text object inside the clip is /Lbl
     QString alt;
-    // Empty: the clip is one marked-content sequence. Otherwise one entry per body text
-    // object in paint order (list label not included). An empty string means the document
-    // language; any other value is a /Span /Lang.
+    // Empty: the clip is one marked-content sequence. One entry applies to every body
+    // text object in the clip. Several entries: one per body text object, in paint order
+    // (list label not included). An empty string means the document language; any other
+    // value is a /Span /Lang.
     QStringList pieceLangs;
+    // Whole paints the fragment with QTextLayout. Glyph/DropCap/Ruby paint one slice of
+    // that same layout so /Lang wraps text that was not redrawn in the block font.
+    int paintSlice = 0; // 0 whole, 1 glyph run, 2 drop cap, 3 ruby
+    int sliceLine = -1;
+    int sliceGlyph = 0;
+    int sliceRuby = -1;
+    bool paintChrome = false; // first slice also paints the list label, border, and selection
     QRectF clip;
     int artifactPass = -1; // 0 background, 1 chrome, 2 overlay; content stays -1
 };
