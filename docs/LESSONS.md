@@ -5,7 +5,7 @@
 > verificável para a onda N+1. **Só entra lição com evidência** (thread de review, commit ou incidente).
 > O checklist curto que executores e revisores aplicam está em `.cursor/rules/lessons.mdc`.
 
-Última PR processada: **#5** (lições semeadas manualmente pelo arquiteto a partir dos PRs #2–#6; o PR #6 será reprocessado pelo nó `lessons` da onda 19 para incluir a 2ª rodada do CodeRabbit).
+Última PR processada: **#6** (reprocessado pelo nó `lessons` da onda 19: 2ª rodada do CodeRabbit incorporada — `rememberConditionals`/`applyFieldConditionals` sem checagem de tipo/ocorrência ainda pegava a entrada de TOC errada mesmo após a correção por fingerprint da 1ª rodada; e o gate `qa-final` do Fleet wave18 não listava `review-adjudication`/`opus-audit` em `needs`, o mesmo padrão de PR #5).
 
 Formato: `L<n> — regra` · onde falhou (evidência) · ocorrências.
 
@@ -16,8 +16,12 @@ Formato: `L<n> — regra` · onde falhou (evidência) · ocorrências.
   aceitação silenciosa. · PR #6 parser sem limite de recursão; PR #2 `deleted_runs` não-objeto; PR #4
   `<w:delText>` importado como texto vivo. · 3
 - **L2 — Mapear por identidade, nunca por posição, entre export e import.** Índice de bloco/run muda
-  quando o formato expande ou funde elementos (TOC, notas). · PR #6 `conditionals` restaurados no bloco
-  errado. · 1
+  quando o formato expande ou funde elementos (TOC, notas). Identidade por fingerprint sozinha ainda não
+  basta: inclua tipo de bloco e número de ocorrência, senão uma entrada de TOC com o mesmo texto do
+  heading (ou um parágrafo repetido) rouba o campo. · PR #6 `conditionals` restaurados no bloco errado
+  (commit `98194e3`); PR #6 2ª rodada CodeRabbit — fingerprint sem tipo/ocorrência ainda confundia TOC
+  com heading (https://github.com/melker22/AI-Office/pull/6#discussion_r4329241338, corrigido em
+  `0f4bcae`). · 2
 - **L3 — Um contrato, todos os caminhos.** Ao mudar um invariante (ex.: delete = ponto), migre TODOS os
   criadores, o reject/accept, o import e os arquivos antigos (normalizar ao carregar). · PR #4 Backspace
   ainda criava delete com largura; reject usava `end - start`. · 1
@@ -44,8 +48,12 @@ Formato: `L<n> — regra` · onde falhou (evidência) · ocorrências.
 
 ## Processo (Fleets)
 
-- **L12 — Executor entrega `commit`; integração junta o hash; gate verifica.** · Onda 17: nó caído
-  marcado "completed"; merge de ponta velha. → PR #5. · 2
+- **L12 — Executor entrega `commit`; integração junta o hash; gate verifica.** Todo nó que comita —
+  inclusive opcional/auditoria — entra em `needs` do gate seguinte e tem `output_contract`/
+  `success_output`; senão o gate não enxerga o commit e um nó que para sem commitar ainda passa por
+  "completed". · Onda 17: nó caído marcado "completed"; merge de ponta velha → PR #5; PR #6 `qa-final`
+  não listava `review-adjudication`/`opus-audit` em `needs` e `opus-audit` não tinha `output_contract`
+  (https://github.com/melker22/AI-Office/pull/6#discussion_r4328866979). · 3
 - **L13 — Nó isolado de fase posterior começa com `git merge` da integração anterior.** · Onda 18. · 1
 - **L14 — Revisor procura defeitos da lista acima antes de estilo.** O CodeRabbit achou defeitos que
   duas/três passadas do Sonnet deixaram passar em três ondas seguidas (PR #3, #4, #6). · 3
