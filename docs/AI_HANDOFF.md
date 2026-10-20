@@ -8,6 +8,44 @@
 
 ---
 
+## 2026-10-20 — Fleet wave19 — Composer / Cursor Grok / Grok Build / Sonnet
+
+**Objective:** Close Fleet wave19 PDF (review pass #2, handoff, feature catalog). Run `scripts/qa-all.sh --gui --interop --pdf`; record `git log main..HEAD --oneline`. No push.
+
+**Done:**
+- Review #2: empty findings after fix commit `a1a9114` (repeated table headers per page fragment; Arabic molded-glyph `ToUnicode` for PDF/UA; table `rows`/`cols` validated on `document_open`/`document_compare`/`document_include`; `wave19-pdf-tags` wired into ctest). Independent re-checks: split-table `/TH`+`/MCR` per page, comments+ua/pdfa veraPDF compliant, bad table JSON rejects with `ok:false`.
+- `scripts/qa-all.sh --gui --interop --pdf`: **54/54** ctest passed (9 `pdf` tests, including `comments`, `fonts-ar-ua`, `split-table`, `table-shorthand`; up from 49). **Interop:** skipped (`soffice` not on PATH in this shell).
+- `docs/WRITER_FEATURE_CATALOG.md`: wave 19 closes PDF/A+tagged PDF, XMP, font embed, reading order, document accessibility; new Todo **Subconjunto de fontes no PDF**.
+
+**Decisions:** Font subsetting stays out of scope (D8); nested list/table in cell and footnote-in-cell tagging limits documented in `docs/mcp-tools.md`.
+
+**Next suggested step:** Fleet `notion-sync`, then human `approve-pr` / `open-pr`.
+
+**Branch commits (`main..HEAD`):**
+
+```
+f53b306 chore: ignore Python bytecode caches
+67c1512 docs: use Cursor Sonnet only while Claude is exhausted
+a1a9114 fix: tag repeated table headers and map Arabic glyphs for PDF/UA
+c5cf5c5 docs: record the Claude usage-limit fallback for Fleet nodes
+14f77d6 docs: record the PDF compliance commit hash in the handoff
+5cbbbba fix: make PDF/A-1b and PDF/UA-1 exports pass veraPDF
+012b44c merge: integrate wave19 PDF QA harness with T1/T2 handoff history
+0fc93a9 merge: integrate wave19 PDF export metadata with structure tagging
+e97af63 docs: record the PDF structure tagging commit hash in the handoff
+64c8cea feat: tag PDF structure for lists, tables, figures, notes, and TOC
+e3457a7 feat: add wave 19 PDF compliance QA harness (veraPDF, qpdf, pdffonts)
+b748399 feat: PDF export XMP metadata, PDF/A flatten warnings, and ua mode
+508d35c docs: update lessons from PR #6
+4538e0e docs: add wave 19 PDF compliance spec and Fleet
+343a16d docs: add evidence-backed lessons and a lessons node at the start of every Fleet
+27a3aea docs: require later-phase isolated Fleet nodes to merge the prior integration commit
+```
+
+**Commits:** `a1a9114` fix: tag repeated table headers and map Arabic glyphs for PDF/UA; `5cbbbba` fix: make PDF/A-1b and PDF/UA-1 exports pass veraPDF; `64c8cea` feat: tag PDF structure…; `e3457a7` feat: add wave 19 PDF compliance QA harness; `b748399` feat: PDF export XMP metadata…
+
+---
+
 ## 2026-10-20 — Cursor Grok 4.7 — Wave 19 PDF/A and PDF/UA compliance
 
 **Objective:** Fleet `t4-compliance`. Make `scripts/qa-all.sh --gui --pdf` green: veraPDF PDF/A-1b and PDF/UA-1 on every suite document, structure and `/Lang` per the `.pdf.json` files, no fallback `/Part`, embedded fonts. Do not weaken expectations. No push.
