@@ -25,7 +25,7 @@
 
 **Next suggested step:** Fleet `review`, then `qa-final`.
 
-**Commits:** recorded in the following handoff note after this commit
+**Commits:** `5cbbbba` fix: make PDF/A-1b and PDF/UA-1 exports pass veraPDF
 
 ---
 
