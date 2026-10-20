@@ -98,6 +98,29 @@ sem código) depois do `handoff` e antes da aprovação humana: alinha o board "
 `docs/WRITER_FEATURE_CATALOG.md`, atualiza o callout "Última sync" do hub e o snapshot. Trabalho feito
 fora de Fleet (correções avulsas, merges) também termina com uma sincronização do Notion.
 
+## Fallback quando o limite do Claude acaba (autorizado pelo utilizador)
+
+Quando a janela do Claude (5 h ou semanal) esgota, os nós `agent: claude` **não esperam o reset**:
+são movidos para outro provedor até o limite voltar, sem editar o YAML:
+
+| Nó (Claude) | Fallback | Motivo |
+|---|---|---|
+| revisão, adjudicação, plano, `open-pr`, `lessons` | `cursor` / `claude-sonnet-5-thinking-high` | Mesmo Sonnet 5, cota da Cursor; Cursor tem o MCP do GitHub |
+| `notion-sync` | `grok` / `grok-4.7` (effort low) | A Cursor não tem o MCP do Notion; o Grok tem a credencial |
+| auditoria Opus | `cursor` / `claude-opus-5-5-high` | Mesmo Opus via Cursor |
+
+Como aplicar numa Run em andamento (o nó ativo continua; só os próximos mudam):
+
+```bash
+cockpit fleet pause <runId>
+cockpit fleet resume <runId> \
+  --set 'review.review-pass.agent=cursor' --set 'review.review-pass.model=claude-sonnet-5-thinking-high' \
+  --set 'notion-sync.agent=grok' --set 'notion-sync.model=grok-4.7' --set 'notion-sync.effort=low'
+```
+
+Mudar o agente de um nó `session: continue` cria uma task nova na próxima iteração (o prompt inicial
+revisa o diff inteiro, então nada se perde). Quando o Claude voltar, `--unset` devolve o nó ao YAML.
+
 ## Limites de uso
 
 Ver `cockpit usage --all`. Quando um provedor esgota, **não edite o YAML** — sobrescreva na hora:
