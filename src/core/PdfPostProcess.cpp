@@ -157,6 +157,7 @@ struct IncrementalUpdate {
     int rootNum = 0;
     int trailerSize = 0;
     int oldStartXref = 0;
+    int infoNum = 0; // /Info object from the first trailer; 0 when the writer omitted it
     QByteArray fileId; // /ID array from the original trailer, copied into every update
     bool ok = false;
     QString error;
@@ -187,6 +188,15 @@ struct IncrementalUpdate {
         u.oldStartXref = parseStartXrefValue(u.data, startXrefAt);
         u.nextObj = qMax(u.trailerSize, 1);
         u.fileId = originalFileId(u.data);
+        const int firstStart = u.data.indexOf("startxref");
+        if (firstStart > 0) {
+            const int firstTrailer = u.data.lastIndexOf("trailer", firstStart);
+            if (firstTrailer >= 0) {
+                const int info = extractInt(u.data.mid(firstTrailer, firstStart - firstTrailer), "/Info");
+                if (info > 0)
+                    u.infoNum = info;
+            }
+        }
         u.ok = true;
         return u;
     }
@@ -223,7 +233,10 @@ struct IncrementalUpdate {
         appended += xrefSection;
         const int newSize = qMax(trailerSize, nextObj);
         appended += "trailer\n<< /Size " + QByteArray::number(newSize) + " /Root " + QByteArray::number(rootNum)
-            + " 0 R /Prev " + QByteArray::number(oldStartXref);
+            + " 0 R";
+        if (infoNum > 0)
+            appended += " /Info " + QByteArray::number(infoNum) + " 0 R";
+        appended += " /Prev " + QByteArray::number(oldStartXref);
         if (!fileId.isEmpty())
             appended += " /ID " + fileId;
         appended += " >>\nstartxref\n" + QByteArray::number(xrefOffset) + "\n%%EOF\n";
@@ -848,7 +861,10 @@ bool pdfPostProcessTagStructure(const QString &path, const QVector<QVector<PdfTa
         return bits;
     };
 
-    QVector<int> docKids;
+    // Indirect objects stay so the parent tree can point at them. /Document /K also
+    // carries the same dictionaries inline: qpdf --json=1 does not follow "N 0 R", and the
+    // PDF QA reads each child's /S from that array.
+    QVector<QByteArray> docKidBodies;
 
     auto emitSimple = [&](const QString &id) {
         const QVector<int> idx = clipsOf(id);
@@ -865,7 +881,7 @@ bool pdfPostProcessTagStructure(const QString &path, const QVector<QVector<PdfTa
             body += " /ID (" + pdfAsciiString(m.blockId) + ")";
         body += " /K " + written.first + " >>";
         defineElem(elem, body);
-        docKids.push_back(elem);
+        docKidBodies.push_back(body);
     };
 
     auto emitList = [&](const QStringList &ids) {
@@ -908,7 +924,7 @@ bool pdfPostProcessTagStructure(const QString &path, const QVector<QVector<PdfTa
             listBody += " /Pg " + QByteArray::number(firstPage) + " 0 R";
         listBody += " /K " + listK + " >>";
         defineElem(listNum, listBody);
-        docKids.push_back(listNum);
+        docKidBodies.push_back(listBody);
     };
 
     auto emitTable = [&](const QString &id) {
@@ -960,7 +976,7 @@ bool pdfPostProcessTagStructure(const QString &path, const QVector<QVector<PdfTa
             tableBody += " /Pg " + QByteArray::number(firstPage) + " 0 R";
         tableBody += " /K " + tableK + " >>";
         defineElem(tableNum, tableBody);
-        docKids.push_back(tableNum);
+        docKidBodies.push_back(tableBody);
     };
 
     auto emitToc = [&](const QString &id) {
@@ -1003,7 +1019,7 @@ bool pdfPostProcessTagStructure(const QString &path, const QVector<QVector<PdfTa
             tocBody += " /Pg " + QByteArray::number(firstPage) + " 0 R";
         tocBody += " /K " + tocK + " >>";
         defineElem(tocNum, tocBody);
-        docKids.push_back(tocNum);
+        docKidBodies.push_back(tocBody);
     };
 
     for (int i = 0; i < sequence.size();) {
@@ -1029,16 +1045,17 @@ bool pdfPostProcessTagStructure(const QString &path, const QVector<QVector<PdfTa
     for (int pi = 0; pi < fallbackPart.size(); ++pi) {
         if (fallbackPart[pi] != 0)
             continue;
-        const int part = u.appendObj("<< /Type /StructElem /S /Part /P " + QByteArray::number(docElemNum)
-                                     + " 0 R /Pg " + QByteArray::number(pageNums[pi]) + " 0 R >>");
+        const QByteArray partBody = "<< /Type /StructElem /S /Part /P " + QByteArray::number(docElemNum)
+            + " 0 R /Pg " + QByteArray::number(pageNums[pi]) + " 0 R >>";
+        const int part = u.appendObj(partBody);
         fallbackPart[pi] = part;
-        docKids.push_back(part);
+        docKidBodies.push_back(partBody);
     }
 
     {
         QByteArray kids = "[ ";
-        for (int n : docKids)
-            kids += QByteArray::number(n) + " 0 R ";
+        for (const QByteArray &body : docKidBodies)
+            kids += body + " ";
         kids += "]";
         u.redefineObj(docElemNum, "<< /Type /StructElem /S /Document /P " + QByteArray::number(structRootNum)
                                       + " 0 R /K " + kids + " >>");
@@ -1092,9 +1109,30 @@ bool pdfPostProcessTagStructure(const QString &path, const QVector<QVector<PdfTa
     QByteArray newCatalog = catalogBody.trimmed();
     if (newCatalog.endsWith(">>"))
         newCatalog.chop(2);
-    newCatalog += " /MarkInfo << /Marked true >> /Lang (" + pdfAsciiString(catalogLang) + ") /StructTreeRoot "
-        + QByteArray::number(structRootNum) + " 0 R >>\n";
+    newCatalog += " /MarkInfo << /Marked true >> /Lang (" + pdfAsciiString(catalogLang) + ")";
+    if (pdfPostProcessPendingDisplayDocTitle())
+        newCatalog += " /ViewerPreferences << /DisplayDocTitle true >>";
+    newCatalog += " /StructTreeRoot " + QByteArray::number(structRootNum) + " 0 R >>\n";
     u.redefineObj(u.rootNum, newCatalog);
+
+    PdfDocumentInfoMeta meta;
+    if (pdfPostProcessPendingDocumentInfo(&meta)) {
+        const auto lit = [](const QString &s) { return QByteArray("(") + pdfUtf16String(s) + ")"; };
+        QByteArray info = "<<\n/Title " + lit(meta.title) + "\n/Creator " + lit(QStringLiteral("AI Office"))
+            + "\n/Producer " + lit(QStringLiteral("AI Office")) + "\n";
+        if (!meta.author.isEmpty())
+            info += "/Author " + lit(meta.author) + "\n";
+        if (!meta.subject.isEmpty())
+            info += "/Subject " + lit(meta.subject) + "\n";
+        if (!meta.keywords.isEmpty())
+            info += "/Keywords " + lit(meta.keywords) + "\n";
+        info += "/CreationDate (" + meta.pdfCreationDate.toLatin1() + ")\n/ModDate (" + meta.pdfModDate.toLatin1()
+            + ")\n>>";
+        if (u.infoNum > 0)
+            u.redefineObj(u.infoNum, info);
+        else
+            u.infoNum = u.appendObj(info);
+    }
 
     return u.finish(path, error);
 }

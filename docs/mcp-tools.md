@@ -60,7 +60,7 @@ The document is a JSON object with **stable block IDs**. Agents must address con
 | `paragraph` | `style`, `align`, `dir` (`auto`\|`ltr`\|`rtl`, default `auto`, omitted when `auto`), `runs` |
 | `heading` | `level` 1–6, `style`, `align`, `dir`, `runs` |
 | `list-item` | `level`, `list_kind` (`bullet` \| `decimal`), `runs` |
-| `table` | `rows`: array of rows; each cell `{ "runs": [...] }` |
+| `table` | `rows`: array of rows (each cell `{ "runs": [...] }`), or integers `rows` (1–200) and `cols` (1–64) with optional `header`, `header_texts`, `cells` — a non-integer or out-of-range pair is `{ok:false,error}` |
 | `image` | `path`, `image_b64`, `width_mm`, `rotate`, `opacity`, `flip_h`/`flip_v`, `crop` [L,T,R,B], `shadow_pt`, `z_index` |
 | `break` | `break_kind`: `page` \| `column` \| `section`; `hidden` esconde a secção seguinte |
 | `footnote` / `endnote` | nota; âncora no run via `note_id`; endnotes no fim da secção |
@@ -105,7 +105,7 @@ Saves to `path` or the last opened/saved path. Format from extension.
 ### `document_export_pdf`
 
 Args: `{ "path": string, "pdfa"?: bool, "ua"?: bool, "from"?: int, "to"?: int, "booklet"?: bool, "comments"?: bool }`  
-Native `QPdfWriter` (no LibreOffice). Every export embeds document XMP (title, author, subject, keywords, dates, language) and matching `/Info` title/author/creator; no `pdf:Trapped` in XMP. `pdfa=true` requests PDF/A-1b (`pdfaid:part=1`, `conformance=B`); translucent watermark, image opacity, and drop shadows are painted opaque and listed in `warnings[]`. `ua=true` adds `pdfuaid:part=1` (with the PDF/A extension schema when combined with `pdfa`), sets `DisplayDocTitle` in post-processing, and fails with `{ok:false,error}` if any image lacks `alt`; without `ua`, missing alt is only a `warnings[]` entry. `from`/`to` are 1-based inclusive. `booklet` imprints 2-up in booklet order. Tagged PDF is always produced: paragraph/heading/list-item structure when the content stream lines up, otherwise a page-level `/Part` fallback. `comments:true` writes real PDF sticky-note annotations. Falls back to soffice only if native write fails.
+Native `QPdfWriter` (no LibreOffice). Every export embeds document XMP (`dc:title` / `dc:creator` / `dc:description` as RDF values, `pdf:Keywords` / `pdf:Producer`, `xmp:CreateDate` / `ModifyDate` / `CreatorTool`) and the same fields in `/Info` (plus `Creator`). Document language is catalog `/Lang`, not `dc:language`. No `pdf:Trapped` in XMP or `/Info`. `pdfa=true` requests PDF/A-1b (`pdfaid:part=1`, `conformance=B`); translucent watermark, image opacity, and drop shadows are painted opaque and listed in `warnings[]`. `ua=true` adds `pdfuaid:part=1` (with the PDF/A extension schema when combined with `pdfa`), sets `/ViewerPreferences/DisplayDocTitle true`, and fails with `{ok:false,error}` if any image lacks `alt`; without `ua`, missing alt is only a `warnings[]` entry. `from`/`to` are 1-based inclusive. `booklet` imprints 2-up in booklet order. Tagged PDF is always produced: paragraph/heading/list-item structure when the content stream lines up, otherwise a page-level `/Part` fallback. `comments:true` writes real PDF sticky-note annotations. Falls back to soffice only if native write fails.
 
 ### `document_get`
 

@@ -215,6 +215,15 @@ set_tests_properties(roundtrip_foreign_docx_wave17 PROPERTIES LABELS "roundtrip"
 file(GLOB _aio_pdf_playbooks CONFIGURE_DEPENDS "${CMAKE_SOURCE_DIR}/qa/wave19-pdf-*.json")
 foreach(_pdf_pb IN LISTS _aio_pdf_playbooks)
     get_filename_component(_pdf_name "${_pdf_pb}" NAME)
+    # The glob also matches expectation files (*.pdf.json) and the reading-order fixture
+    # (*.aio.json). check_pdf.py only accepts a playbook that has a sibling .pdf.json.
+    if(_pdf_name MATCHES "\\.pdf\\.json$" OR _pdf_name MATCHES "\\.aio\\.json$")
+        continue()
+    endif()
+    get_filename_component(_pdf_stem "${_pdf_pb}" NAME_WE)
+    if(NOT EXISTS "${CMAKE_SOURCE_DIR}/qa/${_pdf_stem}.pdf.json")
+        continue()
+    endif()
     add_test(NAME "pdf_${_pdf_name}" COMMAND "${CMAKE_COMMAND}" -E env AIOFFICE_HEADLESS=1 QT_QPA_PLATFORM=offscreen
         "${Python3_EXECUTABLE}" "${CMAKE_SOURCE_DIR}/qa/check_pdf.py"
         --cli "${AIOFFICE_CLI}" --playbook "${_pdf_pb}")

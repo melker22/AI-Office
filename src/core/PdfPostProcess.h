@@ -82,4 +82,20 @@ bool pdfPostProcessTagStructure(const QString &path, const QVector<QVector<PdfTa
 void pdfPostProcessSetDisplayDocTitle(bool enable);
 bool pdfPostProcessPendingDisplayDocTitle();
 
+// Document-info values written into both the XMP packet and the PDF /Info dictionary.
+// Dates are two spellings of the same instant: XMP is ISO-8601, PDF is D:YYYYMMDDHHmmSSOHH'mm'.
+struct PdfDocumentInfoMeta {
+    QString title;
+    QString author;
+    QString subject;
+    QString keywords;
+    QString pdfCreationDate;
+    QString pdfModDate;
+    QString xmpCreationDate;
+    QString xmpModDate;
+};
+
+void pdfPostProcessSetDocumentInfo(const PdfDocumentInfoMeta &info);
+bool pdfPostProcessPendingDocumentInfo(PdfDocumentInfoMeta *out);
+
 } // namespace aioffice

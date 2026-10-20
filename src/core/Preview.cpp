@@ -20,7 +20,6 @@
 #include <QTextCharFormat>
 #include <QTextLayout>
 #include <QTextOption>
-#include <QXmlStreamWriter>
 #include <QDateTime>
 #include <algorithm>
 
@@ -2353,120 +2352,144 @@ QByteArray renderPagePng(const Document &doc, int page, double zoom)
     return bytes;
 }
 
-static QString documentPdfLanguage(const Document &doc)
+static QString xmlText(const QString &s)
 {
-    const QString fromVar = doc.vars.value(QStringLiteral("doc.language")).trimmed();
-    if (!fromVar.isEmpty())
-        return fromVar;
-    return QStringLiteral("pt-BR");
+    QString out;
+    out.reserve(s.size());
+    for (const QChar c : s) {
+        const ushort u = c.unicode();
+        if (u < 0x20 && u != 0x9 && u != 0xA)
+            continue;
+        if (c == QLatin1Char('&'))
+            out += QStringLiteral("&amp;");
+        else if (c == QLatin1Char('<'))
+            out += QStringLiteral("&lt;");
+        else if (c == QLatin1Char('>'))
+            out += QStringLiteral("&gt;");
+        else
+            out += c;
+    }
+    return out;
 }
 
-static QByteArray buildPdfDocumentXmp(const Document &doc, bool pdfa, bool ua)
+static QString xmpStamp(const QDateTime &dt)
 {
-    const QString producer = QStringLiteral("AI Office");
-    const QString creatorTool = QStringLiteral("AI Office");
+    const QDateTime local = dt.toLocalTime();
+    const int off = local.offsetFromUtc();
+    const int a = qAbs(off);
+    const QChar sign = off >= 0 ? QLatin1Char('+') : QLatin1Char('-');
+    return local.toString(QStringLiteral("yyyy-MM-ddTHH:mm:ss")) + sign
+        + QStringLiteral("%1:%2").arg(a / 3600, 2, 10, QLatin1Char('0')).arg((a % 3600) / 60, 2, 10, QLatin1Char('0'));
+}
+
+static QString pdfStamp(const QDateTime &dt)
+{
+    const QDateTime local = dt.toLocalTime();
+    const int off = local.offsetFromUtc();
+    const int a = qAbs(off);
+    const QChar sign = off >= 0 ? QLatin1Char('+') : QLatin1Char('-');
+    return QStringLiteral("D:") + local.toString(QStringLiteral("yyyyMMddHHmmss")) + sign
+        + QStringLiteral("%1'%2'").arg(a / 3600, 2, 10, QLatin1Char('0')).arg((a % 3600) / 60, 2, 10, QLatin1Char('0'));
+}
+
+static QDateTime pdfMetaInstant(const QString &raw, const QDateTime &fallback)
+{
+    const QString t = raw.trimmed();
+    if (t.isEmpty())
+        return fallback;
+    QDateTime dt = QDateTime::fromString(t, Qt::ISODate);
+    if (!dt.isValid())
+        dt = QDateTime::fromString(t, Qt::ISODateWithMs);
+    return dt.isValid() ? dt : fallback;
+}
+
+static PdfDocumentInfoMeta pdfInfoMeta(const Document &doc)
+{
     const QDateTime now = QDateTime::currentDateTime();
-    const QString createDate = doc.vars.value(QStringLiteral("doc.created")).trimmed();
-    const QString modifyDate = doc.vars.value(QStringLiteral("doc.modified")).trimmed();
-    const QString isoCreate = createDate.isEmpty() ? now.toString(Qt::ISODate) : createDate;
-    const QString isoModify = modifyDate.isEmpty() ? isoCreate : modifyDate;
-    const QString language = documentPdfLanguage(doc);
+    const QDateTime created = pdfMetaInstant(doc.vars.value(QStringLiteral("doc.created")), now);
+    const QString modifiedRaw = doc.vars.value(QStringLiteral("doc.modified")).trimmed();
+    const QDateTime modified = modifiedRaw.isEmpty() ? created : pdfMetaInstant(modifiedRaw, created);
+    PdfDocumentInfoMeta m;
+    m.title = doc.title;
+    m.author = doc.author;
+    m.subject = doc.subject;
+    m.keywords = doc.keywords;
+    m.pdfCreationDate = pdfStamp(created);
+    m.pdfModDate = pdfStamp(modified);
+    m.xmpCreationDate = xmpStamp(created);
+    m.xmpModDate = xmpStamp(modified);
+    return m;
+}
 
+// Hand-written XMP. QXmlStreamWriter renames namespaces to n1/n4, which veraPDF rejects
+// (pdfaid/pdfuaid/pdfaSchema prefixes are part of the rule). Value types are the PDF/A RDF
+// forms: dc:title and dc:description are language alternatives, dc:creator is a sequence.
+// dc:language is omitted; catalog /Lang carries the document language.
+static QByteArray buildPdfDocumentXmp(bool pdfa, bool ua, const PdfDocumentInfoMeta &meta)
+{
     QByteArray out;
-    QBuffer buf(&out);
-    buf.open(QIODevice::WriteOnly);
-    buf.write("<?xpacket begin=\"\" id=\"W5M0MpCehiHzreSzNTczkc9d\"?>");
-
-    QXmlStreamWriter w(&buf);
-    w.setAutoFormatting(true);
-    constexpr auto adobeNS = "adobe:ns:meta/";
-    constexpr auto rdfNS = "http://www.w3.org/1999/02/22-rdf-syntax-ns#";
-    constexpr auto dcNS = "http://purl.org/dc/elements/1.1/";
-    constexpr auto xmpNS = "http://ns.adobe.com/xap/1.0/";
-    constexpr auto pdfNS = "http://ns.adobe.com/pdf/1.3/";
-    constexpr auto pdfaidNS = "http://www.aiim.org/pdfa/ns/id/";
-    constexpr auto pdfuaidNS = "http://www.aiim.org/pdfua/ns/id/";
-    constexpr auto pdfaExtNS = "http://www.aiim.org/pdfa/ns/extension/";
-    constexpr auto pdfaSchemaNS = "http://www.aiim.org/pdfa/ns/schema#";
-    constexpr auto pdfaPropNS = "http://www.aiim.org/pdfa/ns/property#";
-    constexpr auto xmlNS = "http://www.w3.org/XML/1998/namespace";
-
-    w.writeNamespace(adobeNS, "x");
-    w.writeNamespace(rdfNS, "rdf");
-    w.writeStartElement(adobeNS, "xmpmeta");
-    w.writeStartElement(rdfNS, "RDF");
-
-    w.writeStartElement(rdfNS, "Description");
-    w.writeAttribute(rdfNS, "about", "");
-    w.writeAttribute(dcNS, "title", doc.title);
-    if (!doc.author.isEmpty())
-        w.writeAttribute(dcNS, "creator", doc.author);
-    if (!doc.subject.isEmpty())
-        w.writeAttribute(dcNS, "description", doc.subject);
-    w.writeAttribute(dcNS, "language", language);
-    w.writeEndElement();
-
-    w.writeStartElement(rdfNS, "Description");
-    w.writeAttribute(rdfNS, "about", "");
-    if (!doc.keywords.isEmpty())
-        w.writeAttribute(pdfNS, "Keywords", doc.keywords);
-    w.writeAttribute(pdfNS, "Producer", producer);
-    w.writeEndElement();
-
-    w.writeStartElement(rdfNS, "Description");
-    w.writeAttribute(rdfNS, "about", "");
-    w.writeAttribute(xmpNS, "CreatorTool", creatorTool);
-    w.writeAttribute(xmpNS, "CreateDate", isoCreate);
-    w.writeAttribute(xmpNS, "ModifyDate", isoModify);
-    w.writeEndElement();
-
-    if (pdfa) {
-        w.writeStartElement(rdfNS, "Description");
-        w.writeAttribute(rdfNS, "about", "");
-        w.writeAttribute(pdfaidNS, "part", "1");
-        w.writeAttribute(pdfaidNS, "conformance", "B");
-        w.writeEndElement();
+    out.append("<?xpacket begin=\"");
+    out.append(char(0xEF));
+    out.append(char(0xBB));
+    out.append(char(0xBF));
+    out.append("\" id=\"W5M0MpCehiHzreSzNTczkc9d\"?>\n");
+    out.append("<x:xmpmeta xmlns:x=\"adobe:ns:meta/\">\n");
+    out.append("<rdf:RDF xmlns:rdf=\"http://www.w3.org/1999/02/22-rdf-syntax-ns#\">\n");
+    out.append("<rdf:Description rdf:about=\"\" xmlns:dc=\"http://purl.org/dc/elements/1.1/\" "
+               "xmlns:pdf=\"http://ns.adobe.com/pdf/1.3/\" xmlns:xmp=\"http://ns.adobe.com/xap/1.0/\"");
+    if (pdfa)
+        out.append(" xmlns:pdfaid=\"http://www.aiim.org/pdfa/ns/id/\"");
+    if (ua)
+        out.append(" xmlns:pdfuaid=\"http://www.aiim.org/pdfua/ns/id/\"");
+    out.append(">\n");
+    out.append("<dc:title><rdf:Alt><rdf:li xml:lang=\"x-default\">");
+    out.append(xmlText(meta.title).toUtf8());
+    out.append("</rdf:li></rdf:Alt></dc:title>\n");
+    if (!meta.author.isEmpty()) {
+        out.append("<dc:creator><rdf:Seq><rdf:li>");
+        out.append(xmlText(meta.author).toUtf8());
+        out.append("</rdf:li></rdf:Seq></dc:creator>\n");
     }
-
+    if (!meta.subject.isEmpty()) {
+        out.append("<dc:description><rdf:Alt><rdf:li xml:lang=\"x-default\">");
+        out.append(xmlText(meta.subject).toUtf8());
+        out.append("</rdf:li></rdf:Alt></dc:description>\n");
+    }
+    out.append("<pdf:Producer>AI Office</pdf:Producer>\n");
+    if (!meta.keywords.isEmpty()) {
+        out.append("<pdf:Keywords>");
+        out.append(xmlText(meta.keywords).toUtf8());
+        out.append("</pdf:Keywords>\n");
+    }
+    out.append("<xmp:CreatorTool>AI Office</xmp:CreatorTool>\n<xmp:CreateDate>");
+    out.append(meta.xmpCreationDate.toUtf8());
+    out.append("</xmp:CreateDate>\n<xmp:ModifyDate>");
+    out.append(meta.xmpModDate.toUtf8());
+    out.append("</xmp:ModifyDate>\n");
+    if (pdfa)
+        out.append("<pdfaid:part>1</pdfaid:part>\n<pdfaid:conformance>B</pdfaid:conformance>\n");
+    if (ua)
+        out.append("<pdfuaid:part>1</pdfuaid:part>\n");
+    out.append("</rdf:Description>\n");
     if (ua && pdfa) {
-        w.writeStartElement(rdfNS, "Description");
-        w.writeAttribute(rdfNS, "about", "");
-        w.writeStartElement(pdfaExtNS, "schemas");
-        w.writeStartElement(rdfNS, "Bag");
-        w.writeStartElement(rdfNS, "li");
-        w.writeAttribute(rdfNS, "parseType", "Resource");
-        w.writeTextElement(pdfaSchemaNS, "schema", QStringLiteral("PDF/UA identification schema"));
-        w.writeTextElement(pdfaSchemaNS, "namespaceURI", pdfuaidNS);
-        w.writeTextElement(pdfaSchemaNS, "prefix", QStringLiteral("pdfuaid"));
-        w.writeStartElement(pdfaSchemaNS, "property");
-        w.writeStartElement(rdfNS, "Seq");
-        w.writeStartElement(rdfNS, "li");
-        w.writeAttribute(rdfNS, "parseType", "Resource");
-        w.writeTextElement(pdfaPropNS, "name", QStringLiteral("part"));
-        w.writeTextElement(pdfaPropNS, "valueType", QStringLiteral("Integer"));
-        w.writeTextElement(pdfaPropNS, "category", QStringLiteral("internal"));
-        w.writeTextElement(pdfaPropNS, "description", QStringLiteral("Part of PDF/UA standard"));
-        w.writeEndElement(); // li
-        w.writeEndElement(); // Seq
-        w.writeEndElement(); // property
-        w.writeEndElement(); // li
-        w.writeEndElement(); // Bag
-        w.writeEndElement(); // schemas
-        w.writeEndElement(); // Description
+        out.append("<rdf:Description rdf:about=\"\" "
+                   "xmlns:pdfaExtension=\"http://www.aiim.org/pdfa/ns/extension/\" "
+                   "xmlns:pdfaSchema=\"http://www.aiim.org/pdfa/ns/schema#\" "
+                   "xmlns:pdfaProperty=\"http://www.aiim.org/pdfa/ns/property#\">\n"
+                   "<pdfaExtension:schemas><rdf:Bag><rdf:li rdf:parseType=\"Resource\">\n"
+                   "<pdfaSchema:schema>PDF/UA identification schema</pdfaSchema:schema>\n"
+                   "<pdfaSchema:namespaceURI>http://www.aiim.org/pdfua/ns/id/</pdfaSchema:namespaceURI>\n"
+                   "<pdfaSchema:prefix>pdfuaid</pdfaSchema:prefix>\n"
+                   "<pdfaSchema:property><rdf:Seq><rdf:li rdf:parseType=\"Resource\">\n"
+                   "<pdfaProperty:name>part</pdfaProperty:name>\n"
+                   "<pdfaProperty:valueType>Integer</pdfaProperty:valueType>\n"
+                   "<pdfaProperty:category>internal</pdfaProperty:category>\n"
+                   "<pdfaProperty:description>Part of PDF/UA standard</pdfaProperty:description>\n"
+                   "</rdf:li></rdf:Seq></pdfaSchema:property>\n"
+                   "</rdf:li></rdf:Bag></pdfaExtension:schemas>\n"
+                   "</rdf:Description>\n");
     }
-
-    if (ua) {
-        w.writeStartElement(rdfNS, "Description");
-        w.writeAttribute(rdfNS, "about", "");
-        w.writeAttribute(pdfuaidNS, "part", "1");
-        w.writeEndElement();
-    }
-
-    w.writeEndElement(); // RDF
-    w.writeEndElement(); // xmpmeta
-    w.writeEndDocument();
-    buf.write("<?xpacket end=\"w\"?>");
-    Q_UNUSED(xmlNS);
+    out.append("</rdf:RDF>\n</x:xmpmeta>\n<?xpacket end=\"w\"?>\n");
     return out;
 }
 
@@ -2516,6 +2539,8 @@ bool exportNativePdf(const Document &doc, const QString &path, QString *error, b
                      QStringList *warnings)
 {
     pdfPostProcessSetDisplayDocTitle(ua);
+    const PdfDocumentInfoMeta pdfInfo = pdfInfoMeta(doc);
+    pdfPostProcessSetDocumentInfo(pdfInfo);
     const QString watermarkForOpaque = doc.watermark;
     bool paintOpaqueWatermark = false;
     const Document paintDoc = pdfa ? documentForPdfaPaint(doc, warnings, &paintOpaqueWatermark) : doc;
@@ -2556,7 +2581,7 @@ bool exportNativePdf(const Document &doc, const QString &path, QString *error, b
     writer.setTitle(doc.title);
     writer.setCreator(QStringLiteral("AI Office"));
     writer.setAuthor(doc.author);
-    writer.setDocumentXmpMetadata(buildPdfDocumentXmp(doc, pdfa, ua));
+    writer.setDocumentXmpMetadata(buildPdfDocumentXmp(pdfa, ua, pdfInfo));
     if (pdfa)
         writer.setPdfVersion(QPagedPaintDevice::PdfVersion_A1b);
     QPainter p(&writer);
@@ -2697,5 +2722,22 @@ bool exportNativePdf(const Document &doc, const QString &path, QString *error, b
 
 void pdfPostProcessSetDisplayDocTitle(bool enable) { g_pdfPostProcessDisplayDocTitle = enable; }
 bool pdfPostProcessPendingDisplayDocTitle() { return g_pdfPostProcessDisplayDocTitle; }
+
+static PdfDocumentInfoMeta g_pdfDocumentInfo;
+static bool g_pdfDocumentInfoSet = false;
+
+void pdfPostProcessSetDocumentInfo(const PdfDocumentInfoMeta &info)
+{
+    g_pdfDocumentInfo = info;
+    g_pdfDocumentInfoSet = true;
+}
+
+bool pdfPostProcessPendingDocumentInfo(PdfDocumentInfoMeta *out)
+{
+    if (!g_pdfDocumentInfoSet || !out)
+        return false;
+    *out = g_pdfDocumentInfo;
+    return true;
+}
 
 } // namespace aioffice

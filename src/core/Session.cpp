@@ -500,7 +500,11 @@ QJsonObject Session::insertBlocks(const QJsonObject &args)
         return fail(err);
     const QJsonArray blockArr = args.value(QStringLiteral("blocks")).toArray();
     for (const auto &v : blockArr) {
-        const QString be = validateBlock(Block::fromJson(v.toObject()));
+        const QJsonObject o = v.toObject();
+        const QString te = validateTableShorthand(o);
+        if (!te.isEmpty())
+            return fail(te);
+        const QString be = validateBlock(Block::fromJson(o));
         if (!be.isEmpty())
             return fail(be);
     }
@@ -526,7 +530,11 @@ QJsonObject Session::replaceRange(const QJsonObject &args)
         return fail(QStringLiteral("no matching ids"));
     const QJsonArray blockArr = args.value(QStringLiteral("blocks")).toArray();
     for (const auto &v : blockArr) {
-        const QString be = validateBlock(Block::fromJson(v.toObject()));
+        const QJsonObject o = v.toObject();
+        const QString te = validateTableShorthand(o);
+        if (!te.isEmpty())
+            return fail(te);
+        const QString be = validateBlock(Block::fromJson(o));
         if (!be.isEmpty())
             return fail(be);
     }

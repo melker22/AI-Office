@@ -8,6 +8,27 @@
 
 ---
 
+## 2026-10-20 — Cursor Grok 4.7 — Wave 19 PDF/A and PDF/UA compliance
+
+**Objective:** Fleet `t4-compliance`. Make `scripts/qa-all.sh --gui --pdf` green: veraPDF PDF/A-1b and PDF/UA-1 on every suite document, structure and `/Lang` per the `.pdf.json` files, no fallback `/Part`, embedded fonts. Do not weaken expectations. No push.
+
+**Done:**
+- XMP is written with the prefixes veraPDF requires (`dc`, `pdf`, `xmp`, `pdfaid`, `pdfuaid`, `pdfaExtension` / `pdfaSchema` / `pdfaProperty`). `dc:title` and `dc:description` are language alternatives, `dc:creator` is a sequence, `pdfaid:part` and `pdfuaid:part` are elements. `dc:language` is omitted (catalog `/Lang` is the document language). No `pdf:Trapped`.
+- The same title, author, subject, keywords, creator, producer, and dates are written into `/Info`. Dates are one instant in ISO-8601 and `D:YYYYMMDDHHmmSSOHH'mm'`. `/Trapped` is not copied forward.
+- `ua: true` sets `/ViewerPreferences << /DisplayDocTitle true >>`.
+- A table block with integer `rows`/`cols` (1–200 and 1–64) builds the same grid as `insert_table`. Out of range or a non-integer returns `{ok:false,error}`.
+- `/Document` children are also stored inline so `qpdf --json=1` exposes each child's `/S`. Indirect copies remain for the parent tree.
+- CTest registers only `wave19-pdf-*.json` playbooks that have a sibling `.pdf.json`. Expectation files and the `.aio.json` fixture are not playbooks.
+- `scripts/qa-all.sh --gui --interop --pdf`: **49/49** ctest passed; LibreOffice interop ok. veraPDF 1b and ua1 compliant on the suite, including Arabic/CJK embedded fonts and the flattened watermark.
+
+**Decisions:** Catalog `/Lang` stays the first block or run language, otherwise `pt-PT`. PDF/A-1 forbids `dc:language` as a bare attribute and forbids `pdf:Trapped`, so language stays on `/Lang` only. Top-level structure elements are inlined in `/Document /K` because the QA reader does not follow indirect references; the parent tree still points at the indirect objects, and veraPDF UA-1 accepts that.
+
+**Next suggested step:** Fleet `review`, then `qa-final`.
+
+**Commits:** recorded in the following handoff note after this commit
+
+---
+
 ## 2026-10-20 — Composer 2.5 — Wave 19 t3 PDF QA (D1)
 
 **Objective:** Fleet `t3-pdf-qa`: veraPDF/qpdf/pdffonts in Nix, `qa/check_pdf.py`, ctest label `pdf`, `--pdf` in `qa-all.sh`, CI label, wave19 playbooks + `.pdf.json` expectations. No `src/`. No push.
@@ -364,58 +385,6 @@
 **Next suggested step:** Fleet **`handoff`** + PR to **`main`**. Font hermeticity is the entry above.
 
 **Commits:** `967d6a0` fix: reject cell caret offsets past the cell and order w:bidi before w:jc · `7252ee9` docs: record the RTL justify commit hash in the handoff · `8a4a035` fix: justify RTL lines on a width that includes the trailing space · `9413a36` docs: record the bidi caret commit hash in the handoff · `8d21670` fix: snap bidi hit-test to the caret and hang RTL justify spaces · `c25abce` test: add wave16 CTL/CJK QA playbooks and Noto fontconfig · `f5eca54` docs: record t4+t5 merge QA and conflict resolution in handoff · `0f10fdc` merge: integrate wave16 t4-wire-rtl and t5-roundtrip · `53515e5` docs: record the paragraph-direction commit in the handoff · `e069582` feat: apply paragraph direction, ruby cursors, and caret movement · `8457f91` docs: record wave 16 T5 round-trip handoff entry · `ba208c3` feat: round-trip Block.dir and logical align in DOCX and ODT · `6a65d8a` Merge branch 'fleet/wave16-ctl-cjk-250f6dfa' into fleet/wave16-ctl-cjk-250f6dfa-t4-wire-rtl · `04920f4` Merge branch 'fleet/wave16-ctl-cjk-250f6dfa-t3-model-dir' into fleet/wave16-ctl-cjk-250f6dfa · `74e5c4f` feat: add block dir, logical align, and play numeric expect operators · `5b4f29b` docs: record the layout-core commit in the handoff · `6a74100` feat: share one block text layout for paint, caret, and hit-test · `2329c88` docs: route Cursor executor nodes to grok-4.7-high · `d2ed302` docs: scope wave 16 to the AI phase and record the AI-phase audit · `a30824b` docs: add wave 16 CTL/CJK spec, Cockpit Fleets, and model routing
-
----
-
-## 2026-10-09 — Cursor Grok — Wave 16: RTL justify hangs the trailing space
-
-**Objective:** The previous `setPosition` only moved the gap from the right edge to the left. Stretch non-final RTL justified lines so the glyphs fill the measure and the trailing space does not consume it. Restore the playbook's `$lte: 20.5`.
-
-**Done:**
-- After the normal break, and still inside `beginLayout`, each non-final RTL justified line that ends in spaces is re-laid with `QTextLine::setNumColumns(textLength, width + sw)`. Same characters, no rebreak. `sw` is the inset `line.width() - cursorToX(start)` (4.000 px / 1.058 mm, equal to the space advance).
-- Qt 6.11 measurement: that wider budget cancels `leadingSpaceWidth`, so carets already span the original measure. `setPosition(x - sw)` then clamps the left edge and moves the right edge back to 188.75 mm, so the line is left where `setNumColumns` placed it.
-- Playbook offset 114 (caret on the content side of the trailing space) is 20.00 mm (`$lte: 20.5` restored). Offset 0 is 189.81 mm (`$gte: 189.25` unchanged).
-- `scripts/qa-all.sh --gui` green, including `qa/wave15-pdf-tagging.json`. D11 text unchanged.
-
-**Decisions:** Do not slide the line by `-sw` on this Qt. The extra width is already consumed by the justification budget.
-
-**Next suggested step:** Fleet review.
-
-**Commits:** `8a4a035` fix: justify RTL lines on a width that includes the trailing space
-
----
-
-## 2026-10-09 — Cursor Grok — Wave 16: bidi hit-test and RTL justify space
-
-**Objective:** Close the two `scripts/qa-all.sh --gui` failures: bidi boundary hit-test (D11) and the short right edge of a justified RTL line. Do not touch `src/app/` or the paint order / one clip per block (D10).
-
-**Done:**
-- `DocumentLayout::hitTest` (text only) keeps `xToCursor`, then if that offset's own caret is more than 0.5 px from the click, uses the grapheme boundary on the same line whose `cursorToX` is closer.
-- Non-final RTL justified lines are shifted with `QTextLine::setPosition` inside `blockTextLayout`, so paint, caret, and hit-test share the offset. D11 is recorded in `docs/waves/wave16-ctl-cjk.md`.
-- `scripts/qa-all.sh --gui` green, including `qa/wave15-pdf-tagging.json`.
-
-**Decisions:** The RTL shortfall is the trailing space. On the playbook line, `line.width() - cursorToX(start)` is 4.000 px (1.058 mm), equal to `horizontalAdvance` of U+0020; LTR justify already reaches page x 189.81. Shifting by that gap puts offset 0 at 189.81 mm. Offset 114 is the caret before that space, so it moves from 20.00 to 21.06; its expect is now `$lte: 21.6`. The right-edge bound `$gte: 189.25` is unchanged.
-
-**Next suggested step:** Fleet review of this diff.
-
-**Commits:** `8d21670` fix: snap bidi hit-test to the caret and hang RTL justify spaces
-
----
-
-## 2026-10-09 — Composer — Wave 16 T6 QA playbooks + Noto fonts
-
-**Objective:** Fleet `t6-qa`: deterministic fonts in `shell.nix` (D9) and MCP playbooks for wave 16 ready criteria (D8): caret/CJK/justify/RTL PDF; keep `wave15-pdf-tagging` unchanged.
-
-**Done:**
-- `shell.nix`: `noto-fonts`, `noto-fonts-cjk-sans`, `FONTCONFIG_FILE` via `pkgs.makeFontsConf` (IBM Plex, Source Serif, JetBrains Mono, Noto).
-- Playbooks: `qa/wave16-ctl-caret.json`, `qa/wave16-ctl-cjk.json`, `qa/wave16-ctl-justify.json`, `qa/wave16-ctl-pdf-rtl.json` with `expect` and `$gt`/`$lt`/`$gte`/`$lte`.
-- `scripts/qa-all.sh --gui`: `wave15-pdf-tagging`, CJK, model, roundtrip, PDF RTL pass.
-
-**Decisions:** Did not loosen expects on real failures (per spec).
-
-**Next suggested step:** Fleet `review`: fix `hit_test` at bidi boundary in `abc אבג def` (offset 7 → got 4); justified Arabic first-line span ~168.75 mm vs 170±0.5 mm (offset 0 `x_mm` 188.75, expect ≥189.25).
-
-**Commits:** `5d8476c` test: add wave16 CTL/CJK QA playbooks and Noto fontconfig
 
 ---
 
