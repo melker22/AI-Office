@@ -1,0 +1,6 @@
+{
+  "pdf": "/tmp/wave19-fonts-ar-cjk.pdf",
+  "verapdf": {"1b": {"compliant": true}},
+  "pdffonts": {"all_embedded": true},
+  "qpdf": {"no_part_fallback": true}
+}

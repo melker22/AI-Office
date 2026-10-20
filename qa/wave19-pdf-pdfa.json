@@ -1,0 +1,9 @@
+[
+  {"tool": "document_new", "args": {"title": "Wave19 PDF/A minimal", "force": true}},
+  {"tool": "document_set_title", "args": {"author": "AI Office QA", "subject": "PDF/A-1b smoke", "keywords": "pdfa,wave19"}},
+  {"tool": "insert_blocks", "args": {"after_id": "p1", "blocks": [
+    {"type": "heading", "level": 1, "runs": [{"text": "PDF/A heading"}]},
+    {"type": "paragraph", "runs": [{"text": "Single paragraph for veraPDF flavour 1b."}]}
+  ]}},
+  {"tool": "document_export_pdf", "args": {"path": "/tmp/wave19-pdfa.pdf", "pdfa": true}}
+]

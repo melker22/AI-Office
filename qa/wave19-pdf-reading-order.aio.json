@@ -1,0 +1,21 @@
+{
+  "schema": 1,
+  "meta": {
+    "title": "Wave19 reading order",
+    "author": "QA",
+    "reading_order": ["frm1", "p1"]
+  },
+  "body": [
+    {
+      "id": "p1",
+      "type": "paragraph",
+      "runs": [{"text": "Paragraph painted first; struct order should follow reading_order."}]
+    },
+    {
+      "id": "frm1",
+      "type": "frame",
+      "width_mm": 45,
+      "runs": [{"text": "Callout frame read first in tagged order."}]
+    }
+  ]
+}

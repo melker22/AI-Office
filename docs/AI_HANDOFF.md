@@ -8,6 +8,26 @@
 
 ---
 
+## 2026-10-20 — Composer 2.5 — Wave 19 t3 PDF QA (D1)
+
+**Objective:** Fleet `t3-pdf-qa`: veraPDF/qpdf/pdffonts in Nix, `qa/check_pdf.py`, ctest label `pdf`, `--pdf` in `qa-all.sh`, CI label, wave19 playbooks + `.pdf.json` expectations. No `src/`. No push.
+
+**Done:**
+- `shell.nix`: `verapdf`, `qpdf`, `poppler_utils` (flake.lock pin).
+- `qa/check_pdf.py`: playbook export, veraPDF flavours, qpdf struct checks, pdffonts, `.pdf.json` schema, `--self-test`, subprocess timeouts.
+- Playbooks `qa/wave19-pdf-{pdfa,ua,reading-order,fonts-ar-cjk,watermark-pdfa}.json` + expectations; `wave19-pdf-reading-order.aio.json`; fixture `qa/fixtures/wave19-dot.png`.
+- CMake: exclude `wave19-pdf-*` from plain playbooks; `pdf_*` tests + `pdf_check_selftest` (playbook label).
+- `scripts/qa-all.sh --pdf`; CircleCI `playbook|roundtrip|pdf`.
+- Doc: `docs/waves/wave19-pdf-qa.md`.
+
+**Decisions:** PDF ctests fail until T1/T2/T4; node `qa_green` = `scripts/qa-all.sh --gui` only. CI already runs `pdf` label (red until compliance node).
+
+**Next suggested step:** Fleet `integrate-1` (T1+T2+T3 merged), then `t4-compliance`.
+
+**Commits:** `e3457a7` feat: add wave 19 PDF compliance QA harness (veraPDF, qpdf, pdffonts)
+
+---
+
 ## 2026-10-20 — Fleet wave19 t2-metadata — Composer 2.5
 
 **Objective:** Wave 19 D2/D3/D7: custom PDF XMP on every export, PDF/A transparency flattening with `warnings[]`, `document_export_pdf {ua}` MCP arg, playbook `qa/wave19-metadata.json`. No `PdfPostProcess.cpp` or `paintPage` edits.
@@ -18,7 +38,7 @@
 - MCP schema + `docs/mcp-tools.md`; playbook covers flatten warnings and UA alt error.
 - `scripts/qa-all.sh --gui`: **43/43** ctest passed.
 
-**Next suggested step:** Fleet integrate-1 merges T1/T2/T3; T1 consumes `pdfPostProcessPendingDisplayDocTitle()`.
+**Next suggested step:** integrate-1 merges with T1 tagging markers + T3 PDF QA; T1 consumes `pdfPostProcessPendingDisplayDocTitle()`.
 
 **Commits:** `b748399` feat: PDF export XMP metadata, PDF/A flatten warnings, and ua mode
 
@@ -37,7 +57,7 @@
 
 **Decisions:** There is no document-level language field. Catalog `/Lang` is the first non-empty block or run language, otherwise `pt-PT`. Booklet physical pages and comment-only pages stay empty and keep the `/Part` safety net. Missing-alt warnings, XMP, and `DisplayDocTitle` stay with t2. Watermark opacity is not flattened here.
 
-**Next suggested step:** t2 XMP / `pdfuaid` / `DisplayDocTitle`, then t3 QA infra, then t4 full veraPDF UA and PDF/A.
+**Next suggested step:** integrate-1 with T2 metadata + T3 QA harness, then t4 full veraPDF UA and PDF/A.
 
 **Commits:** `64c8cea` feat: tag PDF structure for lists, tables, figures, notes, and TOC
 
