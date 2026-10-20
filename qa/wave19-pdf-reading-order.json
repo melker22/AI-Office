@@ -1,0 +1,4 @@
+[
+  {"tool": "document_open", "args": {"path": "qa/wave19-pdf-reading-order.aio.json"}},
+  {"tool": "document_export_pdf", "args": {"path": "/tmp/wave19-reading-order.pdf", "ua": true}}
+]

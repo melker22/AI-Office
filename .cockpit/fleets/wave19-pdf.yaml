@@ -1,0 +1,294 @@
+version: 1
+name: wave19-pdf
+description: >
+  Onda 19 — PDF completo: PDF/A-1b real, PDF/UA-1, tagging total, XMP, ordem de leitura.
+  Spec: docs/waves/wave19-pdf.md. veraPDF é o juiz. Contrato de executor + lessons + notion-sync.
+args:
+  opus_audit:
+    default: "false"
+    description: "true = auditoria final do Opus antes do PR"
+defaults:
+  agent: cursor
+  model: composer-2.5
+  approval: full-access
+max_parallel: 3
+nodes:
+  # ── Fase 0: lições do PR anterior (harnessing entre ondas) ───────────────────
+  lessons:
+    title: Lições do PR anterior (Sonnet)
+    agent: claude
+    model: claude-sonnet-5
+    effort: medium
+    prompt: |
+      Projeto AI Office Writer. Mantenha docs/LESSONS.md e .cursor/rules/lessons.mdc. Não altere código.
+      1. Veja em docs/LESSONS.md a linha "Última PR processada". Liste os PRs mergeados depois dela em
+         melker22/AI-Office (tool MCP do GitHub; `gh` não existe). Nenhum novo → não mude nada.
+      2. Para cada PR novo, leia as threads do CodeRabbit (pull_request_read get_review_comments) e as
+         entradas correspondentes em docs/AI_HANDOFF.md E docs/AI_HANDOFF_ARCHIVE.md (achados do
+         Sonnet, intervenções) — entradas antigas podem ter sido arquivadas.
+      3. Para cada defeito real que chegou ao CodeRabbit ou exigiu intervenção: se é instância de uma
+         lição existente, acrescente a evidência e incremente a contagem; se é padrão novo que pode se
+         repetir, crie lição com regra VERIFICÁVEL. Sem evidência (link de thread/commit) não entra.
+      4. Reescreva o checklist de .cursor/rules/lessons.mdc (máx. 15 itens, os mais recorrentes) e
+         atualize "Última PR processada".
+      5. Commit `docs: update lessons from PR #N` em inglês, sem push. Submeta commit =
+         `git rev-parse HEAD` (mesmo sem mudanças), qa_green = true, summary com as lições novas.
+    success_output: qa_green
+    output_contract: &executor_contract
+      type: object
+      required: [commit, qa_green, summary]
+      properties:
+        commit: { type: string, pattern: "^[0-9a-f]{40}$" }
+        qa_green: { type: boolean }
+        blocker: { type: string }
+        summary: { type: string }
+
+  # ── Fase 1: tagging (Grok) ∥ metadados (Composer) ∥ QA de PDF (Composer) ─────
+  t1-tagging:
+    title: T1 tagging total + /ID (Cursor Grok 4.7)
+    needs: [lessons]
+    model: grok-4.7-high
+    workspace: isolated
+    prompt: |
+      Projeto AI Office Writer (C++20/Qt 6). PRIMEIRO: `git merge {{needs.lessons.output.commit}}`.
+      Leia docs/waves/wave19-pdf.md (D4–D6, D9 fechadas), docs/ORCHESTRATION.md e .cursor/rules/*.mdc,
+      em especial o checklist de .cursor/rules/lessons.mdc. Só src/core/Preview.{h,cpp},
+      src/core/PdfPostProcess.{h,cpp}, qa/ e docs/ (outras tarefas fazem XMP/MCP e o QA em paralelo).
+      1. Trailer de todo update incremental com o /ID do trailer original (veraPDF 6.1.3-1).
+      2. D4: todo elemento etiquetável dentro de exatamente um setClipRect próprio, e conteúdo de página
+         que não é documento (cabeçalho, rodapé, nº de página, marca d'água, fundo, bordas) dentro de um
+         clip de artifact; UMA função ordenada compartilhada por pintura e pós-processador.
+      3. D5: /L/LI/Lbl/LBody, /Table/TR/TH/TD, /Figure com /Alt (image.alt), /Note, /TOC/TOCI,
+         /Artifact BMC…EMC fora da árvore, /Lang no catálogo e em spans de outro idioma.
+      4. D6: ordem de /Document segue doc.readingOrder quando definido.
+      Prove com `qpdf --json=1` e veraPDF (`nix-shell -p verapdf` serve para testar enquanto o T3 não
+      entra) num documento com heading, lista, tabela com cabeçalho, imagem com alt, nota, TOC,
+      cabeçalho/rodapé e um span em outro idioma: zero fallback /Part. `scripts/qa-all.sh --gui` verde.
+      Commit em inglês, sem push. Submeta commit = `git rev-parse HEAD`, qa_green, summary.
+    success_output: qa_green
+    output_contract: *executor_contract
+
+  t2-metadata:
+    title: T2 XMP + PDF/A + modo ua (Composer)
+    needs: [lessons]
+    workspace: isolated
+    prompt: |
+      Projeto AI Office Writer (C++20/Qt 6). PRIMEIRO: `git merge {{needs.lessons.output.commit}}`.
+      Leia docs/waves/wave19-pdf.md (D2, D3, D7) e o checklist de .cursor/rules/lessons.mdc. NÃO toque em
+      src/core/PdfPostProcess.cpp nem nas rotinas de pintura de Preview.cpp (outra tarefa). Só
+      exportNativePdf (Preview.cpp), Session/ToolDispatch (args), docs/mcp-tools.md.
+      1. D2/D3: XMP próprio via QPdfWriter::setDocumentXmpMetadata em TODO export: dc:title/creator/
+         description, pdf:Keywords/Producer, xmp:CreateDate/ModifyDate/CreatorTool, dc:language; com pdfa,
+         pdfaid:part=1 conformance=B; com ua, pdfuaid:part=1 (com a extension schema exigida pelo PDF/A).
+         Sem pdf:Trapped. /Info com o mesmo conteúdo.
+      2. D2: com pdfa, opacidade/sombra/marca d'água translúcida pintadas opacas; a tool devolve
+         `warnings[]` descrevendo cada achatamento.
+      3. D7: document_export_pdf aceita `ua` (bool); com ua, figura sem alt → {ok:false,error}; sem ua,
+         vira aviso em warnings[]. DisplayDocTitle fica com o T1 (pós-processador) — apenas passe a flag.
+      Playbook qa/wave19-metadata.json com expect (warnings, erro de alt com ua). `scripts/qa-all.sh
+      --gui` verde. Commit em inglês, sem push. Submeta commit/qa_green/summary.
+    success_output: qa_green
+    output_contract: *executor_contract
+
+  t3-pdf-qa:
+    title: T3 veraPDF + ctest pdf (Composer)
+    needs: [lessons]
+    workspace: isolated
+    prompt: |
+      Projeto AI Office Writer. PRIMEIRO: `git merge {{needs.lessons.output.commit}}`. Leia
+      docs/waves/wave19-pdf.md (D1, critério de pronto) e o checklist de lições. Só shell.nix,
+      CMakeLists.txt (testes), scripts/qa-all.sh, .circleci/config.yml, qa/ e docs/.
+      1. `verapdf` (e qpdf, poppler-utils) no shell.nix fixado.
+      2. qa/check_pdf.py: exporta um playbook, roda veraPDF (--flavour 1b e/ou ua1, parse do XML
+         isCompliant e regras falhas), qpdf --json=1 (tipos e ordem dos StructElem, /Lang, ausência de
+         /Part de fallback) e pdffonts (todas emb yes); expectativas num .pdf.json ao lado do playbook.
+         subprocess com timeout (L1/L10).
+      3. Documentos de teste (qa/wave19-pdf-*.json + .pdf.json) cobrindo cada item do critério de
+         pronto: pdfa, ua, tabela, lista, figura com alt, nota, TOC, cabeçalho/rodapé, span em outro
+         idioma, reading_order com molduras, árabe/CJK nas fontes, marca d'água translúcida.
+      4. ctest com LABELS pdf; `scripts/qa-all.sh --pdf` liga o label (combinável com --gui/--interop);
+         CI roda `ctest -L "playbook|roundtrip|pdf"`.
+      Estes testes vão FALHAR até T1/T2 entrarem — é esperado: qa_green aqui = `scripts/qa-all.sh
+      --gui` (sem --pdf) verde e o check_pdf.py funcionando (mostre um caso que passa e um que falha
+      com a mensagem certa). Commit em inglês, sem push. Submeta commit/qa_green/summary.
+    success_output: qa_green
+    output_contract: *executor_contract
+
+  integrate-1:
+    title: Integrar T1+T2+T3 (Composer)
+    needs: [t1-tagging, t2-metadata, t3-pdf-qa]
+    prompt: |
+      Neste worktree: `git merge {{needs.t1-tagging.output.commit}}`, depois
+      `git merge {{needs.t2-metadata.output.commit}}`, depois `git merge {{needs.t3-pdf-qa.output.commit}}`
+      (commits EXATOS). Conflito esperado em Preview.cpp (exportNativePdf vs pintura), docs e
+      AI_HANDOFF: mantenha as duas intenções. Rode `scripts/qa-all.sh --gui`; corrija só quebras de merge,
+      commit. Submeta commit = HEAD após os merges, qa_green, summary.
+    success_output: qa_green
+    output_contract: *executor_contract
+
+  build-1:
+    type: gate
+    gate: command
+    needs: [integrate-1, t1-tagging, t2-metadata, t3-pdf-qa, lessons]
+    run: scripts/fleet-verify-merged.sh 5 && scripts/qa-all.sh --gui
+
+  # ── Fase 2: conformidade (Grok, no worktree integrado) ───────────────────────
+  t4-compliance:
+    title: T4 conformidade veraPDF (Cursor Grok 4.7)
+    needs: [build-1]
+    model: grok-4.7-high
+    prompt: |
+      Projeto AI Office Writer, worktree integrado da onda 19. Leia docs/waves/wave19-pdf.md e o
+      checklist de .cursor/rules/lessons.mdc. Rode `scripts/qa-all.sh --gui --pdf` e corrija o código
+      (não os testes) até tudo passar: veraPDF 1b/ua1 compliant em cada documento da suíte, estrutura
+      e /Lang conforme o .pdf.json, zero fallback, fontes embutidas. Uma regra do veraPDF que pareça
+      impossível com QPdfWriter → PARE e reporte "PRECISA OPUS: ..." com a regra e a evidência; não
+      afrouxe expectativa. Rode também `scripts/qa-all.sh --gui --interop --pdf`. Commit em inglês, sem
+      push. Submeta commit/qa_green/summary.
+    success_output: qa_green
+    output_contract: *executor_contract
+
+  qa-full:
+    type: gate
+    gate: command
+    needs: [t4-compliance]
+    run: scripts/fleet-verify-merged.sh 1 && scripts/qa-all.sh --gui --interop --pdf
+
+  # ── Fase 3: revisão Sonnet + correção Grok Build ─────────────────────────────
+  review:
+    type: loop
+    needs: [qa-full]
+    max_iterations: 3
+    on_exhausted: review-adjudication
+    until:
+      run: test "{{needs.review-pass.output.issues}}" -eq 0 && scripts/fleet-verify-merged.sh 1
+    nodes:
+      review-pass:
+        agent: claude
+        model: claude-sonnet-5
+        effort: high
+        session: continue
+        prompt: |
+          Você é o Tech Lead. PRIMEIRO verifique no diff cada item de .cursor/rules/lessons.mdc. Depois
+          revise `git diff main...HEAD` contra docs/waves/wave19-pdf.md (D1–D9, critério de pronto):
+          veraPDF é o juiz — rode `scripts/qa-all.sh --gui --interop --pdf`; procure documentos que
+          a suíte não cobre e que quebrariam (tabela partida entre páginas, lista aninhada, nota em
+          tabela, RTL, comentários/anotações), regressões das ondas 13/15/16. Não corrija nada. Só
+          defeitos reais. Submeta issues e findings ("arquivo:linha — defeito — correção sugerida").
+        followup_prompt: |
+          Houve correção. Verifique de novo o checklist de lições e `git diff main...HEAD`, rode
+          `scripts/qa-all.sh --gui --interop --pdf` e submeta só os findings que continuam ou surgiram.
+        output_contract:
+          type: object
+          required: [issues, findings]
+          properties:
+            issues: { type: integer, minimum: 0 }
+            findings: { type: array, items: { type: string } }
+      fix-pass:
+        needs: [review-pass]
+        agent: grok
+        model: grok-4.7
+        effort: high
+        prompt: |
+          Projeto AI Office Writer (spec: docs/waves/wave19-pdf.md; checklist .cursor/rules/lessons.mdc).
+          Findings: {{needs.review-pass.output.findings}}
+          Lista vazia → não altere nada. Senão corrija, rode `scripts/qa-all.sh --gui --interop --pdf`
+          e commit `fix: ...` em inglês, sem push. Submeta commit = `git rev-parse HEAD`, qa_green, summary.
+        success_output: qa_green
+        output_contract: *executor_contract
+
+  review-adjudication:
+    title: Adjudicação final (Sonnet)
+    needs: [review]
+    agent: claude
+    model: claude-sonnet-5
+    effort: high
+    prompt: |
+      Três passadas não zeraram os findings. Descarte os que não são defeitos (com motivo), faça UMA
+      correção direta dos reais (com commit), rode `scripts/qa-all.sh --gui --interop --pdf` e pare.
+      Nunca pergunte a um humano. Submeta também commit = `git rev-parse HEAD` e resolved = true só se
+      nenhum defeito real ficou aberto.
+    success_output: resolved
+    output_contract:
+      type: object
+      required: [verdict, resolved, accepted, dismissed, commit]
+      properties:
+        verdict: { type: string, enum: [resolved, failed] }
+        resolved: { type: boolean }
+        accepted: { type: array, items: { type: string } }
+        dismissed: { type: array, items: { type: string } }
+        commit: { type: string, pattern: "^[0-9a-f]{40}$" }
+
+  opus-audit:
+    title: Auditoria Opus (opcional)
+    needs: [review-adjudication]
+    enabled: "{{args.opus_audit}}"
+    agent: claude
+    model: claude-opus-5-5
+    effort: high
+    prompt: |
+      Auditoria final de `git diff main...HEAD` contra docs/waves/wave19-pdf.md (foco: marcadores por
+      elemento e pós-processador). Corrija só o crítico, commit. Submeta commit/qa_green/summary.
+    success_output: qa_green
+    output_contract: *executor_contract
+
+  qa-final:
+    type: gate
+    gate: command
+    needs: [opus-audit, review-adjudication, t4-compliance]
+    run: scripts/fleet-verify-merged.sh 1 && scripts/qa-all.sh --gui --interop --pdf
+
+  handoff:
+    title: Handoff + catálogo (Composer)
+    needs: [qa-final]
+    prompt: |
+      Atualize só estes arquivos e commit `docs: ...` em inglês, sem push:
+      - docs/AI_HANDOFF.md: entrada nova no topo (modelo "Fleet wave19 — Composer/Cursor Grok/Grok
+        Build/Sonnet"), com o resultado REAL de `scripts/qa-all.sh --gui --interop --pdf` (rode-o) e
+        `git log main..HEAD --oneline`. Não cite o hash do próprio commit.
+      - docs/WRITER_FEATURE_CATALOG.md: "PDF/A e PDF etiquetado", "Metadados XMP no PDF", "Incorporar
+        fontes no PDF" (embedding já existia; subconjunto vira Todo novo), "Ordem de leitura",
+        "Acessibilidade do documento" conforme o entregue.
+      Submeta commit/qa_green/summary. Resumo da revisão: {{needs.review.report}}
+    success_output: qa_green
+    output_contract: *executor_contract
+
+  notion-sync:
+    title: Sincronizar Notion (Sonnet)
+    needs: [handoff]
+    agent: claude
+    model: claude-sonnet-5
+    effort: low
+    prompt: |
+      Sincronize o Notion com o repositório (regra: documentação sempre atualizada). Tools MCP do
+      Notion; NÃO altere código; NÃO apague nem arquive páginas. Fontes: docs/WRITER_FEATURE_CATALOG.md,
+      topo de docs/AI_HANDOFF.md, docs/waves/wave19-pdf.md, docs/LESSONS.md. Notion: hub
+      3cb46a79156b819daef5ea9d7c41385a; board collection://f3cc11ed-9e5e-4389-b49a-ca98f98dda62;
+      snapshot 3cb46a79156b8117a87fc72cd190f8c6. Alinhe as linhas tocadas pela onda 19 (inclua a linha
+      Todo nova "Subconjunto de fontes no PDF"), atualize "Última sync" do hub e o snapshot, e cite na
+      página "Orquestração multi-IA (Fleets)" o nó lessons e docs/LESSONS.md. Reporte as mudanças.
+
+  approve-pr:
+    type: gate
+    gate: human
+    needs: [notion-sync]
+    ask: |
+      Onda 19 (PDF completo: PDF/A-1b validado pelo veraPDF, PDF/UA-1, tagging de tabela/lista/figura/
+      nota/TOC com artifacts e /Lang, XMP completo, ordem de leitura; mais lições entre ondas) está
+      pronta num branch local da Fleet: scripts/qa-all.sh --gui --interop --pdf verde no branch final,
+      revisão Sonnet concluída e Notion já sincronizado.
+      Aprovar = push do branch e PR para main (CI e CodeRabbit rodam no GitHub). Rejeitar = nada sai.
+
+  open-pr:
+    title: Push + PR (Sonnet)
+    needs: [approve-pr]
+    when: "needs.approve-pr.approved"
+    agent: claude
+    model: claude-sonnet-5
+    effort: medium
+    prompt: |
+      Push deste branch para origin (nunca main) e PR para `main` em melker22/AI-Office via tool MCP do
+      GitHub. Título em inglês `feat: wave 19 — compliant PDF/A-1b, PDF/UA-1, and full PDF tagging`.
+      Corpo: resumo de docs/waves/wave19-pdf.md (inclua o diagnóstico do veraPDF), test plan e o handoff:
+      {{needs.handoff.report}}. Mencione que o PR também traz docs/LESSONS.md, o nó lessons e a regra 5
+      do ORCHESTRATION. Não reescreva commits. Reporte a URL.

@@ -1,0 +1,15 @@
+[
+  {"tool": "document_new", "args": {"title": "Wave19 lang runs", "force": true}},
+  {"tool": "document_set_title", "args": {"title": "Wave19 lang runs", "author": "Ada", "subject": "Bilingual runs", "keywords": "lang"}},
+  {"tool": "replace_range", "args": {"id": "p1", "blocks": [
+    {"type": "heading", "level": 1, "lang": "pt-PT", "runs": [{"text": "Lingua"}]},
+    {"type": "paragraph", "lang": "pt-PT", "drop_cap_lines": 2, "runs": [
+      {"text": "Portugues ", "lang": "pt-PT"},
+      {"text": "negrito", "bold": true, "color": "#C41E3A", "font": "Liberation Sans", "lang": "pt-PT", "ruby": "RUBYMARK"},
+      {"text": " and ", "lang": "en-US"},
+      {"text": "bold", "bold": true, "color": "#1B4F72", "font": "Liberation Sans", "lang": "en-US"}
+    ]}
+  ]}},
+  {"tool": "document_save", "args": {"path": "/tmp/wave19-lang-runs.aio.json"}},
+  {"tool": "document_export_pdf", "args": {"path": "/tmp/wave19-lang-runs.pdf", "pdfa": true, "ua": true}}
+]

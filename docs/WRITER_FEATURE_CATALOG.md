@@ -1,6 +1,6 @@
 # Catálogo Writer — ideias do Guide, código nosso
 
-Espelho git do board **Roadmap para Produção** no Notion ([hub](https://app.notion.com/p/3cb46a79156b819daef5ea9d7c41385a)). Sync: **2026-10-20** (Fase IA **onda 18** em fecho: expressões, `if`/`hideIf`, tipos `doc_info`/`stat`/`sender`/`seq`/`input_list`, legendas numeradas, round-trip DOCX/ODT + interop campos; **Round-trip ODT/DOCX** continua **Partial** no resto do Guide). Totais: **193 Done**, **11 Partial**, **41 Todo**. Coluna **Fase** = `IA` | `Humano` | `Infra` | `Fora`.
+Espelho git do board **Roadmap para Produção** no Notion ([hub](https://app.notion.com/p/3cb46a79156b819daef5ea9d7c41385a)). Sync: **2026-10-20** (Fase IA **onda 19** entregue: PDF/A-1b, PDF/UA-1, tagging completo na suíte veraPDF, XMP/`/Info`, ordem de leitura, comentários PDF+UA; **Round-trip ODT/DOCX** continua **Partial**). Totais: **198 Done**, **10 Partial**, **38 Todo**. Coluna **Fase** = `IA` | `Humano` | `Infra` | `Fora`.
 
 Fonte citável: The Document Foundation — [LibreOffice Writer Guide 26.2](https://books.libreoffice.org/en/WG262/WG262.html). Atribuição e limites: [`ATTRIBUTION.md`](ATTRIBUTION.md).
 
@@ -167,6 +167,11 @@ Camadas: `JSON+MCP+GUI` · `JSON+MCP` · `só JSON` · `infra`.
 | Hifenação real (Knuth-Liang) | Writer | WG 26.2 cap. 4 | JSON+MCP |
 | Impressão: intervalo, cópias | Writer | WG 26.2 cap. 7 | JSON+MCP |
 | Comentários no PDF | Formats | WG 26.2 cap. 7 | JSON+MCP |
+| PDF/A e PDF etiquetado | Formats | WG 26.2 cap. 7 | JSON+MCP |
+| Metadados XMP no PDF | Formats | WG 26.2 cap. 7 | JSON+MCP |
+| Incorporar fontes no PDF | Formats | WG 26.2 cap. 7 | JSON+MCP |
+| Ordem de leitura | Writer | WG 26.2 cap. 7 | JSON+MCP |
+| Acessibilidade do documento | Writer | WG 26.2 cap. 7 | JSON+MCP |
 | Suite de testes de round-trip | MCP | infra | JSON+MCP |
 | Texto condicional | Writer | WG 26.2 cap. 17 | JSON+MCP |
 | Legenda de figura numerada | Writer | WG 26.2 cap. 11 | JSON+MCP |
@@ -182,7 +187,6 @@ Camadas: `JSON+MCP+GUI` · `JSON+MCP` · `só JSON` · `infra`.
 | Campos dinâmicos | Writer | WG 26.2 cap. 17 | **Onda 18 entregue (JSON+MCP+round-trip):** avaliador `FieldExpr`, `field_evaluate`, campo `if`, `doc_info`, `stat` (live + refresh em sessão dirty; cache limpo em open estrangeiro), `sender`, `seq`, `input_list`; onda 12 mantém merge/var/input/time/cite/page. **Ainda falta de verdade:** dezenas de tipos do Guide (REF, índices automáticos Word, USERNAME complexo, etc.); DOCX exporta `if` composto como texto avaliado; reimport estrangeiro DOCX sem `NUMPAGES`/`NUMCHARS` para `stat` paragraphs/tables/images; GUI inserir campo |
 | Estilos só parágrafo | Writer | WG 26.2 cap. 8–9 | GUI carácter |
 | Ortografia Hunspell | Writer | WG 26.2 cap. 3 | Build sem Hunspell |
-| PDF/A e PDF etiquetado | Formats | WG 26.2 cap. 7 | Onda 15: tagged PDF de granularidade de **parágrafo/heading** real (`/H1`–`/H6`, `/P`), com `BDC`/`EMC`+`MCID` de verdade e `/ParentTree`, via pós-processador que recupera os limites de bloco do content stream já escrito pelo `QPdfWriter` (`src/core/PdfPostProcess.cpp`) — validado com `qpdf --check`/`--show-object` (não é código nosso). Cobre parágrafo/heading/item de lista; tabelas, imagens, notas de rodapé/fim e TOC ainda caem no fallback de página inteira (`/Part` sem `/K` de conteúdo) — não quebram nada, só não têm granularidade ainda |
 | Citação CSL | Writer | WG 26.2 cap. 15 | Onda 14: formatador real (não genérico) para 4 estilos — APA/ABNT/MLA/Chicago — × 4 tipos de referência (book/article-journal/webpage/chapter), citação in-text e bibliografia com itálico real, `src/core/Csl.cpp`. Falta suporte a arquivo `.csl` arbitrário (processador CSL-XML genérico) — pesquisado antes de começar: não existe biblioteca C/C++ embutível com licença compatível (citeproc-rs é Rust sem FFI-C; citeproc-java é JVM) |
 | CTL/CJK completo | Writer | WG 26.2 cap. 4 | **Onda 16 entregue:** shaping/bidi/quebra via `QTextLayout` (HarfBuzz); `Block.dir` (`auto`/`ltr`/`rtl`) + `align` lógico (`start`/`end`); um `BlockTextLayout` para pintura, caret, hit-test e ruby; MCP `caret_geometry`, `hit_test`, `caret_move`; hit-test em fronteira bidi (D11); justificação RTL; round-trip DOCX/ODT (`w:bidi`, `w:jc` start/end, ordem `pPr` corrigida); caret em célula de tabela com bound-check no texto da célula; playbooks `qa/wave16-ctl-*` + Noto na CI. **Ainda Partial:** vertical CJK real (tate-chu-yoko — continua rotação 90°); tatweel/kashida como feature explícita; direção por run; teclas visuais/grafema no canvas (Humano) |
 | Tools MCP para cada mutação | MCP | infra | Chrome Humano |
@@ -191,12 +195,12 @@ Camadas: `JSON+MCP+GUI` · `JSON+MCP` · `só JSON` · `infra`.
 
 Fase IA Writer **não** está encerrada: o board ainda tem Todos de chrome, packaging e limites honestos. A onda 12 cobre bookmarks/revisões/hiperlinks/campos → marcação real ODT/DOCX, `insert_crossref` com `kind` (page/heading_number/above_below/category_number/footnote_number/endnote_number), hifenação real Knuth-Liang, e `insert_at_caret` gravando track changes. A onda 13 cobre anotações PDF reais e tagged PDF de página, via um pós-processador de PDF por atualização incremental (`src/core/PdfPostProcess.cpp`), validado com `qpdf --check`. A onda 14 cobre um formatador CSL real (não genérico) para 4 estilos (APA/ABNT/MLA/Chicago) × 4 tipos de referência, ver `src/core/Csl.cpp`. A onda 18 cobre expressões, texto/parágrafo condicional, tipos de campo do cap. 17 usados no Guide, legendas com `seq`, e round-trip DOCX/ODT + interop (ver `docs/waves/wave18-fields.md`).
 
-**Compromisso da onda 13 cumprido na onda 15:** tagging de granularidade de parágrafo/heading no PDF foi implementado — `BDC`/`EMC`+`MCID` reais, elementos `/H1`–`/H6`/`/P` com `/ParentTree`, não é mais um placeholder de página. Como `QPainter`/`QPdfWriter` não dão nenhum gancho para injetar esses operadores durante o desenho, a solução foi recuperar os limites de bloco de volta do content stream já escrito, em vez de escrever um gerador de PDF do zero (que continua sendo o caminho reservado, não usado, para quando/se cobrir tabelas e imagens exigir). Cobertura atual: parágrafo, heading, item de lista. Tabelas/imagens/notas/TOC caem no fallback de página inteira — sem quebrar nada, só sem granularidade ainda; ampliar cobertura fica para quando o utilizador priorizar. Próximas ondas mapeadas: **16** CTL/CJK completo (bidi + métricas), **17**+ ampliar o CSL para mais estilos/tipos de referência ou o tagging de PDF para tabelas/imagens, conforme o utilizador pedir.
+**Onda 19 (PDF completo):** `pdfa: true` passa veraPDF PDF/A-1b; `ua: true` passa PDF/UA-1 na suíte `qa/wave19-pdf-*.json` (veraPDF + qpdf + pdffonts). Tagging via clips partilhados (`Preview.cpp` + `PdfPostProcess.cpp`): `/L`/`/LI`, `/Table`/`/TR`/`/TH`/`/TD` (cabeçalho repetido por página), `/Figure`+`/Alt`, `/Note`, `/TOC`/`/TOCI`, artifacts para chrome de página; comentários PDF compatíveis com UA/PDF/A; `/Lang` no catálogo e em spans; XMP completo (incl. `pdfaid`/`pdfuaid`) e espelho em `/Info`; fontes sempre embutidas (árabe/CJK na suíte). **Limites documentados** (`docs/mcp-tools.md`): lista/tabela aninhada em célula sem tags próprias; nota de rodapé sem âncora em célula.
 
 - **Humano (chrome Tinta & Papel):** régua; stats GUI; zoom GUI; print preview; Navigator; paleta; atalhos; recents; status bar; modo leitura; split; foco/typewriter; inspector; balloons; DnD reorder; teclado só no canvas; Autocorrect lista GUI; underline ao escrever; impressão.
-- **Infra:** backup `~`; layout lazy; watch file; Hunspell Nix; Flatpak; CRDT; DOC/RTF nativo; EPUB; PDF font embed; XMP; assinatura; senha; crash recovery; autosave.
-- **IA (Writer):** Notas com vários parágrafos (rodapé/fim) — round-trip ODT/DOCX fiel.
-- **Limites honestos restantes (Partial):** processador CSL genérico para arquivo `.csl` arbitrário (hoje 4 estilos fixos, onda 14); tagged PDF de tabelas/imagens/notas/TOC (hoje parágrafo/heading/lista, onda 15).
+- **Infra:** backup `~`; layout lazy; watch file; Hunspell Nix; Flatpak; CRDT; DOC/RTF nativo; EPUB; assinatura; senha; crash recovery; autosave.
+- **IA (Writer):** Notas com vários parágrafos (rodapé/fim) — round-trip ODT/DOCX fiel; **Subconjunto de fontes no PDF** (embedding completo já Done; subsetting fica para onda futura).
+- **Limites honestos restantes (Partial):** processador CSL genérico para arquivo `.csl` arbitrário (hoje 4 estilos fixos, onda 14).
 - **Testing (o utilizador pede à parte):** golden PNG; fuzz.
 
 Plataforma já no board: Windows v1, macOS, Linux PATH Partial. Product: Planilha / PPT — **não começar**.

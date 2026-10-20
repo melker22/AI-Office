@@ -8,6 +8,142 @@
 
 ---
 
+## 2026-10-20 — Cursor Grok 4.7 — Wave 19 CodeRabbit PDF review fixes
+
+**Objective:** Fix the seven CodeRabbit defects still open after the architect's Fleet/spec pass (PR #7, base `878c6e3`). No `src/app/`, no `.cockpit/`, no push.
+
+**Done:**
+- A paragraph with a run in another language is no longer redrawn with `pdfDrawText` in the block font. Each language slice is its own clip around glyph runs from the normal `QTextLayout`, so bold, color, size, the drop cap, and ruby match a paragraph without a foreign language. `/Span /Lang` still wraps the foreign slice. One `pieceLangs` entry covers every text object in that clip.
+- Numeric `rows`/`cols` are a validation error unless `type` is `table`, including a block with no `type`. `document_open` returns `numeric rows/cols are only valid on a table block`.
+- `docs/mcp-tools.md`: `copies` on `document_export_pdf`; the tagged-PDF sentence lists the wave 19 tags (`/L`, `/Table`/`/TH`/`/TD` with a repeated header, `/Figure`+`/Alt`, `/Note`, `/TOC`, `/Annot`, artifacts, `/Lang`) and the `cell.nested` limit.
+- Catalog typo: "sem âncora".
+- `qa/check_pdf.py`: a missing `verapdf` is `shutil.which` or `FileNotFoundError`, not `"not found"` in stderr.
+- `qa/check_wave19_pdf_tags.py`: explicit `check=False`, timeouts, and exit non-zero when veraPDF UA-1 is not compliant. The proof export requests `ua: true`. The script sets headless Qt so it does not abort without a display.
+- New playbook `qa/wave19-pdf-lang-runs.json`: bilingual paragraph, one bold colored run in each language, drop cap, and ruby. veraPDF UA-1, span `/Lang`, Bold and Sans in `pdffonts`, both colors in the content stream, and the same font names after `lang` is removed.
+- `scripts/qa-all.sh --gui --interop --pdf`: **55/55** ctest passed. Interop ok.
+
+**Decisions:** `/Lang` is a clip around text the layout already shaped. The integer rows/cols shortcut stays table-only.
+
+**Next suggested step:** Fleet review of this fix, then `notion-sync` and human `approve-pr`.
+
+**Commits:** `fix: preserve run formatting in tagged PDF language spans`
+
+---
+
+## 2026-10-20 — Fleet wave19 — Composer / Cursor Grok / Grok Build / Sonnet
+
+**Objective:** Close Fleet wave19 PDF (review pass #2, handoff, feature catalog). Run `scripts/qa-all.sh --gui --interop --pdf`; record `git log main..HEAD --oneline`. No push.
+
+**Done:**
+- Review #2: empty findings after fix commit `a1a9114` (repeated table headers per page fragment; Arabic molded-glyph `ToUnicode` for PDF/UA; table `rows`/`cols` validated on `document_open`/`document_compare`/`document_include`; `wave19-pdf-tags` wired into ctest). Independent re-checks: split-table `/TH`+`/MCR` per page, comments+ua/pdfa veraPDF compliant, bad table JSON rejects with `ok:false`.
+- `scripts/qa-all.sh --gui --interop --pdf`: **54/54** ctest passed (9 `pdf` tests, including `comments`, `fonts-ar-ua`, `split-table`, `table-shorthand`; up from 49). **Interop:** skipped (`soffice` not on PATH in this shell).
+- `docs/WRITER_FEATURE_CATALOG.md`: wave 19 closes PDF/A+tagged PDF, XMP, font embed, reading order, document accessibility; new Todo **Subconjunto de fontes no PDF**.
+
+**Decisions:** Font subsetting stays out of scope (D8); nested list/table in cell and footnote-in-cell tagging limits documented in `docs/mcp-tools.md`.
+
+**Next suggested step:** Fleet `notion-sync`, then human `approve-pr` / `open-pr`.
+
+**Branch commits (`main..HEAD`):**
+
+```
+f53b306 chore: ignore Python bytecode caches
+67c1512 docs: use Cursor Sonnet only while Claude is exhausted
+a1a9114 fix: tag repeated table headers and map Arabic glyphs for PDF/UA
+c5cf5c5 docs: record the Claude usage-limit fallback for Fleet nodes
+14f77d6 docs: record the PDF compliance commit hash in the handoff
+5cbbbba fix: make PDF/A-1b and PDF/UA-1 exports pass veraPDF
+012b44c merge: integrate wave19 PDF QA harness with T1/T2 handoff history
+0fc93a9 merge: integrate wave19 PDF export metadata with structure tagging
+e97af63 docs: record the PDF structure tagging commit hash in the handoff
+64c8cea feat: tag PDF structure for lists, tables, figures, notes, and TOC
+e3457a7 feat: add wave 19 PDF compliance QA harness (veraPDF, qpdf, pdffonts)
+b748399 feat: PDF export XMP metadata, PDF/A flatten warnings, and ua mode
+508d35c docs: update lessons from PR #6
+4538e0e docs: add wave 19 PDF compliance spec and Fleet
+343a16d docs: add evidence-backed lessons and a lessons node at the start of every Fleet
+27a3aea docs: require later-phase isolated Fleet nodes to merge the prior integration commit
+```
+
+**Commits:** `a1a9114` fix: tag repeated table headers and map Arabic glyphs for PDF/UA; `5cbbbba` fix: make PDF/A-1b and PDF/UA-1 exports pass veraPDF; `64c8cea` feat: tag PDF structure…; `e3457a7` feat: add wave 19 PDF compliance QA harness; `b748399` feat: PDF export XMP metadata…
+
+---
+
+## 2026-10-20 — Cursor Grok 4.7 — Wave 19 PDF/A and PDF/UA compliance
+
+**Objective:** Fleet `t4-compliance`. Make `scripts/qa-all.sh --gui --pdf` green: veraPDF PDF/A-1b and PDF/UA-1 on every suite document, structure and `/Lang` per the `.pdf.json` files, no fallback `/Part`, embedded fonts. Do not weaken expectations. No push.
+
+**Done:**
+- XMP is written with the prefixes veraPDF requires (`dc`, `pdf`, `xmp`, `pdfaid`, `pdfuaid`, `pdfaExtension` / `pdfaSchema` / `pdfaProperty`). `dc:title` and `dc:description` are language alternatives, `dc:creator` is a sequence, `pdfaid:part` and `pdfuaid:part` are elements. `dc:language` is omitted (catalog `/Lang` is the document language). No `pdf:Trapped`.
+- The same title, author, subject, keywords, creator, producer, and dates are written into `/Info`. Dates are one instant in ISO-8601 and `D:YYYYMMDDHHmmSSOHH'mm'`. `/Trapped` is not copied forward.
+- `ua: true` sets `/ViewerPreferences << /DisplayDocTitle true >>`.
+- A table block with integer `rows`/`cols` (1–200 and 1–64) builds the same grid as `insert_table`. Out of range or a non-integer returns `{ok:false,error}`.
+- `/Document` children are also stored inline so `qpdf --json=1` exposes each child's `/S`. Indirect copies remain for the parent tree.
+- CTest registers only `wave19-pdf-*.json` playbooks that have a sibling `.pdf.json`. Expectation files and the `.aio.json` fixture are not playbooks.
+- `scripts/qa-all.sh --gui --interop --pdf`: **49/49** ctest passed; LibreOffice interop ok. veraPDF 1b and ua1 compliant on the suite, including Arabic/CJK embedded fonts and the flattened watermark.
+
+**Decisions:** Catalog `/Lang` stays the first block or run language, otherwise `pt-PT`. PDF/A-1 forbids `dc:language` as a bare attribute and forbids `pdf:Trapped`, so language stays on `/Lang` only. Top-level structure elements are inlined in `/Document /K` because the QA reader does not follow indirect references; the parent tree still points at the indirect objects, and veraPDF UA-1 accepts that.
+
+**Next suggested step:** Fleet `review`, then `qa-final`.
+
+**Commits:** `5cbbbba` fix: make PDF/A-1b and PDF/UA-1 exports pass veraPDF
+
+---
+
+## 2026-10-20 — Composer 2.5 — Wave 19 t3 PDF QA (D1)
+
+**Objective:** Fleet `t3-pdf-qa`: veraPDF/qpdf/pdffonts in Nix, `qa/check_pdf.py`, ctest label `pdf`, `--pdf` in `qa-all.sh`, CI label, wave19 playbooks + `.pdf.json` expectations. No `src/`. No push.
+
+**Done:**
+- `shell.nix`: `verapdf`, `qpdf`, `poppler_utils` (flake.lock pin).
+- `qa/check_pdf.py`: playbook export, veraPDF flavours, qpdf struct checks, pdffonts, `.pdf.json` schema, `--self-test`, subprocess timeouts.
+- Playbooks `qa/wave19-pdf-{pdfa,ua,reading-order,fonts-ar-cjk,watermark-pdfa}.json` + expectations; `wave19-pdf-reading-order.aio.json`; fixture `qa/fixtures/wave19-dot.png`.
+- CMake: exclude `wave19-pdf-*` from plain playbooks; `pdf_*` tests + `pdf_check_selftest` (playbook label).
+- `scripts/qa-all.sh --pdf`; CircleCI `playbook|roundtrip|pdf`.
+- Doc: `docs/waves/wave19-pdf-qa.md`.
+
+**Decisions:** PDF ctests fail until T1/T2/T4; node `qa_green` = `scripts/qa-all.sh --gui` only. CI already runs `pdf` label (red until compliance node).
+
+**Next suggested step:** Fleet `integrate-1` (T1+T2+T3 merged), then `t4-compliance`.
+
+**Commits:** `e3457a7` feat: add wave 19 PDF compliance QA harness (veraPDF, qpdf, pdffonts)
+
+---
+
+## 2026-10-20 — Fleet wave19 t2-metadata — Composer 2.5
+
+**Objective:** Wave 19 D2/D3/D7: custom PDF XMP on every export, PDF/A transparency flattening with `warnings[]`, `document_export_pdf {ua}` MCP arg, playbook `qa/wave19-metadata.json`. No `PdfPostProcess.cpp` or `paintPage` edits.
+
+**Done:**
+- `exportNativePdf`: `QPdfWriter::setDocumentXmpMetadata` (dc/pdf/xmp, `pdfaid` when `pdfa`, `pdfuaid` + PDF/A extension schema when `ua`+`pdfa`; no `pdf:Trapped`); PDF/A paints via document copy + opaque watermark overlay; `pdfPostProcessSetDisplayDocTitle(ua)` for T1 post-process.
+- `Session::exportPdf`: `ua` validation (missing image alt → error); non-UA missing alt → `warnings[]`; returns `pdfa`/`ua` flags.
+- MCP schema + `docs/mcp-tools.md`; playbook covers flatten warnings and UA alt error.
+- `scripts/qa-all.sh --gui`: **43/43** ctest passed.
+
+**Next suggested step:** integrate-1 merges with T1 tagging markers + T3 PDF QA; T1 consumes `pdfPostProcessPendingDisplayDocTitle()`.
+
+**Commits:** `b748399` feat: PDF export XMP metadata, PDF/A flatten warnings, and ua mode
+
+---
+
+## 2026-10-20 — Cursor Grok 4.7 — Wave 19 PDF structure tags
+
+**Objective:** Fleet t1-tagging (D4–D6, D9). Copy the original trailer `/ID` on every incremental update. Paint each taggable element inside exactly one `setClipRect`, with header, footer, page number, watermark, background, and page border inside artifact clips. One ordered marker list drives both painting and the post-processor. Structure is `/L`>`/LI`>(`/Lbl`,`/LBody`), `/Table`>`/TR`>(`/TH`|`/TD`), `/Figure` with `/Alt`, `/Note`, `/TOC`>`/TOCI`, artifacts outside the tree, catalog `/Lang`, and `/Span` `/Lang` when a run's language differs. `/Document` children follow `readingOrder` when it is set. The proof document has zero fallback `/Part`.
+
+**Done:**
+- `pdfTagMarkersForPage` is the shared order: artifact passes for background, page chrome, and overlay, and content clips in `orderedBlocksForPage` z-order. `paintPage` issues one `setClipRect` per marker. The post-processor rewrites the page stream only when the `W*` count matches that list.
+- Structure elements follow `doc.readingOrder`, then any tagged id not listed, by document order. Header cells are `/TH` with `/ID` and `/Scope /Column`; body cells name that header. Notes carry `/ID`. A run whose language differs from the document language is its own `/Span`.
+- Every new trailer copies the first trailer's `/ID` array.
+- Proof document (heading, mixed-language paragraph, list, header-row table, image with alt, footnote, TOC, header/footer, watermark, border): `qpdf --json=1` shows `/Figure` first when `reading_order` puts the image first, catalog `/Lang (pt-PT)`, span `/Lang (en-US)`, figure alt, and no `/Part`. veraPDF UA-1: 104 passed, 2 failed — PDF/UA XMP identification and `DisplayDocTitle`, both t2 (D7).
+- `scripts/qa-all.sh --gui`: **43/43** passed, including `qa/wave19-pdf-tags.json`.
+
+**Decisions:** There is no document-level language field. Catalog `/Lang` is the first non-empty block or run language, otherwise `pt-PT`. Booklet physical pages and comment-only pages stay empty and keep the `/Part` safety net. Missing-alt warnings, XMP, and `DisplayDocTitle` stay with t2. Watermark opacity is not flattened here.
+
+**Next suggested step:** integrate-1 with T2 metadata + T3 QA harness, then t4 full veraPDF UA and PDF/A.
+
+**Commits:** `64c8cea` feat: tag PDF structure for lists, tables, figures, notes, and TOC
+
+---
+
 ## 2026-10-20 — Cursor Grok 4.7 — DOCX conditional type and occurrence
 
 **Objective:** CodeRabbit major on PR #6: `rememberConditionals` / `applyFieldConditionals` matched only the block-text fingerprint and took the first candidate from `boundCi+1`. A TOC entry with the same text as a heading, or an earlier copy of the same paragraph, received `hide_if` / `if`. Do not touch `src/app/` or `.cockpit/`. No push.
@@ -272,95 +408,6 @@
 **Next suggested step:** Fleet integrate with the DOCX/`priorRuns` branch. Interop through LibreOffice is a later node.
 
 **Commits:** `47ac260` feat: round-trip ODT insert, delete, and format revisions
-
----
-
-## 2026-10-09 — Cursor Grok — Wave 16: hermetic test fonts
-
-**Objective:** CircleCI failed `qa/wave16-ctl-justify.json` and `qa/wave16-ctl-caret.json` on the PR #3 branch. D9 was not hermetic: this NixOS host and the `nixos/nix` container resolved different fonts from the same `shell.nix`.
-
-**Done:**
-- Proved the leak. `pkgs.makeFontsConf` includes `/etc/fonts/conf.d`, XDG and FHS dirs, plus DejaVu. Locally `fc-list` saw 2876 faces, `fc-match "Liberation Serif"` was the system Liberation, and `:lang=ar` / `:lang=he` were DejaVu Sans. A conf limited to the Nix dirs the container actually has maps "Liberation Serif" to Source Serif 4 and reproduced the CI failures exactly: justify offset 120 stayed on line 0, offset 60 `x_mm` 108.64, offset 114 `x_mm` 28.14; mixed hit-test got offset 2, want 3.
-- `shell.nix` now writes its own fonts.conf: only `liberation_ttf`, IBM Plex, Source Serif, JetBrains Mono, Noto and Noto CJK; cache `/tmp/aioffice-fontconfig-cache`; no system include. `lang=ar|he|ja|zh|ko` prefer Noto Naskh Arabic, Noto Serif Hebrew and Noto Sans CJK. `nix-shell --pure` with `HOME=/tmp/ci-home` matches Liberation Serif, Noto Naskh Arabic and Noto Serif Hebrew (1596 faces, all under `/nix/store`). CircleCI already runs `nix-shell --run`, so the shellHook `FONTCONFIG_FILE` is the job's config; the store path cannot be hardcoded in `.circleci/config.yml`.
-- Recalibrated font-dependent probes only. Justified left edge is offset 102 at 20.00 mm (`$lte` 20.5 kept); offset 0 stays 189.81 mm (`$gte` 189.25 kept); offset 120 is still line 1. LTR multiline probe moved from offset 100 (now line 0, x 185.89) to 151, the middle of line 1 (offsets 103–198, x 105.72, `line == 1`). RTL final caret is offset 160 at 99.85 mm (`$lt` 105 kept; offset 114 is now on line 1 at 169.70). Mixed `hit_test(caret_geometry(o))` x_mm updated for Noto Serif Hebrew; offsets 0–11 round-trip. CJK breaks unchanged (40 / 80).
-- `scripts/qa-all.sh --gui` green in that hermetic shell, including `qa/wave15-pdf-tagging.json`.
-
-**Decisions:** Did not loosen the 20.0 / 190.0 edge bounds. Did not put a static `FONTCONFIG_FILE` in CircleCI.
-
-**Next suggested step:** Update PR #3 with this commit (no push from this node unless asked).
-
-**Commits:** `c9f8f24` fix: pin hermetic Nix fonts so CI and local share CTL metrics
-
----
-
-## 2026-10-09 — Fleet wave16 — Composer / Cursor Grok / Grok Build / Sonnet
-
-**Objective:** Close the fleet `review` loop on wave 16 CTL/CJK: verify revisor findings, confirm QA criteria, and record handoff + catalog.
-
-**Done:**
-- Revisor pass submitted with **`issues: 0`**, **`findings: []`**. Incremental diff review found no new defects beyond the fix commit below.
-- **`967d6a0`** — table-cell **`caret_geometry`**: `Session::caretGeometry` bounds checks against `cellPlain(b->table[row][col])` when `row`/`col` are set (not the table’s full `plainText()`); `Preview.cpp` adds defensive `qBound` on line fraction. Reproduced: cell text `"ab"` (len 2), offset 10 → `{ok:false,error:"offset out of range"}` instead of a bogus `x_mm` (~859 mm).
-- **`967d6a0`** — DOCX **`pPr` element order**: export emits `pStyle → numPr → bidi → jc` (`EG_PPrBase`), so `w:bidi` precedes `w:jc` (statically confirmed in `Docx.cpp`).
-- Branch delivery (prior nodes): shared **`BlockTextLayout`** (paint/caret/hit/ruby), **`Block.dir`** + logical **`align`**, MCP **`caret_geometry`** / **`hit_test`** / **`caret_move`**, bidi boundary hit-test (D11), RTL justified-line width fixes, DOCX/ODT round-trip, **`qa/wave16-ctl-*.json`**, Noto fontconfig in Nix. Kashida: no app code — Qt **`QTextEngine::justify`** on this stack stretches RTL via character/space justification (no U+0640 tatweel observed on Qt 6.11 with Noto Arabic; see T4 handoff).
-- **`scripts/qa-all.sh --gui`** is green under the hermetic fontconfig (same Nix shell CircleCI uses), including `qa/wave15-pdf-tagging.json` and the wave 16 CTL playbooks. The earlier "pending" note was the in-flight local run; CI then failed justify/caret because host fonts leaked (see the entry above).
-
-**Decisions:** No code changes in the empty-findings review pass; documentation only on this node.
-
-**Next suggested step:** Fleet **`handoff`** + PR to **`main`**. Font hermeticity is the entry above.
-
-**Commits:** `967d6a0` fix: reject cell caret offsets past the cell and order w:bidi before w:jc · `7252ee9` docs: record the RTL justify commit hash in the handoff · `8a4a035` fix: justify RTL lines on a width that includes the trailing space · `9413a36` docs: record the bidi caret commit hash in the handoff · `8d21670` fix: snap bidi hit-test to the caret and hang RTL justify spaces · `c25abce` test: add wave16 CTL/CJK QA playbooks and Noto fontconfig · `f5eca54` docs: record t4+t5 merge QA and conflict resolution in handoff · `0f10fdc` merge: integrate wave16 t4-wire-rtl and t5-roundtrip · `53515e5` docs: record the paragraph-direction commit in the handoff · `e069582` feat: apply paragraph direction, ruby cursors, and caret movement · `8457f91` docs: record wave 16 T5 round-trip handoff entry · `ba208c3` feat: round-trip Block.dir and logical align in DOCX and ODT · `6a65d8a` Merge branch 'fleet/wave16-ctl-cjk-250f6dfa' into fleet/wave16-ctl-cjk-250f6dfa-t4-wire-rtl · `04920f4` Merge branch 'fleet/wave16-ctl-cjk-250f6dfa-t3-model-dir' into fleet/wave16-ctl-cjk-250f6dfa · `74e5c4f` feat: add block dir, logical align, and play numeric expect operators · `5b4f29b` docs: record the layout-core commit in the handoff · `6a74100` feat: share one block text layout for paint, caret, and hit-test · `2329c88` docs: route Cursor executor nodes to grok-4.7-high · `d2ed302` docs: scope wave 16 to the AI phase and record the AI-phase audit · `a30824b` docs: add wave 16 CTL/CJK spec, Cockpit Fleets, and model routing
-
----
-
-## 2026-10-09 — Cursor Grok — Wave 16: RTL justify hangs the trailing space
-
-**Objective:** The previous `setPosition` only moved the gap from the right edge to the left. Stretch non-final RTL justified lines so the glyphs fill the measure and the trailing space does not consume it. Restore the playbook's `$lte: 20.5`.
-
-**Done:**
-- After the normal break, and still inside `beginLayout`, each non-final RTL justified line that ends in spaces is re-laid with `QTextLine::setNumColumns(textLength, width + sw)`. Same characters, no rebreak. `sw` is the inset `line.width() - cursorToX(start)` (4.000 px / 1.058 mm, equal to the space advance).
-- Qt 6.11 measurement: that wider budget cancels `leadingSpaceWidth`, so carets already span the original measure. `setPosition(x - sw)` then clamps the left edge and moves the right edge back to 188.75 mm, so the line is left where `setNumColumns` placed it.
-- Playbook offset 114 (caret on the content side of the trailing space) is 20.00 mm (`$lte: 20.5` restored). Offset 0 is 189.81 mm (`$gte: 189.25` unchanged).
-- `scripts/qa-all.sh --gui` green, including `qa/wave15-pdf-tagging.json`. D11 text unchanged.
-
-**Decisions:** Do not slide the line by `-sw` on this Qt. The extra width is already consumed by the justification budget.
-
-**Next suggested step:** Fleet review.
-
-**Commits:** `8a4a035` fix: justify RTL lines on a width that includes the trailing space
-
----
-
-## 2026-10-09 — Cursor Grok — Wave 16: bidi hit-test and RTL justify space
-
-**Objective:** Close the two `scripts/qa-all.sh --gui` failures: bidi boundary hit-test (D11) and the short right edge of a justified RTL line. Do not touch `src/app/` or the paint order / one clip per block (D10).
-
-**Done:**
-- `DocumentLayout::hitTest` (text only) keeps `xToCursor`, then if that offset's own caret is more than 0.5 px from the click, uses the grapheme boundary on the same line whose `cursorToX` is closer.
-- Non-final RTL justified lines are shifted with `QTextLine::setPosition` inside `blockTextLayout`, so paint, caret, and hit-test share the offset. D11 is recorded in `docs/waves/wave16-ctl-cjk.md`.
-- `scripts/qa-all.sh --gui` green, including `qa/wave15-pdf-tagging.json`.
-
-**Decisions:** The RTL shortfall is the trailing space. On the playbook line, `line.width() - cursorToX(start)` is 4.000 px (1.058 mm), equal to `horizontalAdvance` of U+0020; LTR justify already reaches page x 189.81. Shifting by that gap puts offset 0 at 189.81 mm. Offset 114 is the caret before that space, so it moves from 20.00 to 21.06; its expect is now `$lte: 21.6`. The right-edge bound `$gte: 189.25` is unchanged.
-
-**Next suggested step:** Fleet review of this diff.
-
-**Commits:** `8d21670` fix: snap bidi hit-test to the caret and hang RTL justify spaces
-
----
-
-## 2026-10-09 — Composer — Wave 16 T6 QA playbooks + Noto fonts
-
-**Objective:** Fleet `t6-qa`: deterministic fonts in `shell.nix` (D9) and MCP playbooks for wave 16 ready criteria (D8): caret/CJK/justify/RTL PDF; keep `wave15-pdf-tagging` unchanged.
-
-**Done:**
-- `shell.nix`: `noto-fonts`, `noto-fonts-cjk-sans`, `FONTCONFIG_FILE` via `pkgs.makeFontsConf` (IBM Plex, Source Serif, JetBrains Mono, Noto).
-- Playbooks: `qa/wave16-ctl-caret.json`, `qa/wave16-ctl-cjk.json`, `qa/wave16-ctl-justify.json`, `qa/wave16-ctl-pdf-rtl.json` with `expect` and `$gt`/`$lt`/`$gte`/`$lte`.
-- `scripts/qa-all.sh --gui`: `wave15-pdf-tagging`, CJK, model, roundtrip, PDF RTL pass.
-
-**Decisions:** Did not loosen expects on real failures (per spec).
-
-**Next suggested step:** Fleet `review`: fix `hit_test` at bidi boundary in `abc אבג def` (offset 7 → got 4); justified Arabic first-line span ~168.75 mm vs 170±0.5 mm (offset 0 `x_mm` 188.75, expect ≥189.25).
-
-**Commits:** `5d8476c` test: add wave16 CTL/CJK QA playbooks and Noto fontconfig
 
 ---
 

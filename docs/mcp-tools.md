@@ -60,7 +60,7 @@ The document is a JSON object with **stable block IDs**. Agents must address con
 | `paragraph` | `style`, `align`, `dir` (`auto`\|`ltr`\|`rtl`, default `auto`, omitted when `auto`), `runs` |
 | `heading` | `level` 1–6, `style`, `align`, `dir`, `runs` |
 | `list-item` | `level`, `list_kind` (`bullet` \| `decimal`), `runs` |
-| `table` | `rows`: array of rows; each cell `{ "runs": [...] }` |
+| `table` | `rows`: array of rows (each cell `{ "runs": [...] }`), or integers `rows` (1–200) and `cols` (1–64) with optional `header`, `header_texts`, `cells` — a non-integer or out-of-range pair is `{ok:false,error}` |
 | `image` | `path`, `image_b64`, `width_mm`, `rotate`, `opacity`, `flip_h`/`flip_v`, `crop` [L,T,R,B], `shadow_pt`, `z_index` |
 | `break` | `break_kind`: `page` \| `column` \| `section`; `hidden` esconde a secção seguinte |
 | `footnote` / `endnote` | nota; âncora no run via `note_id`; endnotes no fim da secção |
@@ -104,8 +104,8 @@ Saves to `path` or the last opened/saved path. Format from extension.
 
 ### `document_export_pdf`
 
-Args: `{ "path": string, "pdfa"?: bool, "from"?: int, "to"?: int, "booklet"?: bool, "comments"?: bool }`  
-Native `QPdfWriter` (no LibreOffice). `pdfa=true` requests PDF/A-1b. `from`/`to` are 1-based inclusive. `booklet` imprints 2-up in booklet order. Tagged PDF is always produced: paragraph/heading/list-item structure when the content stream lines up, otherwise a page-level `/Part` fallback. `comments:true` writes real PDF sticky-note annotations. Falls back to soffice only if native write fails.
+Args: `{ "path": string, "pdfa"?: bool, "ua"?: bool, "from"?: int, "to"?: int, "booklet"?: bool, "copies"?: int, "comments"?: bool }`  
+Native `QPdfWriter` (no LibreOffice). Every export embeds document XMP (`dc:title` / `dc:creator` / `dc:description` as RDF values, `pdf:Keywords` / `pdf:Producer`, `xmp:CreateDate` / `ModifyDate` / `CreatorTool`) and the same fields in `/Info` (plus `Creator`). Document language is catalog `/Lang`, not `dc:language`. No `pdf:Trapped` in XMP or `/Info`. `pdfa=true` requests PDF/A-1b (`pdfaid:part=1`, `conformance=B`); translucent watermark, image opacity, and drop shadows are painted opaque and listed in `warnings[]`. `ua=true` adds `pdfuaid:part=1` (with the PDF/A extension schema when combined with `pdfa`), sets `/ViewerPreferences/DisplayDocTitle true`, and fails with `{ok:false,error}` if any image lacks `alt`; without `ua`, missing alt is only a `warnings[]` entry. `from`/`to` are 1-based inclusive. `booklet` imprints 2-up in booklet order. `copies` (default 1) repeats the exported page sequence. Tagged PDF (wave 19) emits `/L`/`/LI`/`/Lbl`/`/LBody`, `/Table`/`/TR`/`/TH`/`/TD` (the header row is repeated on each page fragment), `/Figure` with `/Alt`, `/Note`, `/TOC`/`/TOCI`, `/Annot` when `comments` is set, `/Artifact` for page chrome, catalog `/Lang`, and `/Span` `/Lang` when a run's language differs. `cell.nested` (a list or table inside a cell) stays inside the parent `/TD` as running text and does not get its own `/L` or `/Table`. When the content-stream clips do not match the marker list, that page falls back to one `/Part`. `comments:true` writes real PDF sticky-note annotations. Falls back to soffice only if native write fails.
 
 ### `document_get`
 
@@ -227,7 +227,7 @@ Builds a table (no header) filled left-to-right, top-to-bottom.
 
 ### `set_cell` / `insert_row` / `insert_col` / `delete_row` / `delete_col`
 
-Table surgery on a table `id` (the selected table in the GUI). `set_cell`: `{id, row, col, text|runs, nested_row?, nested_col?, border_pt?, border_color?, background?, v_align?: top|middle|bottom, padding_mm?, formula?: "sum:0"|"avg:1"|"count:0"}`. `nested_*` writes into a nested table created by `nest_table`. Omit `text`/`runs` to change only cell format. `table_formulas {id?}` evaluates formulas (skips other formula cells) and writes the result into the cell text. `table_auto_width {id}` sets `col_widths_mm` from text length. `create_style {kind:table, color}` + `apply_style` fills the header row. Tables taller than a page split across pages and **repeat row 0** when `header` is set.
+Table surgery on a table `id` (the selected table in the GUI). `set_cell`: `{id, row, col, text|runs, nested_row?, nested_col?, border_pt?, border_color?, background?, v_align?: top|middle|bottom, padding_mm?, formula?: "sum:0"|"avg:1"|"count:0"}`. `nested_*` writes into a nested table created by `nest_table`. Omit `text`/`runs` to change only cell format. `table_formulas {id?}` evaluates formulas (skips other formula cells) and writes the result into the cell text. `table_auto_width {id}` sets `col_widths_mm` from text length. `create_style {kind:table, color}` + `apply_style` fills the header row. Tables taller than a page split across pages and **repeat row 0** when `header` is set. No PDF etiquetado, o conteúdo de `cell.nested` (lista ou tabela aninhada) fica dentro do `/TD` da célula, como texto corrido: não ganha `/L`/`LI`/`LBody` nem um `/Table` próprio. `insert_footnote` não ancora numa célula — `TableCell` não tem id.
 
 ### `selection_get` / `set_selection` / `insert_at_caret`
 
@@ -317,7 +317,7 @@ Evaluates `expr` against the open document. Literals: numbers (`1`, `2.5`, `-3`)
 ### `insert_footnote` / `insert_endnote`
 
 Args: `{ "text"?: string }`  
-Marca sobrescrita no caret + bloco `footnote`/`endnote` com id `fn*`/`en*`.
+Marca sobrescrita no caret + bloco `footnote`/`endnote` com id `fn*`/`en*`. A âncora tem de ser um bloco com id (parágrafo, heading, item de lista). Uma célula de tabela não tem id, então a nota não gruda no conteúdo da célula.
 
 ### `toc_update`
 
@@ -372,7 +372,7 @@ Todo `document_export_pdf` nativo agora sai com tagging real de granularidade de
 - Cada `BT...ET` é embrulhado com `/<Tag> <</MCID n>> BDC ... EMC`; parágrafos que quebram em várias linhas (várias `BT...ET`) viram **um único** elemento de estrutura com várias entradas em `/K` — testado e confirmado via `qpdf --show-object`.
 - Elementos de estrutura reais: `/H1`–`/H6` para heading (pelo nível), `/P` para parágrafo/item de lista, com `/Pg` e `/ParentTree` corretos (MCID → elemento).
 - **Segurança em primeiro lugar**: por página, só prossegue com o tagging fino se a contagem de limites de bloco encontrados no content stream bater exatamente com a contagem de blocos esperados (calculada do nosso próprio `lay.blocks`) — qualquer coisa fora do esperado (tipo de bloco não coberto, mudança futura na renderização) cai de volta pro `/Part` de página inteira, sem nunca arriscar uma tag errada/desalinhada.
-- **Cobertura atual**: parágrafo, heading, item de lista (a maioria do conteúdo de prosa). Tabelas, imagens, formas, notas de rodapé/fim e TOC ainda não emitem o padrão de `setClipRect` usado aqui, então caem no fallback — testado com um documento heading+parágrafos+tabela+lista: a tabela foi corretamente ignorada, sem quebrar nada.
+- **Cobertura (onda 19)**: a técnica do clip passou a cobrir `/L`/`/LI`/`/Lbl`/`/LBody`, `/Table`/`/TR`/`/TH`/`/TD` (cabeçalho repetido em cada fragmento de página), `/Figure` com `/Alt`, `/Note`, `/TOC`/`/TOCI`, `/Annot`, artifacts de chrome e `/Lang` (catálogo e `/Span`). `cell.nested` continua texto corrido dentro do `/TD` pai, sem `/L` nem `/Table` próprios. O fallback `/Part` fica só quando a contagem de clips não bate com os marcadores.
 - Validado com `qpdf --check` e `qpdf --show-object` (biblioteca PDF independente, não é código nosso) em vários cenários: parágrafo simples, parágrafo com quebra de linha (múltiplas linhas → um elemento com `/K` de vários MCIDs), documento misto com tabela.
 - `src/core/PdfPostProcess.cpp` ganhou um tokenizador de content stream PDF (`tokenize`, `findClipBoundaries`, `findTextSpans`) e compressão FlateDecode própria (`flateCompress`/`inflateObjStream`, via zlib direto) — reaproveitado o mesmo mecanismo de atualização incremental da onda 13.
 
@@ -415,7 +415,7 @@ Mapa `{from: to}` no JSON do documento (sem GUI). O caret aplica a lista + defau
 ### `merge_cells` / `split_cells` / `table_sort` / `nest_table`
 
 `merge_cells {id, row, col, col_span?, row_span?}`. `table_sort {id, col}` ordena linhas de dados.  
-`nest_table {id, row, col, rows?, cols?}` cria uma tabela de um nível dentro da célula (`cell.nested` no JSON).
+`nest_table {id, row, col, rows?, cols?}` cria uma tabela de um nível dentro da célula (`cell.nested` no JSON). No PDF etiquetado esse miolo continua no `/TD` pai, sem `/Table` aninhado.
 
 ### `mail_merge`
 

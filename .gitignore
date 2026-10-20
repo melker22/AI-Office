@@ -28,3 +28,5 @@ result-*
 docs/uxpilot-previews/
 .cursor/settings.json
 .cursor/debug-*.log
+__pycache__/
+*.pyc

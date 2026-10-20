@@ -1,0 +1,15 @@
+{
+  "pdf": "/tmp/wave19-tags.pdf",
+  "pdffonts": {"all_embedded": true},
+  "qpdf": {
+    "no_part_fallback": true,
+    "catalog_lang": "pt-PT",
+    "span_lang": "en-US",
+    "struct_types": [
+      "Table", "TR", "TH", "TD",
+      "L", "LI", "Lbl", "LBody",
+      "Figure", "Note", "TOC", "TOCI"
+    ],
+    "figure_alt": "Ponto de teste"
+  }
+}

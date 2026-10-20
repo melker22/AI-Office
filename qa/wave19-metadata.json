@@ -1,0 +1,30 @@
+[
+  {"tool": "document_new", "args": {"title": "Wave19 Metadata"}},
+  {"tool": "document_set_title", "args": {
+    "author": "QA Author",
+    "subject": "Test subject",
+    "keywords": "wave19, pdf",
+    "watermark": "DRAFT"
+  }},
+  {"tool": "insert_blocks", "args": {"after_id": "start", "blocks": [
+    {"type": "paragraph", "runs": [{"text": "Body text for metadata export."}]},
+    {"id": "img_no_alt", "type": "image", "width_mm": 40},
+    {"id": "shape_shadow", "type": "shape", "width_mm": 30, "height_mm": 20, "shadow_pt": 4}
+  ]}},
+  {"tool": "set_image", "args": {"id": "img_no_alt", "opacity": 0.5}},
+  {"tool": "document_export_pdf", "args": {"path": "/tmp/wave19-meta.pdf", "pdfa": true}, "expect": {
+    "ok": true,
+    "warnings": [
+      "PDF/A: flattened translucent watermark to opaque",
+      "PDF/A: flattened image img_no_alt opacity to opaque",
+      "PDF/A: removed drop shadow on shape_shadow",
+      "PDF export: image img_no_alt has no alt text"
+    ]
+  }},
+  {"tool": "document_export_pdf", "args": {"path": "/tmp/wave19-ua-fail.pdf", "ua": true}, "expect": {
+    "ok": false,
+    "error": "PDF/UA export requires alt text on all images (missing: img_no_alt)"
+  }},
+  {"tool": "set_image", "args": {"id": "img_no_alt", "alt": "Placeholder diagram"}},
+  {"tool": "document_export_pdf", "args": {"path": "/tmp/wave19-ua-ok.pdf", "ua": true}, "expect": {"ok": true, "ua": true}}
+]

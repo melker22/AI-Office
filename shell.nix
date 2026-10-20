@@ -87,6 +87,9 @@ pkgs.mkShell {
     qt6.wrapQtAppsHook
   ];
   buildInputs = with pkgs; [
+    verapdf
+    qpdf
+    poppler-utils
     qt6.qtbase
     qt6.qtdeclarative
     qt6.qtwayland

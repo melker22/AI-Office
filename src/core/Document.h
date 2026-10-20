@@ -335,6 +335,13 @@ void applyFormatToRange(QVector<TextRun> &runs, int start, int end, const QJsonO
 bool isValidBlockAlign(const QString &align);
 bool isValidBlockDir(const QString &dir);
 QString validateBlock(const Block &b);
+// Integer `rows`/`cols` on a table block (insert_blocks shorthand). Out of range or a
+// non-integer is an error; an array `rows` is the stored cell grid and is not checked here.
+QString validateTableShorthand(const QJsonObject &block);
+// First table-shorthand error in `root.body`, or empty. File load uses this
+// before Document::fromJson so an out-of-range rows/cols does not become an
+// empty table with ok:true.
+QString validateDocumentBody(const QJsonObject &root);
 QString validateParagraphFormatArgs(const QJsonObject &args);
 Block duplicateBlock(const Block &src);
 

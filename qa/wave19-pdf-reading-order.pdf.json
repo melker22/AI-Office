@@ -1,0 +1,9 @@
+{
+  "pdf": "/tmp/wave19-reading-order.pdf",
+  "verapdf": {"ua1": {"compliant": true}},
+  "pdffonts": {"all_embedded": true},
+  "qpdf": {
+    "no_part_fallback": true,
+    "document_child_types": ["P", "P"]
+  }
+}

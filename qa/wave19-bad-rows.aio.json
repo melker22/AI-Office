@@ -1,0 +1,7 @@
+{
+  "schema": 1,
+  "meta": {"title": "Bad rows"},
+  "body": [
+    {"type": "table", "header": true, "rows": 999, "cols": 2}
+  ]
+}

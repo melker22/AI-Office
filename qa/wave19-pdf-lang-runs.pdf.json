@@ -1,0 +1,26 @@
+{
+  "pdf": "/tmp/wave19-lang-runs.pdf",
+  "verapdf": {
+    "1b": {"compliant": true},
+    "ua1": {"compliant": true}
+  },
+  "pdffonts": {
+    "all_embedded": true,
+    "name_contains": ["Sans", "Bold"],
+    "same_as_cleared_lang": {
+      "aio": "/tmp/wave19-lang-runs.aio.json",
+      "pdfa": true,
+      "ua": true
+    }
+  },
+  "qpdf": {
+    "no_part_fallback": true,
+    "catalog_lang": "pt-PT",
+    "span_lang": "en-US"
+  },
+  "text_contains": ["RUBYMARK", "ortugues", "negrito", "bold", "P"],
+  "content_rgb": [
+    [0.768627, 0.117647, 0.227451],
+    [0.105882, 0.309804, 0.447059]
+  ]
+}

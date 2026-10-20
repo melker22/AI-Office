@@ -1,0 +1,24 @@
+---
+description: Checklist de lições com evidência (atualizado pelo nó lessons de cada Fleet)
+alwaysApply: true
+---
+
+# Checklist de lições (aplicar ao implementar E ao revisar)
+
+Detalhes e evidências: [`docs/LESSONS.md`](../../docs/LESSONS.md). Revisor: verifique cada item no diff
+**antes** de comentar estilo; executor: confira cada item antes de submeter `qa_green: true`.
+
+1. Entrada externa (arquivo importado, arg MCP, expressão) tem limite, tipo validado e erro tratado — sem crash, sem aceitar em silêncio.
+2. Em Fleet: todo nó que comita — inclusive opcional/auditoria — entra em `needs` do gate seguinte e tem `output_contract`/`success_output`.
+3. Revisor procura primeiro os defeitos deste checklist; só depois comenta estilo.
+4. Export/import mapeia por identidade (tipo de bloco + texto + número de ocorrência), nunca só por posição ou só por fingerprint de texto.
+5. Valor derivado (stat/seq/xref/contagens) recalculado num ponto único, não por gatilho de ferramenta.
+6. Construção nativa DOCX/ODT só com semântica idêntica no Word/LibreOffice; senão, resultado avaliado.
+7. CI e local usam só o ambiente Nix (teste com `nix-shell --pure`).
+8. Mudou um invariante? Todos os criadores, accept/reject, import e arquivos antigos seguem.
+9. Operação em vários blocos grava dados por bloco.
+10. Schema MCP, `docs/mcp-tools.md` e código concordam em tipos e args.
+11. Forward declaration com a mesma tag (`struct`/`class`) da definição.
+12. Teste cobre o critério inteiro, incluindo a ordem de operações que quebra.
+13. Todo `expect` pode falhar; falha de transporte/IPC nunca casa com `{"ok":false}`.
+14. Nó isolado de fase posterior começa com `git merge` da integração anterior.

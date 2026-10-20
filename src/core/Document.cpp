@@ -410,6 +410,47 @@ QString validateBlock(const Block &b)
     return {};
 }
 
+QString validateTableShorthand(const QJsonObject &block)
+{
+    const QJsonValue rows = block.value(QStringLiteral("rows"));
+    const QJsonValue cols = block.value(QStringLiteral("cols"));
+    const bool numericRows = rows.isDouble();
+    const bool numericCols = cols.isDouble();
+    // The integer rows/cols shortcut builds a grid. It is only valid on a table.
+    // Any other type, including a block with no type, must fail validation (L1).
+    if (block.value(QStringLiteral("type")).toString() != QLatin1String("table")) {
+        if (numericRows || numericCols)
+            return QStringLiteral("numeric rows/cols are only valid on a table block");
+        return {};
+    }
+    if (rows.isArray() || rows.isUndefined() || rows.isNull())
+        return {};
+    if (!numericRows || !numericCols)
+        return QStringLiteral("table rows and cols must be integers");
+    const double rd = rows.toDouble();
+    const double cd = cols.toDouble();
+    const int r = rows.toInt();
+    const int c = cols.toInt();
+    if (rd != double(r) || cd != double(c) || r < 1 || c < 1 || r > 200 || c > 64)
+        return QStringLiteral("table rows/cols out of range");
+    return {};
+}
+
+QString validateDocumentBody(const QJsonObject &root)
+{
+    const QJsonValue body = root.value(QStringLiteral("body"));
+    if (!body.isArray())
+        return {};
+    for (const QJsonValue &v : body.toArray()) {
+        if (!v.isObject())
+            continue;
+        const QString err = validateTableShorthand(v.toObject());
+        if (!err.isEmpty())
+            return err;
+    }
+    return {};
+}
+
 QString validateParagraphFormatArgs(const QJsonObject &args)
 {
     if (args.contains(QStringLiteral("align"))) {
@@ -641,32 +682,64 @@ Block Block::fromJson(const QJsonObject &o)
         b.runs.push_back(r);
     }
     if (o.contains(QStringLiteral("rows"))) {
-        for (const auto &rowV : o.value(QStringLiteral("rows")).toArray()) {
-            QVector<TableCell> row;
-            for (const auto &cellV : rowV.toArray()) {
-                TableCell cell;
-                cell.runs = runsFromJson(cellV.toObject().value(QStringLiteral("runs")));
-                if (cell.runs.isEmpty() && cellV.toObject().contains(QStringLiteral("text"))) {
-                    TextRun r;
-                    r.text = cellV.toObject().value(QStringLiteral("text")).toString();
-                    cell.runs.push_back(r);
+        const QJsonValue rowsVal = o.value(QStringLiteral("rows"));
+        if (rowsVal.isArray()) {
+            for (const auto &rowV : rowsVal.toArray()) {
+                QVector<TableCell> row;
+                for (const auto &cellV : rowV.toArray()) {
+                    TableCell cell;
+                    cell.runs = runsFromJson(cellV.toObject().value(QStringLiteral("runs")));
+                    if (cell.runs.isEmpty() && cellV.toObject().contains(QStringLiteral("text"))) {
+                        TextRun r;
+                        r.text = cellV.toObject().value(QStringLiteral("text")).toString();
+                        cell.runs.push_back(r);
+                    }
+                    cell.colSpan = qMax(1, cellV.toObject().value(QStringLiteral("col_span")).toInt(1));
+                    cell.rowSpan = qMax(1, cellV.toObject().value(QStringLiteral("row_span")).toInt(1));
+                    cell.borderPt = cellV.toObject().value(QStringLiteral("border_pt")).toDouble();
+                    cell.borderColor = cellV.toObject().value(QStringLiteral("border_color")).toString();
+                    cell.background = cellV.toObject().value(QStringLiteral("background")).toString();
+                    cell.vAlign = cellV.toObject().value(QStringLiteral("v_align")).toString();
+                    cell.paddingMm = cellV.toObject().value(QStringLiteral("padding_mm")).toDouble();
+                    cell.formula = cellV.toObject().value(QStringLiteral("formula")).toString();
+                    cell.nested = nestedFromJson(cellV.toObject().value(QStringLiteral("nested")));
+                    row.push_back(cell);
                 }
-                cell.colSpan = qMax(1, cellV.toObject().value(QStringLiteral("col_span")).toInt(1));
-                cell.rowSpan = qMax(1, cellV.toObject().value(QStringLiteral("row_span")).toInt(1));
-                cell.borderPt = cellV.toObject().value(QStringLiteral("border_pt")).toDouble();
-                cell.borderColor = cellV.toObject().value(QStringLiteral("border_color")).toString();
-                cell.background = cellV.toObject().value(QStringLiteral("background")).toString();
-                cell.vAlign = cellV.toObject().value(QStringLiteral("v_align")).toString();
-                cell.paddingMm = cellV.toObject().value(QStringLiteral("padding_mm")).toDouble();
-                cell.formula = cellV.toObject().value(QStringLiteral("formula")).toString();
-                cell.nested = nestedFromJson(cellV.toObject().value(QStringLiteral("nested")));
-                row.push_back(cell);
+                b.table.push_back(row);
             }
-            b.table.push_back(row);
+            b.headerRow = o.value(QStringLiteral("header")).toBool();
+            for (const auto &w : o.value(QStringLiteral("col_widths_mm")).toArray())
+                b.colWidthsMm.push_back(w.toDouble());
+        } else if (b.type == QLatin1String("table") && rowsVal.isDouble() && validateTableShorthand(o).isEmpty()) {
+            // Same grid insert_table builds: header cells are named so /TH is not empty.
+            int rows = rowsVal.toInt();
+            int cols = o.value(QStringLiteral("cols")).toInt();
+            b.headerRow = o.value(QStringLiteral("header")).toBool();
+            if (b.headerRow && rows < 2)
+                rows = 2;
+            const auto heads = o.value(QStringLiteral("header_texts")).toArray();
+            const auto cells = o.value(QStringLiteral("cells")).toArray();
+            const int dataStart = b.headerRow ? 1 : 0;
+            for (int r = 0; r < rows; ++r) {
+                QVector<TableCell> row;
+                for (int c = 0; c < cols; ++c) {
+                    TableCell cell;
+                    TextRun run;
+                    if (b.headerRow && r == 0)
+                        run.text = c < heads.size() ? heads.at(c).toString() : QStringLiteral("Col %1").arg(c + 1);
+                    else if (!cells.isEmpty()) {
+                        const int idx = (r - dataStart) * cols + c;
+                        if (idx >= 0 && idx < cells.size())
+                            run.text = cells.at(idx).toString();
+                    }
+                    cell.runs.push_back(run);
+                    row.push_back(cell);
+                }
+                b.table.push_back(row);
+            }
+            for (const auto &w : o.value(QStringLiteral("col_widths_mm")).toArray())
+                b.colWidthsMm.push_back(w.toDouble());
         }
-        b.headerRow = o.value(QStringLiteral("header")).toBool();
-        for (const auto &w : o.value(QStringLiteral("col_widths_mm")).toArray())
-            b.colWidthsMm.push_back(w.toDouble());
     }
     b.imagePath = o.value(QStringLiteral("path")).toString();
     b.imageWidthMm = o.value(QStringLiteral("width_mm")).toInt(80);

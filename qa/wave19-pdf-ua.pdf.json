@@ -1,0 +1,19 @@
+{
+  "pdf": "/tmp/wave19-ua.pdf",
+  "verapdf": {
+    "1b": {"compliant": true},
+    "ua1": {"compliant": true}
+  },
+  "pdffonts": {"all_embedded": true},
+  "qpdf": {
+    "no_part_fallback": true,
+    "catalog_lang": "pt-PT",
+    "span_lang": "en-US",
+    "struct_types": [
+      "Table", "TR", "TH", "TD",
+      "L", "LI", "Lbl", "LBody",
+      "Figure", "Note", "TOC", "TOCI"
+    ],
+    "figure_alt": "Pixel decorativo vermelho"
+  }
+}

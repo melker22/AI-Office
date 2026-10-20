@@ -18,8 +18,40 @@ defaults:
   approval: full-access
 max_parallel: 1
 nodes:
+  # Harnessing entre tarefas (ideia do Harness²): lições com evidência do último PR mergeado
+  # viram regras para esta execução. Ver docs/LESSONS.md e docs/ORCHESTRATION.md.
+  lessons:
+    title: Lições do PR anterior (Sonnet)
+    agent: claude
+    model: claude-sonnet-5
+    effort: medium
+    prompt: |
+      Projeto AI Office Writer. Mantenha docs/LESSONS.md e .cursor/rules/lessons.mdc. Não altere código.
+      1. Veja em docs/LESSONS.md a linha "Última PR processada". Liste os PRs mergeados depois dela em
+         melker22/AI-Office (tool MCP do GitHub; `gh` não existe). Nenhum novo → não mude nada.
+      2. Para cada PR novo, leia as threads do CodeRabbit (pull_request_read get_review_comments) e as
+         entradas correspondentes em docs/AI_HANDOFF.md E docs/AI_HANDOFF_ARCHIVE.md (achados do
+         Sonnet, intervenções) — entradas antigas podem ter sido arquivadas.
+      3. Para cada defeito real que chegou ao CodeRabbit ou exigiu intervenção: se é instância de uma
+         lição existente, acrescente a evidência e incremente a contagem; se é um padrão novo que pode
+         se repetir, crie uma lição com regra VERIFICÁVEL. Sem evidência (link de thread/commit) não entra.
+      4. Reescreva o checklist de .cursor/rules/lessons.mdc com no máximo 15 itens, os mais recorrentes.
+         Atualize "Última PR processada".
+      5. Commit `docs: update lessons from PR #N` em inglês, sem push. Submeta commit =
+         `git rev-parse HEAD` (mesmo sem mudanças), qa_green = true, summary com as lições novas.
+    success_output: qa_green
+    output_contract:
+      type: object
+      required: [commit, qa_green, summary]
+      properties:
+        commit: { type: string, pattern: "^[0-9a-f]{40}$" }
+        qa_green: { type: boolean }
+        blocker: { type: string }
+        summary: { type: string }
+
   plan:
     title: Plano (Sonnet)
+    needs: [lessons]
     agent: claude
     model: claude-sonnet-5
     effort: medium
@@ -36,7 +68,8 @@ nodes:
     title: Implementação
     needs: [plan]
     prompt: |
-      Projeto AI Office Writer (C++20/Qt 6). Siga .cursor/rules/*.mdc.
+      Projeto AI Office Writer (C++20/Qt 6). Siga .cursor/rules/*.mdc, em especial o checklist
+      de .cursor/rules/lessons.mdc (confira cada item antes de submeter qa_green).
       Tarefa: {{args.task}}
       Plano do Tech Lead:
       {{needs.plan.report}}
@@ -78,7 +111,8 @@ nodes:
         session: continue
         prompt: |
           Você é o Tech Lead. Tarefa original: {{args.task}}
-          Revise `git diff main...HEAD` contra a tarefa e o plano, rode `scripts/qa-all.sh
+          Primeiro verifique no diff cada item de .cursor/rules/lessons.mdc. Depois revise
+          `git diff main...HEAD` contra a tarefa e o plano, rode `scripts/qa-all.sh
           --gui`. Não corrija nada. Só defeitos reais. Submeta issues e findings
           ("arquivo:linha — defeito — correção").
         followup_prompt: |

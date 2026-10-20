@@ -284,6 +284,12 @@ bool Session::loadFrom(const QString &path, QString *error)
                 *error = QStringLiteral("Invalid JSON document");
             return false;
         }
+        const QString tableErr = validateDocumentBody(docj.object());
+        if (!tableErr.isEmpty()) {
+            if (error)
+                *error = tableErr;
+            return false;
+        }
         doc_ = Document::fromJson(docj.object());
         doc_.fileName = QFileInfo(path).fileName();
         for (const auto &b : doc_.body) {
@@ -399,15 +405,38 @@ QJsonObject Session::exportPdf(const QJsonObject &args)
     QString nativeErr;
     const bool pdfa = args.value(QStringLiteral("pdfa")).toBool()
         || args.value(QStringLiteral("pdf_a")).toBool();
+    const bool ua = args.value(QStringLiteral("ua")).toBool();
+    QStringList missingAlt;
+    for (const auto &b : doc_.body) {
+        if (b.type == QLatin1String("image") && b.altText.trimmed().isEmpty())
+            missingAlt.append(b.id);
+    }
+    if (ua && !missingAlt.isEmpty()) {
+        return fail(QStringLiteral("PDF/UA export requires alt text on all images (missing: %1)")
+                        .arg(missingAlt.join(QStringLiteral(", "))));
+    }
+    QStringList warnings;
     if (exportNativePdf(doc_, pdf, &nativeErr, pdfa,
                         args.value(QStringLiteral("from")).toInt(),
                         args.value(QStringLiteral("to")).toInt(),
                         args.value(QStringLiteral("booklet")).toBool() || doc_.page.booklet,
                         qMax(1, args.value(QStringLiteral("copies")).toInt(1)),
-                        args.value(QStringLiteral("comments")).toBool())) {
+                        args.value(QStringLiteral("comments")).toBool(), ua, &warnings)) {
+        if (!ua) {
+            for (const auto &id : missingAlt)
+                warnings.append(QStringLiteral("PDF export: image %1 has no alt text").arg(id));
+        }
         auto r = ok();
         if (pdfa)
             r[QStringLiteral("pdfa")] = true;
+        if (ua)
+            r[QStringLiteral("ua")] = true;
+        if (!warnings.isEmpty()) {
+            QJsonArray wa;
+            for (const auto &w : warnings)
+                wa.append(w);
+            r[QStringLiteral("warnings")] = wa;
+        }
         return r;
     }
     QTemporaryDir tmp;
@@ -477,7 +506,11 @@ QJsonObject Session::insertBlocks(const QJsonObject &args)
         return fail(err);
     const QJsonArray blockArr = args.value(QStringLiteral("blocks")).toArray();
     for (const auto &v : blockArr) {
-        const QString be = validateBlock(Block::fromJson(v.toObject()));
+        const QJsonObject o = v.toObject();
+        const QString te = validateTableShorthand(o);
+        if (!te.isEmpty())
+            return fail(te);
+        const QString be = validateBlock(Block::fromJson(o));
         if (!be.isEmpty())
             return fail(be);
     }
@@ -503,7 +536,11 @@ QJsonObject Session::replaceRange(const QJsonObject &args)
         return fail(QStringLiteral("no matching ids"));
     const QJsonArray blockArr = args.value(QStringLiteral("blocks")).toArray();
     for (const auto &v : blockArr) {
-        const QString be = validateBlock(Block::fromJson(v.toObject()));
+        const QJsonObject o = v.toObject();
+        const QString te = validateTableShorthand(o);
+        if (!te.isEmpty())
+            return fail(te);
+        const QString be = validateBlock(Block::fromJson(o));
         if (!be.isEmpty())
             return fail(be);
     }
@@ -4592,6 +4629,9 @@ QJsonObject Session::documentCompare(const QJsonObject &args)
     const auto docj = QJsonDocument::fromJson(f.readAll());
     if (!docj.isObject())
         return fail(QStringLiteral("not a document JSON"));
+    const QString tableErr = validateDocumentBody(docj.object());
+    if (!tableErr.isEmpty())
+        return fail(tableErr);
     return diffDocs(Document::fromJson(docj.object()), doc_);
 }
 
@@ -4943,6 +4983,9 @@ QJsonObject Session::documentInclude(const QJsonObject &args)
     const auto docj = QJsonDocument::fromJson(f.readAll(), &pe);
     if (pe.error != QJsonParseError::NoError || !docj.isObject())
         return fail(QStringLiteral("invalid JSON: ") + pe.errorString());
+    const QString tableErr = validateDocumentBody(docj.object());
+    if (!tableErr.isEmpty())
+        return fail(tableErr);
     Document other = Document::fromJson(docj.object());
     QString err;
     int at = insertIndex(args.value(QStringLiteral("after_id")).toString(QStringLiteral("end")), &err);

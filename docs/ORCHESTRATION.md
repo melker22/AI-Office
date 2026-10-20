@@ -54,6 +54,12 @@ isso porque o código antigo também passava nos testes. Regras:
    Nó opcional que pode ser pulado (ex.: adjudicação) também reporta `commit`, mas não entra no
    mínimo `<n>` — o script verifica todo commit presente.
 
+5. **Nós isolados de fases posteriores** (ex.: `t3`/`t4` depois de `integrate-1`) nascem no commit
+   base da Run, não no branch já integrado. O prompt deles começa com
+   `git merge {{needs.integrate-1.output.commit}}` (e o nó lista `integrate-1` em `needs`), para
+   trabalharem sobre o código integrado e reportarem um commit que já o contém. Origem: onda 18, em que
+   T3/T4 só perceberam por conta própria que estavam sem os tipos de campo da fase 1.
+
 Esqueleto para nós paralelos isolados:
 
 ```yaml
@@ -91,6 +97,43 @@ lerem informação velha. Toda Fleet tem um nó `notion-sync` (Sonnet, effort lo
 sem código) depois do `handoff` e antes da aprovação humana: alinha o board "Roadmap para Produção" ao
 `docs/WRITER_FEATURE_CATALOG.md`, atualiza o callout "Última sync" do hub e o snapshot. Trabalho feito
 fora de Fleet (correções avulsas, merges) também termina com uma sincronização do Notion.
+
+## Fallback quando o limite do Claude acaba (autorizado pelo utilizador)
+
+Regra do utilizador: o Sonnet da Cursor é **só reserva** — cota mensal e pequena (menor que a do Grok e
+a do Composer). Use-o **apenas enquanto o Claude estiver esgotado** e devolva os nós ao Claude assim que
+a janela renovar (inclusive interrompendo um nó que esteja rodando na Cursor: o gasto dali em diante é o
+que importa). Com o Claude disponível, nenhum nó roda no Sonnet da Cursor.
+
+Quando a janela do Claude (5 h ou semanal) esgota, os nós `agent: claude` **não esperam o reset**:
+são movidos para outro provedor até o limite voltar, sem editar o YAML:
+
+| Nó (Claude) | Fallback | Motivo |
+|---|---|---|
+| revisão, adjudicação, plano, `open-pr`, `lessons` | `cursor` / `claude-sonnet-5-thinking-high` | Mesmo Sonnet 5, cota da Cursor; Cursor tem o MCP do GitHub |
+| `notion-sync` | `grok` / `grok-4.7` (effort low) | A Cursor não tem o MCP do Notion; o Grok tem a credencial |
+| auditoria Opus | `cursor` / `claude-opus-5-5-high` | Mesmo Opus via Cursor |
+
+Como aplicar numa Run em andamento (o nó ativo continua; só os próximos mudam). Inclua **todo** nó
+`agent: claude` que ainda não rodou — o exemplo abaixo cobre os nós das Fleets de onda:
+
+```bash
+cockpit fleet pause <runId>
+S=claude-sonnet-5-thinking-high
+cockpit fleet resume <runId> \
+  --set "lessons.agent=cursor" --set "lessons.model=$S" \
+  --set "review.review-pass.agent=cursor" --set "review.review-pass.model=$S" \
+  --set "review-adjudication.agent=cursor" --set "review-adjudication.model=$S" \
+  --set "open-pr.agent=cursor" --set "open-pr.model=$S" \
+  --set "opus-audit.agent=cursor" --set "opus-audit.model=claude-opus-5-5-high" \
+  --set "notion-sync.agent=grok" --set "notion-sync.model=grok-4.7" --set "notion-sync.effort=low"
+# Fleet genérica `task`: troque/adicione `plan` e `adjudicate` no lugar de review-adjudication.
+```
+
+Mudar o agente de um nó `session: continue` cria uma task nova na próxima iteração (o prompt inicial
+revisa o diff inteiro, então nada se perde). Quando o Claude voltar: `cockpit fleet pause`, `cockpit task
+cancel` no nó que estiver na Cursor, e `cockpit fleet resume --unset '<nó>.agent' --unset '<nó>.model'`
+para todos os nós movidos — eles voltam ao YAML (Claude).
 
 ## Limites de uso
 

@@ -1,0 +1,7 @@
+{
+  "schema": 1,
+  "meta": {"title": "Paragraph rows"},
+  "body": [
+    {"type": "paragraph", "rows": 2, "cols": 2, "runs": [{"text": "x"}]}
+  ]
+}
