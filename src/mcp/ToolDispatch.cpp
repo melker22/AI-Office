@@ -12,6 +12,18 @@ QJsonObject prop(const QString &type, const QString &desc = {})
     return o;
 }
 
+QJsonObject stringOrObject(const QString &desc)
+{
+    QJsonObject o;
+    QJsonArray anyOf;
+    anyOf.append(QJsonObject{{QStringLiteral("type"), QStringLiteral("string")}});
+    anyOf.append(QJsonObject{{QStringLiteral("type"), QStringLiteral("object")}});
+    o.insert(QStringLiteral("anyOf"), anyOf);
+    if (!desc.isEmpty())
+        o.insert(QStringLiteral("description"), desc);
+    return o;
+}
+
 QJsonObject tool(const QString &name, const QString &desc, const QJsonObject &properties,
                  const QJsonArray &required = {})
 {
@@ -407,9 +419,9 @@ QJsonArray toolDefinitions()
                               {QStringLiteral("offset"), prop(QStringLiteral("integer"))}},
                   QJsonArray{QStringLiteral("target")}));
     a.append(tool(QStringLiteral("insert_field"),
-                  QStringLiteral("Insert a field: page_number, page_count, date, title, author, xref, filename, word_count, custom, merge, chapter, var, input, time, cite, filepath, if, doc_info, stat, sender, seq, input_list. if takes arg {cond, then, else}; doc_info/stat/sender use arg key; seq/input_list use arg JSON."),
+                  QStringLiteral("Insert a field: page_number, page_count, date, title, author, xref, filename, word_count, custom, merge, chapter, var, input, time, cite, filepath, if, doc_info, stat, sender, seq, input_list. if takes arg {cond, then, else}; doc_info/stat/sender use arg key; seq/input_list take arg as a JSON object or that object as a string."),
                   QJsonObject{{QStringLiteral("kind"), prop(QStringLiteral("string"))},
-                              {QStringLiteral("arg"), prop(QStringLiteral("string"), QStringLiteral("For if, a JSON object {cond, then, else} or that object as a string"))},
+                              {QStringLiteral("arg"), stringOrObject(QStringLiteral("String, or object for if {cond, then, else}, seq {name, format}, and input_list {options, selected}"))},
                               {QStringLiteral("id"), prop(QStringLiteral("string"))},
                               {QStringLiteral("offset"), prop(QStringLiteral("integer"))},
                               {QStringLiteral("xref_kind"), prop(QStringLiteral("string"))}},

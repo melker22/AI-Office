@@ -6,7 +6,7 @@
 
 namespace aioffice {
 
-class Document;
+struct Document;
 struct Block;
 struct TextRun;
 
@@ -32,6 +32,8 @@ struct FieldExprResult {
 
 struct FieldExpr {
     // Recursive-descent expression. No scripting. Syntax errors set ok=false.
+    // Parentheses and `!` share a depth limit of 64. Past that, error is
+    // "expression too deeply nested" (the field shows #ERR).
     static FieldExprResult evaluate(const QString &expr, const Document &doc, const FieldContext &ctx);
 };
 
@@ -48,7 +50,8 @@ FieldContext fieldContextFor(const Document &doc, int page, int pages);
 bool blockHiddenByExpr(const Document &doc, const Block &block, int page, int pages);
 
 // Live text of an `if` field. On a bad arg or condition, returns "#ERR" and sets *exprOk false.
-QString evalIfField(const Document &doc, const QString &fieldArg, int page, int pages, bool *exprOk = nullptr);
+QString evalIfField(const Document &doc, const QString &fieldArg, int page, int pages, bool *exprOk = nullptr,
+                    QString *exprError = nullptr);
 
 // Rewrite stored text of fields whose result depends on document structure:
 // `if`, `seq`, and xref `category_number` (body runs, caption runs, cells).

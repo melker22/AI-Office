@@ -143,7 +143,26 @@ private:
     const Document &doc_;
     const FieldContext &ctx_;
     int i_ = 0;
+    int depth_ = 0;
     QString error_;
+    static constexpr int kMaxDepth = 64;
+
+    bool pushDepth()
+    {
+        if (depth_ >= kMaxDepth) {
+            if (error_.isEmpty())
+                error_ = QStringLiteral("expression too deeply nested");
+            return false;
+        }
+        ++depth_;
+        return true;
+    }
+
+    void popDepth()
+    {
+        if (depth_ > 0)
+            --depth_;
+    }
 
     void skip()
     {
@@ -233,8 +252,11 @@ private:
     {
         skip();
         if (i_ < s_.size() && s_.at(i_) == QLatin1Char('!') && !startsWith(QStringLiteral("!="))) {
+            if (!pushDepth())
+                return fromString({});
             ++i_;
             const Val v = parseUnary();
+            popDepth();
             if (!error_.isEmpty())
                 return v;
             return fromBool(!isTruthyVal(v));
@@ -251,8 +273,11 @@ private:
         }
         const QChar c = s_.at(i_);
         if (c == QLatin1Char('(')) {
+            if (!pushDepth())
+                return fromString({});
             ++i_;
             const Val v = parseOr();
+            popDepth();
             if (!error_.isEmpty())
                 return v;
             skip();
@@ -473,21 +498,27 @@ FieldContext fieldContextFor(const Document &doc, int page, int pages)
     return ctx;
 }
 
-QString evalIfField(const Document &doc, const QString &fieldArg, int page, int pages, bool *exprOk)
+QString evalIfField(const Document &doc, const QString &fieldArg, int page, int pages, bool *exprOk,
+                    QString *exprError)
 {
     if (exprOk)
         *exprOk = false;
+    auto failExpr = [&](const QString &message) {
+        if (exprError)
+            *exprError = message;
+        return QStringLiteral("#ERR");
+    };
     QJsonParseError pe;
     const QJsonDocument jd = QJsonDocument::fromJson(fieldArg.toUtf8(), &pe);
     if (pe.error != QJsonParseError::NoError || !jd.isObject())
-        return QStringLiteral("#ERR");
+        return failExpr(QStringLiteral("invalid expression"));
     const QJsonObject o = jd.object();
     if (!o.contains(QStringLiteral("cond")) || !o.value(QStringLiteral("cond")).isString())
-        return QStringLiteral("#ERR");
+        return failExpr(QStringLiteral("invalid expression"));
     const FieldExprResult ev = FieldExpr::evaluate(o.value(QStringLiteral("cond")).toString(), doc,
                                                    fieldContextFor(doc, page, pages));
     if (!ev.ok)
-        return QStringLiteral("#ERR");
+        return failExpr(ev.error.isEmpty() ? QStringLiteral("invalid expression") : ev.error);
     if (exprOk)
         *exprOk = true;
     return fieldExprIsTruthy(ev.value) ? o.value(QStringLiteral("then")).toString()

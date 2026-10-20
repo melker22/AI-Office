@@ -5,6 +5,7 @@
 #include "core/Xml.h"
 #include "core/Zip.h"
 
+#include <QCryptographicHash>
 #include <QDateTime>
 #include <QFile>
 #include <QJsonArray>
@@ -275,6 +276,37 @@ bool singleComparison(const QString &cond, QString &left, QString &op, QString &
     return i == cond.size();
 }
 
+// Word IF accepts a number or a double-quoted string. An identifier or single
+// quotes is not a native operand (D5): the export writes the evaluated text.
+bool wordIfOperand(const QString &raw)
+{
+    if (raw.size() >= 2 && raw.front() == QLatin1Char('"') && raw.back() == QLatin1Char('"'))
+        return true;
+    int i = 0;
+    if (!raw.isEmpty() && raw.at(0) == QLatin1Char('-'))
+        ++i;
+    bool sawDigit = false;
+    bool sawDot = false;
+    for (; i < raw.size(); ++i) {
+        const QChar c = raw.at(i);
+        if (c.isDigit()) {
+            sawDigit = true;
+            continue;
+        }
+        if (c == QLatin1Char('.') && !sawDot) {
+            sawDot = true;
+            continue;
+        }
+        return false;
+    }
+    return sawDigit && !raw.endsWith(QLatin1Char('.'));
+}
+
+bool nativeIfComparison(const QString &cond, QString &left, QString &op, QString &right)
+{
+    return singleComparison(cond, left, op, right) && wordIfOperand(left) && wordIfOperand(right);
+}
+
 bool readWordCmpOp(const QString &s, int &i, QString &our)
 {
     skipSpace(s, i);
@@ -364,7 +396,7 @@ bool nativeWordField(const TextRun &r, DocxOut &o, QString &instr)
         if (!spec.value(QStringLiteral("cond")).isString())
             return false;
         QString left, op, right;
-        if (!singleComparison(spec.value(QStringLiteral("cond")).toString(), left, op, right))
+        if (!nativeIfComparison(spec.value(QStringLiteral("cond")).toString(), left, op, right))
             return false;
         instr = QStringLiteral(" IF ") + left + QLatin1Char(' ') + wordCmpOp(op) + QLatin1Char(' ') + right
             + QLatin1Char(' ') + quoteFieldResult(spec.value(QStringLiteral("then")).toString())
@@ -465,7 +497,7 @@ bool fieldNeedsJson(const TextRun &r)
         const QJsonObject spec = fieldArgObject(r);
         if (!spec.value(QStringLiteral("cond")).isString())
             return true;
-        return !singleComparison(spec.value(QStringLiteral("cond")).toString(), left, op, right);
+        return !nativeIfComparison(spec.value(QStringLiteral("cond")).toString(), left, op, right);
     }
     if (r.field == QLatin1String("stat"))
         return r.fieldArg != QLatin1String("pages") && r.fieldArg != QLatin1String("words")
@@ -475,11 +507,21 @@ bool fieldNeedsJson(const TextRun &r)
     return false;
 }
 
-void rememberConditionals(QJsonArray &out, int blockIndex, const Block &b)
+QString blockTextFingerprint(const QString &text)
 {
+    return QString::fromLatin1(QCryptographicHash::hash(text.toUtf8(), QCryptographicHash::Sha256).toHex());
+}
+
+// Identity is the block id, a fingerprint of the block text, and (for a field)
+// the run text. A content index is not stable: a TOC of N entries is one block
+// here and N paragraphs after import.
+void rememberConditionals(QJsonArray &out, const Block &b)
+{
+    const QString fp = blockTextFingerprint(b.plainText());
     if (!b.hideIf.isEmpty()) {
         QJsonObject o;
-        o.insert(QStringLiteral("block"), blockIndex);
+        o.insert(QStringLiteral("id"), b.id);
+        o.insert(QStringLiteral("fp"), fp);
         o.insert(QStringLiteral("hide_if"), b.hideIf);
         out.append(o);
     }
@@ -489,8 +531,9 @@ void rememberConditionals(QJsonArray &out, int blockIndex, const Block &b)
         if (!fieldNeedsJson(b.runs.at(i)))
             continue;
         QJsonObject o;
-        o.insert(QStringLiteral("block"), blockIndex);
-        o.insert(QStringLiteral("run"), i);
+        o.insert(QStringLiteral("id"), b.id);
+        o.insert(QStringLiteral("fp"), fp);
+        o.insert(QStringLiteral("run_text"), b.runs.at(i).text);
         o.insert(QStringLiteral("field"), b.runs.at(i).field);
         o.insert(QStringLiteral("field_arg"), b.runs.at(i).fieldArg);
         out.append(o);
@@ -620,19 +663,80 @@ void applyFieldConditionals(Document &doc, const QJsonArray &conds)
             continue;
         content.push_back(i);
     }
+    // Walk fingerprints in document order. Records that share an export block id
+    // stay on the block already matched. A field is applied only to a run whose
+    // text matches and that is still plain text: a native field with the same
+    // cached text (two paragraphs that both show "17") is left alone.
+    auto plainRun = [](const Block &b, const QString &want, const QSet<int> &used) {
+        for (int i = 0; i < b.runs.size(); ++i) {
+            if (used.contains(i))
+                continue;
+            if (!b.runs.at(i).field.isEmpty())
+                continue;
+            if (b.runs.at(i).text == want)
+                return i;
+        }
+        return -1;
+    };
+    QString boundId;
+    int boundCi = -1;
+    QMap<int, QSet<int>> usedRuns;
     for (const QJsonValue &v : conds) {
         const QJsonObject o = v.toObject();
-        const int bi = o.value(QStringLiteral("block")).toInt(-1);
-        if (bi < 0 || bi >= content.size())
-            continue;
-        Block &b = doc.body[content.at(bi)];
+        const QString fp = o.value(QStringLiteral("fp")).toString();
+        const QString id = o.value(QStringLiteral("id")).toString();
+        const bool isField = o.contains(QStringLiteral("field"));
+        const bool hasRunText = o.contains(QStringLiteral("run_text"));
+        const QString want = o.value(QStringLiteral("run_text")).toString();
+        int ci = -1;
+        int ri = -1;
+        if (!fp.isEmpty()) {
+            const bool sameBlock = !id.isEmpty() && id == boundId && boundCi >= 0
+                && blockTextFingerprint(doc.body.at(content.at(boundCi)).plainText()) == fp;
+            if (sameBlock) {
+                ci = boundCi;
+                if (isField && hasRunText)
+                    ri = plainRun(doc.body.at(content.at(ci)), want, usedRuns.value(ci));
+            } else {
+                const int start = boundCi >= 0 ? boundCi + 1 : 0;
+                for (int i = start; i < content.size(); ++i) {
+                    const Block &cand = doc.body.at(content.at(i));
+                    if (blockTextFingerprint(cand.plainText()) != fp)
+                        continue;
+                    if (isField && hasRunText) {
+                        const int found = plainRun(cand, want, usedRuns.value(i));
+                        if (found < 0)
+                            continue;
+                        ri = found;
+                    }
+                    ci = i;
+                    break;
+                }
+                if (ci >= 0 && !id.isEmpty()) {
+                    boundId = id;
+                    boundCi = ci;
+                }
+            }
+            if (ci < 0)
+                continue;
+        } else {
+            const int bi = o.value(QStringLiteral("block")).toInt(-1);
+            if (bi < 0 || bi >= content.size())
+                continue;
+            ci = bi;
+        }
+        Block &b = doc.body[content.at(ci)];
         if (o.contains(QStringLiteral("hide_if")))
             b.hideIf = o.value(QStringLiteral("hide_if")).toString();
-        if (!o.contains(QStringLiteral("run")))
+        if (!isField)
             continue;
-        const int ri = o.value(QStringLiteral("run")).toInt(-1);
-        if (ri < 0 || ri >= b.runs.size())
+        if (ri < 0 && hasRunText)
+            ri = plainRun(b, want, usedRuns.value(ci));
+        else if (ri < 0 && o.contains(QStringLiteral("run")))
+            ri = o.value(QStringLiteral("run")).toInt(-1);
+        if (ri < 0 || ri >= b.runs.size() || !b.runs.at(ri).field.isEmpty())
             continue;
+        usedRuns[ci].insert(ri);
         b.runs[ri].field = o.value(QStringLiteral("field")).toString();
         b.runs[ri].fieldArg = o.value(QStringLiteral("field_arg")).toString();
     }
@@ -959,13 +1063,11 @@ bool saveDocx(const Document &doc, const QString &path, QString *error, bool emb
     DocumentLayout lay;
     lay.relayout(doc, 1.0);
     QJsonArray conditionals;
-    int contentIndex = 0;
     for (const auto &b : doc.body) {
         if (b.type == QLatin1String("footnote") || b.type == QLatin1String("endnote"))
             continue;
-        rememberConditionals(conditionals, contentIndex, b);
+        rememberConditionals(conditionals, b);
         const bool van = paragraphVanished(doc, lay, b);
-        ++contentIndex;
         if (b.type == QLatin1String("table")) {
             accountSeqRuns(o, b.runs);
             accountSeqRuns(o, b.captionRuns);

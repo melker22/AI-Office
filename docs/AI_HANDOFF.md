@@ -8,6 +8,31 @@
 
 ---
 
+## 2026-10-20 — Cursor Grok 4.7 — CodeRabbit wave 18 field fixes
+
+**Objective:** Fix the nine CodeRabbit defects on the wave 18 branch. The Fleet finding was already fixed. Do not touch `src/app/` or `.cockpit/`. No push.
+
+**Done:**
+- DOCX `conditionals` store the block id, a SHA-256 of the block text, and the run text. Import finds the block by that fingerprint in order and applies a field only when the run text matches a run that is still plain text. A TOC of 3 entries no longer moves `hide_if` / `if` onto an earlier paragraph. A native field that happens to show the same cached text is left as native.
+- Field expressions share a depth limit of 64 for parentheses and `!`. Past that, the error is `expression too deeply nested`, the `if` field shows `#ERR`, and `validate` reports `invalid_expression`.
+- `aioffice play` treats IPC/timeout/bad payload as a transport failure and aborts even when `expect` is `{"ok":false}`. A tool result `{ok:false}` still honors `expect`. `AIOFFICE_PLAY_CLASSIFY_CHECK=1` runs the classifier self-check.
+- A native Word `IF` is written only when both operands are a number or a double-quoted string. An identifier or single quotes exports the evaluated text; the expression comes back from the embedded JSON.
+- `stat` `words` uses `blockVisibleForStat` (`hide_if` and `section_hidden`), the same filter as chars and paragraphs.
+- An `expect` that is empty or not an object fails the playbook before the call.
+- `insert_field` serializes an object `arg` once for `seq` and `input_list`.
+- The `insert_field.arg` schema is `anyOf` string or object.
+- `FieldExpr.h` forward-declares `struct Document`.
+
+**Tests:** `qa/wave18-review.json` (TOC round-trip, depth, `stat` words, IF operands, object args). `qa/check_play_expect.py`. `play_classify`. `scripts/qa-all.sh --gui --interop`: **41/41** ctest passed; LibreOffice interop ok.
+
+**Decisions:** `document_stats.words` and the `word_count` field still use `Document::wordCount()` over every block. Only the `stat` field filters hidden blocks. A foreign `IF page > 1` from our export is evaluated text; `word/aioffice.json` restores the expression.
+
+**Next suggested step:** Fleet `notion-sync`, then human `approve-pr` and open the PR to `main`.
+
+**Commits:** hash recorded after the fix commit.
+
+---
+
 ## 2026-10-20 — Fleet wave18 — Composer / Cursor Grok / Grok Build / Sonnet
 
 **Objective:** Close the fleet wave 18 branch (dynamic fields + conditional text): record real QA on the integrated branch after the review loop fixes, sync `WRITER_FEATURE_CATALOG.md`.

@@ -2553,9 +2553,16 @@ QJsonObject Session::insertField(const QJsonObject &args)
                                  QStringLiteral("input_list")};
     if (!okKinds.contains(kind))
         return fail(QStringLiteral("kind must be page_number, page_count, date, title, author, xref, filename, word_count, custom, merge, chapter, var, input, time, cite, filepath, if, doc_info, stat, sender, seq, or input_list"));
-    const QString arg = args.value(QStringLiteral("arg")).toString();
+    // Serialize an object arg once. seq and input_list reuse that string; if
+    // replaces it with the normalized {cond, then, else} object below.
+    const QJsonValue argV = args.value(QStringLiteral("arg"));
+    QString fieldArg;
+    if (argV.isObject())
+        fieldArg = QString::fromUtf8(QJsonDocument(argV.toObject()).toJson(QJsonDocument::Compact));
+    else
+        fieldArg = argV.toString();
     if (kind != QLatin1String("if")) {
-        const QString argErr = validateInsertFieldArgs(kind, arg);
+        const QString argErr = validateInsertFieldArgs(kind, fieldArg);
         if (!argErr.isEmpty())
             return fail(argErr);
     }
@@ -2569,10 +2576,8 @@ QJsonObject Session::insertField(const QJsonObject &args)
     if (!b || b->type == QLatin1String("table") || b->type == QLatin1String("image")
         || b->type == QLatin1String("break"))
         return fail(QStringLiteral("cannot insert field here"));
-    QString fieldArg = args.value(QStringLiteral("arg")).toString();
     if (kind == QLatin1String("if")) {
         QJsonObject spec;
-        const QJsonValue argV = args.value(QStringLiteral("arg"));
         if (argV.isObject())
             spec = argV.toObject();
         else if (argV.isString()) {
@@ -5030,9 +5035,11 @@ QJsonObject Session::validate(const QJsonObject &)
             checkExpr(r.showIf, id);
         if (r.field == QLatin1String("if")) {
             bool exprOk = false;
-            evalIfField(doc_, r.fieldArg, 1, 1, &exprOk);
+            QString exprError;
+            evalIfField(doc_, r.fieldArg, 1, 1, &exprOk, &exprError);
             if (!exprOk)
-                err(QStringLiteral("invalid_expression"), id, QStringLiteral("invalid expression"));
+                err(QStringLiteral("invalid_expression"), id,
+                    exprError.isEmpty() ? QStringLiteral("invalid expression") : exprError);
         }
     };
     for (const auto &b : doc_.body) {

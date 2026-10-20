@@ -1444,8 +1444,16 @@ static int statCount(const Document &doc, const QString &kind, int page, int pag
 {
     if (kind == QLatin1String("pages"))
         return qMax(1, pages);
-    if (kind == QLatin1String("words"))
-        return doc.wordCount();
+    if (kind == QLatin1String("words")) {
+        int n = 0;
+        for (const auto &b : doc.body) {
+            if (!blockVisibleForStat(doc, b, page, pages))
+                continue;
+            const auto parts = b.plainText().split(QRegularExpression(QStringLiteral("\\s+")), Qt::SkipEmptyParts);
+            n += parts.size();
+        }
+        return n;
+    }
     if (kind == QLatin1String("chars")) {
         int n = 0;
         for (const auto &b : doc.body) {
