@@ -90,6 +90,19 @@ Esqueleto para nós paralelos isolados:
     run: scripts/fleet-verify-merged.sh 3 && scripts/qa-all.sh --gui
 ```
 
+## Gate de merge (obrigatório antes de todo merge)
+
+`scripts/pr-merge-gate.py <pr> [--since <push ISO8601>]` — exit 0 = limpo. Confere, no commit HEAD do
+PR: CI e CodeRabbit em `success`; nenhum comentário inline novo do CodeRabbit desde o push; e o
+**corpo** de toda revisão do CodeRabbit nesse commit — `Actionable comments posted`, **`Outside diff
+range comments`** e `Duplicate comments` têm de ser 0 (nitpicks só são relatados); e
+`mergeable_state == clean`. Depois, as threads não resolvidas são conferidas com a tool MCP do GitHub
+(`pull_request_read get_review_comments`). Só então merge.
+
+Origem: no PR #9 o gate antigo contava só comentários inline e o merge saiu com 2 achados que o
+CodeRabbit pôs no corpo da revisão ("Outside diff range" — o GitHub não deixa postá-los inline). A
+auditoria achou mais 3 no mesmo padrão (PRs #4, #6, #9).
+
 ## Notion sempre sincronizado (regra do utilizador)
 
 A documentação no Notion nunca pode ficar atrás do repositório, para outros agentes e serviços não

@@ -24,7 +24,7 @@
 
 **Next suggested step:** Push branch when the user asks; fold into PR #6/#9 review.
 
-**Commits:** `a9c51bd` fix: evaluate hide_if once with page=1 and pages=1 everywhere
+**Commits:** `6274475` fix: evaluate hide_if once with page=1 and pages=1 everywhere
 
 ---
 

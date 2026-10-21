@@ -514,7 +514,7 @@ FieldContext fieldContextFor(const Document &doc, int page, int pages)
     FieldContext ctx = baseContext(doc, page, pages);
     int visibleParagraphs = 0;
     for (const Block &b : doc.body) {
-        if (b.type == QLatin1String("paragraph") && !blockHiddenByExpr(doc, b, page, pages))
+        if (b.type == QLatin1String("paragraph") && !blockHiddenByExpr(doc, b, 1, 1))
             ++visibleParagraphs;
     }
     ctx.paragraphs = visibleParagraphs;

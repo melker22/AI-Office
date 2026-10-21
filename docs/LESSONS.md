@@ -98,6 +98,11 @@ Formato: `L<n> — regra` · onde falhou (evidência) · ocorrências.
 - **L13 — Nó isolado de fase posterior começa com `git merge` da integração anterior.** · Onda 18. · 1
 - **L14 — Revisor procura defeitos da lista acima antes de estilo.** O CodeRabbit achou defeitos que
   duas/três passadas do Sonnet deixaram passar em três ondas seguidas (PR #3, #4, #6). · 3
+- **L18 — O gate de merge lê o corpo da revisão, não só os comentários inline.** O CodeRabbit põe no
+  corpo ("Outside diff range comments") o que o GitHub não deixa postar inline; contar só inline deixou
+  passar 5 achados reais. Usar `scripts/pr-merge-gate.py`. · PR #9 (2 achados: undo do título,
+  exportação read-only), PR #9 1ª rodada (contagem dupla de notas no check_epub), PR #6
+  (`document_stats` com blocos ocultos), PR #4 (catálogo). · 5
 - **L17 — O nó `lessons` lê handoff atual E arquivo antes de avançar o marcador.** Se a entrada de
   handoff de um PR ainda não processado já foi movida para `AI_HANDOFF_ARCHIVE.md`, ler só
   `AI_HANDOFF.md` perde o registro de intervenção e o Passo 4 marca esse PR como processado sem revisitar
