@@ -1,0 +1,15 @@
+{
+  "epub": "/tmp/wave20-epub-criterion.epub",
+  "epubcheck": {"errors": 0, "warnings": 0},
+  "mimetype_stored_first": true,
+  "nav": true,
+  "package_lang": "pt-PT",
+  "chapter_files_min": 2,
+  "footnote_aside_min": 1,
+  "has_lang_span": true,
+  "has_rtl": true,
+  "table_th_min": 1,
+  "nested_list": "required",
+  "image_alt_contains": "Ponto vermelho QA",
+  "hide_if_omitted": ["Secret"]
+}
