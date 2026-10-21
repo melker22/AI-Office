@@ -23,7 +23,7 @@
 
 **Next suggested step:** Merge the pull request. This does not change the product board.
 
-**Commits:** `7569907` fix: encode the GitHub banner SVG as UTF-8
+**Commits:** `7569907` fix: encode the GitHub banner SVG as UTF-8 · `99518f2` docs: record the banner encoding fix in the handoff · `f8d9c88` docs: give the archived ODT change mark a change id
 
 ---
 
