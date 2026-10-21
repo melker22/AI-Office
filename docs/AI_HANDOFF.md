@@ -24,7 +24,7 @@
 
 **Next suggested step:** Push branch and open PR when the user asks; sync Notion if the board is updated.
 
-**Commits:** _(pending — see git log after commit)_
+**Commits:** `7202b26` fix: address CodeRabbit outside-diff findings for save, stats, and EPUB QA
 
 ---
 
