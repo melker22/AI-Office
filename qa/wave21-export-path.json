@@ -10,6 +10,10 @@
   {"tool": "document_save", "args": {"path": "/tmp/wave21-export.html"}, "expect": {"ok": true, "path": "/tmp/wave21-export.aio.json", "dirty": false}},
   {"tool": "document_save", "args": {"path": "/tmp/wave21-export.odt"}, "expect": {"ok": true, "path": "/tmp/wave21-export.odt", "dirty": false}},
   {"tool": "document_save", "args": {"path": "/tmp/wave21-export.docx"}, "expect": {"ok": true, "path": "/tmp/wave21-export.docx", "dirty": false}},
+  {"tool": "insert_at_caret", "args": {"id": "p1", "offset": 0, "text": "j"}},
+  {"tool": "document_save", "args": {"path": "/tmp/wave21-export.json"}, "expect": {"ok": true, "path": "/tmp/wave21-export.json", "dirty": false}},
+  {"tool": "insert_at_caret", "args": {"id": "p1", "offset": 0, "text": "a"}},
+  {"tool": "document_save", "args": {"path": "/tmp/wave21-export.aio"}, "expect": {"ok": true, "path": "/tmp/wave21-export.aio", "dirty": false}},
   {"tool": "document_new", "args": {"title": "Wide table", "force": true}},
   {"tool": "insert_blocks", "args": {"after_id": "start", "blocks": [
     {"type": "table", "rows": [[{"col_span": 10000, "runs": [{"text": "larga"}]}]]}

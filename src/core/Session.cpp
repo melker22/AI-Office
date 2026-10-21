@@ -197,11 +197,20 @@ QVector<int> Session::indexesFor(const QJsonArray &ids) const
 
 namespace {
 
-// Formats that reopen without loss. Everything else written by saveDocument is an export.
-bool isWorkingDocumentPath(const QString &path)
+// Native session JSON on disk (.aio.json, .json, .aio). Shared by loadFrom and saveTo.
+bool isNativeSessionJsonPath(const QString &path)
 {
     const QString lower = path.toLower();
     if (lower.endsWith(QLatin1String(".aio.json")))
+        return true;
+    const QString ext = QFileInfo(path).suffix().toLower();
+    return ext == QLatin1String("aio") || ext == QLatin1String("json");
+}
+
+// Formats that reopen without loss. Everything else written by saveDocument is an export.
+bool isWorkingDocumentPath(const QString &path)
+{
+    if (isNativeSessionJsonPath(path))
         return true;
     const QString ext = QFileInfo(path).suffix().toLower();
     return ext == QLatin1String("odt") || ext == QLatin1String("docx");
@@ -216,7 +225,7 @@ bool Session::saveTo(const QString &path, QString *error, bool embedJson, QJsonO
             doc_.fileName = QFileInfo(path).fileName();
     };
     const QString ext = QFileInfo(path).suffix().toLower();
-    if (ext == QLatin1String("aio") || ext == QLatin1String("json") || path.endsWith(QLatin1String(".aio.json"))) {
+    if (isNativeSessionJsonPath(path)) {
         QFile f(path);
         if (!f.open(QIODevice::WriteOnly)) {
             if (error)
@@ -301,7 +310,7 @@ bool Session::saveTo(const QString &path, QString *error, bool embedJson, QJsonO
 bool Session::loadFrom(const QString &path, QString *error)
 {
     const QString ext = QFileInfo(path).suffix().toLower();
-    if (ext == QLatin1String("aio") || ext == QLatin1String("json") || path.endsWith(QLatin1String(".aio.json"))) {
+    if (isNativeSessionJsonPath(path)) {
         QFile f(path);
         if (!f.open(QIODevice::ReadOnly)) {
             if (error)
