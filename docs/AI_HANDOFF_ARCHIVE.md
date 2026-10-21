@@ -2,6 +2,64 @@
 
 Entradas antigas de `docs/AI_HANDOFF.md` (manter o arquivo vivo com ~20 itens).
 
+## 2026-10-10 — Cursor Grok — Wave 17: format per block, delete inside insert
+
+**Objective:** Fix the two new CodeRabbit majors. One `format` revision per changed non-table block. Rejecting a delete inside an insert must put the restored text back inside that insert. Do not touch `src/app/`. Do not change `shiftRevisionOffsets` for ordinary typing.
+
+**Done:**
+- `applyCharacterFormat` with track changes records one `kind=format` revision per non-table block: that block's id, the range clamped to the block, and that block's `priorRuns`. A range that misses a block records nothing. Tables still get no revision. `revision_reject` restores the named block; `revision_reject_all` restores every one.
+- Rejecting a delete (only `revisionReject` and `revisionRejectAll`) grows every `insert` on the same block with `start <= P <= end` by the restored length (`end += L`). Other revisions keep the `shiftRevisionOffsets` rule. The helper is `shiftRevisionsAfterDeleteReject`; `shiftRevisionOffsets` itself is unchanged.
+- Backspace closes a multi-character insert that ended on the caret. `shiftRevisionOffsets` does not (`end > pivot` is false), so the range would stay one past the live text and `end += L` would count the deleted character twice. A one-character insert is left to the existing shift.
+- Playbook `qa/wave17-reject-repairs.json`: two paragraphs, bold on both, two format revisions, reject one then the other, and `revision_reject_all` leaves neither bold. Insert `abc`, backspace `c` (insert `[0,2)`, delete at 2), `revision_reject_all` leaves empty text; `revision_accept_all` leaves `ab` and no revisions; reject the delete only leaves `abc` with insert `[0,3)`, then reject the insert leaves empty text.
+- `scripts/qa-all.sh --gui --interop`: **32/32** ctests passed; LibreOffice docx→odt and odt→docx ok.
+
+**Decisions:** The grow rule is not folded into `shiftRevisionOffsets`. Closing the insert on backspace is what makes the architect's `[0,2)` → `[0,3)` arithmetic true.
+
+**Next suggested step:** Human `approve-pr` → open the PR to `main`.
+
+**Commits:** `a7b199d` fix: restore every formatted block and a delete inside an insert
+
+---
+
+## 2026-10-10 — Cursor Grok — Wave 17 review: delete point, DOCX JSON precedence
+
+**Objective:** Fix the five CodeRabbit findings on the wave 17 branch. Keep D1 strict (`delete` is `start == end`). Do not touch `src/app/`.
+
+**Done:**
+- `deleteBackward` and selection replacement in `insertAtCaret` record a delete at the point where the text was (`start == end`). `revisionReject` / `revisionRejectAll` shift other revisions by the restored length (`revisionRunsLen`), not `end - start`. `Revision::fromJson` collapses a legacy wide delete to that point so old files still pass `validate`.
+- `loadDocx` skips native `w:ins` / `w:del` / `w:rPrChange` revisions when `word/aioffice.json` has a non-empty `revisions` array. The foreign path (no JSON) is unchanged.
+- `applyCharacterFormat` with track changes stores `blockId` of the non-table block that supplied `priorRuns`, and clamps the range to that block before `splitRuns`.
+- `qa/check_roundtrip.py` and `scripts/qa-interop.py` give `aioffice-cli` `timeout=300` and exit on `TimeoutExpired`. The interop playbook file is removed in a `finally`.
+- D9 in `docs/waves/wave17-roundtrip.md` escapes the `|` in ``playbook\|roundtrip``.
+- New playbook `qa/wave17-delete-point.json` plus `qa/wave17-delete-legacy.aio.json`. The DOCX playbook covers a format change across two runs saved with JSON (exactly one format revision).
+- `scripts/qa-all.sh --gui --interop`: **31/31** ctests passed; LibreOffice docx→odt and odt→docx ok.
+
+**Decisions:** `validate` still rejects an in-memory delete with `start != end`. Load normalizes legacy width, so the old negative expect on `wave17-docx-revisions-invalid.aio.json` now checks the remaining insert/format errors. `backspace` is an MCP tool so a playbook can drive `commitBackspace`.
+
+**Next suggested step:** Human `approve-pr` → open the PR to `main`.
+
+**Commits:** `659da86` fix: keep tracked deletes zero-width and trust DOCX JSON revisions
+
+---
+
+## 2026-10-10 — Fleet wave17 — Composer / Cursor Grok / Grok Build / Sonnet
+
+**Objective:** Close the fleet `review` loop on wave 17 revision round-trip (D1–D10): re-run the real gate, confirm the four prior review findings are fixed, record handoff + catalog.
+
+**Done:**
+- Fleet `review` submitted **`{"issues":0,"findings":[]}`** on the second pass; no code changes on that node.
+- Re-verified the four earlier findings: (1) `revision_reject`/`revision_reject_all` for `format` restores `priorRuns` via `restoreFormatPrior` + `shiftRevisionOffsets` in `Session.cpp`; (2) `applyCharacterFormat` captures `priorRuns` before mutating runs; (3) `validate()` rejects delete with `start != end` and insert/format with `end < start` (`qa/wave17-docx-revisions-invalid.aio.json` + negative expects); (4) CTest `roundtrip_foreign_docx_wave17` + `document_save {embed_json:false}` foreign reimport path.
+- Extra manual check (no playbook): format revision without `priorRuns` (e.g. from third-party ODT) — `revision_accept` ok; `revision_reject` / `revision_reject_all` → `{ok:false,error:"format revision has no prior formatting"}`.
+- **`scripts/qa-all.sh --gui --interop`** (nix-shell, full build): **30/30 ctest** passed (includes `playbook_wave17-docx-revisions.json`, `roundtrip_foreign_docx_wave17`, wave 17 ODT playbooks/fixtures); **interop** LibreOffice **docx→odt** and **odt→docx** green.
+
+**Decisions:** Nested footnotes/endnotes stay **Fora** (D10); multi-paragraph notes are a new catalog Todo, not wave 17 scope.
+
+**Next suggested step:** Fleet **`handoff`** done; human **`approve-pr`** → open PR to **`main`**.
+
+**Commits (branch vs `main`):** `dd8378c` merge: land the wave17 t1 completion (D1/D2) left out of integrate-2 · `dee390b` docs: record the wave17 t4 merge commit hash in the handoff · `8a9efb6` merge: land t3 ctest fixtures on the DOCX revision interop branch · `80de02a` merge: integrate wave17 t3 ctest fixtures and t4 interop · `900f28d` docs: record the LibreOffice interop commit hash in the handoff · `49cad9c` feat: round-trip revision marks through LibreOffice · `c99cb33` feat: add ctest roundtrip fixtures and foreign revision QA · `5886b0b` docs: record wave17 integrate-1 merge and QA on the fleet branch · `0f5956c` merge: integrate wave17 t1 docx and t2 odt revisions · `00edabe` docs: record the ODT revision commit hash in the handoff · `47ac260` feat: round-trip ODT insert, delete, and format revisions · `157e642` docs: add wave 17 revision round-trip spec and Fleet
+
+---
+
 ## 2026-10-10 — Cursor Grok — Wave 17 t4: ctest merge, revision invariant, foreign DOCX
 
 **Objective:** Merge the t3 ctest/fixtures branch into this interop branch, keep the D3/D4 DOCX markup, implement D1 and D2, and register the foreign DOCX ctest. `scripts/qa-all.sh --gui --interop` must stay green.
