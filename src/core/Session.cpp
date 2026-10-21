@@ -5,6 +5,7 @@
 #include "core/FieldExpr.h"
 #include "core/Odf.h"
 #include "core/Preview.h"
+#include "core/RtfReader.h"
 #include "core/Spell.h"
 #include "lok/LokEngine.h"
 
@@ -321,7 +322,13 @@ bool Session::loadFrom(const QString &path, QString *error)
         doc_.fileName = QFileInfo(path).fileName();
         return true;
     }
-    if (ext == QLatin1String("doc") || ext == QLatin1String("rtf") || ext == QLatin1String("ott")) {
+    if (ext == QLatin1String("rtf")) {
+        if (!loadRtfFile(path, doc_, error))
+            return false;
+        doc_.fileName = QFileInfo(path).fileName();
+        return true;
+    }
+    if (ext == QLatin1String("doc") || ext == QLatin1String("ott")) {
         QTemporaryDir tmp;
         const QString odt = tmp.filePath(QFileInfo(path).completeBaseName() + QStringLiteral(".odt"));
         if (!LokEngine::convertTo(path, odt, QStringLiteral("odt:writer8"), error))
