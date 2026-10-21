@@ -5,6 +5,7 @@
 #include <QFileInfo>
 #include <QHash>
 #include <QRegularExpression>
+#include <QSet>
 #include <QStringDecoder>
 #include <QVector>
 
@@ -1649,28 +1650,27 @@ private:
         return true;
     }
 
-    bool noteIdInDocument(const QString &id, int start) const
+    // One pass over body[start..]. A per-note scan is quadratic when one
+    // paragraph or one table flushes tens of thousands of notes together.
+    QSet<QString> noteIdsInDocument(int start) const
     {
-        auto has = [&](const QVector<TextRun> &runs) {
+        QSet<QString> ids;
+        auto collect = [&](const QVector<TextRun> &runs) {
             for (const TextRun &r : runs) {
-                if (r.noteId == id)
-                    return true;
+                if (!r.noteId.isEmpty())
+                    ids.insert(r.noteId);
             }
-            return false;
         };
         const int from = qMax(0, start);
         for (int i = from; i < doc_.body.size(); ++i) {
             const Block &b = doc_.body.at(i);
-            if (has(b.runs))
-                return true;
+            collect(b.runs);
             for (const auto &row : b.table) {
-                for (const TableCell &c : row) {
-                    if (has(c.runs))
-                        return true;
-                }
+                for (const TableCell &c : row)
+                    collect(c.runs);
             }
         }
-        return false;
+        return ids;
     }
 
     void resolveNotes(bool onlyInDocument)
@@ -1680,15 +1680,19 @@ private:
             return;
         }
         const int start = noteScanFrom_;
+        const QSet<QString> inDoc = onlyInDocument ? noteIdsInDocument(start) : QSet<QString>{};
         QVector<PendingNote> now;
         QVector<PendingNote> later;
+        now.reserve(pendingNotes_.size());
         for (const PendingNote &note : pendingNotes_) {
-            if (!onlyInDocument || noteIdInDocument(note.tempId, start))
+            if (!onlyInDocument || inDoc.contains(note.tempId))
                 now.push_back(note);
             else
                 later.push_back(note);
         }
-        pendingNotes_ = later;
+        pendingNotes_ = std::move(later);
+        QHash<QString, QString> idMap;
+        idMap.reserve(now.size());
         for (const PendingNote &note : now) {
             Block nb;
             nb.type = QStringLiteral("footnote");
@@ -1700,10 +1704,13 @@ private:
             if (runs.isEmpty())
                 runs.push_back(TextRun{});
             nb.runs = runs;
-            if (!addBlock(nb))
+            if (!addBlock(nb)) {
+                replaceNoteIds(idMap, start);
                 return;
-            replaceNoteId(note.tempId, doc_.body.last().id, start);
+            }
+            idMap.insert(note.tempId, doc_.body.last().id);
         }
+        replaceNoteIds(idMap, start);
         if (pendingNotes_.isEmpty())
             noteScanFrom_ = doc_.body.size();
     }
@@ -1722,12 +1729,17 @@ private:
         }
     }
 
-    void replaceNoteId(const QString &from, const QString &to, int start)
+    void replaceNoteIds(const QHash<QString, QString> &map, int start)
     {
+        if (map.isEmpty())
+            return;
         auto fix = [&](QVector<TextRun> &runs) {
             for (TextRun &r : runs) {
-                if (r.noteId == from)
-                    r.noteId = to;
+                if (r.noteId.isEmpty())
+                    continue;
+                const auto it = map.constFind(r.noteId);
+                if (it != map.constEnd())
+                    r.noteId = it.value();
             }
         };
         const int fromIndex = qMax(0, start);

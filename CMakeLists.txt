@@ -208,6 +208,8 @@ set(_AIO_PYTHON "${CMAKE_SOURCE_DIR}/qa/check_roundtrip.py")
 add_test(NAME play_expect_shape COMMAND "${CMAKE_COMMAND}" -E env AIOFFICE_HEADLESS=1 QT_QPA_PLATFORM=offscreen
     "${Python3_EXECUTABLE}" "${CMAKE_SOURCE_DIR}/qa/check_play_expect.py" "${AIOFFICE_CLI}")
 set_tests_properties(play_expect_shape PROPERTIES LABELS "playbook" WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}")
+add_test(NAME mcp_doc_export_prose COMMAND "${Python3_EXECUTABLE}" "${CMAKE_SOURCE_DIR}/qa/check_mcp_prose.py")
+set_tests_properties(mcp_doc_export_prose PROPERTIES LABELS "playbook" WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}")
 file(GLOB _aio_fixtures CONFIGURE_DEPENDS "${CMAKE_SOURCE_DIR}/qa/fixtures/*-foreign.docx" "${CMAKE_SOURCE_DIR}/qa/fixtures/*-foreign.odt")
 foreach(_fx IN LISTS _aio_fixtures)
     get_filename_component(_fx_name "${_fx}" NAME)
@@ -331,5 +333,13 @@ add_test(NAME rtf_footnote_scale COMMAND "${CMAKE_COMMAND}" -E env AIOFFICE_HEAD
 set_tests_properties(rtf_footnote_scale PROPERTIES
     LABELS "rtf"
     TIMEOUT 120
+    WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}"
+)
+add_test(NAME rtf_footnote_flush COMMAND "${CMAKE_COMMAND}" -E env AIOFFICE_HEADLESS=1 QT_QPA_PLATFORM=offscreen
+    "${Python3_EXECUTABLE}" "${CMAKE_SOURCE_DIR}/qa/check_rtf.py"
+    --cli "${AIOFFICE_CLI}" --footnote-flush 100000 --footnote-table 20000 --footnote-max-seconds 8)
+set_tests_properties(rtf_footnote_flush PROPERTIES
+    LABELS "rtf"
+    TIMEOUT 90
     WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}"
 )

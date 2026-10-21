@@ -2,6 +2,7 @@
 
 #include "core/Document.h"
 
+#include <QBuffer>
 #include <QFile>
 #include <QFileInfo>
 #include <QImage>
@@ -319,10 +320,17 @@ struct RtfOut {
         QString instr;
         if (nativeFieldInstr(r, instr)) {
             // A hyperlink run has link set and field empty. nativeFieldInstr
-            // still builds HYPERLINK for that shape.
+            // still builds HYPERLINK for that shape. The result group carries
+            // the same character properties as a run outside a field, or bold
+            // and color on the link are dropped on the round trip.
             const QString result = !r.field.isEmpty() ? fieldResult(r) : (r.text.isEmpty() ? r.link : r.text);
+            const QString props = charProps(r, defFont, defSizeHalfPt);
+            const QString shown = escapeText(result);
+            const QString rslt = props.isEmpty()
+                ? shown
+                : QLatin1Char('{') + props + QLatin1Char(' ') + shown + QLatin1Char('}');
             out += QStringLiteral("{\\field{\\*\\fldinst %1}{\\fldrslt %2}}")
-                       .arg(escapeText(instr.trimmed()), escapeText(result));
+                       .arg(escapeText(instr.trimmed()), rslt);
             return out;
         }
         if (!r.field.isEmpty()) {
@@ -422,6 +430,11 @@ struct RtfOut {
         return id;
     }
 
+    QString imageAlt(const Block &b) const
+    {
+        return escapeText(b.altText.isEmpty() ? b.plainText() : b.altText);
+    }
+
     QString pictPng(const Block &b)
     {
         QByteArray bytes = b.imageBytes;
@@ -432,12 +445,7 @@ struct RtfOut {
         }
         if (bytes.isEmpty()) {
             warnOnce(QStringLiteral("RTF export: image block has no bytes"));
-            return escapeText(b.altText.isEmpty() ? b.plainText() : b.altText);
-        }
-        QString hex;
-        hex.reserve(bytes.size() * 2);
-        for (unsigned char ch : bytes) {
-            hex += QStringLiteral("%1").arg(static_cast<int>(ch), 2, 16, QLatin1Char('0'));
+            return imageAlt(b);
         }
         const bool mimeJpeg = b.imageMime.contains(QLatin1String("jpeg"), Qt::CaseInsensitive)
             || b.imageMime.contains(QLatin1String("jpg"), Qt::CaseInsensitive);
@@ -446,13 +454,35 @@ struct RtfOut {
             && static_cast<unsigned char>(bytes.at(0)) == 0xFF
             && static_cast<unsigned char>(bytes.at(1)) == 0xD8;
         const bool jpeg = mimeJpeg || (!mimePng && magicJpeg);
-        const QImage probed = QImage::fromData(bytes);
+        QByteArray payload = bytes;
         int pxW = 1;
         int pxH = 1;
-        if (!probed.isNull() && probed.width() > 0 && probed.height() > 0) {
-            pxW = probed.width();
-            pxH = probed.height();
+        if (jpeg) {
+            const QImage probed = QImage::fromData(bytes);
+            if (!probed.isNull() && probed.width() > 0 && probed.height() > 0) {
+                pxW = probed.width();
+                pxH = probed.height();
+            }
+        } else {
+            // \pngblip must be PNG bytes. insert_image labels every non-JPEG
+            // suffix as image/png, so BMP, GIF, and WebP would otherwise be
+            // written under the wrong blip. Keep the original JPEG bytes.
+            const QImage decoded = QImage::fromData(bytes);
+            if (decoded.isNull() || decoded.width() <= 0 || decoded.height() <= 0) {
+                warnOnce(QStringLiteral("RTF export: image could not be encoded as PNG"));
+                return imageAlt(b);
+            }
+            QByteArray png;
+            QBuffer buffer(&png);
+            if (!buffer.open(QIODevice::WriteOnly) || !decoded.save(&buffer, "PNG") || png.isEmpty()) {
+                warnOnce(QStringLiteral("RTF export: image could not be encoded as PNG"));
+                return imageAlt(b);
+            }
+            payload = png;
+            pxW = decoded.width();
+            pxH = decoded.height();
         }
+        const QString hex = QString::fromLatin1(payload.toHex());
         const int wTwips = qMax(100, qRound(double(b.imageWidthMm) * kTwipsPerMm / 10.0));
         const int hTwips = qMax(1, qRound(double(wTwips) * double(pxH) / double(pxW)));
         return QStringLiteral("{\\pict\\%1\\picw%2\\pich%3\\picwgoal%4\\pichgoal%5 %6}")

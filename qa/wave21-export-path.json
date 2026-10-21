@@ -23,5 +23,29 @@
     "path": "",
     "dirty": true,
     "warnings.0": "RTF export: block comments exported as plain text"
+  }},
+  {"tool": "document_new", "args": {"title": "Titulo limpo", "force": true}, "expect": {"ok": true, "dirty": false, "title": "Titulo limpo"}},
+  {"tool": "insert_at_caret", "args": {"id": "p1", "offset": 0, "text": "Trabalho"}},
+  {"tool": "document_save", "args": {"path": "/tmp/wave21-title.aio.json"}, "expect": {"ok": true, "dirty": false, "path": "/tmp/wave21-title.aio.json", "title": "Titulo limpo"}},
+  {"tool": "document_save", "args": {"path": "/tmp/wave21-title-export.rtf", "title": "Titulo exportado"}, "expect": {"ok": true, "dirty": true, "path": "/tmp/wave21-title.aio.json", "title": "Titulo exportado"}},
+  {"tool": "document_new", "args": {"title": "Descarta"}, "expect": {"ok": false, "error": "document is unsaved; pass force=true to discard"}},
+  {"tool": "document_save", "args": {"path": "/tmp/wave21-title.aio.json"}, "expect": {"ok": true, "dirty": false, "path": "/tmp/wave21-title.aio.json", "title": "Titulo exportado"}},
+  {"tool": "document_open", "args": {"path": "/tmp/wave21-title.aio.json"}, "expect": {"ok": true, "dirty": false, "title": "Titulo exportado"}},
+  {"tool": "document_save", "args": {"path": "/tmp/wave21-title.md", "title": "Titulo md"}, "expect": {"ok": true, "dirty": true, "path": "/tmp/wave21-title.aio.json", "title": "Titulo md"}},
+  {"tool": "document_save", "args": {"path": "/tmp/wave21-title.odt"}, "expect": {"ok": true, "dirty": false, "path": "/tmp/wave21-title.odt", "title": "Titulo md"}},
+  {"tool": "document_save", "args": {"path": "/tmp/wave21-title.docx", "title": "Titulo docx"}, "expect": {"ok": true, "dirty": false, "path": "/tmp/wave21-title.docx", "title": "Titulo docx"}},
+  {"tool": "document_new", "args": {"title": "Limpo de novo"}, "expect": {"ok": true, "dirty": false, "title": "Limpo de novo"}},
+  {"tool": "document_new", "args": {"title": "Imagem ruim", "force": true}},
+  {"tool": "replace_range", "args": {"id": "p1", "blocks": [
+    {"type": "image", "image_b64": "bm90YW5pbWFnZQ==", "image_mime": "image/gif", "alt": "Figura quebrada", "width_mm": 12}
+  ]}},
+  {"tool": "document_save", "args": {"path": "/tmp/wave21-bad-image.rtf"}, "expect": {
+    "ok": true,
+    "warnings.0": "RTF export: image could not be encoded as PNG"
+  }},
+  {"tool": "document_open", "args": {"path": "/tmp/wave21-bad-image.rtf"}, "expect": {"ok": true}},
+  {"tool": "document_get", "args": {}, "expect": {
+    "ok": true,
+    "document.body.0.runs.0.text": "Figura quebrada"
   }}
 ]

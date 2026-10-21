@@ -421,8 +421,16 @@ QJsonObject Session::saveDocument(const QJsonObject &args)
         path = path_;
     if (path.isEmpty())
         return fail(QStringLiteral("path is required (no current file)"));
-    if (args.contains(QStringLiteral("title")))
-        doc_.title = args.value(QStringLiteral("title")).toString();
+    if (args.contains(QStringLiteral("title"))) {
+        const QString nextTitle = args.value(QStringLiteral("title")).toString();
+        // An export is not the working file. Set dirty_ before the write, or a
+        // clean session still reports dirty:false and document_new drops the
+        // new title. A working-document save clears dirty_ below.
+        if (nextTitle != doc_.title) {
+            doc_.title = nextTitle;
+            markChanged();
+        }
+    }
     // Republish stat after an edit. A clean save leaves an imported cache alone.
     refreshIfFields(doc_, dirty_);
     QString err;

@@ -137,6 +137,9 @@ def run_props_match(got: dict, want: dict) -> bool:
         elif key in ("field", "field_arg", "lang", "link"):
             if (got.get(key) or "") != (val or ""):
                 return False
+        elif key in ("color", "highlight"):
+            if (got.get(key) or "").lower() != (str(val) if val is not None else "").lower():
+                return False
     return True
 
 
@@ -179,14 +182,48 @@ def compare_body(doc: dict, exp: dict[str, Any]) -> list[str]:
             joined = "\n".join(plain_block(body, i) for i in range(len(body)))
             if needle not in joined:
                 errors.append(f"plain text missing {needle!r}")
+    if "png_image_count" in exp:
+        images = [b for b in body if (b.get("type") or "") == "image"]
+        want_n = int(exp["png_image_count"])
+        if len(images) != want_n:
+            errors.append(f"png image count {len(images)} != {want_n}")
+        for i, image in enumerate(images):
+            mime = image.get("image_mime") or ""
+            b64 = image.get("image_b64") or ""
+            if mime != "image/png":
+                errors.append(f"image {i} mime {mime!r} != 'image/png'")
+            if not b64.startswith("iVBORw0KGgo"):
+                errors.append(f"image {i} bytes are not a PNG ({b64[:16]!r})")
     return errors
 
 
-def try_open(cli: Path, path: Path) -> tuple[bool, str, dict | None]:
+def pngblip_errors(rtf_text: str) -> list[str]:
+    """Every \\pngblip payload must be a PNG, not the original GIF or BMP.
+
+    Control-word arguments (\\picw, \\picwgoal) sit in the same group. The
+    image is the long hex run after them, not those short numbers.
+    """
+    errors: list[str] = []
+    payloads = re.findall(r"\\pngblip\b([^{}]*)", rtf_text)
+    if not payloads:
+        return ["RTF has no \\pngblip"]
+    for i, raw in enumerate(payloads):
+        blobs = re.findall(r"[0-9a-fA-F]+", raw)
+        hexbody = max(blobs, key=len).lower() if blobs else ""
+        if not hexbody.startswith("89504e47"):
+            errors.append(f"pngblip {i} does not start with the PNG signature ({hexbody[:16]})")
+        if hexbody.startswith("47494638"):
+            errors.append(f"pngblip {i} is still a GIF")
+        if hexbody.startswith("424d"):
+            errors.append(f"pngblip {i} is still a BMP")
+    return errors
+
+
+def try_open(cli: Path, path: Path, timeout: int = 60) -> tuple[bool, str, dict | None]:
     proc = run_cmd(
         [str(cli), "call", "document_open", json.dumps({"path": str(path.resolve())})],
         env=headless_env(),
-        timeout=60,
+        timeout=timeout,
     )
     raw = proc.stdout.strip()
     if not raw:
@@ -220,6 +257,8 @@ def roundtrip(cli: Path, playbook: Path, expect_path: Path) -> list[str]:
         goals_h = re.findall(r"\\pichgoal(-?\d+)", rtf_text)
         if not goals_w or not goals_h or goals_w[0] == goals_h[0]:
             errors.append(f"picwgoal/pichgoal not a non-square pair: {goals_w[:1]} {goals_h[:1]}")
+    if exp.get("pngblip_is_png"):
+        errors.extend(pngblip_errors(rtf_text))
     results = play_calls(
         cli,
         [
@@ -229,6 +268,108 @@ def roundtrip(cli: Path, playbook: Path, expect_path: Path) -> list[str]:
     )
     doc = results[-1].get("document") or {}
     errors.extend(compare_body(doc, exp))
+    return errors
+
+
+BLOCK_LIMIT = "RTF document exceeds 100000 blocks"
+
+
+def _rtf_header() -> str:
+    return (
+        "{\\rtf1\\ansi\\ansicpg1252\\uc1\\deff0\n"
+        "{\\fonttbl{\\f0\\fnil Liberation Serif;}}\n"
+    )
+
+
+def _note_groups(count: int) -> str:
+    return "".join(f"{{\\footnote{{\\pard\\plain N{i}\\par}}}}" for i in range(count))
+
+
+def _footnote_body(doc: dict) -> tuple[list, list]:
+    body = doc.get("body") or []
+    notes = [b for b in body if (b.get("type") or "") == "footnote"]
+    return body, notes
+
+
+def _check_open_notes(data: dict, count: int, *, markers_in: str) -> list[str]:
+    errors: list[str] = []
+    doc = data.get("document") or {}
+    body, notes = _footnote_body(doc)
+    if len(notes) != count:
+        errors.append(f"footnote count {len(notes)} != {count}")
+        return errors
+    note_ids = {b.get("id") for b in notes}
+    if markers_in == "paragraph":
+        runs = (body[0].get("runs") or []) if body else []
+    else:
+        tables = [b for b in body if (b.get("type") or "") == "table"]
+        if len(tables) != 1:
+            return [f"table count {len(tables)} != 1"]
+        rows = tables[0].get("rows") or []
+        cell = rows[0][0] if rows and rows[0] else {}
+        runs = cell.get("runs") or []
+    markers = [r for r in runs if r.get("note_id")]
+    if len(markers) != count:
+        errors.append(f"marker count {len(markers)} != {count}")
+    if markers:
+        if (markers[0].get("text") or "") != "1":
+            errors.append(f"first marker {markers[0].get('text')!r} != '1'")
+        if (markers[-1].get("text") or "") != str(count):
+            errors.append(f"last marker {markers[-1].get('text')!r} != {count!r}")
+        if markers[0].get("note_id") not in note_ids:
+            errors.append(f"first marker id {markers[0].get('note_id')!r} is not a footnote block")
+        if any(str(r.get("note_id") or "").startswith("rtf-note-") for r in markers):
+            errors.append("a marker still has a temporary note id")
+    first = "".join(r.get("text") or "" for r in (notes[0].get("runs") or []))
+    last = "".join(r.get("text") or "" for r in (notes[-1].get("runs") or []))
+    if first != "N0":
+        errors.append(f"first footnote {first!r} != 'N0'")
+    if last != f"N{count - 1}":
+        errors.append(f"last footnote {last!r} != 'N{count - 1}'")
+    return errors
+
+
+def footnote_same_flush(cli: Path, count: int, max_seconds: float, kind: str) -> list[str]:
+    """Many notes resolved in one resolveNotes call.
+
+    One paragraph of 100000 notes hits the block cap. A table keeps every
+    note pending until pushTable. Either way the open must finish in
+    max_seconds, with the block-limit error when the cap is reached.
+    """
+    with tempfile.TemporaryDirectory(prefix="wave20-fn-flush-") as tmp:
+        path = Path(tmp) / "notes.rtf"
+        notes = _note_groups(count)
+        if kind == "paragraph":
+            body = f"\\pard {notes}\\par\n"
+        elif kind == "table":
+            body = f"\\trowd\\cellx9000\\pard\\intbl {notes}\\cell \\row\n\\pard\n"
+        else:
+            return [f"unknown flush kind {kind!r}"]
+        path.write_text(_rtf_header() + body + "}", encoding="ascii")
+        started = time.perf_counter()
+        try:
+            ok, err, data = try_open(cli, path, timeout=int(max_seconds) + 20)
+        except SystemExit as exc:
+            return [f"footnote {kind} flush did not finish: {exc}"]
+        elapsed = time.perf_counter() - started
+    errors: list[str] = []
+    if elapsed > max_seconds:
+        errors.append(f"footnote {kind} flush took {elapsed:.2f}s, limit {max_seconds}s")
+    hits_cap = count >= 100000
+    if hits_cap:
+        if ok:
+            errors.append(f"footnote {kind} flush of {count} opened; expected the block limit")
+        elif BLOCK_LIMIT not in err:
+            errors.append(f"footnote {kind} flush error {err!r} is not the block limit")
+        return errors
+    if not ok or not data:
+        if BLOCK_LIMIT in err:
+            errors.append(f"footnote {kind} flush of {count} hit the block limit")
+        else:
+            errors.append(f"footnote {kind} flush open failed: {err}")
+        return errors
+    where = "paragraph" if kind == "paragraph" else "table"
+    errors.extend(_check_open_notes(data, count, markers_in=where))
     return errors
 
 
@@ -343,6 +484,18 @@ def main() -> int:
     parser.add_argument("--fixture", type=Path, help="foreign or hostile .rtf fixture")
     parser.add_argument("--self-test", action="store_true")
     parser.add_argument("--footnote-scale", type=int, default=0, help="import N generated footnotes")
+    parser.add_argument(
+        "--footnote-flush",
+        type=int,
+        default=0,
+        help="one paragraph with N footnotes resolved in one flush",
+    )
+    parser.add_argument(
+        "--footnote-table",
+        type=int,
+        default=0,
+        help="one table cell with N footnotes resolved in one flush",
+    )
     parser.add_argument("--footnote-max-seconds", type=float, default=8.0)
     args = parser.parse_args()
 
@@ -353,13 +506,30 @@ def main() -> int:
     if not cli.is_file():
         raise SystemExit(f"missing cli: {cli}")
 
-    if args.footnote_scale:
-        errors = footnote_scale(cli, args.footnote_scale, args.footnote_max_seconds)
+    if args.footnote_scale or args.footnote_flush or args.footnote_table:
+        errors: list[str] = []
+        if args.footnote_scale:
+            errors.extend(footnote_scale(cli, args.footnote_scale, args.footnote_max_seconds))
+        if args.footnote_flush:
+            errors.extend(
+                footnote_same_flush(cli, args.footnote_flush, args.footnote_max_seconds, "paragraph")
+            )
+        if args.footnote_table:
+            errors.extend(
+                footnote_same_flush(cli, args.footnote_table, args.footnote_max_seconds, "table")
+            )
         if errors:
             for err in errors:
                 print(f"FAIL {err}")
             return 1
-        print(f"ok   footnote scale {args.footnote_scale}")
+        parts = []
+        if args.footnote_scale:
+            parts.append(f"scale {args.footnote_scale}")
+        if args.footnote_flush:
+            parts.append(f"flush {args.footnote_flush}")
+        if args.footnote_table:
+            parts.append(f"table {args.footnote_table}")
+        print("ok   footnote " + ", ".join(parts))
         return 0
 
     if args.fixture:
