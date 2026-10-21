@@ -8,6 +8,26 @@
 
 ---
 
+## 2026-10-21 — Cursor Grok 4.7 — CodeRabbit wave 20 follow-up
+
+**Objective:** Fix the five new CodeRabbit findings after `d16f7a7`. Bound same-flush footnote resolution. Keep hyperlink character formatting, re-encode non-JPEG pictures, mark a new export title dirty, and document `.doc` as a LibreOffice export. No `src/app/`, no `.cockpit/`, no push.
+
+**Done:**
+- #0: `resolveNotes` collects note ids from `body[start..]` once, records tempId to finalId while adding footnote blocks, and runs one `replaceNoteIds`. A failed `addBlock` still rewrites the ids already assigned. `rtf_footnote_flush` rejects a 100000-note paragraph with the block-limit error and opens a 20000-note table; the test finished in 2.02 s. `rtf_footnote_scale` (8000 notes, one per paragraph) still passes.
+- #1: `\fldrslt` wraps the result in the run's character properties. Round trip: hyperlink and page number in bold and color (`qa/wave20-rtf-hyperlink.json`).
+- #2: non-JPEG bytes are decoded and saved as PNG before `\pngblip`. Decode or encode failure warns once and writes the alt text. GIF and BMP fixtures round-trip as PNG (`qa/wave20-rtf-pict.json`).
+- #3: `document_save` with a new `title` calls `markChanged` before the write. Only `.aio.json`, `.odt`, and `.docx` clear dirty. `qa/wave21-export-path.json` expects `document_new` to refuse the unsaved title.
+- #4: ToolDispatch and `docs/mcp-tools.md` name `.doc` as an export-only LibreOffice Word 97 write. `mcp_doc_export_prose` checks both.
+- `scripts/qa-all.sh --gui --interop --pdf --formats`: **80/80** ctest passed (140.39 s). Interop ok.
+
+**Decisions:** `.doc` stays export-only; the playbook does not call soffice. A title marks dirty only when the string changes. On the block cap, ids already added are rewritten before the reader returns. Every non-JPEG, including a valid PNG, is re-encoded. Nested note ids that are not in this flush's map stay until a later flush.
+
+**Next suggested step:** Push is still waiting on the user. Sync the review fixes to Notion when the board is updated.
+
+**Commits:** `6dcc356` fix: bound RTF note resolution and keep export titles dirty
+
+---
+
 ## 2026-10-21 — Cursor Grok 4.7 — CodeRabbit wave 20 EPUB/RTF review
 
 **Objective:** Fix all 18 CodeRabbit findings on PR #9 (wave 20). Working saves stay `.aio.json`, `.odt`, and `.docx`. EPUB, PDF, Markdown, text, HTML, and RTF are exports. No `src/app/`, no `.cockpit/`, no push.
@@ -399,26 +419,6 @@ b748399 feat: PDF export XMP metadata, PDF/A flatten warnings, and ua mode
 **Next suggested step:** integrate-2 merges this with the DOCX field export. The interop docx→odt check compares surviving text, not a native IF, until that export lands.
 
 **Commits:** `0c9fcd1` feat: round-trip wave 18 fields through ODT
-
----
-
-## 2026-10-10 — Cursor Grok — Wave 18 t1: field expressions
-
-**Objective:** D1 + D3. Recursive-descent expression evaluator, `showIf` expressions, `Block.hideIf`, `if` field, `field_evaluate`, and `validate` `invalid_expression`. Do not touch `src/app/`. Leave the other `runDisplayText` field branches for the parallel field-kinds task.
-
-**Done:**
-- `src/core/FieldExpr.{h,cpp}`: literals, `doc.vars`, numeric refs (`page`, `pages`, `words`, `chars`, `paragraphs`, `tables`, `images`), comparisons, `&&` `||` `!`, parentheses. Numeric compare only when both sides are numbers; otherwise string. No eval/scripting.
-- A bare `showIf` name keeps the old variable rule. Any other `showIf` is an expression; a syntax error displays `#ERR`.
-- `hide_if` on a block (JSON and `apply_paragraph_format`) drops the paragraph from layout, `page_preview`, and PDF, and from `document_stats` paragraphs. The block stays in the JSON and in search. `page_preview` returns `ids` of the blocks laid out on the page.
-- Field `if` with arg `{cond, then, else}` follows `set_vars`. Invalid cond shows `#ERR`. `validate` reports `invalid_expression` with the block id.
-- MCP tool `field_evaluate {expr}` → `{value, type}` or `{ok:false, error}`.
-- Playbook `qa/wave18-expr.json`. `scripts/qa-all.sh --gui`: **33/33** ctests passed.
-
-**Decisions:** `hideIf` is judged against unfiltered totals so the decision does not recurse. The reported `paragraphs` count (expression and `document_stats`) excludes hidden paragraphs. A single identifier in `showIf`, including `page`, stays a variable name.
-
-**Next suggested step:** Fleet integrate-1 merges this with the field-kinds branch (`if` is the only new `runDisplayText` arm here).
-
-**Commits:** `7848309` feat: evaluate field expressions for conditional text
 
 ---
 
