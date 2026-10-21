@@ -154,6 +154,44 @@ def epub_text_bundle(epub: Path) -> str:
     return "\n".join(parts)
 
 
+XHTML_NS = "http://www.w3.org/1999/xhtml"
+EPUB_NS = "http://www.idpf.org/2007/ops"
+
+
+def toc_anchor_texts(epub: Path) -> list[str]:
+    with zipfile.ZipFile(epub) as zf:
+        name = next((n for n in zf.namelist() if n.lower().endswith("nav.xhtml")), "")
+        if not name:
+            return []
+        root = ET.fromstring(zf.read(name))
+    texts: list[str] = []
+    for nav in root.iter(f"{{{XHTML_NS}}}nav"):
+        if nav.get(f"{{{EPUB_NS}}}type") != "toc":
+            continue
+        for anchor in nav.iter(f"{{{XHTML_NS}}}a"):
+            texts.append("".join(anchor.itertext()).strip())
+    return texts
+
+
+def aside_plain(epub: Path) -> str:
+    parts: list[str] = []
+    with zipfile.ZipFile(epub) as zf:
+        names = sorted(
+            n for n in zf.namelist() if n.lower().endswith(".xhtml") and "nav" not in n.lower()
+        )
+        for name in names:
+            root = ET.fromstring(zf.read(name))
+            for aside in root.iter(f"{{{XHTML_NS}}}aside"):
+                parts.append("".join(aside.itertext()))
+    return "\n".join(parts)
+
+
+def png_size(data: bytes) -> tuple[int, int]:
+    if len(data) < 24 or data[:8] != b"\x89PNG\r\n\x1a\n":
+        return 0, 0
+    return int.from_bytes(data[16:20], "big"), int.from_bytes(data[20:24], "big")
+
+
 def check_structure(epub: Path, exp: dict[str, Any]) -> list[str]:
     errors: list[str] = []
     if exp.get("mimetype_stored_first", True) and not mimetype_stored_first(epub):
@@ -225,6 +263,54 @@ def check_structure(epub: Path, exp: dict[str, Any]) -> list[str]:
     if isinstance(alt_text, str) and alt_text:
         if alt_text not in bundle:
             errors.append(f"missing image alt containing {alt_text!r}")
+
+    for tag in exp.get("lang_spans") or []:
+        if not isinstance(tag, str) or not tag:
+            continue
+        if f'lang="{tag}"' not in bundle:
+            errors.append(f"missing lang span {tag!r}")
+
+    for tag in exp.get("lang_absent") or []:
+        if isinstance(tag, str) and tag and tag in bundle:
+            errors.append(f"language tag must be absent: {tag!r}")
+
+    heading_order = exp.get("nav_heading_order") or []
+    if heading_order:
+        got = toc_anchor_texts(epub)
+        pos = 0
+        for title in heading_order:
+            while pos < len(got) and got[pos] != title:
+                pos += 1
+            if pos >= len(got):
+                errors.append(f"nav missing heading {title!r} in order; got {got}")
+                break
+            pos += 1
+
+    aside_order = exp.get("aside_text_order") or []
+    if aside_order:
+        blob = aside_plain(epub)
+        cursor = 0
+        for snippet in aside_order:
+            found = blob.find(snippet, cursor)
+            if found < 0:
+                errors.append(f"aside order missing {snippet!r} in {blob!r}")
+                break
+            cursor = found + len(snippet)
+
+    if exp.get("raster_png_equal"):
+        with zipfile.ZipFile(epub) as zf:
+            pngs = [n for n in zf.namelist() if n.lower().endswith(".png")]
+            blobs = [zf.read(n) for n in pngs]
+        if len(blobs) != 2:
+            errors.append(f"expected 2 raster PNGs, got {len(blobs)}")
+        elif blobs[0] != blobs[1]:
+            errors.append("raster PNG bytes differ (caption painted into one image)")
+        else:
+            width, height = png_size(blobs[0])
+            if width < 200 or height < 200:
+                errors.append(f"raster PNG is {width}x{height}, expected a full-size image")
+            elif height == 0 or not (0.85 <= (width / height) <= 1.15):
+                errors.append(f"raster aspect {width}x{height} is not square")
 
     return errors
 
@@ -351,6 +437,38 @@ def self_test() -> int:
         ok = False
     else:
         print("ok   epubcheck absence detection")
+
+    mcp = (REPO / "docs" / "mcp-tools.md").read_text(encoding="utf-8")
+    open_section = mcp.split("### `document_open`", 1)[1].split("### `document_save`", 1)[0]
+    save_section = mcp.split("### `document_save`", 1)[1].split("### `document_export_pdf`", 1)[0]
+    if "via LibreOffice when present" in open_section or "native RTF import is wave 20" in open_section:
+        print("FAIL mcp-tools.md still describes RTF import as LibreOffice or future wave 20")
+        ok = False
+    elif "native" not in open_section.lower():
+        print("FAIL mcp-tools.md document_open does not call RTF import native")
+        ok = False
+    else:
+        print("ok   mcp-tools.md native RTF import")
+    if "working path" not in save_section or "are exports" not in save_section:
+        print("FAIL mcp-tools.md document_save does not separate working files from exports")
+        ok = False
+    else:
+        print("ok   mcp-tools.md export vs working path")
+
+    spec = (REPO / "docs" / "waves" / "wave20-epub-rtf.md").read_text(encoding="utf-8")
+    if "derivado do id do documento" in spec or "não tem id de documento" not in spec or "versão 5" not in spec:
+        print("FAIL wave20 D1 does not describe the UUID v5 of title and author")
+        ok = False
+    else:
+        print("ok   wave20 D1 identifier")
+
+    dispatch = (REPO / "src" / "mcp" / "ToolDispatch.cpp").read_text(encoding="utf-8")
+    save_desc = dispatch.split('tool(QStringLiteral("document_save")', 1)[1].split("a.append(tool", 1)[0]
+    if "front matter" not in save_desc or "Heading 1" not in save_desc or "working file" not in save_desc:
+        print("FAIL ToolDispatch document_save description")
+        ok = False
+    else:
+        print("ok   ToolDispatch document_save description")
 
     return 0 if ok else 1
 

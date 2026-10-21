@@ -247,33 +247,41 @@ def require_snippets(body: str, snippets: list[Any], *, where: str) -> None:
 def libreoffice_odt_text(soffice: str, rtf_path: Path) -> str:
     with tempfile.TemporaryDirectory(prefix="wave20-rtf-") as tmp:
         out_dir = Path(tmp)
+        profile = tempfile.mkdtemp(prefix="wave20-rtf-lo-")
         try:
-            proc = run_cmd(
-                [
-                    soffice,
-                    "--headless",
-                    "--convert-to",
-                    "odt",
-                    "--outdir",
-                    str(out_dir),
-                    str(rtf_path),
-                ],
-                timeout=SOFFICE_TIMEOUT,
-            )
-        except FileNotFoundError as exc:
-            raise FileNotFoundError(soffice) from exc
-        if proc.returncode != 0:
-            raise SystemExit(
-                f"soffice convert failed ({proc.returncode}): "
-                f"{proc.stderr.strip() or proc.stdout.strip()}"
-            )
-        odt_files = list(out_dir.glob("*.odt"))
-        if not odt_files:
-            raise SystemExit("soffice produced no ODT")
-        try:
-            return read_odt_text(odt_files[0])
-        except (OSError, zipfile.BadZipFile, KeyError) as exc:
-            raise SystemExit(f"soffice ODT is not readable: {exc}") from exc
+            try:
+                proc = run_cmd(
+                    [
+                        soffice,
+                        "--headless",
+                        "--nolockcheck",
+                        "--nologo",
+                        "--norestore",
+                        f"-env:UserInstallation=file://{profile}",
+                        "--convert-to",
+                        "odt",
+                        "--outdir",
+                        str(out_dir),
+                        str(rtf_path),
+                    ],
+                    timeout=SOFFICE_TIMEOUT,
+                )
+            except FileNotFoundError as exc:
+                raise FileNotFoundError(soffice) from exc
+            if proc.returncode != 0:
+                raise SystemExit(
+                    f"soffice convert failed ({proc.returncode}): "
+                    f"{proc.stderr.strip() or proc.stdout.strip()}"
+                )
+            odt_files = list(out_dir.glob("*.odt"))
+            if not odt_files:
+                raise SystemExit("soffice produced no ODT")
+            try:
+                return read_odt_text(odt_files[0])
+            except (OSError, zipfile.BadZipFile, KeyError) as exc:
+                raise SystemExit(f"soffice ODT is not readable: {exc}") from exc
+        finally:
+            shutil.rmtree(profile, ignore_errors=True)
 
 
 def check_soffice(rtf_path: Path, snippets: list[Any], *, interop: bool) -> None:
@@ -389,6 +397,12 @@ def self_test() -> int:
         print(f"FAIL hostile malformed was accepted: {err!r}", file=sys.stderr)
         return 1
     print(f"ok   hostile malformed: {err}")
+
+    source = Path(__file__).read_text(encoding="utf-8")
+    if "-env:UserInstallation=file://" not in source:
+        print("FAIL soffice UserInstallation isolation missing", file=sys.stderr)
+        return 1
+    print("ok   soffice isolated profile")
     return 0
 
 

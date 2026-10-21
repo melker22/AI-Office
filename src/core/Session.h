@@ -189,7 +189,8 @@ private:
     QJsonArray idList(const QJsonObject &args) const;
     QJsonArray idListOrCaret(const QJsonObject &args, bool spanSelection) const;
     QJsonObject writeExport(const QJsonObject &args, const QString &payload, const QString &key);
-    bool saveTo(const QString &path, QString *error, bool embedJson = true, QJsonObject *exportInfo = nullptr);
+    bool saveTo(const QString &path, QString *error, bool embedJson = true, QJsonObject *exportInfo = nullptr,
+                QStringList *warnings = nullptr);
     bool loadFrom(const QString &path, QString *error);
     Block *tableBlock(const QString &id);
     QVector<TextRun> *runsAt(Block &b, int row, int col);

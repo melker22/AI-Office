@@ -773,12 +773,20 @@ bool saveOdt(const Document &doc, const QString &path, QString *error)
                 "<table:table xmlns:table=\"urn:oasis:names:tc:opendocument:xmlns:table:1.0\">");
             // LibreOffice drops every column after the first when the table has no
             // table:table-column. One empty column element per grid column is enough.
+            constexpr int kMaxOdtTableColumns = 256;
             int colCount = 0;
             for (const auto &row : b.table) {
-                int n = 0;
-                for (const auto &cell : row)
-                    n += qMax(1, cell.colSpan);
-                colCount = qMax(colCount, n);
+                qint64 width = 0;
+                for (const auto &cell : row) {
+                    const int span = qMax(1, cell.colSpan);
+                    if (span > kMaxOdtTableColumns || width > qint64(kMaxOdtTableColumns) - span) {
+                        if (error)
+                            *error = QStringLiteral("ODT table row is wider than 256 columns");
+                        return false;
+                    }
+                    width += span;
+                }
+                colCount = qMax(colCount, int(width));
             }
             for (int c = 0; c < colCount; ++c)
                 bodyXml += QLatin1String("<table:table-column/>");

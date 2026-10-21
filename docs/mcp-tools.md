@@ -95,12 +95,12 @@ Clears the session into a blank document with one empty `p1`. If the document is
 ### `document_open`
 
 Args: `{ "path": string }`  
-Opens ODT, DOCX, DOC (DOC needs LibreOffice), AIO JSON, RTF (via LibreOffice when present; native RTF import is wave 20).
+Opens ODT, DOCX, DOC (DOC needs LibreOffice), AIO JSON, or RTF (native reader).
 
 ### `document_save`
 
 Args: `{ "path"?: string }`  
-Saves to `path` or the last opened/saved path. Format from extension. **RTF** (`.rtf`) is written natively
+Saves to `path` or the last opened/saved path. Format from extension. `.aio.json`, `.odt`, and `.docx` become the working file (path updated, dirty cleared). `.epub`, `.pdf`, `.md`, `.txt`, `.html`, and `.rtf` are exports: the file is written and the working path and dirty flag stay unchanged. RTF export warnings are returned in `warnings`. **RTF** (`.rtf`) is written natively
 (`RtfWriter`: `\fonttbl`, `\colortbl`, `\stylesheet`, paragraph/character formatting, `\listtable`, tables with
 `\trhdr`, `\page`, `\footnote`, `\pict\pngblip`, `\field`, `\bkmkstart`, `\u`/`\uc`, `\rtlpar`, `\lang`). Tracked
 revisions, block comments, and shapes/forms are flattened to plain text (full fidelity stays in `.aio.json`/ODT/DOCX).

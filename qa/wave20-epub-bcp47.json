@@ -1,0 +1,16 @@
+[
+  {"tool": "document_new", "args": {"title": "BCP47", "author": "QA", "force": true}},
+  {"tool": "document_set_title", "args": {"title": "BCP47", "author": "QA"}},
+  {"tool": "insert_blocks", "args": {"after_id": "p1", "blocks": [
+    {"id": "pLang", "type": "paragraph", "lang": "zh-Hant-TW", "runs": [
+      {"text": "base "},
+      {"text": "brasil", "lang": "pt_BR"},
+      {"text": " latam", "lang": "es-419"},
+      {"text": " suico", "lang": "de-CH-1996"},
+      {"text": " ext", "lang": "en-x-custom"},
+      {"text": " serbio", "lang": "sr-Latn-RS"},
+      {"text": " ruim", "lang": "nope!!"}
+    ]}
+  ]}},
+  {"tool": "document_save", "args": {"path": "/tmp/wave20-epub-bcp47.epub"}, "expect": {"ok": true, "format": "epub"}}
+]

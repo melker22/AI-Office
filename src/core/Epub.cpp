@@ -43,13 +43,17 @@ QString rawDocumentLanguage(const Document &doc)
 
 bool isBcp47(const QString &tag)
 {
-    static const QRegularExpression re(QStringLiteral("^[A-Za-z]{2,3}(-[A-Za-z0-9]{2,8})*$"));
+    // Primary, then script/region/variant (2–8), then a singleton extension
+    // (en-x-custom, de-u-co-phonebk) that must carry at least one subtag.
+    static const QRegularExpression re(QStringLiteral(
+        "^[A-Za-z]{2,3}(?:-[A-Za-z0-9]{2,8})*(?:-[A-Za-z0-9](?:-[A-Za-z0-9]{1,8})+)*$"));
     return re.match(tag).hasMatch();
 }
 
 QString usableLang(const QString &raw, const QString &fallback)
 {
-    const QString t = raw.trimmed();
+    QString t = raw.trimmed();
+    t.replace(QLatin1Char('_'), QLatin1Char('-'));
     if (isBcp47(t))
         return t;
     return fallback;
@@ -302,6 +306,7 @@ struct WriteCtx {
     const QHash<QString, int> *noteChapter = nullptr;
     const QVector<Chapter> *chapters = nullptr;
     QHash<QString, QVector<NoteUse>> *noteUses = nullptr;
+    QVector<QString> *noteOrder = nullptr;
     QVector<Asset> *assets = nullptr;
     QString *error = nullptr;
 };
@@ -375,6 +380,8 @@ void writeRuns(XhtmlWriter &x, WriteCtx &ctx, const Block &host, const QVector<T
             const Block *note = nullptr;
             if (noteUsable(*ctx.doc, r.noteId, &note) && ctx.noteChapter->contains(r.noteId)) {
                 const int owner = ctx.noteChapter->value(r.noteId);
+                if (ctx.noteOrder && !ctx.noteUses->contains(r.noteId))
+                    ctx.noteOrder->push_back(r.noteId);
                 QVector<NoteUse> &uses = (*ctx.noteUses)[r.noteId];
                 NoteUse use;
                 use.chapter = ctx.chapterIndex;
@@ -843,13 +850,23 @@ bool writeBlock(XhtmlWriter &x, WriteCtx &ctx, const Block &b)
     return x.error().isEmpty();
 }
 
-void writeNotes(XhtmlWriter &x, WriteCtx &ctx, const QHash<QString, QVector<NoteUse>> &uses)
+void writeNotes(XhtmlWriter &x, WriteCtx &ctx)
 {
-    for (auto it = uses.cbegin(); it != uses.cend(); ++it) {
+    if (!ctx.noteOrder || !ctx.noteUses)
+        return;
+    // Index loop plus a copied use list: writeRuns may insert a note that this
+    // chapter's text mentions. Mutating the hash under a QHash iterator is UB,
+    // and QHash order is not the order of first reference.
+    for (int i = 0; i < ctx.noteOrder->size(); ++i) {
+        const QString id = ctx.noteOrder->at(i);
+        const int owner = ctx.noteChapter ? ctx.noteChapter->value(id, -1) : -1;
+        if (owner != ctx.chapterIndex)
+            continue;
+        const QVector<NoteUse> uses = ctx.noteUses->value(id);
         bool owned = false;
         QString backId;
         QString backLabel;
-        for (const auto &use : it.value()) {
+        for (const auto &use : uses) {
             if (use.chapter == ctx.chapterIndex) {
                 owned = true;
                 if (backId.isEmpty()) {
@@ -861,7 +878,7 @@ void writeNotes(XhtmlWriter &x, WriteCtx &ctx, const QHash<QString, QVector<Note
         if (!owned)
             continue;
         const Block *note = nullptr;
-        if (!noteUsable(*ctx.doc, it.key(), &note))
+        if (!noteUsable(*ctx.doc, id, &note))
             continue;
         const bool endnote = note->type == QLatin1String("endnote");
         Attrs attrs = {{QStringLiteral("id"), xmlIdFor(note->id)},
@@ -945,7 +962,7 @@ bool writeChapter(const Document &doc, const Chapter &chapter, int chapterIndex,
         }
     }
     flushList();
-    writeNotes(x, ctx, *ctx.noteUses);
+    writeNotes(x, ctx);
     x.end(QStringLiteral("body"));
     x.nl();
     x.end(QStringLiteral("html"));
@@ -957,6 +974,25 @@ bool writeChapter(const Document &doc, const Chapter &chapter, int chapterIndex,
     }
     *xhtml = x.result();
     return true;
+}
+
+// Clamp each heading to at most previous+1, starting from the shallowest level,
+// so the TOC never drops a later shallower heading or nests ol directly in ol.
+void normalizeTocLevels(QVector<HeadingRef> &heads)
+{
+    if (heads.isEmpty())
+        return;
+    int minLevel = heads.first().level;
+    for (const auto &h : heads)
+        minLevel = qMin(minLevel, h.level);
+    int prev = minLevel - 1;
+    for (auto &h : heads) {
+        if (h.level > prev + 1)
+            h.level = prev + 1;
+        if (h.level < 1)
+            h.level = 1;
+        prev = h.level;
+    }
 }
 
 void writeTocOl(XhtmlWriter &x, const QVector<HeadingRef> &heads, int &i, int level)
@@ -1031,8 +1067,10 @@ QString writeNav(const Document &doc, const QString &docLang, const QVector<Chap
         x.end(QStringLiteral("ol"));
         x.nl();
     } else {
+        QVector<HeadingRef> tocHeads = heads;
+        normalizeTocLevels(tocHeads);
         int i = 0;
-        writeTocOl(x, heads, i, heads.first().level);
+        writeTocOl(x, tocHeads, i, tocHeads.first().level);
     }
     x.end(QStringLiteral("nav"));
     x.nl();
@@ -1261,7 +1299,7 @@ void forEachRun(const Block &b, const std::function<void(const TextRun &)> &fn)
 bool saveEpub(const Document &doc, const QString &path, QString *error, QJsonObject *info)
 {
     const QString primaryRaw = rawDocumentLanguage(doc);
-    const QString docLang = isBcp47(primaryRaw) ? primaryRaw : QStringLiteral("pt-PT");
+    const QString docLang = usableLang(primaryRaw, QStringLiteral("pt-PT"));
     const QString urn = publicationId(doc);
 
     QVector<Chapter> chapters;
@@ -1344,6 +1382,7 @@ bool saveEpub(const Document &doc, const QString &path, QString *error, QJsonObj
     QString err;
     QVector<Asset> assets;
     QHash<QString, QVector<NoteUse>> noteUses;
+    QVector<QString> noteOrder;
     QStringList chapterXml;
     chapterXml.reserve(chapters.size());
     for (int ci = 0; ci < chapters.size(); ++ci) {
@@ -1354,6 +1393,7 @@ bool saveEpub(const Document &doc, const QString &path, QString *error, QJsonObj
         ctx.noteChapter = &noteChapter;
         ctx.chapters = &chapters;
         ctx.noteUses = &noteUses;
+        ctx.noteOrder = &noteOrder;
         ctx.assets = &assets;
         ctx.error = &err;
         QString xhtml;

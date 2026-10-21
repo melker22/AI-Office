@@ -324,3 +324,12 @@ foreach(_rtf_fx IN LISTS _aio_rtf_fixtures)
 endforeach()
 add_test(NAME rtf_check_selftest COMMAND "${Python3_EXECUTABLE}" "${CMAKE_SOURCE_DIR}/qa/check_rtf.py" --self-test)
 set_tests_properties(rtf_check_selftest PROPERTIES LABELS "playbook" WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}")
+
+add_test(NAME rtf_footnote_scale COMMAND "${CMAKE_COMMAND}" -E env AIOFFICE_HEADLESS=1 QT_QPA_PLATFORM=offscreen
+    "${Python3_EXECUTABLE}" "${CMAKE_SOURCE_DIR}/qa/check_rtf.py"
+    --cli "${AIOFFICE_CLI}" --footnote-scale 8000 --footnote-max-seconds 8)
+set_tests_properties(rtf_footnote_scale PROPERTIES
+    LABELS "rtf"
+    TIMEOUT 120
+    WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}"
+)

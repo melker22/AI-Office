@@ -411,6 +411,11 @@ private:
     QVector<PendingNote> pendingNotes_;
     QVector<PendingBookmark> pendingBms_;
     int noteSerial_ = 0;
+    QHash<QString, int> idNext_;
+    // First body index that may still hold an unresolved note marker.
+    // Advanced only when pendingNotes_ is empty, so a nested note whose
+    // marker landed inside a note block added during this flush stays visible.
+    int noteScanFrom_ = 0;
 
     QByteArray pict_;
     bool pictActive_ = false;
@@ -1594,6 +1599,44 @@ private:
             r.lang.clear();
     }
 
+    QString autoId(const QString &type)
+    {
+        // Document::assignId scans every block. A footnote file adds two blocks
+        // per note, so that scan is quadratic and a modest RTF blocks the session.
+        QString prefix = QStringLiteral("p");
+        if (type == QLatin1String("heading"))
+            prefix = QStringLiteral("h");
+        else if (type == QLatin1String("list-item"))
+            prefix = QStringLiteral("l");
+        else if (type == QLatin1String("table"))
+            prefix = QStringLiteral("t");
+        else if (type == QLatin1String("image"))
+            prefix = QStringLiteral("img");
+        else if (type == QLatin1String("break"))
+            prefix = QStringLiteral("br");
+        else if (type == QLatin1String("footnote"))
+            prefix = QStringLiteral("fn");
+        else if (type == QLatin1String("endnote"))
+            prefix = QStringLiteral("en");
+        else if (type == QLatin1String("toc"))
+            prefix = QStringLiteral("toc");
+        else if (type == QLatin1String("frame"))
+            prefix = QStringLiteral("fr");
+        else if (type == QLatin1String("shape"))
+            prefix = QStringLiteral("sh");
+        else if (type == QLatin1String("chart"))
+            prefix = QStringLiteral("ch");
+        else if (type == QLatin1String("qr"))
+            prefix = QStringLiteral("qr");
+        else if (type == QLatin1String("equation"))
+            prefix = QStringLiteral("eq");
+        else if (type == QLatin1String("form"))
+            prefix = QStringLiteral("fm");
+        else if (type == QLatin1String("biblio"))
+            prefix = QStringLiteral("bib");
+        return prefix + QString::number(++idNext_[prefix]);
+    }
+
     bool addBlock(Block b)
     {
         if (doc_.body.size() >= kMaxBlocks) {
@@ -1601,12 +1644,12 @@ private:
             return false;
         }
         if (b.id.isEmpty())
-            doc_.assignId(b);
+            b.id = autoId(b.type);
         doc_.body.push_back(std::move(b));
         return true;
     }
 
-    bool noteIdInDocument(const QString &id) const
+    bool noteIdInDocument(const QString &id, int start) const
     {
         auto has = [&](const QVector<TextRun> &runs) {
             for (const TextRun &r : runs) {
@@ -1615,7 +1658,9 @@ private:
             }
             return false;
         };
-        for (const Block &b : doc_.body) {
+        const int from = qMax(0, start);
+        for (int i = from; i < doc_.body.size(); ++i) {
+            const Block &b = doc_.body.at(i);
             if (has(b.runs))
                 return true;
             for (const auto &row : b.table) {
@@ -1630,12 +1675,15 @@ private:
 
     void resolveNotes(bool onlyInDocument)
     {
-        if (pendingNotes_.isEmpty())
+        if (pendingNotes_.isEmpty()) {
+            noteScanFrom_ = doc_.body.size();
             return;
+        }
+        const int start = noteScanFrom_;
         QVector<PendingNote> now;
         QVector<PendingNote> later;
         for (const PendingNote &note : pendingNotes_) {
-            if (!onlyInDocument || noteIdInDocument(note.tempId))
+            if (!onlyInDocument || noteIdInDocument(note.tempId, start))
                 now.push_back(note);
             else
                 later.push_back(note);
@@ -1654,8 +1702,10 @@ private:
             nb.runs = runs;
             if (!addBlock(nb))
                 return;
-            replaceNoteId(note.tempId, doc_.body.last().id);
+            replaceNoteId(note.tempId, doc_.body.last().id, start);
         }
+        if (pendingNotes_.isEmpty())
+            noteScanFrom_ = doc_.body.size();
     }
 
     static void stripNote(QVector<TextRun> &runs)
@@ -1672,7 +1722,7 @@ private:
         }
     }
 
-    void replaceNoteId(const QString &from, const QString &to)
+    void replaceNoteId(const QString &from, const QString &to, int start)
     {
         auto fix = [&](QVector<TextRun> &runs) {
             for (TextRun &r : runs) {
@@ -1680,7 +1730,9 @@ private:
                     r.noteId = to;
             }
         };
-        for (Block &b : doc_.body) {
+        const int fromIndex = qMax(0, start);
+        for (int i = fromIndex; i < doc_.body.size(); ++i) {
+            Block &b = doc_.body[i];
             fix(b.runs);
             for (auto &row : b.table) {
                 for (TableCell &c : row)
@@ -1696,23 +1748,13 @@ private:
         }
     }
 
-    int countNotes() const
-    {
-        int n = pendingNotes_.size();
-        for (const Block &b : doc_.body) {
-            if (b.type == QLatin1String("footnote"))
-                ++n;
-        }
-        return n;
-    }
-
     void finishNote()
     {
         QVector<TextRun> runs;
         if (!noteStack_.isEmpty())
             runs = noteStack_.takeLast();
         const QString temp = QStringLiteral("rtf-note-%1").arg(++noteSerial_);
-        const int number = countNotes() + 1;
+        const int number = noteSerial_;
         PendingNote pn;
         pn.tempId = temp;
         pn.runs = runs;

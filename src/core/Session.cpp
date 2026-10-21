@@ -195,8 +195,26 @@ QVector<int> Session::indexesFor(const QJsonArray &ids) const
     return idx;
 }
 
-bool Session::saveTo(const QString &path, QString *error, bool embedJson, QJsonObject *exportInfo)
+namespace {
+
+// Formats that reopen without loss. Everything else written by saveDocument is an export.
+bool isWorkingDocumentPath(const QString &path)
 {
+    const QString lower = path.toLower();
+    if (lower.endsWith(QLatin1String(".aio.json")))
+        return true;
+    const QString ext = QFileInfo(path).suffix().toLower();
+    return ext == QLatin1String("odt") || ext == QLatin1String("docx");
+}
+
+} // namespace
+
+bool Session::saveTo(const QString &path, QString *error, bool embedJson, QJsonObject *exportInfo, QStringList *warnings)
+{
+    const auto rememberWorkingName = [&]() {
+        if (isWorkingDocumentPath(path))
+            doc_.fileName = QFileInfo(path).fileName();
+    };
     const QString ext = QFileInfo(path).suffix().toLower();
     if (ext == QLatin1String("aio") || ext == QLatin1String("json") || path.endsWith(QLatin1String(".aio.json"))) {
         QFile f(path);
@@ -206,19 +224,19 @@ bool Session::saveTo(const QString &path, QString *error, bool embedJson, QJsonO
             return false;
         }
         f.write(doc_.toCanonicalJson());
-        doc_.fileName = QFileInfo(path).fileName();
+        rememberWorkingName();
         return true;
     }
     if (ext == QLatin1String("odt")) {
         if (!saveOdt(doc_, path, error))
             return false;
-        doc_.fileName = QFileInfo(path).fileName();
+        rememberWorkingName();
         return true;
     }
     if (ext == QLatin1String("docx")) {
         if (!saveDocx(doc_, path, error, embedJson))
             return false;
-        doc_.fileName = QFileInfo(path).fileName();
+        rememberWorkingName();
         return true;
     }
     if (ext == QLatin1String("doc")) {
@@ -233,13 +251,11 @@ bool Session::saveTo(const QString &path, QString *error, bool embedJson, QJsonO
     if (ext == QLatin1String("epub")) {
         if (!saveEpub(doc_, path, error, exportInfo))
             return false;
-        doc_.fileName = QFileInfo(path).fileName();
         return true;
     }
     if (ext == QLatin1String("rtf")) {
-        if (!saveRtf(doc_, path, error))
+        if (!saveRtf(doc_, path, error, warnings))
             return false;
-        doc_.fileName = QFileInfo(path).fileName();
         return true;
     }
     if (ext == QLatin1String("md") || ext == QLatin1String("markdown") || ext == QLatin1String("txt")
@@ -275,7 +291,6 @@ bool Session::saveTo(const QString &path, QString *error, bool embedJson, QJsonO
             return false;
         }
         f.write(out.toUtf8());
-        doc_.fileName = QFileInfo(path).fileName();
         return true;
     }
     if (error)
@@ -414,16 +429,27 @@ QJsonObject Session::saveDocument(const QJsonObject &args)
     const bool embedJson = !args.contains(QStringLiteral("embed_json"))
         || args.value(QStringLiteral("embed_json")).toBool();
     QJsonObject exported;
-    if (!saveTo(path, &err, embedJson, &exported))
+    QStringList warnings;
+    if (!saveTo(path, &err, embedJson, &exported, &warnings))
         return fail(err);
-    path_ = path;
-    dirty_ = false;
-    markChanged();
-    dirty_ = false;
-    captureBaseline();
+    // Exports (.epub, .pdf, .md, .txt, .html, .rtf, .doc) write the file and
+    // leave the editable document's path and dirty flag alone.
+    if (isWorkingDocumentPath(path)) {
+        path_ = path;
+        dirty_ = false;
+        markChanged();
+        dirty_ = false;
+        captureBaseline();
+    }
     QJsonObject r = ok();
     for (auto it = exported.begin(); it != exported.end(); ++it)
         r.insert(it.key(), it.value());
+    if (!warnings.isEmpty()) {
+        QJsonArray wa;
+        for (const QString &w : warnings)
+            wa.append(w);
+        r.insert(QStringLiteral("warnings"), wa);
+    }
     return r;
 }
 

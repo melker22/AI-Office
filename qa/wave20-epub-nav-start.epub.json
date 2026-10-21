@@ -1,0 +1,6 @@
+{
+  "epub": "/tmp/wave20-epub-nav-start.epub",
+  "epubcheck": {"errors": 0, "warnings": 0},
+  "nav_heading_order": ["Comeca H2", "Meio H1", "Fim H2"],
+  "text_contains": ["Comeca H2", "Meio H1", "Fim H2"]
+}

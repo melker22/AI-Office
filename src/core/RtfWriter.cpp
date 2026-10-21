@@ -4,6 +4,7 @@
 
 #include <QFile>
 #include <QFileInfo>
+#include <QImage>
 #include <QJsonDocument>
 #include <QJsonObject>
 #include <QMap>
@@ -166,7 +167,13 @@ struct RtfOut {
             else if (c.unicode() < 128)
                 out += c;
             else {
-                out += QStringLiteral("\\u%1?").arg(static_cast<int>(c.unicode()));
+                // RTF \\uN is a signed 16-bit value. U+8000 and above, including
+                // CJK, Hangul, and both halves of an emoji surrogate pair, must
+                // be negative or the native reader rejects the file.
+                int u = int(c.unicode());
+                if (u >= 0x8000)
+                    u -= 0x10000;
+                out += QStringLiteral("\\u%1?").arg(u);
             }
         }
         return out;
@@ -309,15 +316,17 @@ struct RtfOut {
             }
             return out;
         }
+        QString instr;
+        if (nativeFieldInstr(r, instr)) {
+            // A hyperlink run has link set and field empty. nativeFieldInstr
+            // still builds HYPERLINK for that shape.
+            const QString result = !r.field.isEmpty() ? fieldResult(r) : (r.text.isEmpty() ? r.link : r.text);
+            out += QStringLiteral("{\\field{\\*\\fldinst %1}{\\fldrslt %2}}")
+                       .arg(escapeText(instr.trimmed()), escapeText(result));
+            return out;
+        }
         if (!r.field.isEmpty()) {
-            QString instr;
-            const QString result = fieldResult(r);
-            if (nativeFieldInstr(r, instr)) {
-                out += QStringLiteral("{\\field{\\*\\fldinst %1}{\\fldrslt %2}}")
-                           .arg(escapeText(instr.trimmed()), escapeText(result));
-            } else {
-                out += escapeText(result);
-            }
+            out += escapeText(fieldResult(r));
             return out;
         }
         const QString props = charProps(r, defFont, defSizeHalfPt);
@@ -355,7 +364,9 @@ struct RtfOut {
 
     QString paraProps(const Block &b, bool inTable = false)
     {
-        QString p = inTable ? QStringLiteral("\\intbl") : QStringLiteral("\\pard");
+        // \\pard drops paragraph properties inherited from the previous paragraph
+        // (list, outline level, heading spacing) before \\intbl.
+        QString p = inTable ? QStringLiteral("\\pard\\intbl") : QStringLiteral("\\pard");
         p += paraAlign(b);
         if (b.dir == QLatin1String("rtl"))
             p += QStringLiteral("\\rtlpar");
@@ -428,15 +439,36 @@ struct RtfOut {
         for (unsigned char ch : bytes) {
             hex += QStringLiteral("%1").arg(static_cast<int>(ch), 2, 16, QLatin1Char('0'));
         }
-        const int wTwips = qMax(100, qRound(b.imageWidthMm * kTwipsPerMm / 10.0));
-        return QStringLiteral("{\\pict\\pngblip\\picw%1\\pich%2 %3}")
+        const bool mimeJpeg = b.imageMime.contains(QLatin1String("jpeg"), Qt::CaseInsensitive)
+            || b.imageMime.contains(QLatin1String("jpg"), Qt::CaseInsensitive);
+        const bool mimePng = b.imageMime.contains(QLatin1String("png"), Qt::CaseInsensitive);
+        const bool magicJpeg = bytes.size() >= 2
+            && static_cast<unsigned char>(bytes.at(0)) == 0xFF
+            && static_cast<unsigned char>(bytes.at(1)) == 0xD8;
+        const bool jpeg = mimeJpeg || (!mimePng && magicJpeg);
+        const QImage probed = QImage::fromData(bytes);
+        int pxW = 1;
+        int pxH = 1;
+        if (!probed.isNull() && probed.width() > 0 && probed.height() > 0) {
+            pxW = probed.width();
+            pxH = probed.height();
+        }
+        const int wTwips = qMax(100, qRound(double(b.imageWidthMm) * kTwipsPerMm / 10.0));
+        const int hTwips = qMax(1, qRound(double(wTwips) * double(pxH) / double(pxW)));
+        return QStringLiteral("{\\pict\\%1\\picw%2\\pich%3\\picwgoal%4\\pichgoal%5 %6}")
+            .arg(jpeg ? QStringLiteral("jpegblip") : QStringLiteral("pngblip"))
+            .arg(pxW)
+            .arg(pxH)
             .arg(wTwips)
-            .arg(wTwips)
+            .arg(hTwips)
             .arg(hex);
     }
 
     void collectFontsColors(const Document &doc)
     {
+        // Register the default font first so \\deff0 is Liberation Serif even
+        // when the first style or run names another face.
+        fontId(QStringLiteral("Liberation Serif"));
         for (const auto &s : doc.styles) {
             fontId(s.font);
             colorId(s.color);
@@ -617,7 +649,9 @@ struct RtfOut {
                 continue;
             }
             if (b.type == QLatin1String("table")) {
-                body += emitTable(b) + QStringLiteral("\\pard\\par\n");
+                // \\pard resets \\intbl. A closing \\par here becomes an empty
+                // paragraph on import, and each round trip adds another one.
+                body += emitTable(b) + QStringLiteral("\\pard\n");
                 continue;
             }
             if (b.type == QLatin1String("image")) {
