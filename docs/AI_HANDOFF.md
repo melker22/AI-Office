@@ -8,6 +8,24 @@
 
 ---
 
+## 2026-10-21 — Composer 2.5 — Fleet wave20 T4 formats QA harness
+
+**Objective:** D6 — `epubcheck` in Nix, `qa/check_epub.py` / `qa/check_rtf.py`, criterion playbooks and RTF fixtures, ctest labels `epub`/`rtf`, `scripts/qa-all.sh --formats`, CI labels, RTF interop in `qa-interop.py`. No push.
+
+**Done:**
+- `shell.nix`: pinned `epubcheck` 5.3.0 alongside veraPDF.
+- `qa/check_epub.py`: playbook export, epubcheck parse (0 errors + 0 warnings), zip checks (mimetype stored first, nav, lang, footnotes, hide_if omissions); sibling `.epub.json`; self-test includes a minimal EPUB that passes epubcheck.
+- `qa/check_rtf.py`: aio→rtf→aio round-trip and fixture import with `.rtf.json`; hostile fixtures expect `open_error`; subprocess timeouts and `check=False`.
+- Suíte: `wave20-epub-criterion` (critério de pronto EPUB), `wave20-rtf-roundtrip-criterion`, fixtures Word/LibreOffice + hostile deep/malformed RTF.
+- CMake `LABELS epub|rtf`; `scripts/qa-all.sh --formats` combinable with `--pdf`; CircleCI `playbook|roundtrip|pdf|epub|rtf`; interop RTF both directions when `soffice` exists.
+- `scripts/qa-all.sh --gui`: **47/47** ctest (epub/rtf label tests excluded until `--formats`). Criterion EPUB fails with `play: Unknown extension: epub` until T1; self-tests pass.
+
+**Next suggested step:** Merge T1–T3, then `integrate-1` and `t5-compliance` (`--formats --interop` green).
+
+**Commits:** `1874538` feat: add wave 20 EPUB and RTF format QA harness
+
+---
+
 ## 2026-10-20 — Cursor Grok 4.7 — Wave 20 EPUB 3 export
 
 **Objective:** Fleet `t1-epub`. Export EPUB 3 from `document_save` (D1–D2; the XHTML writer is D3). Import stays out. Do not change `export_html` or RTF. No push. Notion sync is the later `notion-sync` node.
