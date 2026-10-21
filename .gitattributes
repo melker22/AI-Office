@@ -1,0 +1,2 @@
+# SVGs are XML. Store them as UTF-8 so GitHub can parse them.
+*.svg text working-tree-encoding=UTF-8 eol=lf

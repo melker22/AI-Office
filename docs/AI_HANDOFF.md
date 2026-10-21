@@ -104,6 +104,25 @@
 
 ---
 
+## 2026-10-21 — Cursor Grok 4.7 — README banner SVG UTF-8
+
+**Objective:** Make `docs/github/banner.svg` parse on GitHub. The file was Windows-1252, so `·`, `é`, and `á` were illegal bytes.
+
+**Done:**
+- Converted the banner with `iconv -f windows-1252 -t utf-8` and added `<?xml version="1.0" encoding="UTF-8"?>` as the first line.
+- The aria-label contained a raw `0x14` (U+0014). XML 1.0 rejects that control character even after the charset conversion, so it is now a middle dot: `AI Office Writer · Tinta e Papel`.
+- The only local image in `README.md` is `docs/github/banner.svg`. The badges are shields.io URLs.
+- `.gitattributes`: `*.svg text working-tree-encoding=UTF-8 eol=lf`.
+- `iconv -f utf-8 -t utf-8` passes, and `xml.dom.minidom` parses the SVG.
+
+**Decisions:** Charset conversion alone cannot make the file well-formed, because U+0014 is not a Windows-1252 punctuation character.
+
+**Next suggested step:** Merge the pull request. This does not change the product board.
+
+**Commits:** `7569907` fix: encode the GitHub banner SVG as UTF-8 · `99518f2` docs: record the banner encoding fix in the handoff · `f8d9c88` docs: give the archived ODT change mark a change id
+
+---
+
 ## 2026-10-20 — Cursor Grok 4.7 — Wave 20 EPUB 3 export
 
 **Objective:** Fleet `t1-epub`. Export EPUB 3 from `document_save` (D1–D2; the XHTML writer is D3). Import stays out. Do not change `export_html` or RTF. No push. Notion sync is the later `notion-sync` node.

@@ -1,12 +1,13 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="1280" height="280" viewBox="0 0 1280 280" role="img" aria-label="AI Office Writer  Tinta e Papel">
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="1280" height="280" viewBox="0 0 1280 280" role="img" aria-label="AI Office Writer Â· Tinta e Papel">
   <rect width="1280" height="280" fill="#FBF7F0"/>
   <rect width="1280" height="6" fill="#B5651D"/>
   <rect x="72" y="56" width="420" height="168" fill="#FDFBF7" stroke="#E8DFD2" stroke-width="1"/>
   <rect x="72" y="56" width="6" height="168" fill="#B5651D"/>
   <text x="104" y="118" font-family="Georgia, 'Liberation Serif', serif" font-size="42" fill="#2A2420">AI Office</text>
-  <text x="104" y="154" font-family="system-ui, 'IBM Plex Sans', sans-serif" font-size="18" fill="#B5651D">Writer · Tinta &amp; Papel</text>
+  <text x="104" y="154" font-family="system-ui, 'IBM Plex Sans', sans-serif" font-size="18" fill="#B5651D">Writer Â· Tinta &amp; Papel</text>
   <text x="104" y="186" font-family="system-ui, 'IBM Plex Sans', sans-serif" font-size="15" fill="#6B6258">A tua IA edita o documento.</text>
-  <text x="560" y="120" font-family="system-ui, 'IBM Plex Sans', sans-serif" font-size="22" fill="#2A2420">Sem API key. Sem créditos.</text>
-  <text x="560" y="158" font-family="system-ui, 'IBM Plex Sans', sans-serif" font-size="16" fill="#6B6258">Linux e Windows · Qt 6 · C++20 · MCP</text>
-  <text x="560" y="194" font-family="system-ui, 'IBM Plex Sans', sans-serif" font-size="16" fill="#6B6258">ODT · DOCX · PDF nativo · IDs estáveis</text>
+  <text x="560" y="120" font-family="system-ui, 'IBM Plex Sans', sans-serif" font-size="22" fill="#2A2420">Sem API key. Sem crÃ©ditos.</text>
+  <text x="560" y="158" font-family="system-ui, 'IBM Plex Sans', sans-serif" font-size="16" fill="#6B6258">Linux e Windows Â· Qt 6 Â· C++20 Â· MCP</text>
+  <text x="560" y="194" font-family="system-ui, 'IBM Plex Sans', sans-serif" font-size="16" fill="#6B6258">ODT Â· DOCX Â· PDF nativo Â· IDs estÃ¡veis</text>
 </svg>
