@@ -380,6 +380,7 @@ private:
     bool sawRtf_ = false;
     bool starNext_ = false;
     bool suppressEmptyPar_ = false;
+    int looseBkmkKind_ = 0; // 1=start, 2=end (legacy ungrouped \bkmkstart/\bkmkend)
 
     QHash<int, QString> fonts_;
     int deff_ = 0;
@@ -629,6 +630,8 @@ private:
             fail(QStringLiteral("Malformed RTF: truncated \\u fallback"));
             return;
         }
+        if (looseBkmkKind_ != 0 && stack_.last().sink == Sink::Bkmk)
+            finishLooseBkmk();
         const Kind kind = stack_.last().kind;
         if (stack_.size() == 1)
             finishDocumentBody();
@@ -798,6 +801,8 @@ private:
             starNext_ = false;
             return;
         }
+        if (looseBkmkKind_ != 0)
+            finishLooseBkmk();
         onFormatting(word, signedV, has, overflow);
     }
 
@@ -1064,6 +1069,15 @@ private:
         const bool ok = fitsInt(v, has, overflow, &iv);
         auto para = [&]() -> ParaState & { return stack_.last().para; };
         auto ch = [&]() -> CharState & { return stack_.last().ch; };
+
+        if (word == QLatin1String("bkmkstart") || word == QLatin1String("bkmkend")) {
+            if (looseBkmkKind_ != 0)
+                finishLooseBkmk();
+            looseBkmkKind_ = word == QLatin1String("bkmkstart") ? 1 : 2;
+            f.sink = Sink::Bkmk;
+            f.buf.clear();
+            return;
+        }
 
         if (word == QLatin1String("par")) {
             onPar();
@@ -1826,6 +1840,19 @@ private:
         bm.name = name.left(256);
         bm.offset = offset;
         pendingBms_.push_back(bm);
+    }
+
+    void finishLooseBkmk()
+    {
+        if (looseBkmkKind_ == 0 || stack_.isEmpty())
+            return;
+        const int kind = looseBkmkKind_;
+        looseBkmkKind_ = 0;
+        Frame &f = stack_.last();
+        if (kind == 1)
+            commitBookmark();
+        f.buf.clear();
+        f.sink = Sink::Body;
     }
 
     void commitColor()

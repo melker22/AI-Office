@@ -8,6 +8,22 @@
 
 ---
 
+## 2026-10-21 — Composer 2.5 — Fleet wave20 RTF bookmark destination groups
+
+**Objective:** Fix `rtf_wave20_rtf_out` (LibreOffice ODT almost empty): emit `\bkmkstart`/`\bkmkend` as ignorable destination groups; reader L1 for legacy loose markers; QA structural check. No push.
+
+**Done:**
+- `RtfWriter`: bookmarks as `{\\*\\bkmkstart name}…{\\*\\bkmkend name}` with RTF-escaped names; other destinations already grouped (`footnote`, `field`, `pict`, `listtable`).
+- `RtfReader`: grouped `{\\*\\bkmkstart}` unchanged; loose `\bkmkstart`/`\bkmkend` consume only the name token (no document swallow).
+- `qa/wave20-rtf-out.rtf.json`: requires `{\\*\\bkmkstart`.
+- `scripts/qa-all.sh --gui`: **48/48** (including `rtf_wave20_rtf_out` + soffice).
+
+**Next suggested step:** Fleet `build-1` / integrate wave20 RTF+EPUB.
+
+**Commits:** _(see latest hash below after commit)_
+
+---
+
 ## 2026-10-21 — Composer 2.5 — Fleet wave20 T4 formats QA harness
 
 **Objective:** D6 — `epubcheck` in Nix, `qa/check_epub.py` / `qa/check_rtf.py`, criterion playbooks and RTF fixtures, ctest labels `epub`/`rtf`, `scripts/qa-all.sh --formats`, CI labels, RTF interop in `qa-interop.py`. No push.

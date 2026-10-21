@@ -131,6 +131,23 @@ struct RtfOut {
         return exportedBookmarkName(blockOrBmId);
     }
 
+    static QString escapeBookmarkName(const QString &name)
+    {
+        QString out;
+        out.reserve(name.size() * 2);
+        for (const QChar c : name) {
+            if (c == QLatin1Char('\\'))
+                out += QStringLiteral("\\\\");
+            else if (c == QLatin1Char('{'))
+                out += QStringLiteral("\\{");
+            else if (c == QLatin1Char('}'))
+                out += QStringLiteral("\\}");
+            else
+                out += c;
+        }
+        return out;
+    }
+
     static QString escapeText(const QString &text)
     {
         QString out;
@@ -362,8 +379,8 @@ struct RtfOut {
         for (const auto &bm : doc->bookmarks) {
             if (bm.blockId != blockId)
                 continue;
-            const QString name = exportedBookmarkName(bm.name.isEmpty() ? bm.id : bm.name);
-            out = QStringLiteral("\\bkmkstart %1 %2\\bkmkend %3").arg(name, out, name);
+            const QString name = escapeBookmarkName(exportedBookmarkName(bm.name.isEmpty() ? bm.id : bm.name));
+            out = QStringLiteral("{\\*\\bkmkstart %1}%2{\\*\\bkmkend %3}").arg(name, out, name);
         }
         return out;
     }
