@@ -255,6 +255,12 @@ if(EXISTS "${CMAKE_SOURCE_DIR}/qa/wave20-rtf-out.json"
         WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}"
     )
 endif()
+add_test(NAME rtf_wave20_rtf_out_selftest COMMAND "${Python3_EXECUTABLE}"
+    "${CMAKE_SOURCE_DIR}/qa/check_wave20_rtf_out.py" --self-test)
+set_tests_properties(rtf_wave20_rtf_out_selftest PROPERTIES
+    LABELS "playbook"
+    WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}"
+)
 file(GLOB _aio_epub_playbooks CONFIGURE_DEPENDS "${CMAKE_SOURCE_DIR}/qa/wave20-epub-*.json")
 foreach(_epub_pb IN LISTS _aio_epub_playbooks)
     get_filename_component(_epub_name "${_epub_pb}" NAME)

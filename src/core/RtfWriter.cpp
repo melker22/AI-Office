@@ -459,7 +459,7 @@ struct RtfOut {
     {
         QString t = QStringLiteral("{\\fonttbl");
         for (int i = 0; i < fontNames.size(); ++i)
-            t += QStringLiteral("{\\f%1\\fnil %2;}").arg(i).arg(fontNames.at(i));
+            t += QStringLiteral("{\\f%1\\fnil %2;}").arg(i).arg(escapeText(fontNames.at(i)));
         t += QLatin1Char('}');
         return t;
     }
@@ -502,25 +502,31 @@ struct RtfOut {
     {
         if (listKindToId.isEmpty())
             return {};
+        // Word: \leveltext and \levelnumbers are groups inside \listlevel, and
+        // \listid stays inside {\list ...}. An extra '}' here used to close {\rtf1.
+        // \levelnfc 0 is decimal; 23 is a bullet.
         QString t = QStringLiteral("{\\*\\listtable");
         for (auto it = listKindToId.cbegin(); it != listKindToId.cend(); ++it) {
             const bool numbered = it.key() != QLatin1String("bullet");
-            t += QStringLiteral("{\\list\\listtemplateid%1{\\listlevel\\levelnfc%2\\leveljc0\\levelstartat1")
-                     .arg(it.value())
-                     .arg(numbered ? 23 : 23);
+            const QString id = QString::number(it.value());
+            const int nfc = numbered ? 0 : 23;
+            t += QStringLiteral("{\\list\\listtemplateid") + id
+                + QStringLiteral("{\\listlevel\\levelnfc") + QString::number(nfc)
+                + QStringLiteral("\\leveljc0\\levelstartat1");
             if (numbered)
-                t += QStringLiteral("\\leveltext\\'02\\'00.;}{\\levelnumbers\\'01;}");
+                t += QStringLiteral("{\\leveltext\\'02\\'00.;}{\\levelnumbers\\'01;}");
             else
-                t += QStringLiteral("\\leveltext\\'01\\u-3913 ?;}{\\levelnumbers;}");
-            t += QStringLiteral("}\\listid%1}").arg(it.value());
+                t += QStringLiteral("{\\leveltext\\'01\\u-3913 ?;}{\\levelnumbers;}");
+            t += QStringLiteral("}\\listid") + id + QLatin1Char('}');
         }
         t += QLatin1Char('}');
         t += QStringLiteral("{\\*\\listoverridetable");
         for (auto it = listKindToId.cbegin(); it != listKindToId.cend(); ++it) {
-            t += QStringLiteral("{\\listoverride\\listid%1\\listoverridecount0\\ls%1}")
-                     .arg(it.value());
+            const QString id = QString::number(it.value());
+            t += QStringLiteral("{\\listoverride\\listid") + id
+                + QStringLiteral("\\listoverridecount0\\ls") + id + QLatin1Char('}');
         }
-        t += QLatin1Char('}');
+        t += QStringLiteral("}\n");
         return t;
     }
 
