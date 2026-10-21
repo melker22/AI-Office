@@ -1504,13 +1504,15 @@ static QString seqFieldName(const TextRun &r)
     return seqFieldJson(r).value(QStringLiteral("name")).toString();
 }
 
-// Hidden paragraphs (section or hideIf) leave the layout, the PDF, and these counts (D3).
-// hideIf is decided on the unfiltered field context, so this does not recurse.
+// Hidden blocks (section or hideIf) leave layout, PDF, and stat counts (D3).
+// hideIf is evaluated once with page=1 and pages=1, independent of pagination.
 bool documentBlockVisibleForStat(const Document &doc, const Block &b, int page, int pages)
 {
+    Q_UNUSED(page);
+    Q_UNUSED(pages);
     if (b.sectionHidden)
         return false;
-    return !blockHiddenByExpr(doc, b, page, pages);
+    return !blockHiddenByExpr(doc, b, 1, 1);
 }
 
 int documentStatCount(const Document &doc, const QString &kind, int page, int pages)

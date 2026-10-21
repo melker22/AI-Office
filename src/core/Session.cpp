@@ -814,8 +814,20 @@ QJsonObject Session::applyParagraphFormat(const QJsonObject &args)
             doc_.body[i].lang = args.value(QStringLiteral("lang")).toString();
         if (args.contains(QStringLiteral("section_hidden")))
             doc_.body[i].sectionHidden = args.value(QStringLiteral("section_hidden")).toBool();
-        if (args.contains(QStringLiteral("hide_if")))
-            doc_.body[i].hideIf = args.value(QStringLiteral("hide_if")).toString();
+        if (args.contains(QStringLiteral("hide_if"))) {
+            const QString hideExpr = args.value(QStringLiteral("hide_if")).toString();
+            if (!hideExpr.isEmpty()) {
+                if (hideIfExprUsesPageOrPages(hideExpr))
+                    return fail(QStringLiteral(
+                        "hide_if cannot depend on page or pages (evaluated once, before pagination)"));
+                const FieldExprResult hideEv =
+                    FieldExpr::evaluate(hideExpr, doc_, fieldContextFor(doc_, 1, 1));
+                if (!hideEv.ok)
+                    return fail(hideEv.error.isEmpty() ? QStringLiteral("invalid expression")
+                                                       : hideEv.error);
+            }
+            doc_.body[i].hideIf = hideExpr;
+        }
         if (args.contains(QStringLiteral("writing_mode")))
             doc_.body[i].writingMode = args.value(QStringLiteral("writing_mode")).toString();
         if (args.contains(QStringLiteral("z_index")))
@@ -4650,23 +4662,22 @@ QJsonObject Session::documentStats(const QJsonObject &)
     DocumentLayout lay;
     lay.relayout(doc_, 1.0);
     const int pages = qMax(1, lay.pages);
-    const int page = lay.displayPage(1);
     int comments = 0;
     for (const auto &b : doc_.body) {
-        if (!documentBlockVisibleForStat(doc_, b, page, pages))
+        if (!documentBlockVisibleForStat(doc_, b, 1, 1))
             continue;
         comments += b.comments.size();
     }
     auto r = ok();
-    r[QStringLiteral("words")] = documentStatCount(doc_, QStringLiteral("words"), page, pages);
-    r[QStringLiteral("chars")] = documentStatCount(doc_, QStringLiteral("chars"), page, pages);
+    r[QStringLiteral("words")] = documentStatCount(doc_, QStringLiteral("words"), 1, pages);
+    r[QStringLiteral("chars")] = documentStatCount(doc_, QStringLiteral("chars"), 1, pages);
     r[QStringLiteral("paragraphs")] =
-        documentStatCount(doc_, QStringLiteral("paragraphs"), page, pages);
+        documentStatCount(doc_, QStringLiteral("paragraphs"), 1, pages);
     r[QStringLiteral("headings")] =
-        documentStatCount(doc_, QStringLiteral("headings"), page, pages);
+        documentStatCount(doc_, QStringLiteral("headings"), 1, pages);
     r[QStringLiteral("pages")] = lay.pages;
-    r[QStringLiteral("images")] = documentStatCount(doc_, QStringLiteral("images"), page, pages);
-    r[QStringLiteral("tables")] = documentStatCount(doc_, QStringLiteral("tables"), page, pages);
+    r[QStringLiteral("images")] = documentStatCount(doc_, QStringLiteral("images"), 1, pages);
+    r[QStringLiteral("tables")] = documentStatCount(doc_, QStringLiteral("tables"), 1, pages);
     r[QStringLiteral("comments")] = comments;
     return r;
 }
@@ -5153,6 +5164,20 @@ QJsonObject Session::validate(const QJsonObject &)
             noteIds.insert(b.id);
     }
     const FieldContext exprCtx = fieldContextFor(doc_, 1, 1);
+    auto checkHideIf = [&](const QString &expr, const QString &id) {
+        if (expr.isEmpty())
+            return;
+        if (hideIfExprUsesPageOrPages(expr)) {
+            err(QStringLiteral("invalid_expression"), id,
+                QStringLiteral("hide_if cannot depend on page or pages (evaluated once, before "
+                               "pagination)"));
+            return;
+        }
+        const FieldExprResult ev = FieldExpr::evaluate(expr, doc_, exprCtx);
+        if (!ev.ok)
+            err(QStringLiteral("invalid_expression"), id,
+                ev.error.isEmpty() ? QStringLiteral("invalid expression") : ev.error);
+    };
     auto checkExpr = [&](const QString &expr, const QString &id) {
         if (expr.isEmpty())
             return;
@@ -5174,7 +5199,7 @@ QJsonObject Session::validate(const QJsonObject &)
         }
     };
     for (const auto &b : doc_.body) {
-        checkExpr(b.hideIf, b.id);
+        checkHideIf(b.hideIf, b.id);
         for (const auto &r : b.runs) {
             checkRunExpr(r, b.id);
             if (!r.noteId.isEmpty() && !noteIds.contains(r.noteId) && !ids.contains(r.noteId))

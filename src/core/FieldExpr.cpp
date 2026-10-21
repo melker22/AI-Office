@@ -1,9 +1,11 @@
 #include "core/FieldExpr.h"
 
 #include "core/Document.h"
+#include "core/Preview.h"
 
 #include <QJsonDocument>
 #include <QJsonObject>
+#include <QSet>
 #include <cmath>
 
 namespace aioffice {
@@ -104,10 +106,11 @@ Val compareVals(const Val &a, const Val &b, const QString &op)
 
 class Parser {
 public:
-    Parser(const QString &expr, const Document &doc, const FieldContext &ctx)
+    Parser(const QString &expr, const Document &doc, const FieldContext &ctx, QSet<QString> *identifiersOut = nullptr)
         : s_(expr)
         , doc_(doc)
         , ctx_(ctx)
+        , identifiersOut_(identifiersOut)
     {
     }
 
@@ -142,6 +145,7 @@ private:
     const QString &s_;
     const Document &doc_;
     const FieldContext &ctx_;
+    QSet<QString> *identifiersOut_ = nullptr;
     int i_ = 0;
     int depth_ = 0;
     QString error_;
@@ -385,6 +389,8 @@ private:
             fail();
             return fromString({});
         }
+        if (identifiersOut_)
+            identifiersOut_->insert(name);
         if (name == QLatin1String("page"))
             return fromNumber(ctx_.page);
         if (name == QLatin1String("pages"))
@@ -426,6 +432,23 @@ FieldContext baseContext(const Document &doc, int page, int pages)
 FieldExprResult FieldExpr::evaluate(const QString &expr, const Document &doc, const FieldContext &ctx)
 {
     return Parser(expr, doc, ctx).run();
+}
+
+QSet<QString> fieldExprIdentifiers(const QString &expr)
+{
+    Document empty;
+    FieldContext ctx;
+    QSet<QString> ids;
+    Parser(expr, empty, ctx, &ids).run();
+    return ids;
+}
+
+bool hideIfExprUsesPageOrPages(const QString &expr)
+{
+    if (expr.isEmpty())
+        return false;
+    const QSet<QString> ids = fieldExprIdentifiers(expr);
+    return ids.contains(QLatin1String("page")) || ids.contains(QLatin1String("pages"));
 }
 
 bool showIfIsBareName(const QString &expr)
@@ -534,6 +557,12 @@ static bool isStructureField(const TextRun &r)
 
 void refreshIfFields(Document &doc, bool includeStats)
 {
+    int statPages = 1;
+    if (includeStats) {
+        DocumentLayout lay;
+        lay.relayout(doc, 1.0);
+        statPages = qMax(1, lay.pages);
+    }
     // Seq and category_number first: a stat/chars count reads the stored run text.
     auto walk = [&](QVector<TextRun> &runs, bool stats) -> bool {
         bool changed = false;
@@ -543,7 +572,8 @@ void refreshIfFields(Document &doc, bool includeStats)
                 continue;
             if (!stat && !isStructureField(r))
                 continue;
-            const QString next = runDisplayText(doc, r, 1, 1, &r);
+            const int pagesArg = stat && r.fieldArg == QLatin1String("pages") ? statPages : 1;
+            const QString next = runDisplayText(doc, r, 1, pagesArg, &r);
             if (next == r.text)
                 continue;
             r.text = next;

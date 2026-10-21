@@ -319,7 +319,7 @@ struct Document {
     int wordCount() const;
 };
 
-// Layout-aware visibility for stat fields and document_stats (sectionHidden + hideIf).
+// Visibility for stat fields and document_stats (sectionHidden + hideIf at page=1, pages=1).
 bool documentBlockVisibleForStat(const Document &doc, const Block &b, int page, int pages);
 int documentStatCount(const Document &doc, const QString &kind, int page, int pages);
 

@@ -8,6 +8,26 @@
 
 ---
 
+## 2026-10-21 — Composer — hide_if evaluated once (page=1, pages=1)
+
+**Objective:** Closed architect decision on `fix/coderabbit-outside-diff`: `hide_if` uses `page=1`/`pages=1` everywhere; reject `page`/`pages` in hide expressions; align Docx, stats, and docs. No `src/app/`, no `.cockpit/`, no push.
+
+**Done:**
+- `Docx.cpp` `paragraphVanished` and stat visibility use `blockHiddenByExpr(..., 1, 1)` like layout/PDF/EPUB/ODT.
+- `documentBlockVisibleForStat` always evaluates hide with (1,1); `document_stats` passes real `pages` only for the pages total.
+- `fieldExprIdentifiers` / `hideIfExprUsesPageOrPages`; `apply_paragraph_format` and `validate` reject page-dependent hide_if with a clear message.
+- Docs: `docs/waves/wave18-fields.md` D3, `docs/mcp-tools.md`, ToolDispatch prose.
+- Playbook `qa/wave22-hide-if-page.json` + fixture `qa/wave22-hide-if-page-bad.aio.json`.
+- `scripts/qa-all.sh --gui --interop --pdf --formats`: **82/82** ctest passed (~123 s).
+
+**Decisions:** Stat field `pages` gets layout page count in `refreshIfFields` (not inside `documentStatCount`, avoids relayout recursion). DOCX round-trip test re-applies `flag` after open (vars are not in the embedded JSON part alone).
+
+**Next suggested step:** Push branch when the user asks; fold into PR #6/#9 review.
+
+**Commits:** `a9c51bd` fix: evaluate hide_if once with page=1 and pages=1 everywhere
+
+---
+
 ## 2026-10-21 — Composer — CodeRabbit outside-diff (PR #6/#9)
 
 **Objective:** Fix four CodeRabbit “outside diff range” findings on branch `fix/coderabbit-outside-diff` from `b8345e5`. Tests with real expects; no `src/app/`, no `.cockpit/`, no push.
