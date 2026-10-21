@@ -27,7 +27,7 @@
 
 **Next suggested step:** Opus on those two playbooks (`hide_if` true, or `sender.name`), then re-run the format gate.
 
-**Commits:** (this commit)
+**Commits:** `345065a` fix: keep RTF spacing, headings, and ODT table columns
 
 ---
 
