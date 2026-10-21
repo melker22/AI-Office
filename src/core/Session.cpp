@@ -216,6 +216,23 @@ bool isWorkingDocumentPath(const QString &path)
     return ext == QLatin1String("odt") || ext == QLatin1String("docx");
 }
 
+bool isReadOnlyExportSavePath(const QString &path)
+{
+    if (path.isEmpty() || isWorkingDocumentPath(path))
+        return false;
+    const QString ext = QFileInfo(path).suffix().toLower();
+    static const QSet<QString> kExportExt{
+        QStringLiteral("epub"),
+        QStringLiteral("pdf"),
+        QStringLiteral("rtf"),
+        QStringLiteral("md"),
+        QStringLiteral("txt"),
+        QStringLiteral("html"),
+        QStringLiteral("doc"),
+    };
+    return kExportExt.contains(ext);
+}
+
 } // namespace
 
 bool Session::saveTo(const QString &path, QString *error, bool embedJson, QJsonObject *exportInfo, QStringList *warnings)
@@ -436,6 +453,7 @@ QJsonObject Session::saveDocument(const QJsonObject &args)
         // clean session still reports dirty:false and document_new drops the
         // new title. A working-document save clears dirty_ below.
         if (nextTitle != doc_.title) {
+            pushUndo();
             doc_.title = nextTitle;
             markChanged();
         }
@@ -4631,27 +4649,24 @@ QJsonObject Session::documentStats(const QJsonObject &)
 {
     DocumentLayout lay;
     lay.relayout(doc_, 1.0);
-    int paras = 0, images = 0, tables = 0, headings = 0, comments = 0, chars = 0;
+    const int pages = qMax(1, lay.pages);
+    const int page = lay.displayPage(1);
+    int comments = 0;
     for (const auto &b : doc_.body) {
-        if (b.type == QLatin1String("paragraph") && !blockHiddenByExpr(doc_, b, 1, 1))
-            ++paras;
-        else if (b.type == QLatin1String("image"))
-            ++images;
-        else if (b.type == QLatin1String("table"))
-            ++tables;
-        else if (b.type == QLatin1String("heading"))
-            ++headings;
+        if (!documentBlockVisibleForStat(doc_, b, page, pages))
+            continue;
         comments += b.comments.size();
-        chars += b.plainText().size();
     }
     auto r = ok();
-    r[QStringLiteral("words")] = doc_.wordCount();
-    r[QStringLiteral("chars")] = chars;
-    r[QStringLiteral("paragraphs")] = paras;
-    r[QStringLiteral("headings")] = headings;
+    r[QStringLiteral("words")] = documentStatCount(doc_, QStringLiteral("words"), page, pages);
+    r[QStringLiteral("chars")] = documentStatCount(doc_, QStringLiteral("chars"), page, pages);
+    r[QStringLiteral("paragraphs")] =
+        documentStatCount(doc_, QStringLiteral("paragraphs"), page, pages);
+    r[QStringLiteral("headings")] =
+        documentStatCount(doc_, QStringLiteral("headings"), page, pages);
     r[QStringLiteral("pages")] = lay.pages;
-    r[QStringLiteral("images")] = images;
-    r[QStringLiteral("tables")] = tables;
+    r[QStringLiteral("images")] = documentStatCount(doc_, QStringLiteral("images"), page, pages);
+    r[QStringLiteral("tables")] = documentStatCount(doc_, QStringLiteral("tables"), page, pages);
     r[QStringLiteral("comments")] = comments;
     return r;
 }
@@ -5343,8 +5358,18 @@ QJsonObject Session::call(const QString &tool, const QJsonObject &args)
         QStringLiteral("revision_view"),
         QStringLiteral("image_library_list"),
     };
-    if (doc_.readOnly && !kReadOnlyOk.contains(tool))
-        return fail(QStringLiteral("document is read-only"));
+    if (doc_.readOnly && !kReadOnlyOk.contains(tool)) {
+        if (tool != QLatin1String("document_save")) {
+            return fail(QStringLiteral("document is read-only"));
+        }
+        QString savePath = args.value(QStringLiteral("path")).toString();
+        if (savePath.isEmpty())
+            savePath = path_;
+        if (args.contains(QStringLiteral("title"))
+            || !isReadOnlyExportSavePath(savePath)) {
+            return fail(QStringLiteral("document is read-only"));
+        }
+    }
     if (tool == QLatin1String("repeat_last")) {
         if (lastTool_.isEmpty())
             return fail(QStringLiteral("no last tool"));

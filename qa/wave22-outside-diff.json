@@ -1,0 +1,47 @@
+[
+  {"tool": "document_new", "args": {"title": "Antigo", "force": true}},
+  {"tool": "insert_at_caret", "args": {"id": "p1", "offset": 0, "text": "Corpo"}},
+  {"tool": "document_save", "args": {"path": "/tmp/wave22-title-undo.md", "title": "Novo titulo"}, "expect": {"ok": true, "title": "Novo titulo", "dirty": true}},
+  {"tool": "undo", "args": {}, "expect": {"ok": true}},
+  {"tool": "document_get", "args": {}, "expect": {"document.meta.title": "Antigo"}},
+
+  {"tool": "document_new", "args": {"title": "Readonly export", "force": true}},
+  {"tool": "insert_at_caret", "args": {"id": "p1", "offset": 0, "text": "So leitura"}},
+  {"tool": "document_save", "args": {"path": "/tmp/wave22-ro.aio.json"}, "expect": {"ok": true}},
+  {"tool": "set_read_only", "args": {"on": true}},
+  {"tool": "document_save", "args": {"path": "/tmp/wave22-ro-export.md"}, "expect": {"ok": true, "path": "/tmp/wave22-ro.aio.json"}},
+  {"tool": "document_save", "args": {"path": "/tmp/wave22-ro-export.md", "title": "X"}, "expect": {"ok": false, "error": "document is read-only"}},
+  {"tool": "document_save", "args": {"path": "/tmp/wave22-ro.odt"}, "expect": {"ok": false, "error": "document is read-only"}},
+  {"tool": "set_read_only", "args": {"on": false}},
+
+  {"tool": "document_new", "args": {"title": "Stats hide", "force": true}},
+  {"tool": "insert_at_caret", "args": {"id": "p1", "offset": 0, "text": "Visivel um dois"}},
+  {"tool": "insert_blocks", "args": {"after_id": "p1", "blocks": [
+    {"id": "pHide", "type": "paragraph", "runs": [{"text": "Oculto tres quatro"}]},
+    {"id": "tHide", "type": "table", "rows": [[{"runs": [{"text": "cinco"}]}]]},
+    {"type": "image", "id": "iHide", "image_b64": "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==", "width_mm": 8, "alt": "fig"}
+  ]}},
+  {"tool": "apply_paragraph_format", "args": {"id": "pHide", "hide_if": "flag == \"on\""}},
+  {"tool": "apply_paragraph_format", "args": {"id": "tHide", "hide_if": "flag == \"on\""}},
+  {"tool": "apply_paragraph_format", "args": {"id": "iHide", "hide_if": "flag == \"on\""}},
+  {"tool": "set_vars", "args": {"name": "flag", "value": "on"}},
+  {"tool": "document_stats", "args": {}, "expect": {"paragraphs": 1, "tables": 0, "images": 0, "words": 3, "chars": 15}},
+  {"tool": "insert_field", "args": {"id": "p1", "offset": 15, "kind": "stat", "arg": "paragraphs"}},
+  {"tool": "insert_field", "args": {"id": "p1", "offset": 16, "kind": "stat", "arg": "tables"}},
+  {"tool": "insert_field", "args": {"id": "p1", "offset": 17, "kind": "stat", "arg": "images"}},
+  {"tool": "insert_field", "args": {"id": "p1", "offset": 18, "kind": "stat", "arg": "words"}},
+  {"tool": "insert_field", "args": {"id": "p1", "offset": 19, "kind": "stat", "arg": "chars"}},
+  {"tool": "document_stats", "args": {}, "expect": {"paragraphs": 1, "tables": 0, "images": 0, "words": 3, "chars": 21}},
+  {"tool": "document_get", "args": {}, "expect": {
+    "document.body.0.runs.1.field": "stat",
+    "document.body.0.runs.1.text": "1",
+    "document.body.0.runs.2.field": "stat",
+    "document.body.0.runs.2.text": "0",
+    "document.body.0.runs.3.field": "stat",
+    "document.body.0.runs.3.text": "0",
+    "document.body.0.runs.4.field": "stat",
+    "document.body.0.runs.4.text": "3",
+    "document.body.0.runs.5.field": "stat",
+    "document.body.0.runs.5.text": "21"
+  }}
+]

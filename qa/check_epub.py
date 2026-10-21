@@ -221,8 +221,9 @@ def check_structure(epub: Path, exp: dict[str, Any]) -> list[str]:
 
     footnote_min = int(exp.get("footnote_aside_min", 0))
     if footnote_min > 0:
-        count = len(re.findall(r'epub:type="footnote"', bundle_lower))
-        count += len(re.findall(r"<aside[^>]+footnote", bundle_lower))
+        count = len(
+            re.findall(r'<aside[^>]*\bepub:type="footnote"', bundle_lower)
+        )
         if count < footnote_min:
             errors.append(f"expected at least {footnote_min} footnote aside(s), got {count}")
 

@@ -1506,21 +1506,21 @@ static QString seqFieldName(const TextRun &r)
 
 // Hidden paragraphs (section or hideIf) leave the layout, the PDF, and these counts (D3).
 // hideIf is decided on the unfiltered field context, so this does not recurse.
-static bool blockVisibleForStat(const Document &doc, const Block &b, int page, int pages)
+bool documentBlockVisibleForStat(const Document &doc, const Block &b, int page, int pages)
 {
     if (b.sectionHidden)
         return false;
     return !blockHiddenByExpr(doc, b, page, pages);
 }
 
-static int statCount(const Document &doc, const QString &kind, int page, int pages)
+int documentStatCount(const Document &doc, const QString &kind, int page, int pages)
 {
     if (kind == QLatin1String("pages"))
         return qMax(1, pages);
     if (kind == QLatin1String("words")) {
         int n = 0;
         for (const auto &b : doc.body) {
-            if (!blockVisibleForStat(doc, b, page, pages))
+            if (!documentBlockVisibleForStat(doc, b, page, pages))
                 continue;
             const auto parts = b.plainText().split(QRegularExpression(QStringLiteral("\\s+")), Qt::SkipEmptyParts);
             n += parts.size();
@@ -1530,7 +1530,7 @@ static int statCount(const Document &doc, const QString &kind, int page, int pag
     if (kind == QLatin1String("chars")) {
         int n = 0;
         for (const auto &b : doc.body) {
-            if (!blockVisibleForStat(doc, b, page, pages))
+            if (!documentBlockVisibleForStat(doc, b, page, pages))
                 continue;
             n += b.plainText().size();
         }
@@ -1538,13 +1538,15 @@ static int statCount(const Document &doc, const QString &kind, int page, int pag
     }
     int n = 0;
     for (const auto &b : doc.body) {
-        if (!blockVisibleForStat(doc, b, page, pages))
+        if (!documentBlockVisibleForStat(doc, b, page, pages))
             continue;
         if (kind == QLatin1String("paragraphs") && b.type == QLatin1String("paragraph"))
             ++n;
         else if (kind == QLatin1String("tables") && b.type == QLatin1String("table"))
             ++n;
         else if (kind == QLatin1String("images") && b.type == QLatin1String("image"))
+            ++n;
+        else if (kind == QLatin1String("headings") && b.type == QLatin1String("heading"))
             ++n;
     }
     return n;
@@ -1710,7 +1712,7 @@ QString runDisplayText(const Document &doc, const TextRun &r, int page, int page
         else if (key == QLatin1String("revision"))
             t = QString::number(qMax(1, doc.revisions.size()));
     } else if (r.field == QLatin1String("stat")) {
-        t = QString::number(statCount(doc, r.fieldArg, page, pages));
+        t = QString::number(documentStatCount(doc, r.fieldArg, page, pages));
     } else if (r.field == QLatin1String("sender")) {
         t = doc.vars.value(QStringLiteral("sender.") + r.fieldArg);
     } else if (r.field == QLatin1String("seq")) {

@@ -8,6 +8,26 @@
 
 ---
 
+## 2026-10-21 — Composer — CodeRabbit outside-diff (PR #6/#9)
+
+**Objective:** Fix four CodeRabbit “outside diff range” findings on branch `fix/coderabbit-outside-diff` from `b8345e5`. Tests with real expects; no `src/app/`, no `.cockpit/`, no push.
+
+**Done:**
+- `document_save` with a new `title` calls `pushUndo()` before changing `doc_.title` (undo restores the prior title).
+- Read-only sessions allow `document_save` to export paths (`.epub`/`.pdf`/`.rtf`/`.md`/`.txt`/`.html`/`.doc`) without `title`; working saves and title changes stay rejected.
+- `qa/check_epub.py` counts each footnote `<aside epub:type="footnote">` once; existing `footnote_aside_min` values (1/1/7) already match real aside counts.
+- `document_stats` uses `documentBlockVisibleForStat` / `documentStatCount` with layout page and page count (same rules as `stat` fields); headings added to stat kinds.
+- Playbook `qa/wave22-outside-diff.json` covers undo title, read-only export guard, and hidden block stats.
+- `scripts/qa-all.sh --gui --interop --pdf --formats`: **81/81** ctest passed (~124 s).
+
+**Decisions:** Export-only read-only save uses the same extension set as wave 20 exports. EPUB footnote mins unchanged because real aside counts were already 1 and 7.
+
+**Next suggested step:** Push branch and open PR when the user asks; sync Notion if the board is updated.
+
+**Commits:** _(pending — see git log after commit)_
+
+---
+
 ## 2026-10-21 — Cursor Grok 4.7 — CodeRabbit wave 20 follow-up
 
 **Objective:** Fix the five new CodeRabbit findings after `d16f7a7`. Bound same-flush footnote resolution. Keep hyperlink character formatting, re-encode non-JPEG pictures, mark a new export title dirty, and document `.doc` as a LibreOffice export. No `src/app/`, no `.cockpit/`, no push.
