@@ -173,7 +173,8 @@ def check_structure(epub: Path, exp: dict[str, Any]) -> list[str]:
             errors.append(f"missing package/block lang {pkg_lang!r}")
 
     if exp.get("has_lang_span"):
-        if not re.search(r'xml:lang="en-', bundle) and not re.search(r'lang="en-', bundle):
+        # Primary subtag "en" or a regional tag such as "en-US". xml:lang= contains lang=.
+        if not re.search(r'lang="en(?:-[A-Za-z0-9]+)*"', bundle):
             errors.append("missing foreign-language span (en)")
 
     if exp.get("has_rtl"):

@@ -1,5 +1,10 @@
 #!/usr/bin/env python3
-"""Wave 20 RTF QA: aio→rtf→aio round-trip and foreign/hostile fixture import."""
+"""Wave 20 RTF QA: aio→rtf→aio round-trip and foreign/hostile fixture import.
+
+A sibling ``.rtf.json`` with ``{"mode": "import"}`` plays the book as-is.
+Its ``expect`` objects are the oracle (import structure and hostile errors).
+Omit ``mode`` (or set ``"roundtrip"``) to export, reopen, and compare.
+"""
 
 from __future__ import annotations
 
@@ -294,7 +299,15 @@ def main() -> int:
         expect = (args.expect or playbook.with_name(playbook.stem + ".rtf.json")).resolve()
         if not expect.is_file():
             raise SystemExit(f"missing expectations: {expect}")
-        errors = roundtrip(cli, playbook, expect)
+        exp = load_expectations(expect)
+        mode = exp.get("mode") or "roundtrip"
+        if mode == "import":
+            play_file(cli, playbook)
+            errors = []
+        elif mode == "roundtrip":
+            errors = roundtrip(cli, playbook, expect)
+        else:
+            raise SystemExit(f"{expect}: unknown mode {mode!r}")
     else:
         raise SystemExit("usage: check_rtf.py --playbook … | --fixture … | --self-test")
 

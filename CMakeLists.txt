@@ -183,6 +183,9 @@ foreach(_pb IN LISTS _aio_playbooks)
     if(_pb_name MATCHES "^wave19-pdf-")
         continue()
     endif()
+    # Export/import playbooks under qa/wave20-* are registered by the epub and
+    # rtf loops below, which need a sibling expectation file. Playing them here
+    # as well would run each one twice.
     if(_pb_name MATCHES "^wave20-")
         continue()
     endif()
@@ -261,7 +264,10 @@ set_tests_properties(rtf_wave20_rtf_out_selftest PROPERTIES
     LABELS "playbook"
     WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}"
 )
-file(GLOB _aio_epub_playbooks CONFIGURE_DEPENDS "${CMAKE_SOURCE_DIR}/qa/wave20-epub-*.json")
+# wave20-epub.json has no hyphen suffix, so wave20-epub-*.json does not match it.
+file(GLOB _aio_epub_playbooks CONFIGURE_DEPENDS
+    "${CMAKE_SOURCE_DIR}/qa/wave20-epub-*.json"
+    "${CMAKE_SOURCE_DIR}/qa/wave20-epub.json")
 foreach(_epub_pb IN LISTS _aio_epub_playbooks)
     get_filename_component(_epub_name "${_epub_pb}" NAME)
     if(_epub_name MATCHES "\\.epub\\.json$")

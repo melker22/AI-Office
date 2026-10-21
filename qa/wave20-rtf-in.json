@@ -159,7 +159,7 @@
   }},
   {"tool": "document_open", "args": {"path": "qa/fixtures/wave20-rtf-depth.rtf"}, "expect": {
     "ok": false,
-    "error": "RTF group nesting exceeds 64"
+    "error": "RTF group nesting depth exceeds 64"
   }},
   {"tool": "document_open", "args": {"path": "qa/fixtures/wave20-rtf-bin.rtf"}, "expect": {
     "ok": false,
