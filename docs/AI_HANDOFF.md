@@ -8,6 +8,26 @@
 
 ---
 
+## 2026-10-21 — Fleet wave20 — Composer / Cursor Grok / Grok Build / Sonnet
+
+**Objective:** Close wave 20 (native EPUB 3 export + RTF import/export, `--formats` QA, format-compliance gate, Fleet review). Docs + catalog sync; no push.
+
+**Done:**
+- EPUB 3 via `document_save` (`.epub`): `XhtmlWriter`, epubcheck 0 errors / 0 warnings on `epub_wave20-epub-criterion.json` and `epub_wave20-epub.json`.
+- Native RTF: `RtfWriter` / `RtfReader`; `.rtf` opens only through the native path; export/import playbooks wired in CMake (`wave20-epub.epub.json`, `wave20-rtf-in.rtf.json` with `{"mode":"import"}`).
+- Format compliance: RTF spacing/headings/ODT table columns; list-table braces; bookmark destination groups; fixtures aligned with closed `hide_if` / `sender.name` rules (no criterion loosening).
+- Fleet review iteration 2: **0 findings** after playbook wiring fix (`4669334`).
+- `scripts/qa-all.sh --gui --interop --pdf --formats` ( `nix-shell` ): **68/68** ctest passed (~139 s); interop ok — docx↔odt, fields resave chain, our RTF→ODT and LO RTF→native import.
+- `git log main..HEAD --oneline`: `4669334` … `0eb5e27` (17 commits on branch; EPUB export through review fix).
+
+**Decisions:** Revisions, block comments, and shapes/forms in RTF export stay plain text with deduplicated `warnings[]` per spec D4/D7; DOC binary native remains out of scope (soffice); `export_html` unchanged — XHTML writer is EPUB-only until a follow-up Todo.
+
+**Next suggested step:** Notion sync for wave 20 Done rows; next IA wave or chrome as board prioritizes (import EPUB, faithful RTF revisions/comments, migrate `export_html`).
+
+**Commits:** `4669334`, `514629d`, `f18e12e`, `345065a`, `b007c0a`, `ef02651`, `7433d14`, `8ce1536`, `6819c63`, `8c7e9ba`, `02eda0d`, `d0c9131`, `056f259`, `4796ff4`, `3c356f3`, `4f12fa5`, `6b0dc00`, `0eb5e27`
+
+---
+
 ## 2026-10-21 — Cursor Grok 4.7 — Fleet wave20 t5 format compliance
 
 **Objective:** Take `scripts/qa-all.sh --gui --interop --formats` and `--gui --interop --pdf --formats` to green without weakening epubcheck or LibreOffice checks. No push.
