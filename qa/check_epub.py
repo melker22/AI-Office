@@ -202,6 +202,11 @@ def check_structure(epub: Path, exp: dict[str, Any]) -> list[str]:
         if isinstance(forbidden, str) and forbidden and forbidden in bundle:
             errors.append(f"hide_if text must be omitted: {forbidden!r}")
 
+    # Complement of hide_if_omitted: text whose hide_if is false (or that has none) must be present.
+    for required in exp.get("text_contains") or []:
+        if isinstance(required, str) and required and required not in bundle:
+            errors.append(f"text must be present: {required!r}")
+
     th_min = int(exp.get("table_th_min", 0))
     if th_min > 0:
         th_count = len(re.findall(r"<th\b", bundle_lower))

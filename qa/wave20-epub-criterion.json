@@ -1,28 +1,222 @@
 [
-  {"tool": "document_new", "args": {"title": "Wave20 EPUB criterion", "force": true}},
-  {"tool": "document_set_title", "args": {"author": "AI Office QA", "subject": "EPUB 3 export suite"}},
-  {"tool": "set_vars", "args": {"vars": {"show_secret": "no", "status": "go"}}},
-  {"tool": "insert_blocks", "args": {"after_id": "start", "blocks": [
-    {"type": "heading", "level": 1, "lang": "pt-PT", "runs": [{"text": "Capitulo um"}]},
-    {"type": "paragraph", "lang": "pt-PT", "runs": [
-      {"text": "Intro "},
-      {"text": "English", "lang": "en-US"},
-      {"text": " fim."}
-    ]},
-    {"type": "paragraph", "dir": "rtl", "lang": "ar", "runs": [{"text": "مرحبا"}]},
-    {"type": "heading", "level": 1, "runs": [{"text": "Capitulo dois"}]},
-    {"type": "paragraph", "runs": [{"text": "Tabela abaixo."}]},
-    {"type": "list-item", "list_kind": "bullet", "level": 1, "runs": [{"text": "Externo"}]},
-    {"type": "list-item", "list_kind": "bullet", "level": 2, "runs": [{"text": "Aninhado"}]},
-    {"id": "fig1", "type": "image", "path": "qa/fixtures/wave19-dot.png", "width_mm": 10, "alt": "Ponto vermelho QA"},
-    {"id": "pHide", "type": "paragraph", "runs": [{"text": "Secret"}]}
-  ]}},
-  {"tool": "insert_table", "args": {"after_id": "end", "rows": 2, "cols": 2, "header": true, "header_texts": ["Nome", "Valor"], "cells": ["Alpha", "1"]}},
-  {"tool": "insert_footnote", "args": {"id": "p2", "offset": 6, "text": "Nota EPUB wave20."}},
-  {"tool": "insert_shape", "args": {"after_id": "end", "shape": "rect", "fill": "#B5651D", "width_mm": 25, "height_mm": 12}},
-  {"tool": "insert_chart", "args": {"after_id": "end", "data": [{"label": "A", "value": 2}, {"label": "B", "value": 5}]}},
-  {"tool": "insert_field", "args": {"id": "pHide", "offset": 0, "kind": "if", "arg": {"cond": "status == \"go\"", "then": "SIM", "else": "NAO"}}},
-  {"tool": "apply_paragraph_format", "args": {"id": "pHide", "hide_if": "show_secret == \"yes\""}},
-  {"tool": "toc_update", "args": {"min_level": 1, "max_level": 1}},
-  {"tool": "document_save", "args": {"path": "/tmp/wave20-epub-criterion.epub"}}
+  {
+    "tool": "document_new",
+    "args": {
+      "title": "Wave20 EPUB criterion",
+      "force": true
+    }
+  },
+  {
+    "tool": "document_set_title",
+    "args": {
+      "author": "AI Office QA",
+      "subject": "EPUB 3 export suite"
+    }
+  },
+  {
+    "tool": "set_vars",
+    "args": {
+      "vars": {
+        "show_secret": "yes",
+        "status": "go"
+      }
+    }
+  },
+  {
+    "tool": "insert_blocks",
+    "args": {
+      "after_id": "start",
+      "blocks": [
+        {
+          "type": "heading",
+          "level": 1,
+          "lang": "pt-PT",
+          "runs": [
+            {
+              "text": "Capitulo um"
+            }
+          ]
+        },
+        {
+          "type": "paragraph",
+          "lang": "pt-PT",
+          "runs": [
+            {
+              "text": "Intro "
+            },
+            {
+              "text": "English",
+              "lang": "en-US"
+            },
+            {
+              "text": " fim."
+            }
+          ]
+        },
+        {
+          "type": "paragraph",
+          "dir": "rtl",
+          "lang": "ar",
+          "runs": [
+            {
+              "text": "مرحبا"
+            }
+          ]
+        },
+        {
+          "type": "heading",
+          "level": 1,
+          "runs": [
+            {
+              "text": "Capitulo dois"
+            }
+          ]
+        },
+        {
+          "type": "paragraph",
+          "runs": [
+            {
+              "text": "Tabela abaixo."
+            }
+          ]
+        },
+        {
+          "type": "list-item",
+          "list_kind": "bullet",
+          "level": 1,
+          "runs": [
+            {
+              "text": "Externo"
+            }
+          ]
+        },
+        {
+          "type": "list-item",
+          "list_kind": "bullet",
+          "level": 2,
+          "runs": [
+            {
+              "text": "Aninhado"
+            }
+          ]
+        },
+        {
+          "id": "fig1",
+          "type": "image",
+          "path": "qa/fixtures/wave19-dot.png",
+          "width_mm": 10,
+          "alt": "Ponto vermelho QA"
+        },
+        {
+          "id": "pHide",
+          "type": "paragraph",
+          "runs": [
+            {
+              "text": "Secret"
+            }
+          ]
+        },
+        {
+          "id": "pShown",
+          "type": "paragraph",
+          "runs": [
+            {
+              "text": "Shown"
+            }
+          ]
+        }
+      ]
+    }
+  },
+  {
+    "tool": "insert_table",
+    "args": {
+      "after_id": "end",
+      "rows": 2,
+      "cols": 2,
+      "header": true,
+      "header_texts": [
+        "Nome",
+        "Valor"
+      ],
+      "cells": [
+        "Alpha",
+        "1"
+      ]
+    }
+  },
+  {
+    "tool": "insert_footnote",
+    "args": {
+      "id": "p2",
+      "offset": 6,
+      "text": "Nota EPUB wave20."
+    }
+  },
+  {
+    "tool": "insert_shape",
+    "args": {
+      "after_id": "end",
+      "shape": "rect",
+      "fill": "#B5651D",
+      "width_mm": 25,
+      "height_mm": 12
+    }
+  },
+  {
+    "tool": "insert_chart",
+    "args": {
+      "after_id": "end",
+      "data": [
+        {
+          "label": "A",
+          "value": 2
+        },
+        {
+          "label": "B",
+          "value": 5
+        }
+      ]
+    }
+  },
+  {
+    "tool": "insert_field",
+    "args": {
+      "id": "pHide",
+      "offset": 0,
+      "kind": "if",
+      "arg": {
+        "cond": "status == \"go\"",
+        "then": "SIM",
+        "else": "NAO"
+      }
+    }
+  },
+  {
+    "tool": "apply_paragraph_format",
+    "args": {
+      "id": "pHide",
+      "hide_if": "show_secret == \"yes\""
+    }
+  },
+  {
+    "tool": "apply_paragraph_format",
+    "args": {
+      "id": "pShown",
+      "hide_if": "show_secret == \"no\""
+    }
+  },
+  {
+    "tool": "toc_update",
+    "args": {
+      "min_level": 1,
+      "max_level": 1
+    }
+  },
+  {
+    "tool": "document_save",
+    "args": {
+      "path": "/tmp/wave20-epub-criterion.epub"
+    }
+  }
 ]

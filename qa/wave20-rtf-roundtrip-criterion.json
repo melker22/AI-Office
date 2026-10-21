@@ -1,6 +1,6 @@
 [
   {"tool": "document_new", "args": {"title": "Wave20 RTF roundtrip", "force": true}},
-  {"tool": "set_vars", "args": {"vars": {"name": "Ada", "status": "go"}}},
+  {"tool": "set_vars", "args": {"vars": {"sender.name": "Ada", "status": "go"}}},
   {"tool": "insert_blocks", "args": {"after_id": "start", "blocks": [
     {"type": "heading", "level": 1, "runs": [{"text": "Titulo RTF"}]},
     {"type": "paragraph", "runs": [
