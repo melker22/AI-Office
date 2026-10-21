@@ -88,7 +88,6 @@ pkgs.mkShell {
   ];
   buildInputs = with pkgs; [
     verapdf
-    epubcheck
     qpdf
     poppler-utils
     qt6.qtbase

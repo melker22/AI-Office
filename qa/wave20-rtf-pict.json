@@ -1,6 +1,0 @@
-[
-  {"tool": "document_new", "args": {"title": "RTF pict recode", "force": true}},
-  {"tool": "insert_image", "args": {"after_id": "end", "path": "qa/fixtures/wave20-pixel.gif", "width_mm": 12}},
-  {"tool": "insert_image", "args": {"after_id": "end", "path": "qa/fixtures/wave20-pixel.bmp", "width_mm": 12}},
-  {"tool": "document_save", "args": {"path": "/tmp/wave20-rtf-pict.rtf"}, "expect": {"ok": true}}
-]

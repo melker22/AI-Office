@@ -1,6 +1,0 @@
-{
-  "epub": "/tmp/wave20-epub-nav-skip.epub",
-  "epubcheck": {"errors": 0, "warnings": 0},
-  "nav_heading_order": ["Topo H1", "Pulo H3", "Volta H2"],
-  "text_contains": ["Topo H1", "Pulo H3", "Volta H2"]
-}

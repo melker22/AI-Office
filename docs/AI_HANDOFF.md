@@ -8,150 +8,6 @@
 
 ---
 
-## 2026-10-21 — Cursor Grok 4.7 — CodeRabbit wave 20 follow-up
-
-**Objective:** Fix the five new CodeRabbit findings after `d16f7a7`. Bound same-flush footnote resolution. Keep hyperlink character formatting, re-encode non-JPEG pictures, mark a new export title dirty, and document `.doc` as a LibreOffice export. No `src/app/`, no `.cockpit/`, no push.
-
-**Done:**
-- #0: `resolveNotes` collects note ids from `body[start..]` once, records tempId to finalId while adding footnote blocks, and runs one `replaceNoteIds`. A failed `addBlock` still rewrites the ids already assigned. `rtf_footnote_flush` rejects a 100000-note paragraph with the block-limit error and opens a 20000-note table; the test finished in 2.02 s. `rtf_footnote_scale` (8000 notes, one per paragraph) still passes.
-- #1: `\fldrslt` wraps the result in the run's character properties. Round trip: hyperlink and page number in bold and color (`qa/wave20-rtf-hyperlink.json`).
-- #2: non-JPEG bytes are decoded and saved as PNG before `\pngblip`. Decode or encode failure warns once and writes the alt text. GIF and BMP fixtures round-trip as PNG (`qa/wave20-rtf-pict.json`).
-- #3: `document_save` with a new `title` calls `markChanged` before the write. Only `.aio.json`, `.odt`, and `.docx` clear dirty. `qa/wave21-export-path.json` expects `document_new` to refuse the unsaved title.
-- #4: ToolDispatch and `docs/mcp-tools.md` name `.doc` as an export-only LibreOffice Word 97 write. `mcp_doc_export_prose` checks both.
-- `scripts/qa-all.sh --gui --interop --pdf --formats`: **80/80** ctest passed (140.39 s). Interop ok.
-
-**Decisions:** `.doc` stays export-only; the playbook does not call soffice. A title marks dirty only when the string changes. On the block cap, ids already added are rewritten before the reader returns. Every non-JPEG, including a valid PNG, is re-encoded. Nested note ids that are not in this flush's map stay until a later flush.
-
-**Next suggested step:** Push is still waiting on the user. Sync the review fixes to Notion when the board is updated.
-
-**Commits:** `6dcc356` fix: bound RTF note resolution and keep export titles dirty
-
----
-
-## 2026-10-21 — Cursor Grok 4.7 — CodeRabbit wave 20 EPUB/RTF review
-
-**Objective:** Fix all 18 CodeRabbit findings on PR #9 (wave 20). Working saves stay `.aio.json`, `.odt`, and `.docx`. EPUB, PDF, Markdown, text, HTML, and RTF are exports. No `src/app/`, no `.cockpit/`, no push.
-
-**Done:**
-- #15: `saveDocument` updates `path_` and clears dirty only for `.aio.json`, `.odt`, and `.docx`. The other extensions write the file and return ok or warnings.
-- #16: RTF export warnings reach `document_save` `warnings[]`.
-- #9: `\uN` is a signed 16-bit value. The round trip covers CJK (U+8000), Hangul, and an emoji surrogate pair.
-- #10 / #11: a hyperlink run with an empty field exports as `HYPERLINK`. JPEG uses `\jpegblip`. `\picw` / `\pich` are pixels and `\picwgoal` / `\pichgoal` are twips.
-- #12 / #13 / #14: `\deff0` is Liberation Serif. Each cell starts with `\pard\intbl`. A table ends with `\pard` and the round trip does not add an empty paragraph after it.
-- #8: footnote import keeps a running counter and scans the body only from the last resolved index, plus the open row and table buffers. The reader assigns ids locally so `Document::assignId` does not rescan the whole body for every block.
-- #4: notes are emitted in first-reference order. Each use vector is copied before writing, so the map is not mutated during iteration.
-- #5: heading levels are clamped to at most previous+1 on a copy before `nav.xhtml`. Chapter heading tags stay as authored. epubcheck is 0/0 for a skip (H1, H3, H2) and for a document that starts at H2.
-- #6: an ODT row wider than 256 columns fails with `ODT table row is wider than 256 columns` before the package is written.
-- #7: `renderBlockPng` clears the caption on a copy of the block and sizes an image from its aspect ratio, including crop and 90/270 rotation.
-- #3: `isBcp47` turns underscores into hyphens and accepts a singleton when a subtag follows (`zh-Hant-TW`, `pt_BR`, `en-x-custom`). Invalid tags still fall back.
-- #2: `qa/check_wave20_rtf_out.py` runs `soffice` with `-env:UserInstallation=file://<tmp>`.
-- #0 / #1 / #17: `docs/mcp-tools.md` describes native RTF import. D1 records a UUID v5 of title, newline, and author (the JSON model has no document id). `document_save` says EPUB splits on Heading 1 with optional front matter, and which extensions are exports.
-- `scripts/qa-all.sh --gui --interop --pdf --formats`: **76/76** ctest passed (139.25 s). Interop ok (docx↔odt, fields, our RTF→ODT, LO RTF→native). `rtf_footnote_scale` (8000 notes, 8 s cap) passed in 0.62 s.
-
-**Decisions:** `.doc` stays an export. PDF save still does not return PDF warnings. The table trailer is `\pard` only; `pushTable` does not set `suppressEmptyPar_`. A note aside is written only in the chapter that owns the note. Caption clearing applies only inside `renderBlockPng`. Liberation Serif is registered before the style scan so `\deff0` stays index 0.
-
-**Next suggested step:** Push is still waiting on the user. Sync the review fixes to Notion when the board is updated.
-
-**Commits:** `90c3f5f` fix: keep exports off the working path and repair EPUB and RTF
-
----
-
-## 2026-10-21 — Fleet wave20 — Composer / Cursor Grok / Grok Build / Sonnet
-
-**Objective:** Close wave 20 (native EPUB 3 export + RTF import/export, `--formats` QA, format-compliance gate, Fleet review). Docs + catalog sync; no push.
-
-**Done:**
-- EPUB 3 via `document_save` (`.epub`): `XhtmlWriter`, epubcheck 0 errors / 0 warnings on `epub_wave20-epub-criterion.json` and `epub_wave20-epub.json`.
-- Native RTF: `RtfWriter` / `RtfReader`; `.rtf` opens only through the native path; export/import playbooks wired in CMake (`wave20-epub.epub.json`, `wave20-rtf-in.rtf.json` with `{"mode":"import"}`).
-- Format compliance: RTF spacing/headings/ODT table columns; list-table braces; bookmark destination groups; fixtures aligned with closed `hide_if` / `sender.name` rules (no criterion loosening).
-- Fleet review iteration 2: **0 findings** after playbook wiring fix (`4669334`).
-- `scripts/qa-all.sh --gui --interop --pdf --formats` ( `nix-shell` ): **68/68** ctest passed (~139 s); interop ok — docx↔odt, fields resave chain, our RTF→ODT and LO RTF→native import.
-- `git log main..HEAD --oneline`: `4669334` … `0eb5e27` (17 commits on branch; EPUB export through review fix).
-
-**Decisions:** Revisions, block comments, and shapes/forms in RTF export stay plain text with deduplicated `warnings[]` per spec D4/D7; DOC binary native remains out of scope (soffice); `export_html` unchanged — XHTML writer is EPUB-only until a follow-up Todo.
-
-**Next suggested step:** Notion sync for wave 20 Done rows; next IA wave or chrome as board prioritizes (import EPUB, faithful RTF revisions/comments, migrate `export_html`).
-
-**Commits:** `4669334`, `514629d`, `f18e12e`, `345065a`, `b007c0a`, `ef02651`, `7433d14`, `8ce1536`, `6819c63`, `8c7e9ba`, `02eda0d`, `d0c9131`, `056f259`, `4796ff4`, `3c356f3`, `4f12fa5`, `6b0dc00`, `0eb5e27`
-
----
-
-## 2026-10-21 — Cursor Grok 4.7 — Fleet wave20 t5 format compliance
-
-**Objective:** Take `scripts/qa-all.sh --gui --interop --formats` and `--gui --interop --pdf --formats` to green without weakening epubcheck or LibreOffice checks. No push.
-
-**Done:**
-- RTF character formatting is emitted in a group, so the delimiter space no longer eats the next run (`Mix bold and italic.`).
-- Headings emit the stylesheet slot and a 0-based `\outlinelevel`, so the reader restores `type: heading`.
-- `\cellx` lists column right edges. A leading 0 is not a column.
-- ODT tables write one `table:table-column` per column. Without it, LibreOffice's ODT→RTF kept only the first column (`H`/`1`, dropped `V`/`2`).
-- Nesting errors say `RTF group nesting depth exceeds 64`. A `{\listtext}` group that contains `\par` keeps that paragraph; marker-only groups stay skipped. If every inner group is closed and only the final `{\rtf1` brace is missing, the file opens. A truncated file still errors.
-- Plain-text checks walk table cells the same way as `Block::plainText`. The interop probe sets cells on `t1`, the id `insert_blocks` assigns.
-- `scripts/qa-all.sh --gui --interop --pdf --formats`: **64/66** ctest. Interop ok (docx, odt, fields, RTF both ways). All 10 PDF tests passed.
-
-**Decisions:** Two expectations contradict closed rules. Not loosened.
-- EPUB: `hide_if` is `show_secret == "yes"` while `show_secret` is `"no"`. `field_evaluate` returns false. D2 omits the paragraph only when the expression is true, so the chapter contains `SIMSecret`. epubcheck on that package is 0 errors and 0 warnings. The sibling check `hide_if_omitted: ["Secret"]` requires the text to be absent.
-- RTF: `set_vars` stores `name=Ada` and the field is `sender` with arg `name`. Wave 18 reads `doc.vars["sender.name"]`, which is empty, so the run text is empty and `Ada` is not in the RTF.
-
-**Next suggested step:** Opus on those two playbooks (`hide_if` true, or `sender.name`), then re-run the format gate.
-
-**Commits:** `345065a` fix: keep RTF spacing, headings, and ODT table columns
-
----
-
-## 2026-10-21 — Cursor Grok 4.7 — Fleet wave20 RTF list-table braces
-
-**Objective:** Fix `rtf_wave20_rtf_out`. LibreOffice wrote an empty ODT because `\listtable` closed the `{\rtf1` root group. The check exited 0 when `soffice` was missing, so CI without LibreOffice could not see the bug. No `src/app/`, no `.cockpit/`, no push.
-
-**Done:**
-- `RtfWriter`: `{\leveltext...}` and `{\levelnumbers;}` sit inside `\listlevel`; `\listid` stays inside `{\list ...}`; the override table no longer adds a `}` that closed `{\rtf1`. Decimal lists use `\levelnfc0` (bullet stays 23). Font names are RTF-escaped. `\listid` and `\ls` in `\listoverride` both get the list id.
-- `qa/check_wave20_rtf_out.py`: always checks balanced braces, that `{\rtf1` closes only at EOF, and that no text sits outside the root group; reimports with `document_open` and applies `odt_text_contains` to that text. LibreOffice RTF→ODT runs when `soffice` is on PATH. `--interop` (or `"interop": true` in the `.rtf.json`) fails with `soffice not on PATH: interop RTF check requires LibreOffice` instead of skipping.
-- `qa/check_rtf.py` has no silent soffice skip, so it was left unchanged.
-- Suite RTF opens in LibreOffice and in the native reader with Titulo RTF, English, Item um, Nome, Alpha, Nota wave20, and Pagina dois. The old list-table shape fails with `RTF root group {\rtf1 closes before end of file (text outside the root group)`.
-- `scripts/qa-all.sh --gui`: **49/49** with soffice (`rtf_wave20_rtf_out` 2.16s) and again with `/run/current-system/sw/bin` removed from PATH (same test 0.43s; structure and native reimport only).
-
-**Decisions:** The playbook ctest is not marked interop, so a machine without LibreOffice still validates structure and native reimport. Marking the check `--interop` makes a missing `soffice` a hard failure.
-
-**Next suggested step:** Fleet `build-1` / `t5-compliance`.
-
-**Commits:** `ef02651` fix: keep RTF list tables inside the root group
-
----
-
-## 2026-10-21 — Composer 2.5 — Fleet wave20 RTF bookmark destination groups
-
-**Objective:** Fix `rtf_wave20_rtf_out` (LibreOffice ODT almost empty): emit `\bkmkstart`/`\bkmkend` as ignorable destination groups; reader L1 for legacy loose markers; QA structural check. No push.
-
-**Done:**
-- `RtfWriter`: bookmarks as `{\\*\\bkmkstart name}…{\\*\\bkmkend name}` with RTF-escaped names; other destinations already grouped (`footnote`, `field`, `pict`, `listtable`).
-- `RtfReader`: grouped `{\\*\\bkmkstart}` unchanged; loose `\bkmkstart`/`\bkmkend` consume only the name token (no document swallow).
-- `qa/wave20-rtf-out.rtf.json`: requires `{\\*\\bkmkstart`.
-- `scripts/qa-all.sh --gui`: **48/48** (including `rtf_wave20_rtf_out` + soffice).
-
-**Next suggested step:** Fleet `build-1` / integrate wave20 RTF+EPUB.
-
-**Commits:** `8ce1536` fix: emit RTF bookmarks as ignorable destination groups
-
----
-
-## 2026-10-21 — Composer 2.5 — Fleet wave20 T4 formats QA harness
-
-**Objective:** D6 — `epubcheck` in Nix, `qa/check_epub.py` / `qa/check_rtf.py`, criterion playbooks and RTF fixtures, ctest labels `epub`/`rtf`, `scripts/qa-all.sh --formats`, CI labels, RTF interop in `qa-interop.py`. No push.
-
-**Done:**
-- `shell.nix`: pinned `epubcheck` 5.3.0 alongside veraPDF.
-- `qa/check_epub.py`: playbook export, epubcheck parse (0 errors + 0 warnings), zip checks (mimetype stored first, nav, lang, footnotes, hide_if omissions); sibling `.epub.json`; self-test includes a minimal EPUB that passes epubcheck.
-- `qa/check_rtf.py`: aio→rtf→aio round-trip and fixture import with `.rtf.json`; hostile fixtures expect `open_error`; subprocess timeouts and `check=False`.
-- Suíte: `wave20-epub-criterion` (critério de pronto EPUB), `wave20-rtf-roundtrip-criterion`, fixtures Word/LibreOffice + hostile deep/malformed RTF.
-- CMake `LABELS epub|rtf`; `scripts/qa-all.sh --formats` combinable with `--pdf`; CircleCI `playbook|roundtrip|pdf|epub|rtf`; interop RTF both directions when `soffice` exists.
-- `scripts/qa-all.sh --gui`: **47/47** ctest (epub/rtf label tests excluded until `--formats`). Criterion EPUB fails with `play: Unknown extension: epub` until T1; self-tests pass.
-
-**Next suggested step:** Merge T1–T3, then `integrate-1` and `t5-compliance` (`--formats --interop` green).
-
-**Commits:** `1874538` feat: add wave 20 EPUB and RTF format QA harness
-
----
-
 ## 2026-10-21 — Cursor Grok 4.7 — README banner SVG UTF-8
 
 **Objective:** Make `docs/github/banner.svg` parse on GitHub. The file was Windows-1252, so `·`, `é`, and `á` were illegal bytes.
@@ -168,25 +24,6 @@
 **Next suggested step:** Merge the pull request. This does not change the product board.
 
 **Commits:** `7569907` fix: encode the GitHub banner SVG as UTF-8 · `99518f2` docs: record the banner encoding fix in the handoff · `f8d9c88` docs: give the archived ODT change mark a change id
-
----
-
-## 2026-10-20 — Cursor Grok 4.7 — Wave 20 EPUB 3 export
-
-**Objective:** Fleet `t1-epub`. Export EPUB 3 from `document_save` (D1–D2; the XHTML writer is D3). Import stays out. Do not change `export_html` or RTF. No push. Notion sync is the later `notion-sync` node.
-
-**Done:**
-- `document_save` with a `.epub` path writes an EPUB 3 package: `mimetype` first and stored, `META-INF/container.xml`, `OEBPS/content.opf` (`dc:title` / `dc:creator` / `dc:language`, stable `urn:uuid`, `dcterms:modified`), `nav.xhtml` (heading TOC + landmarks), one XHTML file per Heading 1, CSS from styles, and images in the manifest with the right media type. Opening an `.epub` returns `{ok:false,error}` `EPUB import is not supported`.
-- Tables use `<th scope="col">`. Nested lists become nested `ol`/`ul`. Notes are `<aside epub:type="footnote|endnote">` plus a `noteref`. `lang`/`xml:lang` and `dir` are set on blocks and spans. Images carry `alt`. Fields are evaluated text (`runDisplayText`). `hide_if` true and page breaks are omitted. Shapes, charts, and QR codes are PNG from the existing page painter (`paintFigureMarker` via `renderBlockPng`). OPF carries schema.org `accessMode`, `accessibilityFeature`, and `accessibilitySummary`.
-- `src/core/Xhtml.{h,cpp}` is a separate writer. `export_html` is unchanged. `Zip` already stored entries, so `Zip.cpp` was not edited.
-- epubcheck 5.3.0 on the proof document (H1 chapters, header table, nested list, footnote, image alt, rasterized shape and chart, RTL paragraph, foreign-language span, `if` field, `hide_if`): 0 fatal, 0 errors, 0 warnings.
-- Playbook `qa/wave20-epub.json`. `scripts/qa-all.sh --gui`: 46/46 passed.
-
-**Decisions:** The JSON model has no document id, so the identifier is UUID v5 of `title + "\n" + author` (namespace `8c0e2b1a-7d4f-4e2a-9b11-6f0a0ff1ce20`). `nav.xhtml` is in the spine with `linear="no"` so the landmarks link does not fail epubcheck RSC-011. Invalid BCP 47 tags are coerced to `pt-PT`.
-
-**Next suggested step:** `t4-formats-qa` (epubcheck in the Nix shell and a ctest label). Then integrate with the RTF nodes.
-
-**Commits:** `4f12fa5` feat: export EPUB 3 from document_save
 
 ---
 
@@ -419,6 +256,159 @@ b748399 feat: PDF export XMP metadata, PDF/A flatten warnings, and ua mode
 **Next suggested step:** integrate-2 merges this with the DOCX field export. The interop docx→odt check compares surviving text, not a native IF, until that export lands.
 
 **Commits:** `0c9fcd1` feat: round-trip wave 18 fields through ODT
+
+---
+
+## 2026-10-10 — Cursor Grok — Wave 18 t1: field expressions
+
+**Objective:** D1 + D3. Recursive-descent expression evaluator, `showIf` expressions, `Block.hideIf`, `if` field, `field_evaluate`, and `validate` `invalid_expression`. Do not touch `src/app/`. Leave the other `runDisplayText` field branches for the parallel field-kinds task.
+
+**Done:**
+- `src/core/FieldExpr.{h,cpp}`: literals, `doc.vars`, numeric refs (`page`, `pages`, `words`, `chars`, `paragraphs`, `tables`, `images`), comparisons, `&&` `||` `!`, parentheses. Numeric compare only when both sides are numbers; otherwise string. No eval/scripting.
+- A bare `showIf` name keeps the old variable rule. Any other `showIf` is an expression; a syntax error displays `#ERR`.
+- `hide_if` on a block (JSON and `apply_paragraph_format`) drops the paragraph from layout, `page_preview`, and PDF, and from `document_stats` paragraphs. The block stays in the JSON and in search. `page_preview` returns `ids` of the blocks laid out on the page.
+- Field `if` with arg `{cond, then, else}` follows `set_vars`. Invalid cond shows `#ERR`. `validate` reports `invalid_expression` with the block id.
+- MCP tool `field_evaluate {expr}` → `{value, type}` or `{ok:false, error}`.
+- Playbook `qa/wave18-expr.json`. `scripts/qa-all.sh --gui`: **33/33** ctests passed.
+
+**Decisions:** `hideIf` is judged against unfiltered totals so the decision does not recurse. The reported `paragraphs` count (expression and `document_stats`) excludes hidden paragraphs. A single identifier in `showIf`, including `page`, stays a variable name.
+
+**Next suggested step:** Fleet integrate-1 merges this with the field-kinds branch (`if` is the only new `runDisplayText` arm here).
+
+**Commits:** `7848309` feat: evaluate field expressions for conditional text
+
+---
+
+## 2026-10-10 — Cursor Grok — Wave 17: format per block, delete inside insert
+
+**Objective:** Fix the two new CodeRabbit majors. One `format` revision per changed non-table block. Rejecting a delete inside an insert must put the restored text back inside that insert. Do not touch `src/app/`. Do not change `shiftRevisionOffsets` for ordinary typing.
+
+**Done:**
+- `applyCharacterFormat` with track changes records one `kind=format` revision per non-table block: that block's id, the range clamped to the block, and that block's `priorRuns`. A range that misses a block records nothing. Tables still get no revision. `revision_reject` restores the named block; `revision_reject_all` restores every one.
+- Rejecting a delete (only `revisionReject` and `revisionRejectAll`) grows every `insert` on the same block with `start <= P <= end` by the restored length (`end += L`). Other revisions keep the `shiftRevisionOffsets` rule. The helper is `shiftRevisionsAfterDeleteReject`; `shiftRevisionOffsets` itself is unchanged.
+- Backspace closes a multi-character insert that ended on the caret. `shiftRevisionOffsets` does not (`end > pivot` is false), so the range would stay one past the live text and `end += L` would count the deleted character twice. A one-character insert is left to the existing shift.
+- Playbook `qa/wave17-reject-repairs.json`: two paragraphs, bold on both, two format revisions, reject one then the other, and `revision_reject_all` leaves neither bold. Insert `abc`, backspace `c` (insert `[0,2)`, delete at 2), `revision_reject_all` leaves empty text; `revision_accept_all` leaves `ab` and no revisions; reject the delete only leaves `abc` with insert `[0,3)`, then reject the insert leaves empty text.
+- `scripts/qa-all.sh --gui --interop`: **32/32** ctests passed; LibreOffice docx→odt and odt→docx ok.
+
+**Decisions:** The grow rule is not folded into `shiftRevisionOffsets`. Closing the insert on backspace is what makes the architect's `[0,2)` → `[0,3)` arithmetic true.
+
+**Next suggested step:** Human `approve-pr` → open the PR to `main`.
+
+**Commits:** `a7b199d` fix: restore every formatted block and a delete inside an insert
+
+---
+
+## 2026-10-10 — Cursor Grok — Wave 17 review: delete point, DOCX JSON precedence
+
+**Objective:** Fix the five CodeRabbit findings on the wave 17 branch. Keep D1 strict (`delete` is `start == end`). Do not touch `src/app/`.
+
+**Done:**
+- `deleteBackward` and selection replacement in `insertAtCaret` record a delete at the point where the text was (`start == end`). `revisionReject` / `revisionRejectAll` shift other revisions by the restored length (`revisionRunsLen`), not `end - start`. `Revision::fromJson` collapses a legacy wide delete to that point so old files still pass `validate`.
+- `loadDocx` skips native `w:ins` / `w:del` / `w:rPrChange` revisions when `word/aioffice.json` has a non-empty `revisions` array. The foreign path (no JSON) is unchanged.
+- `applyCharacterFormat` with track changes stores `blockId` of the non-table block that supplied `priorRuns`, and clamps the range to that block before `splitRuns`.
+- `qa/check_roundtrip.py` and `scripts/qa-interop.py` give `aioffice-cli` `timeout=300` and exit on `TimeoutExpired`. The interop playbook file is removed in a `finally`.
+- D9 in `docs/waves/wave17-roundtrip.md` escapes the `|` in ``playbook\|roundtrip``.
+- New playbook `qa/wave17-delete-point.json` plus `qa/wave17-delete-legacy.aio.json`. The DOCX playbook covers a format change across two runs saved with JSON (exactly one format revision).
+- `scripts/qa-all.sh --gui --interop`: **31/31** ctests passed; LibreOffice docx→odt and odt→docx ok.
+
+**Decisions:** `validate` still rejects an in-memory delete with `start != end`. Load normalizes legacy width, so the old negative expect on `wave17-docx-revisions-invalid.aio.json` now checks the remaining insert/format errors. `backspace` is an MCP tool so a playbook can drive `commitBackspace`.
+
+**Next suggested step:** Human `approve-pr` → open the PR to `main`.
+
+**Commits:** `659da86` fix: keep tracked deletes zero-width and trust DOCX JSON revisions
+
+---
+
+## 2026-10-10 — Fleet wave17 — Composer / Cursor Grok / Grok Build / Sonnet
+
+**Objective:** Close the fleet `review` loop on wave 17 revision round-trip (D1–D10): re-run the real gate, confirm the four prior review findings are fixed, record handoff + catalog.
+
+**Done:**
+- Fleet `review` submitted **`{"issues":0,"findings":[]}`** on the second pass; no code changes on that node.
+- Re-verified the four earlier findings: (1) `revision_reject`/`revision_reject_all` for `format` restores `priorRuns` via `restoreFormatPrior` + `shiftRevisionOffsets` in `Session.cpp`; (2) `applyCharacterFormat` captures `priorRuns` before mutating runs; (3) `validate()` rejects delete with `start != end` and insert/format with `end < start` (`qa/wave17-docx-revisions-invalid.aio.json` + negative expects); (4) CTest `roundtrip_foreign_docx_wave17` + `document_save {embed_json:false}` foreign reimport path.
+- Extra manual check (no playbook): format revision without `priorRuns` (e.g. from third-party ODT) — `revision_accept` ok; `revision_reject` / `revision_reject_all` → `{ok:false,error:"format revision has no prior formatting"}`.
+- **`scripts/qa-all.sh --gui --interop`** (nix-shell, full build): **30/30 ctest** passed (includes `playbook_wave17-docx-revisions.json`, `roundtrip_foreign_docx_wave17`, wave 17 ODT playbooks/fixtures); **interop** LibreOffice **docx→odt** and **odt→docx** green.
+
+**Decisions:** Nested footnotes/endnotes stay **Fora** (D10); multi-paragraph notes are a new catalog Todo, not wave 17 scope.
+
+**Next suggested step:** Fleet **`handoff`** done; human **`approve-pr`** → open PR to **`main`**.
+
+**Commits (branch vs `main`):** `dd8378c` merge: land the wave17 t1 completion (D1/D2) left out of integrate-2 · `dee390b` docs: record the wave17 t4 merge commit hash in the handoff · `8a9efb6` merge: land t3 ctest fixtures on the DOCX revision interop branch · `80de02a` merge: integrate wave17 t3 ctest fixtures and t4 interop · `900f28d` docs: record the LibreOffice interop commit hash in the handoff · `49cad9c` feat: round-trip revision marks through LibreOffice · `c99cb33` feat: add ctest roundtrip fixtures and foreign revision QA · `5886b0b` docs: record wave17 integrate-1 merge and QA on the fleet branch · `0f5956c` merge: integrate wave17 t1 docx and t2 odt revisions · `00edabe` docs: record the ODT revision commit hash in the handoff · `47ac260` feat: round-trip ODT insert, delete, and format revisions · `157e642` docs: add wave 17 revision round-trip spec and Fleet
+
+---
+
+## 2026-10-10 — Cursor Grok — Wave 17 t4: ctest merge, revision invariant, foreign DOCX
+
+**Objective:** Merge the t3 ctest/fixtures branch into this interop branch, keep the D3/D4 DOCX markup, implement D1 and D2, and register the foreign DOCX ctest. `scripts/qa-all.sh --gui --interop` must stay green.
+
+**Done:**
+- Merge conflicts: `src/core/Docx.cpp` kept this branch's export and import (`w:del`, `w:rPrChange`, `priorRuns`) and took t3's format `payload` built from the new run properties. `scripts/qa-all.sh` runs `ctest -L 'playbook|roundtrip'` and still accepts `--gui` and `--interop`. Fixture `*.revisions.json` expectations were not edited.
+- D1: `validate` rejects a delete revision with `start != end`, and an insert or format revision with `end < start`. The negative playbook expects those messages.
+- D2: `applyCharacterFormat` with track changes stores `priorRuns` (the range's `TextRun` slices before the change). `revisionReject` and `revisionRejectAll` of kind `format` restore that range and call `shiftRevisionOffsets`. A format revision with no `priorRuns` returns `{ok:false,error:"format revision has no prior formatting"}`. Accept is unchanged.
+- Playbook `qa/wave17-docx-revisions.json`: rejecting a format revision restores bold. Saving DOCX with `embed_json: false` (no `word/aioffice.json`) reimports insert, delete, and format with the same kind, block, offsets, text, and author, and format comes back with `priorRuns`.
+- CTest `roundtrip_foreign_docx_wave17` (`LABELS roundtrip`).
+- `scripts/qa-all.sh --gui --interop`: 30/30 ctests passed; LibreOffice docx→odt and odt→docx both ok.
+
+**Decisions:** Did not replace the D3/D4 importer with t3's depth-counter parser. `document_save` `embed_json: false` omits `word/aioffice.json` so a playbook can take the foreign path. An empty inner `w:rPr` still records `priorRuns` and does not invent formatting.
+
+**Next suggested step:** Fleet integrate-2.
+
+**Commits:** `8a9efb6` merge: land t3 ctest fixtures on the DOCX revision interop branch
+
+---
+
+## 2026-10-09 — Cursor Grok — Wave 17: LibreOffice revision interop
+
+**Objective:** D8. `scripts/qa-all.sh --interop` (combinable with `--gui`) exports insert+delete+format, converts with `soffice --headless --convert-to` both ways, reimports, and compares kind, block, offsets, text, and author. Format revisions that passed through ODT must not keep `prior_runs`. No `soffice` prints `skip interop` and does not fail. Fix whatever LibreOffice showed, without changing D1–D5.
+
+**Done:**
+- `scripts/qa-all.sh --interop` and `scripts/qa-interop.py`. The probe opens `qa/wave17-odt-revisions.aio.json`, saves DOCX and ODT, converts with a temporary `-env:UserInstallation=file:///tmp/...` profile, strips embedded `aioffice` JSON, and reimports.
+- LibreOffice 26.2 accepted the ODT tracked-change markup already written by D5 (change-start/end, `text:change` deletion, `text:format-change`). docx→odt of a file that only had `w:ins` dropped delete and format, because DOCX export did not emit them.
+- odt→docx: LibreOffice wrote `w:del` + `w:delText` (deleted “B” is not live text), `w:ins` around “C”, and `w:rPrChange` as the last child of `w:rPr` with **no inner `w:rPr`** (no previous formatting). The old importer treated `w:delText` as live text (delete became a range, insert offsets shifted) and ignored `w:rPrChange`.
+- DOCX export (D3): one `w:del` at `start` from `deletedRuns` (`w:delText xml:space="preserve"`), and `w:rPrChange` last inside `w:rPr` (previous `w:rPr` from `priorRuns`, empty when there is none). DOCX import (D4): `w:del` content goes to `deletedRuns`/`text` with `start == end` and never into `runs`; `w:ins` keeps the live range and its text; `w:rPrChange` becomes one `format` revision on that run. `priorRuns` is stored only when an inner `w:rPr` is present. `Revision.priorRuns` / JSON `prior_runs` is that field.
+- `scripts/qa-all.sh --gui --interop` green, including `qa/wave17-odt-revisions.json` and both LibreOffice directions.
+
+**Decisions:** Did not change D1–D5. LibreOffice copies italic from the previous run onto the deleted “B” (`w:b`+`w:i`) when converting ODT→DOCX; kind, block, offsets, text, and author still match, so the deletion span in ODT stays bold-only (D5). An empty `w:rPrChange` (the ODT path) does not invent `priorRuns` (D2/D4). `w:rPrChange` before `w:i` was also accepted by this LibreOffice, but export still puts `w:rPrChange` last (D3).
+
+**Next suggested step:** Fleet integrate-2 with the ctest/fixtures branch. `t1` had not landed `priorRuns` on the integrate-1 branch; this node added the field so DOCX import can keep a real inner `w:rPr`.
+
+**Commits:** `49cad9c` feat: round-trip revision marks through LibreOffice
+
+---
+
+## 2026-10-09 — Composer — Wave 17 T3: ctest, foreign fixtures, roundtrip QA
+
+**Objective:** D6/D7/D9 — hand-built foreign DOCX/ODT fixtures, `check_roundtrip.py` foreign + fixture modes, CTest labels `playbook`/`roundtrip`, CI and `scripts/qa-all.sh` via ctest.
+
+**Done:**
+- `qa/fixtures/make_fixtures.py` emits minimal DOCX (w:ins, multi-run w:del, w:rPrChange bold→plain, mid-word delete) and ODT (insert/delete/format-change) without `word/aioffice.json`; sidecar `*.revisions.json` expectations drive ctest.
+- `qa/check_roundtrip.py`: `--fixture` (playbook session), `--foreign` (export → strip native JSON → reimport, D6), legacy wave12 dir/align path unchanged.
+- `enable_testing()` + one ctest per `qa/wave*.json` (excludes wave1-foundation and `*.aio.json`); roundtrip tests for fixtures + `roundtrip_foreign_odt_wave17`.
+- `scripts/qa-all.sh` and CircleCI run `ctest -L 'playbook|roundtrip' --output-on-failure` (still supports `--gui`).
+- Minimal `Docx.cpp` foreign import: `w:del` → `deletedRuns` (zero-width), `w:rPrChange` → format revision (payload only; full `priorRuns` remains t1).
+- `scripts/qa-all.sh --gui` green (28 ctests).
+
+**Next suggested step:** Fleet `t4-interop` / complete t1 DOCX export + `priorRuns`; add `--foreign docx` ctest when export path is ready.
+
+**Commits:** `cadb6bc` feat: add ctest roundtrip fixtures and foreign revision QA
+
+---
+
+## 2026-10-09 — Composer — Wave 17 integrate-1 (t1 DOCX + t2 ODT)
+
+**Objective:** Merge `t1-docx-revisions` and `t2-odt-revisions` into `fleet/wave17-roundtrip-c574277e`; resolve doc conflicts; gate with `scripts/qa-all.sh --gui`.
+
+**Done:**
+- `t1-docx-revisions` had no commits beyond the fleet base (`157e642`) — DOCX/`priorRuns` work not landed on that branch yet.
+- Merge commit integrated `t2-odt-revisions` (`47ac260`, `00edabe`): ODF insert/delete/format round-trip, `qa/wave17-odt-revisions.json`, foreign fixture.
+- No conflicts in `docs/AI_HANDOFF.md` or `docs/mcp-tools.md` (only t2 touched handoff; t1 empty).
+- `scripts/qa-all.sh --gui` green, including wave 16 CTL and `qa/wave17-odt-revisions.json`.
+
+**Decisions:** Did not block integrate on empty t1; fleet can re-merge when DOCX task lands.
+
+**Next suggested step:** Unblock or complete `t1-docx-revisions`, then re-integrate before `build-1` if spec requires both paths.
+
+**Commits:** `52697c8` docs: record wave17 integrate-1 merge and QA on the fleet branch · `0f5956c` merge: integrate wave17 t1 docx and t2 odt revisions
 
 ---
 

@@ -6,7 +6,6 @@
 #   scripts/qa-all.sh --gui           # also compile the full GUI target
 #   scripts/qa-all.sh --interop       # LibreOffice round-trip when soffice exists
 #   scripts/qa-all.sh --pdf           # also ctest label pdf (wave 19 veraPDF suite)
-#   scripts/qa-all.sh --formats       # also ctest labels epub and rtf (wave 20)
 #   scripts/qa-all.sh --gui --interop # both; flag order does not matter
 set -uo pipefail
 cd "$(dirname "$0")/.."
@@ -14,13 +13,11 @@ cd "$(dirname "$0")/.."
 gui=0
 interop=0
 pdf=0
-formats=0
 for arg in "$@"; do
   case "$arg" in
     --gui) gui=1 ;;
     --interop) interop=1 ;;
     --pdf) pdf=1 ;;
-    --formats) formats=1 ;;
     *) echo "unknown argument: $arg" >&2; exit 2 ;;
   esac
 done
@@ -38,10 +35,7 @@ fi
 
 ctest_labels='playbook|roundtrip'
 if [ "$pdf" = 1 ]; then
-  ctest_labels="${ctest_labels}|pdf"
-fi
-if [ "$formats" = 1 ]; then
-  ctest_labels="${ctest_labels}|epub|rtf"
+  ctest_labels='playbook|roundtrip|pdf'
 fi
 
 status=0

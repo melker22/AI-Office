@@ -1,7 +1,0 @@
-{
-  "epub": "/tmp/wave20-epub-notes.epub",
-  "epubcheck": {"errors": 0, "warnings": 0},
-  "footnote_aside_min": 7,
-  "aside_text_order": ["N6-zeta", "N1-alpha", "N4-delta", "N2-beta", "N5-epsilon", "N3-gamma", "NCROSS-omega"],
-  "chapter_files_min": 2
-}

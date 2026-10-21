@@ -95,17 +95,12 @@ Clears the session into a blank document with one empty `p1`. If the document is
 ### `document_open`
 
 Args: `{ "path": string }`  
-Opens ODT, DOCX, DOC (DOC needs LibreOffice), AIO JSON, or RTF (native reader).
+Opens ODT, DOCX, DOC (DOC needs LibreOffice), AIO JSON, RTF (via LibreOffice when present).
 
 ### `document_save`
 
-Args: `{ "path"?: string, "title"?: string }`  
-Saves to `path` or the last opened/saved path. Format from extension. Native session JSON (`.aio.json`, `.json`, `.aio`), `.odt`, and `.docx` become the working file (path updated, dirty cleared). `.epub`, `.pdf`, `.md`, `.txt`, `.html`, `.rtf`, and `.doc` are exports: the file is written and the working path stays unchanged. The dirty flag stays unchanged unless `title` is a new value. `.doc` is export-only and is written by LibreOffice as Word 97 (`doc:MS Word 97`); it does not become the working file. `title`, when set to a new value, updates the session title before the write; on an export path the document stays dirty until a later native JSON (`.aio.json`, `.json`, `.aio`), `.odt`, or `.docx` save. RTF export warnings are returned in `warnings`. **RTF** (`.rtf`) is written natively
-(`RtfWriter`: `\fonttbl`, `\colortbl`, `\stylesheet`, paragraph/character formatting, `\listtable`, tables with
-`\trhdr`, `\page`, `\footnote`, `\pict\pngblip`, `\field`, `\bkmkstart`, `\u`/`\uc`, `\rtlpar`, `\lang`). Tracked
-revisions, block comments, and shapes/forms are flattened to plain text (full fidelity stays in `.aio.json`/ODT/DOCX).
-
-`.epub` writes EPUB 3 and does not import it (`document_open` on `.epub` returns `{ok:false,error}`: "EPUB import is not supported"). The package is `mimetype` first and stored (no compression), `META-INF/container.xml`, and `OEBPS/content.opf` with `dc:title`, `dc:creator` when the document has an author, `dc:language`, a stable `dc:identifier` (`urn:uuid` version 5 of the title and author), `dcterms:modified`, and schema.org accessibility metadata (`accessMode`, `accessibilityFeature`, `accessibilityHazard`, `accessibilitySummary`). `nav.xhtml` lists headings and landmarks. Each Heading 1 starts an XHTML file; a document with no Heading 1 is one file; content before the first Heading 1 is front matter. CSS comes from the named styles. Images are package resources with their media type (PNG, JPEG, or GIF; anything else is re-encoded as PNG, rejected above 32MB or when it is not a bitmap). Tables use `th scope="col"` for the header row. Lists are nested `ol`/`ul`. Notes are `aside epub:type="footnote"` (or `endnote`) plus `epub:type="noteref"`. `xml:lang`/`lang` and `dir` follow the block and, when a run's language differs, the span. Fields are the evaluated text. A block whose `hide_if` is true is omitted. Page breaks are omitted. Shapes, charts, and QR codes are PNG painted by the same figure painter as the page, with `alt`. On success the result adds `format` (`"epub"`), `chapters`, `images`, and `identifier`.
+Args: `{ "path"?: string }`  
+Saves to `path` or the last opened/saved path. Format from extension.
 
 ### `document_export_pdf`
 

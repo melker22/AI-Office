@@ -129,8 +129,6 @@ void paintPage(QPainter *p, const Document &doc, const DocumentLayout &lay, int 
 
 PreviewResult renderPage(const Document &doc, int page, double zoom);
 QByteArray renderPagePng(const Document &doc, int page, double zoom);
-// PNG of one shape, chart, QR, or image, painted with the same figure painter as the page.
-QByteArray renderBlockPng(const Document &doc, const Block &block);
 bool exportNativePdf(const Document &doc, const QString &path, QString *error, bool pdfa = false,
                      int fromPage = 0, int toPage = 0, bool booklet = false, int copies = 1,
                      bool comments = false, bool ua = false, QStringList *warnings = nullptr);

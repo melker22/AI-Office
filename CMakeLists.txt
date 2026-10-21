@@ -32,10 +32,7 @@ add_library(aioffice_core STATIC
     src/core/Session.cpp
     src/core/Odf.cpp
     src/core/Docx.cpp
-    src/core/RtfReader.cpp
     src/core/Zip.cpp
-    src/core/Xhtml.cpp
-    src/core/Epub.cpp
     src/core/Preview.cpp
     src/core/Xml.cpp
     src/core/Spell.cpp
@@ -44,7 +41,6 @@ add_library(aioffice_core STATIC
     src/core/hyphen/hyphen.qrc
     src/core/PdfPostProcess.cpp
     src/core/Csl.cpp
-    src/core/RtfWriter.cpp
     src/lok/LokEngine.cpp
     src/mcp/ToolDispatch.cpp
     src/mcp/McpServer.cpp
@@ -177,16 +173,7 @@ foreach(_pb IN LISTS _aio_playbooks)
     if(_pb_name MATCHES "\\.aio\\.json$")
         continue()
     endif()
-    if(_pb_name MATCHES "\\.rtf\\.json$")
-        continue()
-    endif()
     if(_pb_name MATCHES "^wave19-pdf-")
-        continue()
-    endif()
-    # Export/import playbooks under qa/wave20-* are registered by the epub and
-    # rtf loops below, which need a sibling expectation file. Playing them here
-    # as well would run each one twice.
-    if(_pb_name MATCHES "^wave20-")
         continue()
     endif()
     add_test(NAME "playbook_${_pb_name}" COMMAND aioffice_cli play "${_pb}")
@@ -208,8 +195,6 @@ set(_AIO_PYTHON "${CMAKE_SOURCE_DIR}/qa/check_roundtrip.py")
 add_test(NAME play_expect_shape COMMAND "${CMAKE_COMMAND}" -E env AIOFFICE_HEADLESS=1 QT_QPA_PLATFORM=offscreen
     "${Python3_EXECUTABLE}" "${CMAKE_SOURCE_DIR}/qa/check_play_expect.py" "${AIOFFICE_CLI}")
 set_tests_properties(play_expect_shape PROPERTIES LABELS "playbook" WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}")
-add_test(NAME mcp_doc_export_prose COMMAND "${Python3_EXECUTABLE}" "${CMAKE_SOURCE_DIR}/qa/check_mcp_prose.py")
-set_tests_properties(mcp_doc_export_prose PROPERTIES LABELS "playbook" WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}")
 file(GLOB _aio_fixtures CONFIGURE_DEPENDS "${CMAKE_SOURCE_DIR}/qa/fixtures/*-foreign.docx" "${CMAKE_SOURCE_DIR}/qa/fixtures/*-foreign.odt")
 foreach(_fx IN LISTS _aio_fixtures)
     get_filename_component(_fx_name "${_fx}" NAME)
@@ -249,97 +234,3 @@ foreach(_pdf_pb IN LISTS _aio_pdf_playbooks)
 endforeach()
 add_test(NAME pdf_check_selftest COMMAND "${Python3_EXECUTABLE}" "${CMAKE_SOURCE_DIR}/qa/check_pdf.py" --self-test)
 set_tests_properties(pdf_check_selftest PROPERTIES LABELS "playbook" WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}")
-
-if(EXISTS "${CMAKE_SOURCE_DIR}/qa/wave20-rtf-out.json"
-   AND EXISTS "${CMAKE_SOURCE_DIR}/qa/wave20-rtf-out.rtf.json")
-    add_test(NAME rtf_wave20_rtf_out COMMAND "${CMAKE_COMMAND}" -E env AIOFFICE_HEADLESS=1 QT_QPA_PLATFORM=offscreen
-        "${Python3_EXECUTABLE}" "${CMAKE_SOURCE_DIR}/qa/check_wave20_rtf_out.py"
-        --cli "${AIOFFICE_CLI}" --playbook "${CMAKE_SOURCE_DIR}/qa/wave20-rtf-out.json")
-    set_tests_properties(rtf_wave20_rtf_out PROPERTIES
-        LABELS "playbook"
-        WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}"
-    )
-endif()
-add_test(NAME rtf_wave20_rtf_out_selftest COMMAND "${Python3_EXECUTABLE}"
-    "${CMAKE_SOURCE_DIR}/qa/check_wave20_rtf_out.py" --self-test)
-set_tests_properties(rtf_wave20_rtf_out_selftest PROPERTIES
-    LABELS "playbook"
-    WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}"
-)
-# wave20-epub.json has no hyphen suffix, so wave20-epub-*.json does not match it.
-file(GLOB _aio_epub_playbooks CONFIGURE_DEPENDS
-    "${CMAKE_SOURCE_DIR}/qa/wave20-epub-*.json"
-    "${CMAKE_SOURCE_DIR}/qa/wave20-epub.json")
-foreach(_epub_pb IN LISTS _aio_epub_playbooks)
-    get_filename_component(_epub_name "${_epub_pb}" NAME)
-    if(_epub_name MATCHES "\\.epub\\.json$")
-        continue()
-    endif()
-    get_filename_component(_epub_stem "${_epub_pb}" NAME_WE)
-    if(NOT EXISTS "${CMAKE_SOURCE_DIR}/qa/${_epub_stem}.epub.json")
-        continue()
-    endif()
-    add_test(NAME "epub_${_epub_name}" COMMAND "${CMAKE_COMMAND}" -E env AIOFFICE_HEADLESS=1 QT_QPA_PLATFORM=offscreen
-        "${Python3_EXECUTABLE}" "${CMAKE_SOURCE_DIR}/qa/check_epub.py"
-        --cli "${AIOFFICE_CLI}" --playbook "${_epub_pb}")
-    set_tests_properties("epub_${_epub_name}" PROPERTIES
-        LABELS "epub"
-        WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}"
-    )
-endforeach()
-add_test(NAME epub_check_selftest COMMAND "${Python3_EXECUTABLE}" "${CMAKE_SOURCE_DIR}/qa/check_epub.py" --self-test)
-set_tests_properties(epub_check_selftest PROPERTIES LABELS "playbook" WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}")
-
-file(GLOB _aio_rtf_playbooks CONFIGURE_DEPENDS "${CMAKE_SOURCE_DIR}/qa/wave20-rtf-*.json")
-foreach(_rtf_pb IN LISTS _aio_rtf_playbooks)
-    get_filename_component(_rtf_name "${_rtf_pb}" NAME)
-    if(_rtf_name MATCHES "\\.rtf\\.json$")
-        continue()
-    endif()
-    get_filename_component(_rtf_stem "${_rtf_pb}" NAME_WE)
-    if(NOT EXISTS "${CMAKE_SOURCE_DIR}/qa/${_rtf_stem}.rtf.json")
-        continue()
-    endif()
-    add_test(NAME "rtf_${_rtf_name}" COMMAND "${CMAKE_COMMAND}" -E env AIOFFICE_HEADLESS=1 QT_QPA_PLATFORM=offscreen
-        "${Python3_EXECUTABLE}" "${CMAKE_SOURCE_DIR}/qa/check_rtf.py"
-        --cli "${AIOFFICE_CLI}" --playbook "${_rtf_pb}")
-    set_tests_properties("rtf_${_rtf_name}" PROPERTIES
-        LABELS "rtf"
-        WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}"
-    )
-endforeach()
-file(GLOB _aio_rtf_fixtures CONFIGURE_DEPENDS
-    "${CMAKE_SOURCE_DIR}/qa/fixtures/wave20-rtf-*-foreign.rtf"
-    "${CMAKE_SOURCE_DIR}/qa/fixtures/wave20-rtf-hostile-*.rtf")
-foreach(_rtf_fx IN LISTS _aio_rtf_fixtures)
-    get_filename_component(_rtf_fx_name "${_rtf_fx}" NAME)
-    if(NOT EXISTS "${CMAKE_SOURCE_DIR}/qa/fixtures/${_rtf_fx_name}.json")
-        continue()
-    endif()
-    add_test(NAME "rtf_fixture_${_rtf_fx_name}" COMMAND "${CMAKE_COMMAND}" -E env AIOFFICE_HEADLESS=1 QT_QPA_PLATFORM=offscreen
-        "${Python3_EXECUTABLE}" "${CMAKE_SOURCE_DIR}/qa/check_rtf.py"
-        --cli "${AIOFFICE_CLI}" --fixture "${_rtf_fx}")
-    set_tests_properties("rtf_fixture_${_rtf_fx_name}" PROPERTIES
-        LABELS "rtf"
-        WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}"
-    )
-endforeach()
-add_test(NAME rtf_check_selftest COMMAND "${Python3_EXECUTABLE}" "${CMAKE_SOURCE_DIR}/qa/check_rtf.py" --self-test)
-set_tests_properties(rtf_check_selftest PROPERTIES LABELS "playbook" WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}")
-
-add_test(NAME rtf_footnote_scale COMMAND "${CMAKE_COMMAND}" -E env AIOFFICE_HEADLESS=1 QT_QPA_PLATFORM=offscreen
-    "${Python3_EXECUTABLE}" "${CMAKE_SOURCE_DIR}/qa/check_rtf.py"
-    --cli "${AIOFFICE_CLI}" --footnote-scale 8000 --footnote-max-seconds 8)
-set_tests_properties(rtf_footnote_scale PROPERTIES
-    LABELS "rtf"
-    TIMEOUT 120
-    WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}"
-)
-add_test(NAME rtf_footnote_flush COMMAND "${CMAKE_COMMAND}" -E env AIOFFICE_HEADLESS=1 QT_QPA_PLATFORM=offscreen
-    "${Python3_EXECUTABLE}" "${CMAKE_SOURCE_DIR}/qa/check_rtf.py"
-    --cli "${AIOFFICE_CLI}" --footnote-flush 100000 --footnote-table 20000 --footnote-max-seconds 8)
-set_tests_properties(rtf_footnote_flush PROPERTIES
-    LABELS "rtf"
-    TIMEOUT 90
-    WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}"
-)
