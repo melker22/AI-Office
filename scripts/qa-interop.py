@@ -154,10 +154,30 @@ def check_prior(revs, label):
     return True
 
 
+def _cell_text(cell):
+    if not isinstance(cell, dict):
+        return ""
+    text = "".join((run.get("text") or "") for run in (cell.get("runs") or []))
+    for nrow in cell.get("nested") or []:
+        if isinstance(nrow, list):
+            for nested in nrow:
+                text += _cell_text(nested)
+    return text
+
+
 def plain_of(body):
     parts = []
     for block in body:
-        text = "".join((run.get("text") or "") for run in (block.get("runs") or []))
+        if (block.get("type") or "") == "table" and isinstance(block.get("rows"), list):
+            cells = []
+            for row in block["rows"]:
+                if not isinstance(row, list):
+                    continue
+                for cell in row:
+                    cells.append(_cell_text(cell))
+            text = " ".join(cells)
+        else:
+            text = "".join((run.get("text") or "") for run in (block.get("runs") or []))
         hide = block.get("hide_if") or ""
         if text or hide:
             parts.append(text)
@@ -403,10 +423,10 @@ def build_rtf_interop_doc(cli, work: Path):
                 ],
             },
         },
-        {"tool": "set_cell", "args": {"id": "tbl1", "row": 0, "col": 0, "text": "H"}},
-        {"tool": "set_cell", "args": {"id": "tbl1", "row": 0, "col": 1, "text": "V"}},
-        {"tool": "set_cell", "args": {"id": "tbl1", "row": 1, "col": 0, "text": "1"}},
-        {"tool": "set_cell", "args": {"id": "tbl1", "row": 1, "col": 1, "text": "2"}},
+        {"tool": "set_cell", "args": {"id": "t1", "row": 0, "col": 0, "text": "H"}},
+        {"tool": "set_cell", "args": {"id": "t1", "row": 0, "col": 1, "text": "V"}},
+        {"tool": "set_cell", "args": {"id": "t1", "row": 1, "col": 0, "text": "1"}},
+        {"tool": "set_cell", "args": {"id": "t1", "row": 1, "col": 1, "text": "2"}},
         {"tool": "document_save", "args": {"path": str(rtf)}},
         {"tool": "document_save", "args": {"path": str(odt)}},
     ]

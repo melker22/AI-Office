@@ -771,6 +771,17 @@ bool saveOdt(const Document &doc, const QString &path, QString *error)
         } else if (b.type == QLatin1String("table")) {
             bodyXml += QLatin1String(
                 "<table:table xmlns:table=\"urn:oasis:names:tc:opendocument:xmlns:table:1.0\">");
+            // LibreOffice drops every column after the first when the table has no
+            // table:table-column. One empty column element per grid column is enough.
+            int colCount = 0;
+            for (const auto &row : b.table) {
+                int n = 0;
+                for (const auto &cell : row)
+                    n += qMax(1, cell.colSpan);
+                colCount = qMax(colCount, n);
+            }
+            for (int c = 0; c < colCount; ++c)
+                bodyXml += QLatin1String("<table:table-column/>");
             for (const auto &row : b.table) {
                 bodyXml += QLatin1String("<table:table-row>");
                 for (const auto &cell : row) {

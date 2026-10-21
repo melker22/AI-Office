@@ -2,6 +2,26 @@
 
 Entradas antigas de `docs/AI_HANDOFF.md` (manter o arquivo vivo com ~20 itens).
 
+## 2026-10-10 — Cursor Grok — Wave 17 t4: ctest merge, revision invariant, foreign DOCX
+
+**Objective:** Merge the t3 ctest/fixtures branch into this interop branch, keep the D3/D4 DOCX markup, implement D1 and D2, and register the foreign DOCX ctest. `scripts/qa-all.sh --gui --interop` must stay green.
+
+**Done:**
+- Merge conflicts: `src/core/Docx.cpp` kept this branch's export and import (`w:del`, `w:rPrChange`, `priorRuns`) and took t3's format `payload` built from the new run properties. `scripts/qa-all.sh` runs `ctest -L 'playbook|roundtrip'` and still accepts `--gui` and `--interop`. Fixture `*.revisions.json` expectations were not edited.
+- D1: `validate` rejects a delete revision with `start != end`, and an insert or format revision with `end < start`. The negative playbook expects those messages.
+- D2: `applyCharacterFormat` with track changes stores `priorRuns` (the range's `TextRun` slices before the change). `revisionReject` and `revisionRejectAll` of kind `format` restore that range and call `shiftRevisionOffsets`. A format revision with no `priorRuns` returns `{ok:false,error:"format revision has no prior formatting"}`. Accept is unchanged.
+- Playbook `qa/wave17-docx-revisions.json`: rejecting a format revision restores bold. Saving DOCX with `embed_json: false` (no `word/aioffice.json`) reimports insert, delete, and format with the same kind, block, offsets, text, and author, and format comes back with `priorRuns`.
+- CTest `roundtrip_foreign_docx_wave17` (`LABELS roundtrip`).
+- `scripts/qa-all.sh --gui --interop`: 30/30 ctests passed; LibreOffice docx→odt and odt→docx both ok.
+
+**Decisions:** Did not replace the D3/D4 importer with t3's depth-counter parser. `document_save` `embed_json: false` omits `word/aioffice.json` so a playbook can take the foreign path. An empty inner `w:rPr` still records `priorRuns` and does not invent formatting.
+
+**Next suggested step:** Fleet integrate-2.
+
+**Commits:** `8a9efb6` merge: land t3 ctest fixtures on the DOCX revision interop branch
+
+---
+
 ## 2026-10-09 — Cursor Grok — Wave 17: LibreOffice revision interop
 
 **Objective:** D8. `scripts/qa-all.sh --interop` (combinable with `--gui`) exports insert+delete+format, converts with `soffice --headless --convert-to` both ways, reimports, and compares kind, block, offsets, text, and author. Format revisions that passed through ODT must not keep `prior_runs`. No `soffice` prints `skip interop` and does not fail. Fix whatever LibreOffice showed, without changing D1–D5.

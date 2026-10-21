@@ -90,10 +90,32 @@ def load_expectations(path: Path) -> dict[str, Any]:
     return data
 
 
+def _cell_text(cell: object) -> str:
+    if not isinstance(cell, dict):
+        return ""
+    text = "".join((r.get("text") or "") for r in (cell.get("runs") or []))
+    for nrow in cell.get("nested") or []:
+        if isinstance(nrow, list):
+            for nested in nrow:
+                text += _cell_text(nested)
+    return text
+
+
 def plain_block(body: list, index: int) -> str:
+    """Plain text of one block. Tables use cell text, same as Block::plainText."""
     if index >= len(body):
         return ""
-    runs = body[index].get("runs") or []
+    block = body[index]
+    rows = block.get("rows") if (block.get("type") or "") == "table" else None
+    if isinstance(rows, list) and rows:
+        parts: list[str] = []
+        for row in rows:
+            if not isinstance(row, list):
+                continue
+            for cell in row:
+                parts.append(_cell_text(cell))
+        return " ".join(parts)
+    runs = block.get("runs") or []
     return "".join(r.get("text") or "" for r in runs)
 
 
@@ -223,6 +245,24 @@ def self_test() -> int:
         ok = False
     else:
         print(f"ok   compare_body fail case ({bad[0]})")
+
+    table = {
+        "body": [
+            {
+                "type": "table",
+                "rows": [
+                    [{"runs": [{"text": "Header A"}]}, {"runs": [{"text": "Header B"}]}],
+                    [{"runs": [{"text": "Cell one"}]}, {"runs": [{"text": "Cell two"}]}],
+                ],
+            }
+        ]
+    }
+    table_errs = compare_body(table, {"plain_contains": ["Header A", "Cell one"]})
+    if table_errs:
+        print("FAIL self-test table plain_contains", table_errs)
+        ok = False
+    else:
+        print("ok   table plain_contains")
 
     return 0 if ok else 1
 

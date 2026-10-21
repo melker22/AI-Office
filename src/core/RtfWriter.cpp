@@ -324,8 +324,12 @@ struct RtfOut {
         const QString txt = escapeText(r.text);
         if (props.isEmpty())
             out += txt;
-        else
-            out += props + QLatin1Char(' ') + txt + QStringLiteral("\\plain");
+        else {
+            // A space after a control word is only a delimiter. `\plain ` ate the
+            // next run's leading space ("bold and" became "boldand"). A group
+            // restores character formatting and leaves the following text intact.
+            out += QLatin1Char('{') + props + QLatin1Char(' ') + txt + QLatin1Char('}');
+        }
         return out;
     }
 
@@ -476,6 +480,23 @@ struct RtfOut {
         return t;
     }
 
+    // Same numbering as styleSheet(): synthetic Normal is \\s0, then each
+    // non-character style. -1 when the name is not in the sheet.
+    int styleSlot(const QString &name) const
+    {
+        if (name.isEmpty())
+            return -1;
+        int sn = 1;
+        for (const auto &s : doc->styles) {
+            if (s.kind == QLatin1String("character"))
+                continue;
+            if (s.name == name)
+                return sn;
+            ++sn;
+        }
+        return -1;
+    }
+
     QString styleSheet() const
     {
         QString t = QStringLiteral("{\\stylesheet");
@@ -535,8 +556,9 @@ struct RtfOut {
         QString out;
         int rowIdx = 0;
         const int cols = b.table.isEmpty() ? 0 : b.table.first().size();
+        // cellx is the right edge of each column. A leading 0 is a zero-width
+        // column, not a cell boundary.
         QVector<int> cellBoundaries;
-        cellBoundaries.append(0);
         int acc = 0;
         const int colW = cols > 0 ? 9000 / cols : 9000;
         for (int c = 0; c < cols; ++c) {
@@ -604,6 +626,15 @@ struct RtfOut {
             }
             QString inner = paraProps(b);
             if (b.type == QLatin1String("heading")) {
+                const int level = qBound(1, b.level > 0 ? b.level : 1, 9);
+                const QString styleName = b.style.trimmed().isEmpty()
+                    ? QStringLiteral("Heading %1").arg(level)
+                    : b.style.trimmed();
+                const int slot = styleSlot(styleName);
+                if (slot >= 0)
+                    inner += QStringLiteral("\\s%1 ").arg(slot);
+                // RTF outline levels are 0-based. The reader maps that back to Heading N.
+                inner += QStringLiteral("\\outlinelevel%1 ").arg(level - 1);
                 inner += QStringLiteral("\\sb240\\sa120 ");
             }
             inner += emitRuns(b.runs, defaultFont, defaultSizeHalfPt) + commentSuffix(b) + QStringLiteral("\\par\n");

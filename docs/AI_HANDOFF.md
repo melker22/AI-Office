@@ -8,6 +8,29 @@
 
 ---
 
+## 2026-10-21 — Cursor Grok 4.7 — Fleet wave20 t5 format compliance
+
+**Objective:** Take `scripts/qa-all.sh --gui --interop --formats` and `--gui --interop --pdf --formats` to green without weakening epubcheck or LibreOffice checks. No push.
+
+**Done:**
+- RTF character formatting is emitted in a group, so the delimiter space no longer eats the next run (`Mix bold and italic.`).
+- Headings emit the stylesheet slot and a 0-based `\outlinelevel`, so the reader restores `type: heading`.
+- `\cellx` lists column right edges. A leading 0 is not a column.
+- ODT tables write one `table:table-column` per column. Without it, LibreOffice's ODT→RTF kept only the first column (`H`/`1`, dropped `V`/`2`).
+- Nesting errors say `RTF group nesting depth exceeds 64`. A `{\listtext}` group that contains `\par` keeps that paragraph; marker-only groups stay skipped. If every inner group is closed and only the final `{\rtf1` brace is missing, the file opens. A truncated file still errors.
+- Plain-text checks walk table cells the same way as `Block::plainText`. The interop probe sets cells on `t1`, the id `insert_blocks` assigns.
+- `scripts/qa-all.sh --gui --interop --pdf --formats`: **64/66** ctest. Interop ok (docx, odt, fields, RTF both ways). All 10 PDF tests passed.
+
+**Decisions:** Two expectations contradict closed rules. Not loosened.
+- EPUB: `hide_if` is `show_secret == "yes"` while `show_secret` is `"no"`. `field_evaluate` returns false. D2 omits the paragraph only when the expression is true, so the chapter contains `SIMSecret`. epubcheck on that package is 0 errors and 0 warnings. The sibling check `hide_if_omitted: ["Secret"]` requires the text to be absent.
+- RTF: `set_vars` stores `name=Ada` and the field is `sender` with arg `name`. Wave 18 reads `doc.vars["sender.name"]`, which is empty, so the run text is empty and `Ada` is not in the RTF.
+
+**Next suggested step:** Opus on those two playbooks (`hide_if` true, or `sender.name`), then re-run the format gate.
+
+**Commits:** (this commit)
+
+---
+
 ## 2026-10-21 — Cursor Grok 4.7 — Fleet wave20 RTF list-table braces
 
 **Objective:** Fix `rtf_wave20_rtf_out`. LibreOffice wrote an empty ODT because `\listtable` closed the `{\rtf1` root group. The check exited 0 when `soffice` was missing, so CI without LibreOffice could not see the bug. No `src/app/`, no `.cockpit/`, no push.
@@ -387,26 +410,6 @@ b748399 feat: PDF export XMP metadata, PDF/A flatten warnings, and ua mode
 **Next suggested step:** Fleet **`handoff`** done; human **`approve-pr`** → open PR to **`main`**.
 
 **Commits (branch vs `main`):** `dd8378c` merge: land the wave17 t1 completion (D1/D2) left out of integrate-2 · `dee390b` docs: record the wave17 t4 merge commit hash in the handoff · `8a9efb6` merge: land t3 ctest fixtures on the DOCX revision interop branch · `80de02a` merge: integrate wave17 t3 ctest fixtures and t4 interop · `900f28d` docs: record the LibreOffice interop commit hash in the handoff · `49cad9c` feat: round-trip revision marks through LibreOffice · `c99cb33` feat: add ctest roundtrip fixtures and foreign revision QA · `5886b0b` docs: record wave17 integrate-1 merge and QA on the fleet branch · `0f5956c` merge: integrate wave17 t1 docx and t2 odt revisions · `00edabe` docs: record the ODT revision commit hash in the handoff · `47ac260` feat: round-trip ODT insert, delete, and format revisions · `157e642` docs: add wave 17 revision round-trip spec and Fleet
-
----
-
-## 2026-10-10 — Cursor Grok — Wave 17 t4: ctest merge, revision invariant, foreign DOCX
-
-**Objective:** Merge the t3 ctest/fixtures branch into this interop branch, keep the D3/D4 DOCX markup, implement D1 and D2, and register the foreign DOCX ctest. `scripts/qa-all.sh --gui --interop` must stay green.
-
-**Done:**
-- Merge conflicts: `src/core/Docx.cpp` kept this branch's export and import (`w:del`, `w:rPrChange`, `priorRuns`) and took t3's format `payload` built from the new run properties. `scripts/qa-all.sh` runs `ctest -L 'playbook|roundtrip'` and still accepts `--gui` and `--interop`. Fixture `*.revisions.json` expectations were not edited.
-- D1: `validate` rejects a delete revision with `start != end`, and an insert or format revision with `end < start`. The negative playbook expects those messages.
-- D2: `applyCharacterFormat` with track changes stores `priorRuns` (the range's `TextRun` slices before the change). `revisionReject` and `revisionRejectAll` of kind `format` restore that range and call `shiftRevisionOffsets`. A format revision with no `priorRuns` returns `{ok:false,error:"format revision has no prior formatting"}`. Accept is unchanged.
-- Playbook `qa/wave17-docx-revisions.json`: rejecting a format revision restores bold. Saving DOCX with `embed_json: false` (no `word/aioffice.json`) reimports insert, delete, and format with the same kind, block, offsets, text, and author, and format comes back with `priorRuns`.
-- CTest `roundtrip_foreign_docx_wave17` (`LABELS roundtrip`).
-- `scripts/qa-all.sh --gui --interop`: 30/30 ctests passed; LibreOffice docx→odt and odt→docx both ok.
-
-**Decisions:** Did not replace the D3/D4 importer with t3's depth-counter parser. `document_save` `embed_json: false` omits `word/aioffice.json` so a playbook can take the foreign path. An empty inner `w:rPr` still records `priorRuns` and does not invent formatting.
-
-**Next suggested step:** Fleet integrate-2.
-
-**Commits:** `8a9efb6` merge: land t3 ctest fixtures on the DOCX revision interop branch
 
 ---
 

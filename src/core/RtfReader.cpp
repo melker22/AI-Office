@@ -10,6 +10,7 @@
 
 #include <cmath>
 #include <cstdint>
+#include <cstring>
 #include <limits>
 #include <utility>
 
@@ -344,6 +345,14 @@ public:
         }
         if (!error_.isEmpty())
             return finish(out, error);
+        // Some writers close every inner group and omit the final brace of {\rtf1.
+        // A file that ends in the middle of the root (no trailing '}') is still malformed.
+        if (omittedRootClose()) {
+            finishDocumentBody();
+            if (!error_.isEmpty())
+                return finish(out, error);
+            stack_.clear();
+        }
         if (!stack_.isEmpty())
             return fail(QStringLiteral("Malformed RTF: unclosed group"), out, error);
         if (ucSkip_ > 0)
@@ -477,6 +486,71 @@ private:
             ++i_;
     }
 
+    bool omittedRootClose() const
+    {
+        if (stack_.size() != 1 || !sawRtf_)
+            return false;
+        qsizetype j = n_;
+        while (j > 0) {
+            const unsigned char c = static_cast<unsigned char>(data_[j - 1]);
+            if (c != ' ' && c != '\t' && c != '\r' && c != '\n')
+                break;
+            --j;
+        }
+        return j > 0 && data_[j - 1] == '}';
+    }
+
+    // True when the current group contains the control word before its matching close.
+    bool groupContainsWord(const char *word) const
+    {
+        const int n = static_cast<int>(std::strlen(word));
+        int depth = 1;
+        qsizetype j = i_;
+        while (j < n_ && depth > 0) {
+            const unsigned char c = static_cast<unsigned char>(data_[j]);
+            if (c == '{') {
+                ++depth;
+                ++j;
+                continue;
+            }
+            if (c == '}') {
+                --depth;
+                ++j;
+                continue;
+            }
+            if (c == '\\' && j + 1 < n_) {
+                const unsigned char nch = static_cast<unsigned char>(data_[j + 1]);
+                if (nch == '\\' || nch == '{' || nch == '}') {
+                    j += 2;
+                    continue;
+                }
+                if (nch == '\'') {
+                    j += (j + 3 < n_) ? 4 : (n_ - j);
+                    continue;
+                }
+                if (!isAlpha(nch)) {
+                    j += 2;
+                    continue;
+                }
+                const qsizetype start = j + 1;
+                j = start;
+                while (j < n_ && isAlpha(static_cast<unsigned char>(data_[j])))
+                    ++j;
+                if (j - start == n && std::memcmp(data_.constData() + start, word, static_cast<size_t>(n)) == 0)
+                    return true;
+                if (j < n_ && data_[j] == '-')
+                    ++j;
+                while (j < n_ && isDigit(static_cast<unsigned char>(data_[j])))
+                    ++j;
+                if (j < n_ && data_[j] == ' ')
+                    ++j;
+                continue;
+            }
+            ++j;
+        }
+        return false;
+    }
+
     bool inside(Kind k) const
     {
         for (const Frame &f : stack_) {
@@ -601,7 +675,7 @@ private:
     {
         ++i_;
         if (static_cast<int>(stack_.size()) >= kMaxDepth) {
-            fail(QStringLiteral("RTF group nesting exceeds 64"));
+            fail(QStringLiteral("RTF group nesting depth exceeds 64"));
             return;
         }
         flushAnsi();
@@ -1031,7 +1105,15 @@ private:
             stack_.last().sink = Sink::Bkmk;
             return true;
         }
-        if (word == QLatin1String("nonshppict") || word == QLatin1String("listtext") || word == QLatin1String("pn")
+        if (word == QLatin1String("listtext")) {
+            // {\listtext\tab} is only the marker. A group that contains \par holds
+            // the paragraph text (hand-written Word fixture) and must be kept.
+            if (!groupContainsWord("par"))
+                return skip();
+            stack_.last().sink = Sink::Body;
+            return true;
+        }
+        if (word == QLatin1String("nonshppict") || word == QLatin1String("pn")
             || word == QLatin1String("pntext") || word == QLatin1String("pntxta") || word == QLatin1String("pntxtb")
             || word == QLatin1String("leveltext") || word == QLatin1String("levelnumbers")
             || word == QLatin1String("header") || word == QLatin1String("footer") || word == QLatin1String("headerl")
