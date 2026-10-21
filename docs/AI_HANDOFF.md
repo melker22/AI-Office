@@ -20,7 +20,7 @@
 
 **Next suggested step:** Fleet `build-1` / integrate wave20 RTF+EPUB.
 
-**Commits:** _(see latest hash below after commit)_
+**Commits:** `8ce1536` fix: emit RTF bookmarks as ignorable destination groups
 
 ---
 
