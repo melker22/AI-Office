@@ -41,6 +41,7 @@ add_library(aioffice_core STATIC
     src/core/hyphen/hyphen.qrc
     src/core/PdfPostProcess.cpp
     src/core/Csl.cpp
+    src/core/RtfWriter.cpp
     src/lok/LokEngine.cpp
     src/mcp/ToolDispatch.cpp
     src/mcp/McpServer.cpp
@@ -173,7 +174,13 @@ foreach(_pb IN LISTS _aio_playbooks)
     if(_pb_name MATCHES "\\.aio\\.json$")
         continue()
     endif()
+    if(_pb_name MATCHES "\\.rtf\\.json$")
+        continue()
+    endif()
     if(_pb_name MATCHES "^wave19-pdf-")
+        continue()
+    endif()
+    if(_pb_name STREQUAL "wave20-rtf-out.json")
         continue()
     endif()
     add_test(NAME "playbook_${_pb_name}" COMMAND aioffice_cli play "${_pb}")
@@ -234,3 +241,14 @@ foreach(_pdf_pb IN LISTS _aio_pdf_playbooks)
 endforeach()
 add_test(NAME pdf_check_selftest COMMAND "${Python3_EXECUTABLE}" "${CMAKE_SOURCE_DIR}/qa/check_pdf.py" --self-test)
 set_tests_properties(pdf_check_selftest PROPERTIES LABELS "playbook" WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}")
+
+if(EXISTS "${CMAKE_SOURCE_DIR}/qa/wave20-rtf-out.json"
+   AND EXISTS "${CMAKE_SOURCE_DIR}/qa/wave20-rtf-out.rtf.json")
+    add_test(NAME rtf_wave20_rtf_out COMMAND "${CMAKE_COMMAND}" -E env AIOFFICE_HEADLESS=1 QT_QPA_PLATFORM=offscreen
+        "${Python3_EXECUTABLE}" "${CMAKE_SOURCE_DIR}/qa/check_wave20_rtf_out.py"
+        --cli "${AIOFFICE_CLI}" --playbook "${CMAKE_SOURCE_DIR}/qa/wave20-rtf-out.json")
+    set_tests_properties(rtf_wave20_rtf_out PROPERTIES
+        LABELS "playbook"
+        WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}"
+    )
+endif()

@@ -4,6 +4,7 @@
 #include "core/Docx.h"
 #include "core/FieldExpr.h"
 #include "core/Odf.h"
+#include "core/RtfWriter.h"
 #include "core/Preview.h"
 #include "core/Spell.h"
 #include "lok/LokEngine.h"
@@ -227,6 +228,12 @@ bool Session::saveTo(const QString &path, QString *error, bool embedJson)
     }
     if (ext == QLatin1String("pdf"))
         return exportPdf(QJsonObject{{QStringLiteral("path"), path}})[QStringLiteral("ok")].toBool();
+    if (ext == QLatin1String("rtf")) {
+        if (!saveRtf(doc_, path, error))
+            return false;
+        doc_.fileName = QFileInfo(path).fileName();
+        return true;
+    }
     if (ext == QLatin1String("md") || ext == QLatin1String("markdown") || ext == QLatin1String("txt")
         || ext == QLatin1String("html") || ext == QLatin1String("htm")) {
         QString out;

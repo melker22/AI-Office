@@ -1,0 +1,27 @@
+{
+  "rtf": "/tmp/wave20-rtf-out.rtf",
+  "rtf_contains": [
+    "\\fonttbl",
+    "\\colortbl",
+    "\\stylesheet",
+    "\\listtable",
+    "\\trhdr",
+    "\\page",
+    "\\footnote",
+    "\\pngblip",
+    "\\field",
+    "\\bkmkstart",
+    "\\u",
+    "\\rtlpar",
+    "\\lang"
+  ],
+  "odt_text_contains": [
+    "Titulo RTF",
+    "English",
+    "Item um",
+    "Nome",
+    "Alpha",
+    "Nota wave20",
+    "Pagina dois"
+  ]
+}
