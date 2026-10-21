@@ -8,6 +8,25 @@
 
 ---
 
+## 2026-10-21 — Cursor Grok 4.7 — Fleet wave20 RTF list-table braces
+
+**Objective:** Fix `rtf_wave20_rtf_out`. LibreOffice wrote an empty ODT because `\listtable` closed the `{\rtf1` root group. The check exited 0 when `soffice` was missing, so CI without LibreOffice could not see the bug. No `src/app/`, no `.cockpit/`, no push.
+
+**Done:**
+- `RtfWriter`: `{\leveltext...}` and `{\levelnumbers;}` sit inside `\listlevel`; `\listid` stays inside `{\list ...}`; the override table no longer adds a `}` that closed `{\rtf1`. Decimal lists use `\levelnfc0` (bullet stays 23). Font names are RTF-escaped. `\listid` and `\ls` in `\listoverride` both get the list id.
+- `qa/check_wave20_rtf_out.py`: always checks balanced braces, that `{\rtf1` closes only at EOF, and that no text sits outside the root group; reimports with `document_open` and applies `odt_text_contains` to that text. LibreOffice RTF→ODT runs when `soffice` is on PATH. `--interop` (or `"interop": true` in the `.rtf.json`) fails with `soffice not on PATH: interop RTF check requires LibreOffice` instead of skipping.
+- `qa/check_rtf.py` has no silent soffice skip, so it was left unchanged.
+- Suite RTF opens in LibreOffice and in the native reader with Titulo RTF, English, Item um, Nome, Alpha, Nota wave20, and Pagina dois. The old list-table shape fails with `RTF root group {\rtf1 closes before end of file (text outside the root group)`.
+- `scripts/qa-all.sh --gui`: **49/49** with soffice (`rtf_wave20_rtf_out` 2.16s) and again with `/run/current-system/sw/bin` removed from PATH (same test 0.43s; structure and native reimport only).
+
+**Decisions:** The playbook ctest is not marked interop, so a machine without LibreOffice still validates structure and native reimport. Marking the check `--interop` makes a missing `soffice` a hard failure.
+
+**Next suggested step:** Fleet `build-1` / `t5-compliance`.
+
+**Commits:** `ef02651` fix: keep RTF list tables inside the root group
+
+---
+
 ## 2026-10-21 — Composer 2.5 — Fleet wave20 RTF bookmark destination groups
 
 **Objective:** Fix `rtf_wave20_rtf_out` (LibreOffice ODT almost empty): emit `\bkmkstart`/`\bkmkend` as ignorable destination groups; reader L1 for legacy loose markers; QA structural check. No push.
@@ -388,43 +407,6 @@ b748399 feat: PDF export XMP metadata, PDF/A flatten warnings, and ua mode
 **Next suggested step:** Fleet integrate-2.
 
 **Commits:** `8a9efb6` merge: land t3 ctest fixtures on the DOCX revision interop branch
-
----
-
-## 2026-10-09 — Cursor Grok — Wave 17: LibreOffice revision interop
-
-**Objective:** D8. `scripts/qa-all.sh --interop` (combinable with `--gui`) exports insert+delete+format, converts with `soffice --headless --convert-to` both ways, reimports, and compares kind, block, offsets, text, and author. Format revisions that passed through ODT must not keep `prior_runs`. No `soffice` prints `skip interop` and does not fail. Fix whatever LibreOffice showed, without changing D1–D5.
-
-**Done:**
-- `scripts/qa-all.sh --interop` and `scripts/qa-interop.py`. The probe opens `qa/wave17-odt-revisions.aio.json`, saves DOCX and ODT, converts with a temporary `-env:UserInstallation=file:///tmp/...` profile, strips embedded `aioffice` JSON, and reimports.
-- LibreOffice 26.2 accepted the ODT tracked-change markup already written by D5 (change-start/end, `text:change` deletion, `text:format-change`). docx→odt of a file that only had `w:ins` dropped delete and format, because DOCX export did not emit them.
-- odt→docx: LibreOffice wrote `w:del` + `w:delText` (deleted “B” is not live text), `w:ins` around “C”, and `w:rPrChange` as the last child of `w:rPr` with **no inner `w:rPr`** (no previous formatting). The old importer treated `w:delText` as live text (delete became a range, insert offsets shifted) and ignored `w:rPrChange`.
-- DOCX export (D3): one `w:del` at `start` from `deletedRuns` (`w:delText xml:space="preserve"`), and `w:rPrChange` last inside `w:rPr` (previous `w:rPr` from `priorRuns`, empty when there is none). DOCX import (D4): `w:del` content goes to `deletedRuns`/`text` with `start == end` and never into `runs`; `w:ins` keeps the live range and its text; `w:rPrChange` becomes one `format` revision on that run. `priorRuns` is stored only when an inner `w:rPr` is present. `Revision.priorRuns` / JSON `prior_runs` is that field.
-- `scripts/qa-all.sh --gui --interop` green, including `qa/wave17-odt-revisions.json` and both LibreOffice directions.
-
-**Decisions:** Did not change D1–D5. LibreOffice copies italic from the previous run onto the deleted “B” (`w:b`+`w:i`) when converting ODT→DOCX; kind, block, offsets, text, and author still match, so the deletion span in ODT stays bold-only (D5). An empty `w:rPrChange` (the ODT path) does not invent `priorRuns` (D2/D4). `w:rPrChange` before `w:i` was also accepted by this LibreOffice, but export still puts `w:rPrChange` last (D3).
-
-**Next suggested step:** Fleet integrate-2 with the ctest/fixtures branch. `t1` had not landed `priorRuns` on the integrate-1 branch; this node added the field so DOCX import can keep a real inner `w:rPr`.
-
-**Commits:** `49cad9c` feat: round-trip revision marks through LibreOffice
-
----
-
-## 2026-10-09 — Composer — Wave 17 T3: ctest, foreign fixtures, roundtrip QA
-
-**Objective:** D6/D7/D9 — hand-built foreign DOCX/ODT fixtures, `check_roundtrip.py` foreign + fixture modes, CTest labels `playbook`/`roundtrip`, CI and `scripts/qa-all.sh` via ctest.
-
-**Done:**
-- `qa/fixtures/make_fixtures.py` emits minimal DOCX (w:ins, multi-run w:del, w:rPrChange bold→plain, mid-word delete) and ODT (insert/delete/format-change) without `word/aioffice.json`; sidecar `*.revisions.json` expectations drive ctest.
-- `qa/check_roundtrip.py`: `--fixture` (playbook session), `--foreign` (export → strip native JSON → reimport, D6), legacy wave12 dir/align path unchanged.
-- `enable_testing()` + one ctest per `qa/wave*.json` (excludes wave1-foundation and `*.aio.json`); roundtrip tests for fixtures + `roundtrip_foreign_odt_wave17`.
-- `scripts/qa-all.sh` and CircleCI run `ctest -L 'playbook|roundtrip' --output-on-failure` (still supports `--gui`).
-- Minimal `Docx.cpp` foreign import: `w:del` → `deletedRuns` (zero-width), `w:rPrChange` → format revision (payload only; full `priorRuns` remains t1).
-- `scripts/qa-all.sh --gui` green (28 ctests).
-
-**Next suggested step:** Fleet `t4-interop` / complete t1 DOCX export + `priorRuns`; add `--foreign docx` ctest when export path is ready.
-
-**Commits:** `cadb6bc` feat: add ctest roundtrip fixtures and foreign revision QA
 
 ---
 
