@@ -53,7 +53,7 @@ QJsonArray toolDefinitions()
                   QJsonObject{{QStringLiteral("path"), prop(QStringLiteral("string"), QStringLiteral("Absolute path"))}},
                   QJsonArray{QStringLiteral("path")}));
     a.append(tool(QStringLiteral("document_save"),
-                  QStringLiteral("Save the current document. Format is taken from the path extension."),
+                  QStringLiteral("Save the current document. Format is taken from the path extension. A .epub path writes EPUB 3 (stored mimetype, one XHTML file per Heading 1) and returns format, chapters, images, and identifier. EPUB import is not supported."),
                   QJsonObject{{QStringLiteral("path"), prop(QStringLiteral("string"))}}));
     a.append(tool(QStringLiteral("document_export_pdf"),
                   QStringLiteral("Export PDF natively (QPainter). pdfa=true writes PDF/A-1b with opaque flattening warnings. ua=true requires PDF/UA-1 (alt on every image). LibreOffice is not required."),

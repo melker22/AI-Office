@@ -8,6 +8,25 @@
 
 ---
 
+## 2026-10-20 — Cursor Grok 4.7 — Wave 20 EPUB 3 export
+
+**Objective:** Fleet `t1-epub`. Export EPUB 3 from `document_save` (D1–D2; the XHTML writer is D3). Import stays out. Do not change `export_html` or RTF. No push. Notion sync is the later `notion-sync` node.
+
+**Done:**
+- `document_save` with a `.epub` path writes an EPUB 3 package: `mimetype` first and stored, `META-INF/container.xml`, `OEBPS/content.opf` (`dc:title` / `dc:creator` / `dc:language`, stable `urn:uuid`, `dcterms:modified`), `nav.xhtml` (heading TOC + landmarks), one XHTML file per Heading 1, CSS from styles, and images in the manifest with the right media type. Opening an `.epub` returns `{ok:false,error}` `EPUB import is not supported`.
+- Tables use `<th scope="col">`. Nested lists become nested `ol`/`ul`. Notes are `<aside epub:type="footnote|endnote">` plus a `noteref`. `lang`/`xml:lang` and `dir` are set on blocks and spans. Images carry `alt`. Fields are evaluated text (`runDisplayText`). `hide_if` true and page breaks are omitted. Shapes, charts, and QR codes are PNG from the existing page painter (`paintFigureMarker` via `renderBlockPng`). OPF carries schema.org `accessMode`, `accessibilityFeature`, and `accessibilitySummary`.
+- `src/core/Xhtml.{h,cpp}` is a separate writer. `export_html` is unchanged. `Zip` already stored entries, so `Zip.cpp` was not edited.
+- epubcheck 5.3.0 on the proof document (H1 chapters, header table, nested list, footnote, image alt, rasterized shape and chart, RTL paragraph, foreign-language span, `if` field, `hide_if`): 0 fatal, 0 errors, 0 warnings.
+- Playbook `qa/wave20-epub.json`. `scripts/qa-all.sh --gui`: 46/46 passed.
+
+**Decisions:** The JSON model has no document id, so the identifier is UUID v5 of `title + "\n" + author` (namespace `8c0e2b1a-7d4f-4e2a-9b11-6f0a0ff1ce20`). `nav.xhtml` is in the spine with `linear="no"` so the landmarks link does not fail epubcheck RSC-011. Invalid BCP 47 tags are coerced to `pt-PT`.
+
+**Next suggested step:** `t4-formats-qa` (epubcheck in the Nix shell and a ctest label). Then integrate with the RTF nodes.
+
+**Commits:** `feat: export EPUB 3 from document_save`
+
+---
+
 ## 2026-10-20 — Cursor Grok 4.7 — Wave 19 CodeRabbit PDF review fixes
 
 **Objective:** Fix the seven CodeRabbit defects still open after the architect's Fleet/spec pass (PR #7, base `878c6e3`). No `src/app/`, no `.cockpit/`, no push.
@@ -372,42 +391,6 @@ b748399 feat: PDF export XMP metadata, PDF/A flatten warnings, and ua mode
 **Next suggested step:** Fleet `t4-interop` / complete t1 DOCX export + `priorRuns`; add `--foreign docx` ctest when export path is ready.
 
 **Commits:** `cadb6bc` feat: add ctest roundtrip fixtures and foreign revision QA
-
----
-
-## 2026-10-09 — Composer — Wave 17 integrate-1 (t1 DOCX + t2 ODT)
-
-**Objective:** Merge `t1-docx-revisions` and `t2-odt-revisions` into `fleet/wave17-roundtrip-c574277e`; resolve doc conflicts; gate with `scripts/qa-all.sh --gui`.
-
-**Done:**
-- `t1-docx-revisions` had no commits beyond the fleet base (`157e642`) — DOCX/`priorRuns` work not landed on that branch yet.
-- Merge commit integrated `t2-odt-revisions` (`47ac260`, `00edabe`): ODF insert/delete/format round-trip, `qa/wave17-odt-revisions.json`, foreign fixture.
-- No conflicts in `docs/AI_HANDOFF.md` or `docs/mcp-tools.md` (only t2 touched handoff; t1 empty).
-- `scripts/qa-all.sh --gui` green, including wave 16 CTL and `qa/wave17-odt-revisions.json`.
-
-**Decisions:** Did not block integrate on empty t1; fleet can re-merge when DOCX task lands.
-
-**Next suggested step:** Unblock or complete `t1-docx-revisions`, then re-integrate before `build-1` if spec requires both paths.
-
-**Commits:** `52697c8` docs: record wave17 integrate-1 merge and QA on the fleet branch · `0f5956c` merge: integrate wave17 t1 docx and t2 odt revisions
-
----
-
-## 2026-10-09 — Cursor Grok — Wave 17: ODT revision round-trip
-
-**Objective:** D5 only. Export and import ODF tracked changes for insert, delete, and format. Do not touch `Document.h`, `Session.cpp`, or `Docx.cpp` (`priorRuns` is the parallel DOCX task; ODF format-change has no previous attributes).
-
-**Done:**
-- `Odf.cpp` export: a delete is `<text:change text:change-id/>` at `start`, plus a changed-region whose `<text:deletion>` holds change-info and `deletedRuns` as a formatted `<text:p>`. A format revision is `text:change-start/end` on the range plus `<text:format-change>`. The comment that called a real deletion mark impossible is gone.
-- Import is symmetric. `text:deletion` content becomes `deletedRuns`/`text` with `start == end` and is never written into live runs. `text:format-change` becomes `kind=format` with an empty payload (no prior formatting). Files that already carry `aioffice:extra` still keep that JSON (D6).
-- Playbook `qa/wave17-odt-revisions.json`: save/reopen keeps insert, the zero-width delete, and format (including payload via the extra JSON); rejecting the delete puts "B" back once, bold. A foreign ODT with no extra JSON checks the native path the same way.
-- `scripts/qa-all.sh --gui` green, including wave 12 round-trip, wave 15 PDF tagging, and wave 16 CTL.
-
-**Decisions:** Delete marks are emitted at `start` even when the in-memory range is not yet a point (Session still records a width until the parallel task). Table cells are unchanged. `revisionReject` still shifts other revisions by `end - start`, so a zero-width delete reinserts the text and does not move later marks; that shift belongs to the Session task.
-
-**Next suggested step:** Fleet integrate with the DOCX/`priorRuns` branch. Interop through LibreOffice is a later node.
-
-**Commits:** `47ac260` feat: round-trip ODT insert, delete, and format revisions
 
 ---
 

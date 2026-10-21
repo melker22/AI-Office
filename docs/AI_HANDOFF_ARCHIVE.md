@@ -2,6 +2,42 @@
 
 Entradas antigas de `docs/AI_HANDOFF.md` (manter o arquivo vivo com ~20 itens).
 
+## 2026-10-09 — Composer — Wave 17 integrate-1 (t1 DOCX + t2 ODT)
+
+**Objective:** Merge `t1-docx-revisions` and `t2-odt-revisions` into `fleet/wave17-roundtrip-c574277e`; resolve doc conflicts; gate with `scripts/qa-all.sh --gui`.
+
+**Done:**
+- `t1-docx-revisions` had no commits beyond the fleet base (`157e642`) — DOCX/`priorRuns` work not landed on that branch yet.
+- Merge commit integrated `t2-odt-revisions` (`47ac260`, `00edabe`): ODF insert/delete/format round-trip, `qa/wave17-odt-revisions.json`, foreign fixture.
+- No conflicts in `docs/AI_HANDOFF.md` or `docs/mcp-tools.md` (only t2 touched handoff; t1 empty).
+- `scripts/qa-all.sh --gui` green, including wave 16 CTL and `qa/wave17-odt-revisions.json`.
+
+**Decisions:** Did not block integrate on empty t1; fleet can re-merge when DOCX task lands.
+
+**Next suggested step:** Unblock or complete `t1-docx-revisions`, then re-integrate before `build-1` if spec requires both paths.
+
+**Commits:** `52697c8` docs: record wave17 integrate-1 merge and QA on the fleet branch · `0f5956c` merge: integrate wave17 t1 docx and t2 odt revisions
+
+---
+
+## 2026-10-09 — Cursor Grok — Wave 17: ODT revision round-trip
+
+**Objective:** D5 only. Export and import ODF tracked changes for insert, delete, and format. Do not touch `Document.h`, `Session.cpp`, or `Docx.cpp` (`priorRuns` is the parallel DOCX task; ODF format-change has no previous attributes).
+
+**Done:**
+- `Odf.cpp` export: a delete is `<text:change text:change-id/>` at `start`, plus a changed-region whose `<text:deletion>` holds change-info and `deletedRuns` as a formatted `<text:p>`. A format revision is `text:change-start/end` on the range plus `<text:format-change>`. The comment that called a real deletion mark impossible is gone.
+- Import is symmetric. `text:deletion` content becomes `deletedRuns`/`text` with `start == end` and is never written into live runs. `text:format-change` becomes `kind=format` with an empty payload (no prior formatting). Files that already carry `aioffice:extra` still keep that JSON (D6).
+- Playbook `qa/wave17-odt-revisions.json`: save/reopen keeps insert, the zero-width delete, and format (including payload via the extra JSON); rejecting the delete puts "B" back once, bold. A foreign ODT with no extra JSON checks the native path the same way.
+- `scripts/qa-all.sh --gui` green, including wave 12 round-trip, wave 15 PDF tagging, and wave 16 CTL.
+
+**Decisions:** Delete marks are emitted at `start` even when the in-memory range is not yet a point (Session still records a width until the parallel task). Table cells are unchanged. `revisionReject` still shifts other revisions by `end - start`, so a zero-width delete reinserts the text and does not move later marks; that shift belongs to the Session task.
+
+**Next suggested step:** Fleet integrate with the DOCX/`priorRuns` branch. Interop through LibreOffice is a later node.
+
+**Commits:** `47ac260` feat: round-trip ODT insert, delete, and format revisions
+
+---
+
 ## 2026-10-09 — Cursor Grok — Wave 16: hermetic test fonts
 
 **Objective:** CircleCI failed `qa/wave16-ctl-justify.json` and `qa/wave16-ctl-caret.json` on the PR #3 branch. D9 was not hermetic: this NixOS host and the `nixos/nix` container resolved different fonts from the same `shell.nix`.

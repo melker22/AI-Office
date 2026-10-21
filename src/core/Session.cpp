@@ -2,6 +2,7 @@
 
 #include "core/Csl.h"
 #include "core/Docx.h"
+#include "core/Epub.h"
 #include "core/FieldExpr.h"
 #include "core/Odf.h"
 #include "core/Preview.h"
@@ -192,7 +193,7 @@ QVector<int> Session::indexesFor(const QJsonArray &ids) const
     return idx;
 }
 
-bool Session::saveTo(const QString &path, QString *error, bool embedJson)
+bool Session::saveTo(const QString &path, QString *error, bool embedJson, QJsonObject *exportInfo)
 {
     const QString ext = QFileInfo(path).suffix().toLower();
     if (ext == QLatin1String("aio") || ext == QLatin1String("json") || path.endsWith(QLatin1String(".aio.json"))) {
@@ -227,6 +228,12 @@ bool Session::saveTo(const QString &path, QString *error, bool embedJson)
     }
     if (ext == QLatin1String("pdf"))
         return exportPdf(QJsonObject{{QStringLiteral("path"), path}})[QStringLiteral("ok")].toBool();
+    if (ext == QLatin1String("epub")) {
+        if (!saveEpub(doc_, path, error, exportInfo))
+            return false;
+        doc_.fileName = QFileInfo(path).fileName();
+        return true;
+    }
     if (ext == QLatin1String("md") || ext == QLatin1String("markdown") || ext == QLatin1String("txt")
         || ext == QLatin1String("html") || ext == QLatin1String("htm")) {
         QString out;
@@ -321,6 +328,11 @@ bool Session::loadFrom(const QString &path, QString *error)
         doc_.fileName = QFileInfo(path).fileName();
         return true;
     }
+    if (ext == QLatin1String("epub")) {
+        if (error)
+            *error = QStringLiteral("EPUB import is not supported");
+        return false;
+    }
     if (ext == QLatin1String("doc") || ext == QLatin1String("rtf") || ext == QLatin1String("ott")) {
         QTemporaryDir tmp;
         const QString odt = tmp.filePath(QFileInfo(path).completeBaseName() + QStringLiteral(".odt"));
@@ -387,14 +399,18 @@ QJsonObject Session::saveDocument(const QJsonObject &args)
     QString err;
     const bool embedJson = !args.contains(QStringLiteral("embed_json"))
         || args.value(QStringLiteral("embed_json")).toBool();
-    if (!saveTo(path, &err, embedJson))
+    QJsonObject exported;
+    if (!saveTo(path, &err, embedJson, &exported))
         return fail(err);
     path_ = path;
     dirty_ = false;
     markChanged();
     dirty_ = false;
     captureBaseline();
-    return ok();
+    QJsonObject r = ok();
+    for (auto it = exported.begin(); it != exported.end(); ++it)
+        r.insert(it.key(), it.value());
+    return r;
 }
 
 QJsonObject Session::exportPdf(const QJsonObject &args)
