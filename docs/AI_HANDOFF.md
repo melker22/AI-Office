@@ -23,7 +23,7 @@
 
 **Next suggested step:** `t4-formats-qa` (epubcheck in the Nix shell and a ctest label). Then integrate with the RTF nodes.
 
-**Commits:** `feat: export EPUB 3 from document_save`
+**Commits:** `4f12fa5` feat: export EPUB 3 from document_save
 
 ---
 
