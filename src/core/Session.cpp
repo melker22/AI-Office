@@ -5,6 +5,7 @@
 #include "core/Epub.h"
 #include "core/FieldExpr.h"
 #include "core/Odf.h"
+#include "core/RtfWriter.h"
 #include "core/Preview.h"
 #include "core/Spell.h"
 #include "lok/LokEngine.h"
@@ -230,6 +231,12 @@ bool Session::saveTo(const QString &path, QString *error, bool embedJson, QJsonO
         return exportPdf(QJsonObject{{QStringLiteral("path"), path}})[QStringLiteral("ok")].toBool();
     if (ext == QLatin1String("epub")) {
         if (!saveEpub(doc_, path, error, exportInfo))
+            return false;
+        doc_.fileName = QFileInfo(path).fileName();
+        return true;
+    }
+    if (ext == QLatin1String("rtf")) {
+        if (!saveRtf(doc_, path, error))
             return false;
         doc_.fileName = QFileInfo(path).fileName();
         return true;
