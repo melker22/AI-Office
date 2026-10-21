@@ -32,6 +32,7 @@ add_library(aioffice_core STATIC
     src/core/Session.cpp
     src/core/Odf.cpp
     src/core/Docx.cpp
+    src/core/RtfReader.cpp
     src/core/Zip.cpp
     src/core/Xhtml.cpp
     src/core/Epub.cpp
