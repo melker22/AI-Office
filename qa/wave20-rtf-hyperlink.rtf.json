@@ -1,0 +1,20 @@
+{
+  "rtf": "/tmp/wave20-rtf-hyperlink.rtf",
+  "rtf_contains": [
+    "HYPERLINK",
+    "\\fldrslt {\\b",
+    "\\cf"
+  ],
+  "body": [
+    {
+      "block_index": 0,
+      "type": "paragraph",
+      "plain": "Site 1",
+      "runs": [
+        {"text": "Site", "bold": true, "color": "#C0392B", "link": "https://example.com/a"},
+        {"text": " ", "bold": false},
+        {"text": "1", "bold": true, "color": "#1A5276", "field": "page_number"}
+      ]
+    }
+  ]
+}

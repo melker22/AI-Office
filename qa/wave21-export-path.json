@@ -1,0 +1,55 @@
+[
+  {"tool": "document_new", "args": {"title": "Export path", "force": true}},
+  {"tool": "insert_at_caret", "args": {"id": "p1", "offset": 0, "text": "Texto de trabalho"}},
+  {"tool": "document_save", "args": {"path": "/tmp/wave21-export.epub"}, "expect": {"ok": true, "path": "", "dirty": true, "format": "epub"}},
+  {"tool": "document_save", "args": {"path": "/tmp/wave21-export.aio.json"}, "expect": {"ok": true, "path": "/tmp/wave21-export.aio.json", "dirty": false}},
+  {"tool": "document_save", "args": {"path": "/tmp/wave21-export.rtf"}, "expect": {"ok": true, "path": "/tmp/wave21-export.aio.json", "dirty": false}},
+  {"tool": "document_save", "args": {"path": "/tmp/wave21-export.pdf"}, "expect": {"ok": true, "path": "/tmp/wave21-export.aio.json", "dirty": false}},
+  {"tool": "document_save", "args": {"path": "/tmp/wave21-export.md"}, "expect": {"ok": true, "path": "/tmp/wave21-export.aio.json", "dirty": false}},
+  {"tool": "document_save", "args": {"path": "/tmp/wave21-export.txt"}, "expect": {"ok": true, "path": "/tmp/wave21-export.aio.json", "dirty": false}},
+  {"tool": "document_save", "args": {"path": "/tmp/wave21-export.html"}, "expect": {"ok": true, "path": "/tmp/wave21-export.aio.json", "dirty": false}},
+  {"tool": "document_save", "args": {"path": "/tmp/wave21-export.odt"}, "expect": {"ok": true, "path": "/tmp/wave21-export.odt", "dirty": false}},
+  {"tool": "document_save", "args": {"path": "/tmp/wave21-export.docx"}, "expect": {"ok": true, "path": "/tmp/wave21-export.docx", "dirty": false}},
+  {"tool": "insert_at_caret", "args": {"id": "p1", "offset": 0, "text": "j"}},
+  {"tool": "document_save", "args": {"path": "/tmp/wave21-export.json"}, "expect": {"ok": true, "path": "/tmp/wave21-export.json", "dirty": false}},
+  {"tool": "insert_at_caret", "args": {"id": "p1", "offset": 0, "text": "a"}},
+  {"tool": "document_save", "args": {"path": "/tmp/wave21-export.aio"}, "expect": {"ok": true, "path": "/tmp/wave21-export.aio", "dirty": false}},
+  {"tool": "document_new", "args": {"title": "Wide table", "force": true}},
+  {"tool": "insert_blocks", "args": {"after_id": "start", "blocks": [
+    {"type": "table", "rows": [[{"col_span": 10000, "runs": [{"text": "larga"}]}]]}
+  ]}},
+  {"tool": "document_save", "args": {"path": "/tmp/wave21-wide.odt"}, "expect": {"ok": false, "error": "ODT table row is wider than 256 columns"}},
+  {"tool": "document_new", "args": {"title": "RTF warn", "force": true}},
+  {"tool": "insert_at_caret", "args": {"id": "p1", "offset": 0, "text": "Com comentario"}},
+  {"tool": "comment_add", "args": {"id": "p1", "text": "nota de revisao", "author": "qa"}},
+  {"tool": "document_save", "args": {"path": "/tmp/wave21-warn.rtf"}, "expect": {
+    "ok": true,
+    "path": "",
+    "dirty": true,
+    "warnings.0": "RTF export: block comments exported as plain text"
+  }},
+  {"tool": "document_new", "args": {"title": "Titulo limpo", "force": true}, "expect": {"ok": true, "dirty": false, "title": "Titulo limpo"}},
+  {"tool": "insert_at_caret", "args": {"id": "p1", "offset": 0, "text": "Trabalho"}},
+  {"tool": "document_save", "args": {"path": "/tmp/wave21-title.aio.json"}, "expect": {"ok": true, "dirty": false, "path": "/tmp/wave21-title.aio.json", "title": "Titulo limpo"}},
+  {"tool": "document_save", "args": {"path": "/tmp/wave21-title-export.rtf", "title": "Titulo exportado"}, "expect": {"ok": true, "dirty": true, "path": "/tmp/wave21-title.aio.json", "title": "Titulo exportado"}},
+  {"tool": "document_new", "args": {"title": "Descarta"}, "expect": {"ok": false, "error": "document is unsaved; pass force=true to discard"}},
+  {"tool": "document_save", "args": {"path": "/tmp/wave21-title.aio.json"}, "expect": {"ok": true, "dirty": false, "path": "/tmp/wave21-title.aio.json", "title": "Titulo exportado"}},
+  {"tool": "document_open", "args": {"path": "/tmp/wave21-title.aio.json"}, "expect": {"ok": true, "dirty": false, "title": "Titulo exportado"}},
+  {"tool": "document_save", "args": {"path": "/tmp/wave21-title.md", "title": "Titulo md"}, "expect": {"ok": true, "dirty": true, "path": "/tmp/wave21-title.aio.json", "title": "Titulo md"}},
+  {"tool": "document_save", "args": {"path": "/tmp/wave21-title.odt"}, "expect": {"ok": true, "dirty": false, "path": "/tmp/wave21-title.odt", "title": "Titulo md"}},
+  {"tool": "document_save", "args": {"path": "/tmp/wave21-title.docx", "title": "Titulo docx"}, "expect": {"ok": true, "dirty": false, "path": "/tmp/wave21-title.docx", "title": "Titulo docx"}},
+  {"tool": "document_new", "args": {"title": "Limpo de novo"}, "expect": {"ok": true, "dirty": false, "title": "Limpo de novo"}},
+  {"tool": "document_new", "args": {"title": "Imagem ruim", "force": true}},
+  {"tool": "replace_range", "args": {"id": "p1", "blocks": [
+    {"type": "image", "image_b64": "bm90YW5pbWFnZQ==", "image_mime": "image/gif", "alt": "Figura quebrada", "width_mm": 12}
+  ]}},
+  {"tool": "document_save", "args": {"path": "/tmp/wave21-bad-image.rtf"}, "expect": {
+    "ok": true,
+    "warnings.0": "RTF export: image could not be encoded as PNG"
+  }},
+  {"tool": "document_open", "args": {"path": "/tmp/wave21-bad-image.rtf"}, "expect": {"ok": true}},
+  {"tool": "document_get", "args": {}, "expect": {
+    "ok": true,
+    "document.body.0.runs.0.text": "Figura quebrada"
+  }}
+]

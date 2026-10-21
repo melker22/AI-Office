@@ -1,6 +1,6 @@
 # Catálogo Writer — ideias do Guide, código nosso
 
-Espelho git do board **Roadmap para Produção** no Notion ([hub](https://app.notion.com/p/3cb46a79156b819daef5ea9d7c41385a)). Sync: **2026-10-20** (Fase IA **onda 19** entregue: PDF/A-1b, PDF/UA-1, tagging completo na suíte veraPDF, XMP/`/Info`, ordem de leitura, comentários PDF+UA; **Round-trip ODT/DOCX** continua **Partial**). Totais: **198 Done**, **10 Partial**, **38 Todo**. Coluna **Fase** = `IA` | `Humano` | `Infra` | `Fora`.
+Espelho git do board **Roadmap para Produção** no Notion ([hub](https://app.notion.com/p/3cb46a79156b819daef5ea9d7c41385a)). Sync: **2026-10-21** (Fase IA **onda 20** entregue: export EPUB 3 + RTF nativo import/export, gate `--formats` com epubcheck 0/0 e suíte RTF; **Round-trip ODT/DOCX** continua **Partial**). Totais: **200 Done**, **10 Partial**, **41 Todo**. Coluna **Fase** = `IA` | `Humano` | `Infra` | `Fora`.
 
 Fonte citável: The Document Foundation — [LibreOffice Writer Guide 26.2](https://books.libreoffice.org/en/WG262/WG262.html). Atribuição e limites: [`ATTRIBUTION.md`](ATTRIBUTION.md).
 
@@ -175,6 +175,8 @@ Camadas: `JSON+MCP+GUI` · `JSON+MCP` · `só JSON` · `infra`.
 | Suite de testes de round-trip | MCP | infra | JSON+MCP |
 | Texto condicional | Writer | WG 26.2 cap. 17 | JSON+MCP |
 | Legenda de figura numerada | Writer | WG 26.2 cap. 11 | JSON+MCP |
+| Exportação EPUB | Formats | WG 26.2 cap. 7 | JSON+MCP |
+| RTF nativo (import + export) | Formats | WG 26.2 cap. 1, 7 | JSON+MCP |
 
 ## Partial
 
@@ -197,9 +199,11 @@ Fase IA Writer **não** está encerrada: o board ainda tem Todos de chrome, pack
 
 **Onda 19 (PDF completo):** `pdfa: true` passa veraPDF PDF/A-1b; `ua: true` passa PDF/UA-1 na suíte `qa/wave19-pdf-*.json` (veraPDF + qpdf + pdffonts). Tagging via clips partilhados (`Preview.cpp` + `PdfPostProcess.cpp`): `/L`/`/LI`, `/Table`/`/TR`/`/TH`/`/TD` (cabeçalho repetido por página), `/Figure`+`/Alt`, `/Note`, `/TOC`/`/TOCI`, artifacts para chrome de página; comentários PDF compatíveis com UA/PDF/A; `/Lang` no catálogo e em spans; XMP completo (incl. `pdfaid`/`pdfuaid`) e espelho em `/Info`; fontes sempre embutidas (árabe/CJK na suíte). **Limites documentados** (`docs/mcp-tools.md`): lista/tabela aninhada em célula sem tags próprias; nota de rodapé sem âncora em célula.
 
+**Onda 20 (EPUB + RTF):** `document_save` com `.epub` gera EPUB 3 (`mimetype` stored primeiro, nav, capítulo por H1, CSS dos estilos, campos avaliados, `hide_if` omitido, formas/gráficos/QR rasterizados, metadados schema.org de acessibilidade); julgado com epubcheck **0 erros, 0 avisos** em `qa/wave20-epub*.json`. RTF nativo (`RtfReader`/`RtfWriter`): `.rtf` abre só pelo leitor nativo; export cobre parágrafo/carácter, listas, tabelas, notas, imagens, campos, marcadores; ida-e-volta própria + fixtures Word/LibreOffice + interop LibreOffice na gate `--formats --interop`. **Limites honestos entregues:** revisões, comentários de bloco e formas/molduras exportados em RTF como **texto plano**, com aviso único em `warnings[]` (`RTF export: tracked revisions…`, `block comments…`, `shapes/forms…`).
+
 - **Humano (chrome Tinta & Papel):** régua; stats GUI; zoom GUI; print preview; Navigator; paleta; atalhos; recents; status bar; modo leitura; split; foco/typewriter; inspector; balloons; DnD reorder; teclado só no canvas; Autocorrect lista GUI; underline ao escrever; impressão.
-- **Infra:** backup `~`; layout lazy; watch file; Hunspell Nix; Flatpak; CRDT; DOC/RTF nativo; EPUB; assinatura; senha; crash recovery; autosave.
-- **IA (Writer):** Notas com vários parágrafos (rodapé/fim) — round-trip ODT/DOCX fiel; **Subconjunto de fontes no PDF** (embedding completo já Done; subsetting fica para onda futura).
+- **Infra:** backup `~`; layout lazy; watch file; Hunspell Nix; Flatpak; CRDT; **DOC nativo (via soffice)**; assinatura; senha; crash recovery; autosave.
+- **IA (Writer):** Importar EPUB; Revisões e comentários em RTF (marcação fiel, não só texto); `export_html` no escritor XHTML (`src/core/Xhtml`, hoje só EPUB); Notas com vários parágrafos (rodapé/fim) — round-trip ODT/DOCX fiel; **Subconjunto de fontes no PDF** (embedding completo já Done; subsetting fica para onda futura).
 - **Limites honestos restantes (Partial):** processador CSL genérico para arquivo `.csl` arbitrário (hoje 4 estilos fixos, onda 14).
 - **Testing (o utilizador pede à parte):** golden PNG; fuzz.
 

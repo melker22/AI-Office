@@ -1,0 +1,12 @@
+[
+  {"tool": "document_new", "args": {"title": "Raster", "force": true}},
+  {"tool": "document_set_title", "args": {"title": "Raster", "author": "QA"}},
+  {"tool": "insert_blocks", "args": {"after_id": "start", "blocks": [
+    {"id": "i1", "type": "image", "opacity": 0.8, "width_mm": 80, "image_mime": "image/png", "alt": "Sem legenda",
+     "image_b64": "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg=="},
+    {"id": "i2", "type": "image", "opacity": 0.8, "width_mm": 80, "image_mime": "image/png", "alt": "Com legenda",
+     "caption": "LEGENDA-RASTER",
+     "image_b64": "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg=="}
+  ]}},
+  {"tool": "document_save", "args": {"path": "/tmp/wave20-epub-raster.epub"}, "expect": {"ok": true, "format": "epub", "images": 2}}
+]

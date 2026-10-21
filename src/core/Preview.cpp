@@ -23,6 +23,7 @@
 #include <QTextLayout>
 #include <QTextOption>
 #include <QDateTime>
+#include <QtMath>
 #include <algorithm>
 
 namespace aioffice {
@@ -2705,6 +2706,66 @@ QByteArray renderPagePng(const Document &doc, int page, double zoom)
     QBuffer buf(&bytes);
     buf.open(QIODevice::WriteOnly);
     r.image.save(&buf, "PNG");
+    return bytes;
+}
+
+QByteArray renderBlockPng(const Document &doc, const Block &block)
+{
+    // The EPUB figure also writes <figcaption>. Painting the caption into the
+    // PNG would show it twice. Page preview still uses the original block.
+    Block painted = block;
+    painted.caption.clear();
+    painted.captionRuns.clear();
+    const qreal zoom = 2.0;
+    qreal wmm = block.imageWidthMm > 0 ? block.imageWidthMm : (block.type == QLatin1String("qr") ? 40.0 : 80.0);
+    qreal hmm = block.heightMm > 0 ? block.heightMm : (block.type == QLatin1String("qr") ? wmm : 40.0);
+    if (block.type == QLatin1String("qr"))
+        hmm = wmm;
+    if (block.type == QLatin1String("image")) {
+        wmm = block.imageWidthMm > 0 ? block.imageWidthMm : 80.0;
+        const QImage img = loadBlockImage(block);
+        if (!img.isNull() && img.width() > 0 && img.height() > 0) {
+            qreal iw = img.width();
+            qreal ih = img.height();
+            if (block.cropL > 0 || block.cropT > 0 || block.cropR > 0 || block.cropB > 0) {
+                iw *= qBound(0.1, 1.0 - block.cropL - block.cropR, 1.0);
+                ih *= qBound(0.1, 1.0 - block.cropT - block.cropB, 1.0);
+            }
+            const int rot = ((block.rotateDeg % 360) + 360) % 360;
+            if (rot == 90 || rot == 270)
+                std::swap(iw, ih);
+            hmm = wmm * ih / qMax(qreal(1), iw);
+        } else {
+            hmm = wmm;
+        }
+    }
+    const int innerW = qMax(8, int(qCeil(mmToPx(wmm, zoom))));
+    const int innerH = qMax(8, int(qCeil(mmToPx(hmm, zoom))));
+    const qreal shadow = block.shadowPt > 0 ? block.shadowPt * zoom : 0;
+    const int pad = int(qCeil(qMax(qreal(6), shadow + 6)));
+    QImage image(innerW + pad * 2, innerH + pad * 2, QImage::Format_ARGB32_Premultiplied);
+    image.fill(QColor(QStringLiteral("#FDFBF7")));
+    DocumentLayout lay;
+    lay.zoom = zoom;
+    lay.pages = 1;
+    lay.paperW = image.width();
+    lay.paperH = image.height();
+    lay.contentW = innerW;
+    lay.contentH = innerH;
+    LaidBlock lb;
+    lb.id = block.id;
+    lb.type = block.type;
+    lb.page = 1;
+    lb.rect = QRectF(pad, pad, innerW, innerH);
+    QPainter painter(&image);
+    painter.setRenderHint(QPainter::Antialiasing, true);
+    painter.setRenderHint(QPainter::TextAntialiasing, true);
+    paintFigureMarker(&painter, doc, lay, lb, painted);
+    painter.end();
+    QByteArray bytes;
+    QBuffer buf(&bytes);
+    if (!buf.open(QIODevice::WriteOnly) || !image.save(&buf, "PNG"))
+        return {};
     return bytes;
 }
 

@@ -1,0 +1,7 @@
+{
+  "epub": "/tmp/wave20-epub-raster.epub",
+  "epubcheck": {"errors": 0, "warnings": 0},
+  "raster_png_equal": true,
+  "text_contains": ["LEGENDA-RASTER"],
+  "image_alt_contains": "Sem legenda"
+}

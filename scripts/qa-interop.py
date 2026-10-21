@@ -37,6 +37,7 @@ def play(cli, calls):
                 capture_output=True,
                 text=True,
                 timeout=300,
+                check=False,
             )
         except subprocess.TimeoutExpired as exc:
             raise SystemExit("aioffice-cli play timed out after 300s") from exc
@@ -75,6 +76,7 @@ def convert(src, outdir, target):
             capture_output=True,
             text=True,
             timeout=180,
+            check=False,
         )
     finally:
         shutil.rmtree(profile, ignore_errors=True)
@@ -152,10 +154,30 @@ def check_prior(revs, label):
     return True
 
 
+def _cell_text(cell):
+    if not isinstance(cell, dict):
+        return ""
+    text = "".join((run.get("text") or "") for run in (cell.get("runs") or []))
+    for nrow in cell.get("nested") or []:
+        if isinstance(nrow, list):
+            for nested in nrow:
+                text += _cell_text(nested)
+    return text
+
+
 def plain_of(body):
     parts = []
     for block in body:
-        text = "".join((run.get("text") or "") for run in (block.get("runs") or []))
+        if (block.get("type") or "") == "table" and isinstance(block.get("rows"), list):
+            cells = []
+            for row in block["rows"]:
+                if not isinstance(row, list):
+                    continue
+                for cell in row:
+                    cells.append(_cell_text(cell))
+            text = " ".join(cells)
+        else:
+            text = "".join((run.get("text") or "") for run in (block.get("runs") or []))
         hide = block.get("hide_if") or ""
         if text or hide:
             parts.append(text)
@@ -384,6 +406,71 @@ def assert_plain_contains(body, label, needles):
     return require(not missing, label, f"missing {missing} in {plain!r}")
 
 
+def build_rtf_interop_doc(cli, work: Path):
+    rtf = work / "wave20-interop.rtf"
+    odt = work / "wave20-interop.odt"
+    calls = [
+        {"tool": "document_new", "args": {"title": "Wave20 RTF interop", "force": True}},
+        {
+            "tool": "insert_blocks",
+            "args": {
+                "after_id": "start",
+                "blocks": [
+                    {"type": "heading", "level": 1, "runs": [{"text": "Wave20 RTF interop"}]},
+                    {"type": "paragraph", "runs": [{"text": "Alpha paragraph."}]},
+                    {"type": "list-item", "list_kind": "bullet", "runs": [{"text": "List A"}]},
+                    {"type": "table", "header": True, "rows": 2, "cols": 2},
+                ],
+            },
+        },
+        {"tool": "set_cell", "args": {"id": "t1", "row": 0, "col": 0, "text": "H"}},
+        {"tool": "set_cell", "args": {"id": "t1", "row": 0, "col": 1, "text": "V"}},
+        {"tool": "set_cell", "args": {"id": "t1", "row": 1, "col": 0, "text": "1"}},
+        {"tool": "set_cell", "args": {"id": "t1", "row": 1, "col": 1, "text": "2"}},
+        {"tool": "document_save", "args": {"path": str(rtf)}},
+        {"tool": "document_save", "args": {"path": str(odt)}},
+    ]
+    play(cli, calls)
+    needles = ["Wave20 RTF interop", "Alpha", "List A", "H", "V"]
+    return rtf, odt, needles
+
+
+def rtf_interop_roundtrip(cli):
+    """Wave 20 D6: our RTF through LibreOffice and LO RTF into native import."""
+    work = Path(tempfile.mkdtemp(prefix="aioffice-interop-rtf-"))
+    try:
+        rtf, odt, needles = build_rtf_interop_doc(cli, work)
+        if not rtf.is_file() or not odt.is_file():
+            print("FAIL interop rtf: native export did not write RTF/ODT")
+            return 1
+        ok = True
+        lo_odt_dir = work / "rtf-to-odt"
+        lo_rtf_dir = work / "odt-to-rtf"
+        lo_odt_dir.mkdir()
+        lo_rtf_dir.mkdir()
+        convert(rtf, lo_odt_dir, "odt")
+        convert(odt, lo_rtf_dir, "rtf")
+        odt_out = lo_odt_dir / rtf.with_suffix(".odt").name
+        rtf_out = lo_rtf_dir / odt.with_suffix(".rtf").name
+        if not odt_out.is_file():
+            print("FAIL interop our RTF→ODT: soffice did not write ODT")
+            return 1
+        strip_native_json(odt_out)
+        _revs, body_lo = snapshot(cli, odt_out)
+        ok = assert_plain_contains(body_lo, "our RTF→ODT", needles) and ok
+        if rtf_out.is_file():
+            _revs, body_native = snapshot(cli, rtf_out)
+            ok = assert_plain_contains(body_native, "LO RTF→native", needles) and ok
+        else:
+            print("FAIL interop ODT→RTF: soffice did not write RTF")
+            ok = False
+        if ok:
+            print("ok   interop rtf our RTF→ODT / LO RTF→native")
+        return 0 if ok else 1
+    finally:
+        shutil.rmtree(work, ignore_errors=True)
+
+
 def fields_roundtrip(cli):
     """D7: if/seq/stat/hide_if through LibreOffice.
 
@@ -506,6 +593,7 @@ def main():
             else:
                 print(f"ok   interop {label}")
         status = fields_roundtrip(cli) or status
+        status = rtf_interop_roundtrip(cli) or status
         return status
     finally:
         shutil.rmtree(work, ignore_errors=True)

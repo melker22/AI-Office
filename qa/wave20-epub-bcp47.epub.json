@@ -1,0 +1,8 @@
+{
+  "epub": "/tmp/wave20-epub-bcp47.epub",
+  "epubcheck": {"errors": 0, "warnings": 0},
+  "package_lang": "zh-Hant-TW",
+  "lang_spans": ["pt-BR", "es-419", "de-CH-1996", "en-x-custom", "sr-Latn-RS"],
+  "lang_absent": ["pt-PT", "pt_BR", "nope!!"],
+  "text_contains": ["brasil", "latam", "ruim"]
+}
