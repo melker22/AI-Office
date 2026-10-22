@@ -451,6 +451,20 @@ bool hideIfExprUsesPageOrPages(const QString &expr)
     return ids.contains(QLatin1String("page")) || ids.contains(QLatin1String("pages"));
 }
 
+QString hideIfExprError(const QString &expr)
+{
+    if (expr.isEmpty())
+        return {};
+    if (hideIfExprUsesPageOrPages(expr))
+        return QStringLiteral(
+            "hide_if cannot depend on page or pages (evaluated once, before pagination)");
+    Document empty;
+    const FieldExprResult ev = FieldExpr::evaluate(expr, empty, FieldContext{});
+    if (!ev.ok)
+        return ev.error.isEmpty() ? QStringLiteral("invalid expression") : ev.error;
+    return {};
+}
+
 bool showIfIsBareName(const QString &expr)
 {
     if (expr.isEmpty())

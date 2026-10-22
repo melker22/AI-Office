@@ -407,7 +407,7 @@ QString validateBlock(const Block &b)
         return QStringLiteral("invalid align: ") + b.align;
     if (!isValidBlockDir(b.dir))
         return QStringLiteral("invalid dir: ") + b.dir;
-    return {};
+    return hideIfExprError(b.hideIf);
 }
 
 QString validateTableShorthand(const QJsonObject &block)
@@ -463,6 +463,8 @@ QString validateParagraphFormatArgs(const QJsonObject &args)
         if (!isValidBlockDir(dir))
             return QStringLiteral("invalid dir: ") + dir;
     }
+    if (args.contains(QStringLiteral("hide_if")))
+        return hideIfExprError(args.value(QStringLiteral("hide_if")).toString());
     return {};
 }
 

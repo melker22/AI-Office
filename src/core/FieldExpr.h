@@ -57,6 +57,10 @@ QSet<QString> fieldExprIdentifiers(const QString &expr);
 
 bool hideIfExprUsesPageOrPages(const QString &expr);
 
+// Empty when hide_if may be stored. Otherwise the same message document_validate
+// reports: page/pages dependency, or the expression parser error.
+QString hideIfExprError(const QString &expr);
+
 // Live text of an `if` field. On a bad arg or condition, returns "#ERR" and sets *exprOk false.
 QString evalIfField(const Document &doc, const QString &fieldArg, int page, int pages, bool *exprOk = nullptr,
                     QString *exprError = nullptr);

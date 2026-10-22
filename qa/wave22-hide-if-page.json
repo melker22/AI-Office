@@ -10,12 +10,13 @@
     "error": "hide_if cannot depend on page or pages (evaluated once, before pagination)"
   }},
 
-  {"tool": "document_open", "args": {"path": "qa/wave22-hide-if-page-bad.aio.json"}, "expect": {"ok": true}},
-  {"tool": "validate", "args": {}, "expect": {
-    "valid": false,
-    "errors.0.code": "invalid_expression",
-    "errors.0.id": "p2",
-    "errors.0.message": "hide_if cannot depend on page or pages (evaluated once, before pagination)"
+  {"tool": "document_open", "args": {"path": "qa/wave22-hide-if-page-bad.aio.json"}, "expect": {
+    "ok": false,
+    "error": "hide_if cannot depend on page or pages (evaluated once, before pagination)"
+  }},
+  {"tool": "document_get", "args": {}, "expect": {
+    "document.meta.title": "Hide if page reject",
+    "document.body.0.runs.0.text": "A"
   }},
 
   {"tool": "document_new", "args": {"title": "Hide if once", "force": true}},

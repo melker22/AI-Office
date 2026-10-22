@@ -1,0 +1,81 @@
+[
+  {"tool": "document_new", "args": {"title": "Hide ingress", "force": true}},
+  {"tool": "insert_at_caret", "args": {"id": "p1", "offset": 0, "text": "Visivel"}},
+
+  {"tool": "insert_blocks", "args": {"after_id": "p1", "blocks": [
+    {"id": "badPage", "type": "paragraph", "hide_if": "page > 1", "runs": [{"text": "Nao"}]}
+  ]}, "expect": {
+    "ok": false,
+    "error": "hide_if cannot depend on page or pages (evaluated once, before pagination)"
+  }},
+  {"tool": "insert_blocks", "args": {"after_id": "p1", "blocks": [
+    {"id": "badExpr", "type": "paragraph", "hide_if": "???", "runs": [{"text": "Nao"}]}
+  ]}, "expect": {"ok": false, "error": "invalid expression"}},
+
+  {"tool": "replace_range", "args": {"ids": ["p1"], "blocks": [
+    {"id": "p1", "type": "paragraph", "hide_if": "pages > 1", "runs": [{"text": "Nao"}]}
+  ]}, "expect": {
+    "ok": false,
+    "error": "hide_if cannot depend on page or pages (evaluated once, before pagination)"
+  }},
+  {"tool": "replace_range", "args": {"ids": ["p1"], "blocks": [
+    {"id": "p1", "type": "paragraph", "hide_if": "flag ==", "runs": [{"text": "Nao"}]}
+  ]}, "expect": {"ok": false, "error": "invalid expression"}},
+
+  {"tool": "document_stats", "args": {}, "expect": {
+    "ok": true, "dirty": true, "paragraphs": 1, "words": 1, "chars": 7
+  }},
+  {"tool": "document_get", "args": {}, "expect": {
+    "document.body.0.id": "p1",
+    "document.body.0.align": "left",
+    "document.body.0.runs.0.text": "Visivel"
+  }},
+
+  {"tool": "apply_paragraph_format", "args": {"id": "p1", "align": "center", "hide_if": "not an expr"}, "expect": {
+    "ok": false,
+    "error": "invalid expression"
+  }},
+  {"tool": "document_stats", "args": {}, "expect": {
+    "ok": true, "dirty": true, "paragraphs": 1, "words": 1, "chars": 7
+  }},
+  {"tool": "document_get", "args": {}, "expect": {
+    "document.body.0.align": "left",
+    "document.body.0.runs.0.text": "Visivel"
+  }},
+
+  {"tool": "undo", "args": {}, "expect": {"ok": true}},
+  {"tool": "document_get", "args": {}, "expect": {"document.body.0.runs": []}},
+  {"tool": "document_stats", "args": {}, "expect": {"paragraphs": 1, "words": 0, "chars": 0}},
+
+  {"tool": "document_new", "args": {"title": "Still here", "force": true}},
+  {"tool": "insert_at_caret", "args": {"id": "p1", "offset": 0, "text": "Aberto"}},
+  {"tool": "insert_blocks", "args": {"after_id": "p1", "blocks": [
+    {"id": "okHide", "type": "paragraph", "hide_if": "flag == \"on\"", "runs": [{"text": "Ok"}]}
+  ]}, "expect": {"ok": true}},
+  {"tool": "document_get", "args": {}, "expect": {
+    "document.body.1.id": "okHide",
+    "document.body.1.hide_if": "flag == \"on\""
+  }},
+
+  {"tool": "document_open", "args": {"path": "qa/wave22-hide-if-ingress-bad.aio.json"}, "expect": {
+    "ok": false,
+    "error": "hide_if cannot depend on page or pages (evaluated once, before pagination)"
+  }},
+  {"tool": "document_open", "args": {"path": "qa/wave22-hide-if-ingress-syntax.aio.json"}, "expect": {
+    "ok": false,
+    "error": "invalid expression"
+  }},
+  {"tool": "document_include", "args": {"path": "qa/wave22-hide-if-ingress-bad.aio.json"}, "expect": {
+    "ok": false,
+    "error": "hide_if cannot depend on page or pages (evaluated once, before pagination)"
+  }},
+  {"tool": "document_get", "args": {}, "expect": {
+    "document.meta.title": "Still here",
+    "document.body.0.runs.0.text": "Aberto",
+    "document.body.1.hide_if": "flag == \"on\""
+  }},
+
+  {"tool": "set_read_only", "args": {"on": true}},
+  {"tool": "document_save", "args": {"path": "/tmp/wave22-ro-export.markdown"}, "expect": {"ok": true}},
+  {"tool": "document_save", "args": {"path": "/tmp/wave22-ro-export.htm"}, "expect": {"ok": true}}
+]

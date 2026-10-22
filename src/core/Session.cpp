@@ -351,9 +351,11 @@ bool Session::loadFrom(const QString &path, QString *error)
                 *error = tableErr;
             return false;
         }
-        doc_ = Document::fromJson(docj.object());
-        doc_.fileName = QFileInfo(path).fileName();
-        for (const auto &b : doc_.body) {
+        // Validate before replacing the session. A bad hide_if (or align) leaves
+        // the open document, dirty flag, and undo stack untouched.
+        Document loaded = Document::fromJson(docj.object());
+        loaded.fileName = QFileInfo(path).fileName();
+        for (const auto &b : loaded.body) {
             const QString be = validateBlock(b);
             if (!be.isEmpty()) {
                 if (error)
@@ -361,13 +363,14 @@ bool Session::loadFrom(const QString &path, QString *error)
                 return false;
             }
         }
-        for (const auto &s : doc_.styles) {
+        for (const auto &s : loaded.styles) {
             if (!isValidBlockAlign(s.align)) {
                 if (error)
                     *error = QStringLiteral("invalid align in style: ") + s.align;
                 return false;
             }
         }
+        doc_ = loaded;
         return true;
     }
     if (ext == QLatin1String("odt")) {
@@ -819,20 +822,9 @@ QJsonObject Session::applyParagraphFormat(const QJsonObject &args)
             doc_.body[i].lang = args.value(QStringLiteral("lang")).toString();
         if (args.contains(QStringLiteral("section_hidden")))
             doc_.body[i].sectionHidden = args.value(QStringLiteral("section_hidden")).toBool();
-        if (args.contains(QStringLiteral("hide_if"))) {
-            const QString hideExpr = args.value(QStringLiteral("hide_if")).toString();
-            if (!hideExpr.isEmpty()) {
-                if (hideIfExprUsesPageOrPages(hideExpr))
-                    return fail(QStringLiteral(
-                        "hide_if cannot depend on page or pages (evaluated once, before pagination)"));
-                const FieldExprResult hideEv =
-                    FieldExpr::evaluate(hideExpr, doc_, fieldContextFor(doc_, 1, 1));
-                if (!hideEv.ok)
-                    return fail(hideEv.error.isEmpty() ? QStringLiteral("invalid expression")
-                                                       : hideEv.error);
-            }
-            doc_.body[i].hideIf = hideExpr;
-        }
+        // hide_if was checked in validateParagraphFormatArgs, before pushUndo.
+        if (args.contains(QStringLiteral("hide_if")))
+            doc_.body[i].hideIf = args.value(QStringLiteral("hide_if")).toString();
         if (args.contains(QStringLiteral("writing_mode")))
             doc_.body[i].writingMode = args.value(QStringLiteral("writing_mode")).toString();
         if (args.contains(QStringLiteral("z_index")))
@@ -5091,6 +5083,11 @@ QJsonObject Session::documentInclude(const QJsonObject &args)
     if (!tableErr.isEmpty())
         return fail(tableErr);
     Document other = Document::fromJson(docj.object());
+    for (const auto &b : other.body) {
+        const QString be = validateBlock(b);
+        if (!be.isEmpty())
+            return fail(be);
+    }
     QString err;
     int at = insertIndex(args.value(QStringLiteral("after_id")).toString(QStringLiteral("end")), &err);
     if (at < 0)
@@ -5162,27 +5159,17 @@ QJsonObject Session::validate(const QJsonObject &)
         ids.insert(b.id);
         if (!known.contains(b.type))
             err(QStringLiteral("unknown_type"), b.id, QStringLiteral("unknown block type: ") + b.type);
+        // hide_if keeps the invalid_expression code. Align and dir stay invalid_block.
+        const QString hideErr = hideIfExprError(b.hideIf);
         const QString blockErr = validateBlock(b);
-        if (!blockErr.isEmpty())
+        if (!blockErr.isEmpty() && blockErr != hideErr)
             err(QStringLiteral("invalid_block"), b.id, blockErr);
+        if (!hideErr.isEmpty())
+            err(QStringLiteral("invalid_expression"), b.id, hideErr);
         if (b.type == QLatin1String("footnote") || b.type == QLatin1String("endnote"))
             noteIds.insert(b.id);
     }
     const FieldContext exprCtx = fieldContextFor(doc_, 1, 1);
-    auto checkHideIf = [&](const QString &expr, const QString &id) {
-        if (expr.isEmpty())
-            return;
-        if (hideIfExprUsesPageOrPages(expr)) {
-            err(QStringLiteral("invalid_expression"), id,
-                QStringLiteral("hide_if cannot depend on page or pages (evaluated once, before "
-                               "pagination)"));
-            return;
-        }
-        const FieldExprResult ev = FieldExpr::evaluate(expr, doc_, exprCtx);
-        if (!ev.ok)
-            err(QStringLiteral("invalid_expression"), id,
-                ev.error.isEmpty() ? QStringLiteral("invalid expression") : ev.error);
-    };
     auto checkExpr = [&](const QString &expr, const QString &id) {
         if (expr.isEmpty())
             return;
@@ -5204,7 +5191,6 @@ QJsonObject Session::validate(const QJsonObject &)
         }
     };
     for (const auto &b : doc_.body) {
-        checkHideIf(b.hideIf, b.id);
         for (const auto &r : b.runs) {
             checkRunExpr(r, b.id);
             if (!r.noteId.isEmpty() && !noteIds.contains(r.noteId) && !ids.contains(r.noteId))
