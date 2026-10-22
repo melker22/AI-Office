@@ -530,13 +530,14 @@ bool blockHiddenByExpr(const Document &doc, const Block &block, int page, int pa
 
 FieldContext fieldContextFor(const Document &doc, int page, int pages)
 {
+    // Same visible counts as the stat field and document_stats (one source: documentStatCount).
+    // hide_if itself is evaluated with baseContext totals, so this does not recurse.
     FieldContext ctx = baseContext(doc, page, pages);
-    int visibleParagraphs = 0;
-    for (const Block &b : doc.body) {
-        if (b.type == QLatin1String("paragraph") && !blockHiddenByExpr(doc, b, 1, 1))
-            ++visibleParagraphs;
-    }
-    ctx.paragraphs = visibleParagraphs;
+    ctx.words = documentStatCount(doc, QStringLiteral("words"), page, pages);
+    ctx.chars = documentStatCount(doc, QStringLiteral("chars"), page, pages);
+    ctx.paragraphs = documentStatCount(doc, QStringLiteral("paragraphs"), page, pages);
+    ctx.tables = documentStatCount(doc, QStringLiteral("tables"), page, pages);
+    ctx.images = documentStatCount(doc, QStringLiteral("images"), page, pages);
     return ctx;
 }
 

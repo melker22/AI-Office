@@ -1674,7 +1674,7 @@ QString runDisplayText(const Document &doc, const TextRun &r, int page, int page
              || r.field == QLatin1String("path"))
         t = doc.fileName.isEmpty() ? doc.title : doc.fileName;
     else if (r.field == QLatin1String("word_count"))
-        t = QString::number(doc.wordCount());
+        t = QString::number(visibleWordCount(doc));
     else if (r.field == QLatin1String("chapter")) {
         for (const auto &b : doc.body) {
             if (b.type == QLatin1String("heading") && b.level <= 1)
