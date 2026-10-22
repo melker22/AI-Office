@@ -22,12 +22,14 @@
 - Playbook `qa/wave22-hide-if-ingress.json` (ctest via the existing `qa/wave*.json` glob) plus fixtures `qa/wave22-hide-if-ingress-bad.aio.json` and `qa/wave22-hide-if-ingress-syntax.aio.json`. `qa/wave22-hide-if-page.json` now expects the bad fixture to fail on open.
 - `scripts/qa-all.sh --gui --formats`: **73/73** ctest passed (109.15 s).
 - `python3 scripts/pr-merge-gate.py 10` (no token): exit 1, no traceback. The published head still has the 8 inline comments because this branch was not pushed.
+- Import follow-up: `dropInvalidImportedHideIf` in `Session::loadFrom` after the ODT and DOCX parse, and after a `.doc`/`.ott` conversion to ODT, before the session document is replaced. `document_open` has no warnings channel, so the drop is silent. `qa/wave22-hide-if-import.json` (ctest via the `qa/wave*.json` glob).
+- `scripts/qa-all.sh --gui --formats` after that import change: **74/74** ctest passed (91.05 s).
 
-**Decisions:** Native JSON open of an invalid `hide_if` now fails, with the same message as `document_validate`. That is acceptable: the only in-repo file that used to open was the test fixture `qa/wave22-hide-if-page-bad.aio.json`; the file on disk is not rewritten; ODT and DOCX open do not use `validateBlock`, so a round-trip still opens (`w:vanish` comes back as `hide_if` `1`, which is valid).
+**Decisions:** Native JSON open of an invalid `hide_if` now fails, with the same message as `document_validate`. That is acceptable: the only in-repo file that used to open was the test fixture `qa/wave22-hide-if-page-bad.aio.json`; the file on disk is not rewritten; ODT and DOCX open do not use `validateBlock`, so a round-trip still opens (`w:vanish` comes back as `hide_if` `1`, which is valid). On ODT and DOCX import the same checker drops the expression instead of rejecting the file. `ooow:Page > 1` is the identifier `Page`, which `hideIfExprError` accepts, so it is kept and the block stays visible. `ooow:page > 1` and an unparseable condition are dropped. A valid `flag == "on"` and `w:vanish` (`hide_if` `1`) stay.
 
 **Next suggested step:** Push this branch when the user asks, so PR #10 updates. Then re-run the merge gate after CodeRabbit reviews the new head. Notion sync is still pending for the orchestrator.
 
-**Commits:** `f365d54` docs: state that hide_if is conditional hiding, not redaction · `58711ef` fix: count EPUB footnotes from parsed aside elements · `ee54b67` ci: paginate the merge gate and treat rate limits as pending · `2891efe` fix: accept .markdown and .htm as read-only export saves · `8dcb182` fix: reject invalid hide_if before any document change
+**Commits:** `f365d54` docs: state that hide_if is conditional hiding, not redaction · `58711ef` fix: count EPUB footnotes from parsed aside elements · `ee54b67` ci: paginate the merge gate and treat rate limits as pending · `2891efe` fix: accept .markdown and .htm as read-only export saves · `8dcb182` fix: reject invalid hide_if before any document change · `3cb034f` fix: drop invalid hide_if on ODT/DOCX import
 
 ---
 
