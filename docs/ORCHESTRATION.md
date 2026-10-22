@@ -92,11 +92,16 @@ Esqueleto para nós paralelos isolados:
 
 ## Gate de merge (obrigatório antes de todo merge)
 
-`scripts/pr-merge-gate.py <pr> [--since <push ISO8601>]` — exit 0 = limpo. Confere, no commit HEAD do
-PR: CI e CodeRabbit em `success`; nenhum comentário inline novo do CodeRabbit desde o push; e o
-**corpo** de toda revisão do CodeRabbit nesse commit — `Actionable comments posted`, **`Outside diff
-range comments`** e `Duplicate comments` têm de ser 0 (nitpicks só são relatados); e
-`mergeable_state == clean`. Depois, as threads não resolvidas são conferidas com a tool MCP do GitHub
+`scripts/pr-merge-gate.py <pr> [--since <push ISO8601>]` — exit 0 = limpo, exit 1 = algo a triar,
+exit 2 = pendente/desconhecido. Se `GITHUB_TOKEN` ou `GH_TOKEN` estiver no ambiente, o script envia
+`Authorization: Bearer`; sem token continua anônimo. Um HTTP 403/429 de rate limit imprime a mensagem
+e sai com 2, sem traceback. Confere, no commit HEAD do PR: CI e CodeRabbit em `success`; nenhum
+comentário inline novo do CodeRabbit desde o push (as listas de comments e de reviews são paginadas
+com `per_page=100&page=N` até uma página com menos de 100); e o **corpo** de toda revisão do
+CodeRabbit nesse commit — `Actionable comments posted`, **`Outside diff range comments`** e
+`Duplicate comments` têm de ser 0 (nitpicks só são relatados); e `mergeable_state == clean`.
+`mergeable` null, ou `mergeable_state` `unknown`, conta como pendente (exit 2), não como falha.
+Depois, as threads não resolvidas são conferidas com a tool MCP do GitHub
 (`pull_request_read get_review_comments`). Só então merge.
 
 Origem: no PR #9 o gate antigo contava só comentários inline e o merge saiu com 2 achados que o
