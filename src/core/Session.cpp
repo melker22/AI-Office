@@ -216,21 +216,20 @@ bool isWorkingDocumentPath(const QString &path)
     return ext == QLatin1String("odt") || ext == QLatin1String("docx");
 }
 
+// Single list of extensions saveTo writes that are not a working document.
+// isReadOnlyExportSavePath and the export branch of saveTo both use it.
+bool isExportSaveExtension(const QString &ext)
+{
+    return ext == QLatin1String("epub") || ext == QLatin1String("pdf") || ext == QLatin1String("rtf")
+        || ext == QLatin1String("md") || ext == QLatin1String("markdown") || ext == QLatin1String("txt")
+        || ext == QLatin1String("html") || ext == QLatin1String("htm") || ext == QLatin1String("doc");
+}
+
 bool isReadOnlyExportSavePath(const QString &path)
 {
     if (path.isEmpty() || isWorkingDocumentPath(path))
         return false;
-    const QString ext = QFileInfo(path).suffix().toLower();
-    static const QSet<QString> kExportExt{
-        QStringLiteral("epub"),
-        QStringLiteral("pdf"),
-        QStringLiteral("rtf"),
-        QStringLiteral("md"),
-        QStringLiteral("txt"),
-        QStringLiteral("html"),
-        QStringLiteral("doc"),
-    };
-    return kExportExt.contains(ext);
+    return isExportSaveExtension(QFileInfo(path).suffix().toLower());
 }
 
 } // namespace
@@ -264,6 +263,11 @@ bool Session::saveTo(const QString &path, QString *error, bool embedJson, QJsonO
             return false;
         rememberWorkingName();
         return true;
+    }
+    if (!isExportSaveExtension(ext)) {
+        if (error)
+            *error = QStringLiteral("Unknown extension: ") + ext;
+        return false;
     }
     if (ext == QLatin1String("doc")) {
         QTemporaryDir tmp;
@@ -319,6 +323,7 @@ bool Session::saveTo(const QString &path, QString *error, bool embedJson, QJsonO
         f.write(out.toUtf8());
         return true;
     }
+    // isExportSaveExtension said this extension is an export, but no branch wrote it.
     if (error)
         *error = QStringLiteral("Unknown extension: ") + ext;
     return false;
@@ -467,8 +472,8 @@ QJsonObject Session::saveDocument(const QJsonObject &args)
     QStringList warnings;
     if (!saveTo(path, &err, embedJson, &exported, &warnings))
         return fail(err);
-    // Exports (.epub, .pdf, .md, .txt, .html, .rtf, .doc) write the file and
-    // leave the editable document's path and dirty flag alone.
+    // Exports (.epub, .pdf, .md, .markdown, .txt, .html, .htm, .rtf, .doc) write
+    // the file and leave the editable document's path and dirty flag alone.
     if (isWorkingDocumentPath(path)) {
         path_ = path;
         dirty_ = false;
