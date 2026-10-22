@@ -1,0 +1,45 @@
+[
+  {"tool": "document_open", "args": {"path": "qa/fixtures/wave22-hide-if-import.odt"}, "expect": {"ok": true}},
+  {"tool": "document_get", "args": {}, "expect": {
+    "document.body.0.hide_if": "Page > 1",
+    "document.body.0.runs.0.text": "Pagina",
+    "document.body.1": {
+      "id": "p2",
+      "type": "paragraph",
+      "style": "Standard",
+      "runs": [{"text": "Minuscula", "bold": false, "italic": false, "underline": false}]
+    },
+    "document.body.2": {
+      "id": "p3",
+      "type": "paragraph",
+      "style": "Standard",
+      "runs": [{"text": "Ruim", "bold": false, "italic": false, "underline": false}]
+    },
+    "document.body.3.hide_if": "flag == \"on\"",
+    "document.body.3.runs.0.text": "Valido"
+  }},
+  {"tool": "page_preview", "args": {"page": 1}, "expect": {"ids": ["p1", "p2", "p3", "p4"]}},
+  {"tool": "document_validate", "args": {}, "expect": {"ok": true, "valid": true, "errors": []}},
+
+  {"tool": "document_open", "args": {"path": "qa/fixtures/wave22-hide-if-import.docx"}, "expect": {"ok": true}},
+  {"tool": "document_get", "args": {}, "expect": {
+    "document.body.0": {
+      "id": "p1",
+      "type": "paragraph",
+      "style": "Normal",
+      "runs": [{"text": "DocPage", "bold": false, "italic": false, "underline": false}]
+    },
+    "document.body.1": {
+      "id": "p2",
+      "type": "paragraph",
+      "style": "Normal",
+      "runs": [{"text": "DocBad", "bold": false, "italic": false, "underline": false}]
+    },
+    "document.body.2.hide_if": "flag == \"on\"",
+    "document.body.2.runs.0.text": "DocOk",
+    "document.body.3.hide_if": "1",
+    "document.body.3.runs.0.text": "Secret"
+  }},
+  {"tool": "page_preview", "args": {"page": 1}, "expect": {"ids": ["p1", "p2", "p3"]}},
+  {"tool": "document_validate", "args": {}, "expect": {"ok": true, "valid": true, "errors": []}}
+]

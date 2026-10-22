@@ -232,6 +232,17 @@ bool isReadOnlyExportSavePath(const QString &path)
     return isExportSaveExtension(QFileInfo(path).suffix().toLower());
 }
 
+// ODT and DOCX (and a .doc/.ott converted to ODT) may carry a hide_if that
+// native JSON would reject. Drop it, leave the block visible, and still open.
+// document_open has no warnings channel, so this stays silent.
+void dropInvalidImportedHideIf(Document &doc)
+{
+    for (Block &b : doc.body) {
+        if (!hideIfExprError(b.hideIf).isEmpty())
+            b.hideIf.clear();
+    }
+}
+
 } // namespace
 
 bool Session::saveTo(const QString &path, QString *error, bool embedJson, QJsonObject *exportInfo, QStringList *warnings)
@@ -374,15 +385,21 @@ bool Session::loadFrom(const QString &path, QString *error)
         return true;
     }
     if (ext == QLatin1String("odt")) {
-        if (!loadOdtFile(path, doc_, error))
+        Document loaded;
+        if (!loadOdtFile(path, loaded, error))
             return false;
-        doc_.fileName = QFileInfo(path).fileName();
+        dropInvalidImportedHideIf(loaded);
+        loaded.fileName = QFileInfo(path).fileName();
+        doc_ = loaded;
         return true;
     }
     if (ext == QLatin1String("docx")) {
-        if (!loadDocxFile(path, doc_, error))
+        Document loaded;
+        if (!loadDocxFile(path, loaded, error))
             return false;
-        doc_.fileName = QFileInfo(path).fileName();
+        dropInvalidImportedHideIf(loaded);
+        loaded.fileName = QFileInfo(path).fileName();
+        doc_ = loaded;
         return true;
     }
     if (ext == QLatin1String("epub")) {
@@ -401,7 +418,12 @@ bool Session::loadFrom(const QString &path, QString *error)
         const QString odt = tmp.filePath(QFileInfo(path).completeBaseName() + QStringLiteral(".odt"));
         if (!LokEngine::convertTo(path, odt, QStringLiteral("odt:writer8"), error))
             return false;
-        return loadOdtFile(odt, doc_, error);
+        Document loaded;
+        if (!loadOdtFile(odt, loaded, error))
+            return false;
+        dropInvalidImportedHideIf(loaded);
+        doc_ = loaded;
+        return true;
     }
     if (error)
         *error = QStringLiteral("Unknown extension: ") + ext + QStringLiteral(". Use odt, docx, doc, aio.json.");
