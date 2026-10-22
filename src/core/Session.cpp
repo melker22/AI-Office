@@ -577,7 +577,7 @@ QJsonObject Session::getDocument(const QJsonObject &)
     refreshIfFields(doc_, dirty_);
     auto r = ok();
     r[QStringLiteral("document")] = doc_.toJson();
-    r[QStringLiteral("words")] = doc_.wordCount();
+    r[QStringLiteral("words")] = visibleWordCount(doc_);
     r[QStringLiteral("libreoffice")] = LokEngine::available();
     if (!revisionView_.isEmpty())
         r[QStringLiteral("revision_view")] = revisionView_;
@@ -1463,7 +1463,7 @@ QJsonObject Session::integrateHelp(const QJsonObject &)
         QStringLiteral("Kimi")};
     r[QStringLiteral("libreoffice")] = LokEngine::available();
     r[QStringLiteral("title")] = doc_.title;
-    r[QStringLiteral("words")] = doc_.wordCount();
+    r[QStringLiteral("words")] = visibleWordCount(doc_);
     r[QStringLiteral("outline")] = getOutline({})[QStringLiteral("outline")];
     return r;
 }

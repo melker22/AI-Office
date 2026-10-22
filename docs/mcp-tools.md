@@ -115,7 +115,7 @@ Native `QPdfWriter` (no LibreOffice). Every export embeds document XMP (`dc:titl
 ### `document_get`
 
 Args: `{}`  
-Returns `{ "ok", "document": { ...full JSON... } }`.
+Returns `{ "ok", "document": { ...full JSON... }, "words" }`. `words` is the same visible count as `document_stats.words` (a block hidden by `hide_if` or `section_hidden` is omitted).
 
 ### `document_get_outline`
 
@@ -490,7 +490,7 @@ Alias of `import_markdown`. Args: `{ "markdown": string, "after_id"?: "end" }`.
 ### `integrate_help`
 
 Args: `{}`  
-Returns the human/AI integration blurb plus `title`, `words`, `outline`. No secrets.
+Returns the human/AI integration blurb plus `title`, `words`, `outline`. `words` is that same visible count. No secrets.
 
 ## MCP server
 

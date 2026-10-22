@@ -26,6 +26,7 @@
   {"tool": "apply_paragraph_format", "args": {"id": "iHide", "hide_if": "flag == \"on\""}},
   {"tool": "set_vars", "args": {"name": "flag", "value": "on"}},
   {"tool": "document_stats", "args": {}, "expect": {"paragraphs": 1, "tables": 0, "images": 0, "words": 3, "chars": 15}},
+  {"tool": "document_get", "args": {}, "expect": {"words": 3}},
   {"tool": "insert_field", "args": {"id": "p1", "offset": 15, "kind": "stat", "arg": "paragraphs"}},
   {"tool": "insert_field", "args": {"id": "p1", "offset": 16, "kind": "stat", "arg": "tables"}},
   {"tool": "insert_field", "args": {"id": "p1", "offset": 17, "kind": "stat", "arg": "images"}},

@@ -79,7 +79,7 @@ QString AppController::title() const
 
 int AppController::words() const
 {
-    return session_.documentRef().wordCount();
+    return visibleWordCount(session_.documentRef());
 }
 
 bool AppController::libreOffice() const

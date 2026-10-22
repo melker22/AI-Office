@@ -1517,20 +1517,24 @@ bool documentBlockVisibleForStat(const Document &doc, const Block &b, int page, 
     return !blockHiddenByExpr(doc, b, 1, 1);
 }
 
+int visibleWordCount(const Document &doc)
+{
+    int n = 0;
+    for (const auto &b : doc.body) {
+        if (!documentBlockVisibleForStat(doc, b, 1, 1))
+            continue;
+        const auto parts = b.plainText().split(QRegularExpression(QStringLiteral("\\s+")), Qt::SkipEmptyParts);
+        n += parts.size();
+    }
+    return n;
+}
+
 int documentStatCount(const Document &doc, const QString &kind, int page, int pages)
 {
     if (kind == QLatin1String("pages"))
         return qMax(1, pages);
-    if (kind == QLatin1String("words")) {
-        int n = 0;
-        for (const auto &b : doc.body) {
-            if (!documentBlockVisibleForStat(doc, b, page, pages))
-                continue;
-            const auto parts = b.plainText().split(QRegularExpression(QStringLiteral("\\s+")), Qt::SkipEmptyParts);
-            n += parts.size();
-        }
-        return n;
-    }
+    if (kind == QLatin1String("words"))
+        return visibleWordCount(doc);
     if (kind == QLatin1String("chars")) {
         int n = 0;
         for (const auto &b : doc.body) {
