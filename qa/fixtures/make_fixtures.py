@@ -237,8 +237,9 @@ def write_fields_odt(path: Path) -> None:
 
 
 # Wave 22: foreign hide_if that hideIfExprError rejects must be dropped on import.
-# ooow:Page (capital P) is the identifier Page, which the checker accepts.
-# ooow:page and an unparseable condition are dropped. A valid flag and w:vanish "1" stay.
+# ooow:Page (LibreOffice spelling) and ooow:page both depend on the page, so the checker
+# (case-insensitive) rejects them; an unparseable condition is dropped too. A valid flag and
+# w:vanish "1" stay.
 ODT_HIDE_IMPORT_XML = (
     '<?xml version="1.0" encoding="UTF-8"?>'
     '<office:document-content xmlns:office="urn:oasis:names:tc:opendocument:xmlns:office:1.0" '

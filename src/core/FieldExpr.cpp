@@ -447,8 +447,13 @@ bool hideIfExprUsesPageOrPages(const QString &expr)
 {
     if (expr.isEmpty())
         return false;
-    const QSet<QString> ids = fieldExprIdentifiers(expr);
-    return ids.contains(QLatin1String("page")) || ids.contains(QLatin1String("pages"));
+    // Case-insensitive: LibreOffice conditions spell the page variable "Page" (ooow:Page > 1).
+    for (const QString &id : fieldExprIdentifiers(expr)) {
+        if (id.compare(QLatin1String("page"), Qt::CaseInsensitive) == 0
+            || id.compare(QLatin1String("pages"), Qt::CaseInsensitive) == 0)
+            return true;
+    }
+    return false;
 }
 
 QString hideIfExprError(const QString &expr)
