@@ -298,7 +298,14 @@ def write_hide_import_docx(path: Path) -> None:
 <Default Extension="json" ContentType="application/json"/>
 <Override PartName="/word/document.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml"/>
 <Override PartName="/word/aioffice.json" ContentType="application/json"/>
+<Override PartName="/docProps/core.xml" ContentType="application/vnd.openxmlformats-package.core-properties+xml"/>
 </Types>
+"""
+    core = """<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<cp:coreProperties xmlns:cp="http://schemas.openxmlformats.org/package/2006/metadata/core-properties"
+ xmlns:dc="http://purl.org/dc/elements/1.1/">
+<dc:title>Wave22 hide_if import</dc:title>
+</cp:coreProperties>
 """
     buf = io.BytesIO()
     with zipfile.ZipFile(buf, "w", compression=zipfile.ZIP_DEFLATED) as z:
@@ -307,6 +314,7 @@ def write_hide_import_docx(path: Path) -> None:
         z.writestr("word/document.xml", document)
         z.writestr("word/_rels/document.xml.rels", DOC_RELS)
         z.writestr("word/aioffice.json", extra)
+        z.writestr("docProps/core.xml", core)
     path.write_bytes(buf.getvalue())
 
 
