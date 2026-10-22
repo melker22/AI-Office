@@ -275,7 +275,7 @@ def _main() -> int:
     def refetch():
         return get(f"{API}/pulls/{args.pr}")
 
-    return _print_result(evaluate(args.pr, pr, statuses, comments, reviews, commit_date, args.since, refetch))
+    return _print_result(*evaluate(args.pr, pr, statuses, comments, reviews, commit_date, args.since, refetch))
 
 
 def self_test() -> int:
@@ -370,6 +370,33 @@ def self_test() -> int:
     check("comment after --since by instant is reported", code == 1 and "inline comment" in text, text)
     code, text, _n = run(pr(), success, comments=[late], since="2026-10-21T22:30:00Z")
     check("comment before --since by instant is ignored", code == 0 and "inline comment" not in text, text)
+
+    # End to end through _main with a fake GitHub (the PR #10 TypeError was only in this path).
+    global get, get_all
+    real_get, real_get_all, real_argv = get, get_all, sys.argv
+
+    def fake_get(url: str):
+        if url.endswith("/status"):
+            return {"statuses": success}
+        if "/commits/" in url:
+            return {"commit": {"committer": {"date": "2026-10-21T20:00:00Z"}}}
+        return pr()
+
+    def fake_get_all(path: str):
+        return [quiet_review] if path.endswith("/reviews") else []
+
+    get, get_all, sys.argv = fake_get, fake_get_all, ["pr-merge-gate.py", "10"]
+    try:
+        import contextlib
+        import io
+        buf = io.StringIO()
+        with contextlib.redirect_stdout(buf):
+            code = _main()
+        check("_main end to end with a clean fake PR", code == 0 and "CLEAN" in buf.getvalue(), buf.getvalue())
+    except Exception as exc:  # noqa: BLE001 - a crash here is exactly what this case catches
+        check("_main end to end with a clean fake PR", False, repr(exc))
+    finally:
+        get, get_all, sys.argv = real_get, real_get_all, real_argv
 
     if failed:
         print(f"{failed} self-test(s) failed")

@@ -81,6 +81,11 @@ Formato: `L<n> — regra` · onde falhou (evidência) · ocorrências.
   (https://github.com/melker22/AI-Office/pull/7#discussion_r4331347189); PR #7
   `qa/check_wave19_pdf_tags.py` imprimia o resultado do veraPDF UA-1 e saía `ok`/0 mesmo não-conforme
   (https://github.com/melker22/AI-Office/pull/7#discussion_r4331347201). · 2
+- **L19 — Autoteste exercita o ponto de entrada real, não só as funções puras.** Um `--self-test` que
+  chama `evaluate()` com dados falsos passa mesmo com `main()` quebrado; inclua pelo menos um caso de
+  ponta a ponta pelo `main` com a rede/IO falsos. · PR #10: o refactor do `scripts/pr-merge-gate.py`
+  passou no autoteste e no QA 75/75, mas o caminho real lançava `TypeError` (tupla não desempacotada) e
+  só apareceu no primeiro uso de verdade. · 1
 
 ## Processo (Fleets)
 
