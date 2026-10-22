@@ -8,6 +8,29 @@
 
 ---
 
+## 2026-10-21 — Cursor Grok 4.7 — CodeRabbit PR #10 (8 findings)
+
+**Objective:** Fix the 8 CodeRabbit findings on PR #10 (`fix/coderabbit-outside-diff`). Minimal changes, no loosened tests, no push, and do not touch `.cockpit/fleets/audit-codebase.yaml`.
+
+**Done:**
+- #1 `docs/mcp-tools.md` hide_if: it is not redaction. A true expression is omitted from layout, preview, PDF, EPUB, and stats. ODT keeps the paragraph (heading and list item too) and writes `text:hidden-paragraph` (`text:is-hidden="true"` when true). An ODT image with bytes stays in `Pictures/` and is not marked hidden. DOCX keeps the paragraph and sets `w:vanish` when true; image bytes stay in `word/media/`. A DOCX table of contents is not vanished. The expression is stored in `word/aioffice.json` conditionals when JSON is embedded.
+- #2 `qa/check_epub.py`: each XHTML `{xhtml}aside` counts once when `{ops}type`, split on whitespace, contains the token `footnote`.
+- #3 `scripts/pr-merge-gate.py`: optional `Authorization: Bearer` from `GITHUB_TOKEN` or `GH_TOKEN`; HTTP 403/429 rate limit exits 2 with a message; comments and reviews are paged `per_page=100&page=N`; `mergeable` null or `mergeable_state` `unknown` is pending (exit 2). `docs/ORCHESTRATION.md` matches.
+- #4 Read-only `document_save` allows every export extension `saveTo` writes, including `.markdown` and `.htm`, from one list (`isExportSaveExtension`).
+- #5 `apply_paragraph_format` validates hide_if before `pushUndo` and before any block edit. A failure leaves the document, dirty flag, and undo stack unchanged.
+- #6 The same check is in `validateBlock`, so `insert_blocks`, `replace_range`, `document_include`, and native JSON open reject an invalid expression or one that references `page`/`pages`. Nothing is changed. `document_validate` still reports `invalid_expression`.
+- Playbook `qa/wave22-hide-if-ingress.json` (ctest via the existing `qa/wave*.json` glob) plus fixtures `qa/wave22-hide-if-ingress-bad.aio.json` and `qa/wave22-hide-if-ingress-syntax.aio.json`. `qa/wave22-hide-if-page.json` now expects the bad fixture to fail on open.
+- `scripts/qa-all.sh --gui --formats`: **73/73** ctest passed (109.15 s).
+- `python3 scripts/pr-merge-gate.py 10` (no token): exit 1, no traceback. The published head still has the 8 inline comments because this branch was not pushed.
+
+**Decisions:** Native JSON open of an invalid `hide_if` now fails, with the same message as `document_validate`. That is acceptable: the only in-repo file that used to open was the test fixture `qa/wave22-hide-if-page-bad.aio.json`; the file on disk is not rewritten; ODT and DOCX open do not use `validateBlock`, so a round-trip still opens (`w:vanish` comes back as `hide_if` `1`, which is valid).
+
+**Next suggested step:** Push this branch when the user asks, so PR #10 updates. Then re-run the merge gate after CodeRabbit reviews the new head. Notion sync is still pending for the orchestrator.
+
+**Commits:** `f365d54` docs: state that hide_if is conditional hiding, not redaction · `58711ef` fix: count EPUB footnotes from parsed aside elements · `ee54b67` ci: paginate the merge gate and treat rate limits as pending · `2891efe` fix: accept .markdown and .htm as read-only export saves · `8dcb182` fix: reject invalid hide_if before any document change
+
+---
+
 ## 2026-10-21 — Composer — hide_if evaluated once (page=1, pages=1)
 
 **Objective:** Closed architect decision on `fix/coderabbit-outside-diff`: `hide_if` uses `page=1`/`pages=1` everywhere; reject `page`/`pages` in hide expressions; align Docx, stats, and docs. No `src/app/`, no `.cockpit/`, no push.
@@ -425,40 +448,6 @@ b748399 feat: PDF export XMP metadata, PDF/A flatten warnings, and ua mode
 **Next suggested step:** Fleet **`notion-sync`** → human **`approve-pr`** → open PR to **`main`**.
 
 **Commits (branch vs `main`):** `f4e6cb1` fix: refresh stat fields after structural edits · `6845533` fix: renumber seq fields and drop hidden blocks from stat counts · `1d6c55d` merge: integrate wave18 DOCX and ODT field round-trip branches · `b1d50f4` docs: record the DOCX field commit hash in the handoff · `711f1ff` feat: round-trip DOCX IF, SEQ, stat, and document-info fields · `0c9fcd1` feat: round-trip wave 18 fields through ODT · `7778b7c` merge: integrate wave18 field kinds with field expressions · `2937c4a` docs: record the wave18 expression commit hash in the handoff · `7848309` feat: evaluate field expressions for conditional text · `486ddf3` feat: add wave18 field kinds, numbered captions, and seq xrefs · `f4c5323` docs: add wave 18 fields spec and Fleet; sync Notion from every Fleet
-
----
-
-## 2026-10-10 — Cursor Grok — Wave 18 t3: DOCX fields
-
-**Objective:** D5 + D7 for DOCX only. Export and import `if`, `seq`, `stat`, `doc_info`, and `hideIf`. Foreign fixture plus the foreign path of our own export (`embed_json: false`). Do not touch ODT or the field model.
-
-**Done:**
-- `src/core/Docx.cpp`: one comparison becomes a Word `IF`; a compound expression is the evaluated text, restored from `word/aioffice.json` `conditionals` when that part is present. `SEQ` with `ARABIC`/`ROMAN`/`ALPHABETIC`. `stat` pages/words/chars → `NUMPAGES`/`NUMWORDS`/`NUMCHARS`. `doc_info` → `DOCPROPERTY` Subject/Keywords, `CREATEDATE`, `SAVEDATE`, `REVNUM`. `hideIf` true at export writes `w:vanish` on the paragraph mark and each run.
-- Import matches `IF` and `SEQ` by the first instruction token, then the existing substring checks (`CREATEDATE`/`SAVEDATE` still before `DATE`). A vanished paragraph mark, or every run vanished, sets `hideIf` to `1`.
-- `qa/fixtures/make_fixtures.py` writes `wave18-docx-fields-foreign.docx` (no `word/aioffice.json`) with `IF`, `SEQ`, and `NUMPAGES`, plus `wave18-docx-fields-foreign.fields.json`. `qa/check_roundtrip.py` compares `field`, `field_arg`, and `hide_if`, and loads a `.fields.json` beside the fixture. Playbook `qa/wave18-docx-fields.json` saves with JSON and with `embed_json: false`.
-- `scripts/qa-all.sh --gui`: **36/36** ctests passed.
-
-**Decisions:** Wave 12 names stay: foreign `NUMPAGES` comes back as `page_count`, `NUMWORDS` as `word_count`. `NUMCHARS` is `stat`/`chars`. `stat` paragraphs/tables/images have no Word field, so the foreign path keeps the evaluated text. `document_get` re-evaluates `if` at page 1, so a condition that needs `doc.vars` changes its cached text after a foreign open. Qt stores JSON object keys alphabetically (`cond`, `else`, `then`; `format`, `name`).
-
-**Next suggested step:** Fleet integrate-2 merges this SHA with the ODT branch. LibreOffice round-trip of these fields is t4.
-
-**Commits:** `711f1ff` feat: round-trip DOCX IF, SEQ, stat, and document-info fields
-
-## 2026-10-10 — Cursor Grok — Wave 18 t4: ODT fields
-
-**Objective:** D6 and D7 for ODT only. Export and import conditional text, sequences, statistics, document info, sender, hidden paragraphs, and drop-downs. Foreign ODT fixture plus LibreOffice interop. Do not touch DOCX (`src/core/Docx.cpp` is the parallel task).
-
-**Done:**
-- `src/core/Odf.cpp` writes and reads `text:conditional-text`, `text:sequence` plus `text:sequence-decls`, the six count elements, `text:subject` / `keywords` / `creation-date` / `modification-date` / `editing-cycles`, `text:sender-firstname|email|company|phone-work`, `text:hidden-paragraph`, and `text:drop-down`. Content declares `xmlns:ooow`. Conditions use the LibreOffice formula words (`=`, `AND`, `OR`, `NOT`). User variables and meta subject, keywords, dates, and editing cycles travel with the package.
-- Playbook `qa/wave18-odt-fields.json` saves and reopens an ODT. Foreign fixture `qa/fixtures/wave18-odt-fields-foreign.odt`. `qa/check_roundtrip.py` compares `field`, `field_arg`, and `hide_if`.
-- `scripts/qa-interop.py` resaves that document with LibreOffice and also converts odt→docx and docx→odt.
-- `scripts/qa-all.sh --gui --interop`: 36/36 ctests passed; LibreOffice revision and field interop ok.
-
-**Decisions:** `stat` pages and words share `text:page-count` and `text:word-count` with the wave 12 fields, so a foreign reimport of those two comes back as `page_count` and `word_count`. The other four counts stay `stat`. Sender name is `text:sender-firstname` because ODF has no sender-name. LibreOffice 26.2 keeps the D6 elements on an ODT resave; the docx hop drops the condition operator (it writes `FORMULA`) and does not turn `text:hidden-paragraph` into `w:vanish`. Details in `docs/waves/wave18-fields.md`.
-
-**Next suggested step:** integrate-2 merges this with the DOCX field export. The interop docx→odt check compares surviving text, not a native IF, until that export lands.
-
-**Commits:** `0c9fcd1` feat: round-trip wave 18 fields through ODT
 
 ---
 

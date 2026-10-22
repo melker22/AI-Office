@@ -2,6 +2,42 @@
 
 Entradas antigas de `docs/AI_HANDOFF.md` (manter o arquivo vivo com ~20 itens).
 
+## 2026-10-10 — Cursor Grok — Wave 18 t3: DOCX fields
+
+**Objective:** D5 + D7 for DOCX only. Export and import `if`, `seq`, `stat`, `doc_info`, and `hideIf`. Foreign fixture plus the foreign path of our own export (`embed_json: false`). Do not touch ODT or the field model.
+
+**Done:**
+- `src/core/Docx.cpp`: one comparison becomes a Word `IF`; a compound expression is the evaluated text, restored from `word/aioffice.json` `conditionals` when that part is present. `SEQ` with `ARABIC`/`ROMAN`/`ALPHABETIC`. `stat` pages/words/chars → `NUMPAGES`/`NUMWORDS`/`NUMCHARS`. `doc_info` → `DOCPROPERTY` Subject/Keywords, `CREATEDATE`, `SAVEDATE`, `REVNUM`. `hideIf` true at export writes `w:vanish` on the paragraph mark and each run.
+- Import matches `IF` and `SEQ` by the first instruction token, then the existing substring checks (`CREATEDATE`/`SAVEDATE` still before `DATE`). A vanished paragraph mark, or every run vanished, sets `hideIf` to `1`.
+- `qa/fixtures/make_fixtures.py` writes `wave18-docx-fields-foreign.docx` (no `word/aioffice.json`) with `IF`, `SEQ`, and `NUMPAGES`, plus `wave18-docx-fields-foreign.fields.json`. `qa/check_roundtrip.py` compares `field`, `field_arg`, and `hide_if`, and loads a `.fields.json` beside the fixture. Playbook `qa/wave18-docx-fields.json` saves with JSON and with `embed_json: false`.
+- `scripts/qa-all.sh --gui`: **36/36** ctests passed.
+
+**Decisions:** Wave 12 names stay: foreign `NUMPAGES` comes back as `page_count`, `NUMWORDS` as `word_count`. `NUMCHARS` is `stat`/`chars`. `stat` paragraphs/tables/images have no Word field, so the foreign path keeps the evaluated text. `document_get` re-evaluates `if` at page 1, so a condition that needs `doc.vars` changes its cached text after a foreign open. Qt stores JSON object keys alphabetically (`cond`, `else`, `then`; `format`, `name`).
+
+**Next suggested step:** Fleet integrate-2 merges this SHA with the ODT branch. LibreOffice round-trip of these fields is t4.
+
+**Commits:** `711f1ff` feat: round-trip DOCX IF, SEQ, stat, and document-info fields
+
+---
+
+## 2026-10-10 — Cursor Grok — Wave 18 t4: ODT fields
+
+**Objective:** D6 and D7 for ODT only. Export and import conditional text, sequences, statistics, document info, sender, hidden paragraphs, and drop-downs. Foreign ODT fixture plus LibreOffice interop. Do not touch DOCX (`src/core/Docx.cpp` is the parallel task).
+
+**Done:**
+- `src/core/Odf.cpp` writes and reads `text:conditional-text`, `text:sequence` plus `text:sequence-decls`, the six count elements, `text:subject` / `keywords` / `creation-date` / `modification-date` / `editing-cycles`, `text:sender-firstname|email|company|phone-work`, `text:hidden-paragraph`, and `text:drop-down`. Content declares `xmlns:ooow`. Conditions use the LibreOffice formula words (`=`, `AND`, `OR`, `NOT`). User variables and meta subject, keywords, dates, and editing cycles travel with the package.
+- Playbook `qa/wave18-odt-fields.json` saves and reopens an ODT. Foreign fixture `qa/fixtures/wave18-odt-fields-foreign.odt`. `qa/check_roundtrip.py` compares `field`, `field_arg`, and `hide_if`.
+- `scripts/qa-interop.py` resaves that document with LibreOffice and also converts odt→docx and docx→odt.
+- `scripts/qa-all.sh --gui --interop`: 36/36 ctests passed; LibreOffice revision and field interop ok.
+
+**Decisions:** `stat` pages and words share `text:page-count` and `text:word-count` with the wave 12 fields, so a foreign reimport of those two comes back as `page_count` and `word_count`. The other four counts stay `stat`. Sender name is `text:sender-firstname` because ODF has no sender-name. LibreOffice 26.2 keeps the D6 elements on an ODT resave; the docx hop drops the condition operator (it writes `FORMULA`) and does not turn `text:hidden-paragraph` into `w:vanish`. Details in `docs/waves/wave18-fields.md`.
+
+**Next suggested step:** integrate-2 merges this with the DOCX field export. The interop docx→odt check compares surviving text, not a native IF, until that export lands.
+
+**Commits:** `0c9fcd1` feat: round-trip wave 18 fields through ODT
+
+---
+
 ## 2026-10-10 — Cursor Grok — Wave 18 t1: field expressions
 
 **Objective:** D1 + D3. Recursive-descent expression evaluator, `showIf` expressions, `Block.hideIf`, `if` field, `field_evaluate`, and `validate` `invalid_expression`. Do not touch `src/app/`. Leave the other `runDisplayText` field branches for the parallel field-kinds task.
