@@ -34,7 +34,7 @@
 
 **Next suggested step:** Push this branch when the user asks, so PR #10 updates. Then re-run the merge gate after CodeRabbit reviews the new head. Notion sync is still pending for the orchestrator.
 
-**Commits:** `f365d54` docs: state that hide_if is conditional hiding, not redaction · `58711ef` fix: count EPUB footnotes from parsed aside elements · `ee54b67` ci: paginate the merge gate and treat rate limits as pending · `2891efe` fix: accept .markdown and .htm as read-only export saves · `8dcb182` fix: reject invalid hide_if before any document change · `3cb034f` fix: drop invalid hide_if on ODT/DOCX import · `ab116ad` fix: treat Page/PAGES in hide_if as page-dependent · `ad1e088` fix: add the missing core.xml part to the hide_if docx fixture · `71d16d6` ci: compare merge-gate times as instants and reread before clean · `538aba5` fix: count visible words in one helper
+**Commits:** `f365d54` docs: state that hide_if is conditional hiding, not redaction · `58711ef` fix: count EPUB footnotes from parsed aside elements · `ee54b67` ci: paginate the merge gate and treat rate limits as pending · `2891efe` fix: accept .markdown and .htm as read-only export saves · `8dcb182` fix: reject invalid hide_if before any document change · `3cb034f` fix: drop invalid hide_if on ODT/DOCX import · `ab116ad` fix: treat Page/PAGES in hide_if as page-dependent · `ad1e088` fix: add the missing core.xml part to the hide_if docx fixture · `71d16d6` ci: compare merge-gate times as instants and reread before clean · `538aba5` fix: count visible words in one helper · `cbe3b8e` fix: use visible counts for word_count and expression stats
 
 ---
 
