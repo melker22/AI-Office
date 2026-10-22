@@ -100,7 +100,11 @@ comentário inline novo do CodeRabbit desde o push (as listas de comments e de r
 com `per_page=100&page=N` até uma página com menos de 100); e o **corpo** de toda revisão do
 CodeRabbit nesse commit — `Actionable comments posted`, **`Outside diff range comments`** e
 `Duplicate comments` têm de ser 0 (nitpicks só são relatados); e `mergeable_state == clean`.
-`mergeable` null, ou `mergeable_state` `unknown`, conta como pendente (exit 2), não como falha.
+`--since` e o `created_at` de cada comentário são instantes UTC (`Z` ou um offset como `+02:00`).
+Antes do exit 0 o script lê o PR de novo: se o head mudou, sai com 2, e a mergeabilidade usada é a
+dessa segunda leitura. `mergeable` null, ou `mergeable_state` `unknown`, conta como pendente (exit 2),
+não como falha. `unstable` ou `blocked` também é pendente enquanto algum status de commit ainda está
+pendente; com todos os statuses em `success`, os dois continuam sendo problema.
 Depois, as threads não resolvidas são conferidas com a tool MCP do GitHub
 (`pull_request_read get_review_comments`). Só então merge.
 

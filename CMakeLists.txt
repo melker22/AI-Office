@@ -210,6 +210,8 @@ add_test(NAME play_expect_shape COMMAND "${CMAKE_COMMAND}" -E env AIOFFICE_HEADL
 set_tests_properties(play_expect_shape PROPERTIES LABELS "playbook" WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}")
 add_test(NAME mcp_doc_export_prose COMMAND "${Python3_EXECUTABLE}" "${CMAKE_SOURCE_DIR}/qa/check_mcp_prose.py")
 set_tests_properties(mcp_doc_export_prose PROPERTIES LABELS "playbook" WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}")
+add_test(NAME pr_merge_gate_selftest COMMAND "${Python3_EXECUTABLE}" "${CMAKE_SOURCE_DIR}/scripts/pr-merge-gate.py" --self-test)
+set_tests_properties(pr_merge_gate_selftest PROPERTIES LABELS "playbook" WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}")
 file(GLOB _aio_fixtures CONFIGURE_DEPENDS "${CMAKE_SOURCE_DIR}/qa/fixtures/*-foreign.docx" "${CMAKE_SOURCE_DIR}/qa/fixtures/*-foreign.odt")
 foreach(_fx IN LISTS _aio_fixtures)
     get_filename_component(_fx_name "${_fx}" NAME)
