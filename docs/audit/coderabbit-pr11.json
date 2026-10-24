@@ -17,7 +17,7 @@
   "severity": "Minor",
   "path": "scripts/fleet-verify-merged.sh",
   "line": "24-25",
-  "title": "`24-25`: **🎯 Functional Correctness** | **<picture><img src=\"https://storage.googleapis.com/coderabbit_public_assets/review-comment-icons-v1/amber-16.svg\" width",
+  "title": "Read the `FLEET_NEEDS_*_OUTPUT` variables by name, not by parsing `env` line by line.",
   "url": "https://github.com/melker22/AI-Office/pull/11#pullrequestreview-5637523425",
   "created": "2026-10-24T08:28:36Z",
   "addressed": false,

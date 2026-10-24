@@ -88,7 +88,10 @@ def get(url: str):
         with urllib.request.urlopen(req, timeout=30) as resp:
             return json.load(resp)
     except urllib.error.HTTPError as exc:
-        body = exc.read().decode("utf-8", errors="replace")
+        try:
+            body = exc.read().decode("utf-8", errors="replace")
+        except (urllib.error.URLError, TimeoutError, ConnectionError, http.client.HTTPException) as read_exc:
+            raise NetworkUnavailable(f"HTTP {exc.code}, body unreadable: {read_exc!r}") from read_exc
         message = body
         try:
             parsed = json.loads(body)
@@ -179,7 +182,8 @@ _SECTION_KIND = {"Outside diff range comments": "outside-diff", "Duplicate comme
                  "Critical comments": "body-critical", "Major comments": "body-major",
                  "Minor comments": "body-minor", "Trivial comments": "body-trivial"}
 _BLOCKING_BODY_KINDS = ("outside-diff", "duplicate", "body-critical", "body-major", "body-minor")
-_ACK_RE = re.compile(r"^\s*cr-ack\s+([0-9a-f]{8,})\b[ \t]*(.*)$", re.M)
+# A bare `cr-ack <id>` does not count: the line must say which commit fixed it or why it is not a defect.
+_ACK_RE = re.compile(r"^\s*cr-ack\s+([0-9a-f]{8,})\b[ \t]+(\S.*)$", re.M)
 
 
 def body_findings(review: dict) -> list[dict]:
@@ -207,7 +211,7 @@ def body_findings(review: dict) -> list[dict]:
         else:  # grouped by file: <summary>path: N</summary> ... `lines`: **category** | ... **Title**
             files = re.findall(r"<summary>([^<:]+?):\s*\d+</summary>", body[:m.start()])
             ranges = re.findall(r"`(\d+(?:-\d+)?)`:", seg)
-            bolds = [b for b in re.findall(r"\*\*([^*\n]{8,240})\*\*", seg)
+            bolds = [b for b in re.findall(r"^\*\*(.{8,240}?)\*\*[ \t]*$", seg, re.M)
                      if not re.search(r"Critical|Major|Minor|Trivial|Quick win|Heavy lift|<picture>", b)]
             title = bolds[-1] if bolds else "?"
             loc = (files[-1].strip() if files else "?") + (":" + ranges[-1] if ranges else "")
@@ -500,10 +504,10 @@ def self_test() -> int:
     grouped = dict(new_fmt, body=("**Actionable comments posted: 1**\n<details>\n<summary><picture></picture> Minor comments: 1"
                                   "</summary><blockquote>\n<details>\n<summary>scripts/qa-all.sh: 1</summary><blockquote>\n"
                                   "`24-25`: **🎯 Functional Correctness** | **<picture></picture> Minor** | **⚡ Quick win**\n\n"
-                                  "**Read the variables by name.**\n\nbody\n<!-- cr-comment:v1:111111111111111111111111 -->\n"))
+                                  "**Read the `FLEET_NEEDS_*_OUTPUT` variables by name.**\n\nbody\n<!-- cr-comment:v1:111111111111111111111111 -->\n"))
     check("grouped 'Minor comments: N' body finding",
           [(f["id"][:6], f["kind"], f["title"], f["loc"]) for f in body_findings(grouped)]
-          == [("111111", "body-minor", "Read the variables by name.", "scripts/qa-all.sh:24-25")],
+          == [("111111", "body-minor", "Read the `FLEET_NEEDS_*_OUTPUT` variables by name.", "scripts/qa-all.sh:24-25")],
           str(body_findings(grouped)))
     check("new body format: one outside-diff finding", [f["id"] for f in body_findings(new_fmt)]
           == ["0123456789abcdef01234567"], str(body_findings(new_fmt)))
@@ -515,6 +519,9 @@ def self_test() -> int:
     human_ack = [{"user": {"login": "melker22", "type": "User"}, "body": "cr-ack 0123456789ab fixed in deadbeef"}]
     res = evaluate(10, pr(), success, [], [new_fmt, quiet_review], "2026-10-21T20:00:00Z", None, lambda: pr(), human_ack)
     check("acked outside-diff passes", res[0] == 0, "\n".join(res[1]))
+    bare_ack = [{"user": {"login": "melker22", "type": "User"}, "body": "cr-ack 0123456789ab"}]
+    res = evaluate(10, pr(), success, [], [new_fmt, quiet_review], "2026-10-21T20:00:00Z", None, lambda: pr(), bare_ack)
+    check("a bare cr-ack without commit or reason does not count", res[0] == 1, "\n".join(res[1]))
     bot_ack = [{"user": {"login": "coderabbitai[bot]", "type": "Bot"}, "body": "cr-ack 0123456789ab"}]
     res = evaluate(10, pr(), success, [], [new_fmt, quiet_review], "2026-10-21T20:00:00Z", None, lambda: pr(), bot_ack)
     check("a bot cannot acknowledge", res[0] == 1, "\n".join(res[1]))

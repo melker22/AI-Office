@@ -45,14 +45,14 @@ real page count at all, regardless of ordering, because the `pagesArg` ternary o
 | A-docx-3 | `src/core/Docx.cpp:1349` | `saveDocx` discards `QFile::write`'s return value and always returns `true` | `qa/audit/A-docx-3-odf-9-rtf-3-write-failure-ignored.json` (executed via `/dev/full` symlink) |
 | A-odf-9 | `src/core/Odf.cpp:967` | `saveOdt` has the identical discarded-write-result bug | same playbook as A-docx-3 (executed) |
 | A-epub-1 | `src/core/Epub.cpp:567` | EPUB image read has no cap when `QFile::size()` reports 0 (device/FIFO); `readAll()` can hang/OOM forever | code read only — `/dev/zero`-style repro deliberately not run (hang risk) |
-| A-mcp-1 | `src/cli/Cli.cpp:146` | `dispatch()` treats an IPC transport failure as license to run the tool on a brand-new blank headless `Session` instead of surfacing the error | code read (`dispatch`'s `err.isEmpty() || r.ok` short-circuit) |
+| A-mcp-1 | `src/cli/Cli.cpp:146` | `dispatch()` treats an IPC transport failure as license to run the tool on a brand-new blank headless `Session` instead of surfacing the error | code read (`dispatch`'s `err.isEmpty() \|\| r.ok` short-circuit) |
 | A-mcp-2 | `src/mcp/McpServer.cpp:185` | `tools/call` falls back to the private headless `Session` on any IPC timeout, silently editing/reading the wrong (blank) document | code read; `AIOFFICE_HEADLESS` has zero occurrences in `McpServer.cpp` |
 | A-mcp-3 | `src/lok/LokEngine.cpp:98` | `convertTo` writes LibreOffice's output into `--outdir` named by the **input**'s basename, clobbering any same-named sibling file before the final rename | code read (soffice naming + unconditional overwrite) |
 | A-app-1 | `src/app/qml/TitleBar.qml:90` / `Main.qml` | No `onClosing` guard anywhere in QML; closing the window discards dirty documents with no prompt | code read (`onClosing` has zero occurrences in `src/app/qml`) |
 
-### Major (~82) and Minor (~6)
+### Major (81) and Minor (7)
 
-All remaining 89 findings (every module below except the one REJECTED item) are **CONFIRMED**
+All remaining 88 findings (every module below except the one REJECTED item) are **CONFIRMED**
 at **major** or **minor** severity as originally graded by the audit — no severity adjustments
 were needed. They are listed with full evidence in the per-module tables below; the ones with an
 executable repro are: A-session-2, A-session-3, A-session-6, A-session-7 (`qa/audit/A-session-*.json`)

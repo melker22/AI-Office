@@ -95,8 +95,9 @@ Esqueleto para nós paralelos isolados:
 `scripts/pr-merge-gate.py <pr> [--since <push ISO8601>]` — exit 0 = limpo, 1 = triar, 2 = pendente
 (status em andamento, mesclabilidade não calculada, limite da API ou rede fora). Confere: CI e CodeRabbit em
 `success` no HEAD; nenhum comentário inline novo do CodeRabbit desde o push; `Actionable comments posted: 0`
-nas revisões do HEAD; `mergeable_state == clean` (relido antes do CLEAN). E **todo** achado "Outside diff
-range" ou "Duplicate" do corpo de **qualquer** revisão do PR — de qualquer commit, não só do HEAD — precisa de
+nas revisões do HEAD; `mergeable_state == clean` (relido antes do CLEAN). E **todo** achado bloqueante do corpo —
+"Outside diff range", "Duplicate", "Critical", "Major" ou "Minor" (Nitpick, Trivial e Additional não
+bloqueiam) — do corpo de **qualquer** revisão do PR — de qualquer commit, não só do HEAD — precisa de
 um comentário humano no PR com `cr-ack <id> <commit da correção ou motivo>` (o gate imprime o id). Depois,
 as threads não resolvidas são conferidas com a tool MCP do GitHub (`pull_request_read get_review_comments`).
 Só então merge. Token opcional: `GITHUB_TOKEN`/`GH_TOKEN`.
@@ -104,7 +105,8 @@ Só então merge. Token opcional: `GITHUB_TOKEN`/`GH_TOKEN`.
 Origem: no PR #9 o gate antigo contava só comentários inline e o merge saiu com 2 achados do corpo da
 revisão ("Outside diff range" — o GitHub não deixa postá-los inline). No PR #10 o gate já lia o corpo, mas
 só das revisões do HEAD: um push logo depois de uma revisão escondeu 2 achados, porque a revisão
-incremental do commit novo não os repete. Desde então todo achado de corpo exige `cr-ack`.
+incremental do commit novo não os repete. Desde então todo achado de corpo bloqueante (Outside diff range,
+Duplicate, Critical, Major, Minor) exige `cr-ack` com commit ou motivo — um `cr-ack <id>` sem texto não vale.
 
 ## Notion sempre sincronizado (regra do utilizador)
 

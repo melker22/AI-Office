@@ -20,8 +20,7 @@ SEV=r'(Critical|Major|Minor|Trivial|Nitpick)'
 def sev(b):
     m=re.search(SEV,b); return m.group(1) if m else "?"
 def title(b):
-    m=re.search(r'\*\*([^*\n]{8,240})\*\*\s*\n', b)  # first bold sentence that is not the category table
-    for m in re.finditer(r'\*\*([^*\n]{8,240})\*\*', b):
+    for m in re.finditer(r'^\*\*(.{8,240}?)\*\*[ \t]*$', b, re.M):
         t=m.group(1)
         if not re.search(SEV+r'|Quick win|Heavy lift|Data Integrity|Correctness|Performance|Security|Maintainab', t): return t
     return b.strip().splitlines()[0][:160] if b.strip() else "?"
@@ -43,8 +42,8 @@ for n in [int(x) for x in sys.argv[1:]]:
         stop=body.find('Prompt for all review comments'); stop = stop if stop>0 else len(body)
         prev=0
         for m in re.finditer(r'<!--\s*cr-comment:v1:[0-9a-f]+\s*-->', body):
-            seg=body[prev:m.start()]; pos=prev; prev=m.end()
-            if pos>stop: break
+            seg=body[prev:m.start()]; prev=m.end()
+            if m.start()>stop: break
             kinds=[k for p,k in heads if p<=m.start()]
             if not kinds or kinds[-1]=='additional': continue
             kind=kinds[-1]
