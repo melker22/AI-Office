@@ -1,0 +1,11 @@
+[
+  {"tool": "document_new", "args": {"force": true}},
+  {"tool": "insert_at_caret", "args": {"text": "v1"}},
+  {"tool": "document_save", "args": {"path": "/tmp/audit-repro/batch.aio.json"}},
+  {"tool": "batch", "args": {"calls": [
+    {"tool": "insert_at_caret", "args": {"text": "Y"}},
+    {"tool": "document_save", "args": {}},
+    {"tool": "insert_blocks", "args": {"blocks": [{"type": "paragraph", "hide_if": "page == 1", "runs": [{"text": "x"}]}], "after_id": "nonexistent-id-should-fail"}}
+  ]}, "expect": {"ok": false}},
+  {"tool": "document_get", "args": {}}
+]

@@ -1,0 +1,10 @@
+[
+  {"tool": "document_new", "args": {"force": true}},
+  {"tool": "track_changes", "args": {"on": true}},
+  {"tool": "insert_at_caret", "args": {"text": "A"}},
+  {"tool": "insert_at_caret", "args": {"text": "B"}},
+  {"tool": "revision_list", "args": {}},
+  {"tool": "revision_accept", "args": {"id": "rev1"}},
+  {"tool": "insert_at_caret", "args": {"text": "C"}},
+  {"tool": "revision_list", "args": {}}
+]
