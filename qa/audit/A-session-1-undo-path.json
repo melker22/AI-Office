@@ -1,0 +1,13 @@
+[
+  {"tool": "document_new", "args": {"force": true}},
+  {"tool": "insert_at_caret", "args": {"text": "AAA"}},
+  {"tool": "document_save", "args": {"path": "/tmp/audit-repro/a.aio.json"}},
+  {"tool": "document_new", "args": {"force": true}},
+  {"tool": "insert_at_caret", "args": {"text": "BBB"}},
+  {"tool": "document_save", "args": {"path": "/tmp/audit-repro/b.aio.json"}},
+  {"tool": "document_open", "args": {"path": "/tmp/audit-repro/a.aio.json"}},
+  {"tool": "document_open", "args": {"path": "/tmp/audit-repro/b.aio.json"}},
+  {"tool": "undo", "args": {}},
+  {"tool": "document_get", "args": {}},
+  {"tool": "document_save", "args": {}}
+]

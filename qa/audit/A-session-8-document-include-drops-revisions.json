@@ -1,0 +1,5 @@
+[
+  {"tool": "document_new", "args": {"force": true}},
+  {"tool": "document_include", "args": {"path": "/tmp/audit-repro/include-source.aio.json"}},
+  {"tool": "document_get", "args": {}}
+]

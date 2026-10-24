@@ -1,0 +1,7 @@
+[
+  {"tool": "document_new", "args": {"force": true}},
+  {"tool": "insert_at_caret", "args": {"text": "hello"}},
+  {"tool": "document_save", "args": {"path": "/tmp/audit-repro/fail.docx"}},
+  {"tool": "document_save", "args": {"path": "/tmp/audit-repro/fail.odt"}},
+  {"tool": "document_save", "args": {"path": "/tmp/audit-repro/fail.rtf"}}
+]
