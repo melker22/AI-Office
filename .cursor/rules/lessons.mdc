@@ -11,7 +11,7 @@ Detalhes e evidências: [`docs/LESSONS.md`](../../docs/LESSONS.md). Revisor: ver
 1. Em Fleet: todo nó que comita — inclusive opcional/auditoria — entra em `needs` do gate seguinte e tem `output_contract`/`success_output`.
 2. Entrada externa (arquivo importado, arg MCP, expressão) tem limite, tipo validado e erro tratado — sem crash, sem aceitar em silêncio. Atalho numérico/estrutural só se aplica ao `type` certo.
 3. Schema MCP, `docs/mcp-tools.md` e código concordam em tipos e args — e também em prosa: nenhuma frase ou "decisão fechada" descreve um comportamento já substituído.
-4. Revisor procura primeiro os defeitos deste checklist; só depois comenta estilo.
+4. Revisor procura primeiro os defeitos deste checklist; só depois comenta estilo. Merge só com `scripts/pr-merge-gate.py` limpo, e todo achado do CORPO da revisão (outside-diff/duplicado, de qualquer commit) corrigido e reconhecido com `cr-ack` (L18).
 5. Export/import mapeia por identidade (tipo de bloco + texto + número de ocorrência), nunca só por posição ou só por fingerprint de texto.
 6. Valor derivado (stat/seq/xref/contagens) recalculado num ponto único, não por gatilho de ferramenta.
 7. Construção nativa DOCX/ODT só com semântica idêntica no Word/LibreOffice; senão, resultado avaliado.

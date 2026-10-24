@@ -19,8 +19,10 @@ Checks, all against the PR's current head commit:
   2. Inline CodeRabbit comments created since --since (default: head commit date): must be 0.
      --since and each created_at are instants in UTC (a trailing Z or an offset such as +02:00).
      Comment and review lists are paged with per_page=100&page=N until a page returns fewer than 100.
-  3. Every CodeRabbit *review* on the head commit: "Actionable comments posted: N", "Outside diff range
-     comments (N)" and "Duplicate comments (N)" must all be 0. Nitpicks are reported, not blocking.
+  3. Every CodeRabbit *review* on the head commit: "Actionable comments posted: N" must be 0. Every
+     "Outside diff range" and "Duplicate" finding in the body of ANY CodeRabbit review of the PR (any
+     commit: an incremental review of a later push does not repeat them) needs a human PR comment line
+     `cr-ack <id> <fix commit or reason>`; the gate prints each unacknowledged id. Nitpicks are not blocking.
   4. mergeable_state == "clean". mergeable null, or mergeable_state "unknown", is pending (exit 2),
      not a failure. While a commit status is still pending, "unstable" or "blocked" is also pending.
      Once every status is success, those two states are problems again.
@@ -34,6 +36,9 @@ Unresolved review threads need GraphQL (auth); the orchestrator checks them with
 from __future__ import annotations
 
 import argparse
+import contextlib
+import io
+import http.client
 import json
 import os
 import re
@@ -43,6 +48,10 @@ import urllib.request
 from datetime import datetime, timezone
 
 API = "https://api.github.com/repos/melker22/AI-Office"
+
+
+class NetworkUnavailable(Exception):
+    """GitHub could not be reached (timeout, DNS, TLS, reset) or answered 5xx: the gate is pending."""
 
 
 class RateLimited(Exception):
@@ -89,7 +98,12 @@ def get(url: str):
             pass
         if _is_rate_limit(exc.code, exc.headers, message):
             raise RateLimited(f"HTTP {exc.code}: {message}") from exc
+        if exc.code >= 500:
+            raise NetworkUnavailable(f"HTTP {exc.code}: {message}") from exc
         raise
+    except (urllib.error.URLError, TimeoutError, ConnectionError, http.client.HTTPException) as exc:
+        # HTTPError (a URLError subclass) is handled above; this is the transport failing.
+        raise NetworkUnavailable(repr(exc)) from exc
 
 
 def get_all(path: str) -> list:
@@ -156,8 +170,54 @@ def classify_mergeability(pr: dict, status_pending: bool) -> tuple[list[str], bo
     return problems, pending, lines
 
 
+_SECTION_RE = re.compile(
+    r"(Outside diff range comments|Duplicate comments|Nitpick comments|Additional comments)\s*(?:\(\d+\)|:\s*\d+)")
+_SECTION_KIND = {"Outside diff range comments": "outside-diff", "Duplicate comments": "duplicate",
+                 "Nitpick comments": "nitpick", "Additional comments": "additional"}
+_ACK_RE = re.compile(r"^\s*cr-ack\s+([0-9a-f]{8,})\b[ \t]*(.*)$", re.M)
+
+
+def body_findings(review: dict) -> list[dict]:
+    """Outside-diff and duplicate findings in one CodeRabbit review body (old <em> and new <strong>
+    formats). Each ends with a <!-- cr-comment:v1:HEX --> marker, which is its id."""
+    body = review.get("body") or ""
+    for _ in range(3):  # nested "> " quote prefixes
+        body = re.sub(r"\n[ \t]*>[ \t]?", "\n", body)
+    stop = body.find("Prompt for all review comments")
+    if stop < 0:
+        stop = len(body)
+    heads = [(m.start(), _SECTION_KIND[m.group(1)]) for m in _SECTION_RE.finditer(body)]
+    out: list[dict] = []
+    prev = 0
+    for m in re.finditer(r"<!--\s*cr-comment:v1:([0-9a-f]+)\s*-->", body):
+        seg, prev = body[prev:m.start()], m.end()
+        if m.start() > stop:
+            break
+        kinds = [k for pos, k in heads if pos <= m.start()]
+        if not kinds or kinds[-1] not in ("outside-diff", "duplicate"):
+            continue
+        t = re.findall(r"<(?:strong|em)>[^<]*</(?:strong|em)>\s*·\s*(.+?)\s*·\s*<code>([^<]+)</code>", seg)
+        title, loc = (re.sub(r"<[^>]+>", "", t[-1][0]).strip(), t[-1][1]) if t else ("?", "?")
+        out.append({"id": m.group(1), "kind": kinds[-1], "title": title, "loc": loc,
+                    "commit": (review.get("commit_id") or "")[:7], "url": review.get("html_url", "")})
+    return out
+
+
+def acknowledgements(issue_comments: list) -> dict[str, str]:
+    """`cr-ack <id> <commit or reason>` lines in PR conversation comments written by a human."""
+    acks: dict[str, str] = {}
+    for c in issue_comments or []:
+        user = c.get("user") or {}
+        if user.get("type") == "Bot" or user.get("login", "").startswith("coderabbit"):
+            continue
+        for m in _ACK_RE.finditer(c.get("body") or ""):
+            acks[m.group(1)] = m.group(2).strip()
+    return acks
+
+
 def evaluate(pr_number: int, pr: dict, statuses: list, comments: list, reviews: list,
-             commit_date: str, since: str | None, refetch) -> tuple[int, list[str]]:
+             commit_date: str, since: str | None, refetch,
+             issue_comments: list | None = None) -> tuple[int, list[str]]:
     """Decide the gate from already loaded API payloads. refetch() reads the PR again."""
     head = pr["head"]["sha"]
     problems: list[str] = []
@@ -209,12 +269,22 @@ def evaluate(pr_number: int, pr: dict, statuses: list, comments: list, reviews: 
         )
         if actionable:
             problems.append(f"review {r['html_url']}: {actionable} actionable comment(s)")
-        if outside:
-            titles = re.findall(r"<strong>[^<]*</strong>\s*·\s*([^·]+?)\s*·\s*<code>([^<]+)</code>", body)
-            detail = "; ".join(f"{t.strip()} ({loc})" for t, loc in titles) or "see review body"
-            problems.append(f"review {r['html_url']}: {outside} OUTSIDE-DIFF comment(s): {detail}")
-        if duplicate:
-            problems.append(f"review {r['html_url']}: {duplicate} duplicate comment(s) (re-raised, still open)")
+        # outside-diff / duplicate: each must be acknowledged (below), on this or any earlier commit.
+
+    # Outside-diff and duplicate findings live only in review bodies, and CodeRabbit does not repeat
+    # them in the incremental review of a later push. Every one, from a review on ANY commit of the
+    # PR, needs a human `cr-ack <id> <commit or reason>` comment (PR #10 merged with two unread).
+    acks = acknowledgements(issue_comments)
+    for r in reviews:
+        if not r["user"]["login"].startswith("coderabbit"):
+            continue
+        for f in body_findings(r):
+            if any(f["id"].startswith(a) for a in acks):
+                continue
+            problems.append(
+                f"UNACKED {f['kind']} {f['id'][:12]} \"{f['title']}\" ({f['loc']}) from the review of "
+                f"{f['commit']}: fix it, then comment `cr-ack {f['id'][:12]} <commit or reason>` {f['url']}"
+            )
 
     merge_problems, merge_pending, merge_lines = classify_mergeability(pr, status_pending)
     problems.extend(merge_problems)
@@ -270,12 +340,13 @@ def _main() -> int:
     statuses = get(f"{API}/commits/{head}/status").get("statuses", [])
     comments = get_all(f"/pulls/{args.pr}/comments")
     reviews = get_all(f"/pulls/{args.pr}/reviews")
+    issue_comments = get_all(f"/issues/{args.pr}/comments")
     commit_date = get(f"{API}/commits/{head}")["commit"]["committer"]["date"]
 
     def refetch():
         return get(f"{API}/pulls/{args.pr}")
 
-    return _print_result(*evaluate(args.pr, pr, statuses, comments, reviews, commit_date, args.since, refetch))
+    return _print_result(*evaluate(args.pr, pr, statuses, comments, reviews, commit_date, args.since, refetch, issue_comments))
 
 
 def self_test() -> int:
@@ -387,8 +458,6 @@ def self_test() -> int:
 
     get, get_all, sys.argv = fake_get, fake_get_all, ["pr-merge-gate.py", "10"]
     try:
-        import contextlib
-        import io
         buf = io.StringIO()
         with contextlib.redirect_stdout(buf):
             code = _main()
@@ -397,6 +466,54 @@ def self_test() -> int:
         check("_main end to end with a clean fake PR", False, repr(exc))
     finally:
         get, get_all, sys.argv = real_get, real_get_all, real_argv
+
+    # Body findings from a review on an EARLIER commit (the PR #10 hole), both body formats.
+    old_sha = "c" * 40
+    new_fmt = {
+        "user": {"login": "coderabbitai"}, "commit_id": old_sha, "submitted_at": "2026-10-21T22:00:00Z",
+        "html_url": "https://example/old-review",
+        "body": ("**Actionable comments posted: 0**\n> [!CAUTION]\n> **⚠️ Outside diff range comments (1)**\n> \n"
+                 "> <details>\n> <summary><strong>🟠 Major</strong> · Keep exports read-only. · "
+                 "<code>Session.cpp:10-12</code></summary><blockquote>\n> body\n> "
+                 "<!-- cr-comment:v1:0123456789abcdef01234567 -->\n> </blockquote></details>\n"
+                 "<details><summary>🤖 Prompt for all review comments with AI agents</summary>\n"
+                 "<!-- cr-comment:v1:ffffffffffffffffffffffff --></details>"),
+    }
+    old_fmt = dict(new_fmt, body=("Outside diff range comments (1)**\n> \n> <details>\n> <summary><em>🟠 Major</em>"
+                                  " · Preserve fieldArg. · <code>src/core/Odf.cpp:70-72</code></summary>"
+                                  "<blockquote>\n> x\n> <!-- cr-comment:v1:abcdefabcdefabcdefabcdef -->\n"
+                                  "> </blockquote></details>\n🔇 Additional comments (2)\n"
+                                  "<!-- cr-comment:v1:999999999999999999999999 -->"))
+    check("new body format: one outside-diff finding", [f["id"] for f in body_findings(new_fmt)]
+          == ["0123456789abcdef01234567"], str(body_findings(new_fmt)))
+    check("old body format: one outside-diff finding, additional ignored",
+          [(f["id"], f["title"]) for f in body_findings(old_fmt)] == [("abcdefabcdefabcdefabcdef", "Preserve fieldArg.")],
+          str(body_findings(old_fmt)))
+    code, text, _n = run(pr(), success, reviews=[new_fmt, quiet_review])
+    check("unacked outside-diff from an earlier commit blocks", code == 1 and "UNACKED outside-diff 0123456789ab" in text, text)
+    human_ack = [{"user": {"login": "melker22", "type": "User"}, "body": "cr-ack 0123456789ab fixed in deadbeef"}]
+    res = evaluate(10, pr(), success, [], [new_fmt, quiet_review], "2026-10-21T20:00:00Z", None, lambda: pr(), human_ack)
+    check("acked outside-diff passes", res[0] == 0, "\n".join(res[1]))
+    bot_ack = [{"user": {"login": "coderabbitai[bot]", "type": "Bot"}, "body": "cr-ack 0123456789ab"}]
+    res = evaluate(10, pr(), success, [], [new_fmt, quiet_review], "2026-10-21T20:00:00Z", None, lambda: pr(), bot_ack)
+    check("a bot cannot acknowledge", res[0] == 1, "\n".join(res[1]))
+
+    # A network failure is pending (exit 2), never a traceback that reads as "something to triage".
+    real_urlopen, real_argv = urllib.request.urlopen, sys.argv
+
+    def timeout_urlopen(*_a, **_k):
+        raise TimeoutError("The read operation timed out")
+
+    urllib.request.urlopen, sys.argv = timeout_urlopen, ["pr-merge-gate.py", "10"]
+    try:
+        buf = io.StringIO()
+        with contextlib.redirect_stdout(buf):
+            code = main()
+        check("network timeout is pending", code == 2 and "unreachable" in buf.getvalue(), buf.getvalue())
+    except Exception as exc:  # noqa: BLE001
+        check("network timeout is pending", False, repr(exc))
+    finally:
+        urllib.request.urlopen, sys.argv = real_urlopen, real_argv
 
     if failed:
         print(f"{failed} self-test(s) failed")
@@ -411,6 +528,9 @@ def main() -> int:
     except RateLimited as exc:
         print(f"PENDING GitHub API rate limit ({exc.detail}).")
         print("Set GITHUB_TOKEN or GH_TOKEN and re-run. Without a token the call stays anonymous.")
+        return 2
+    except NetworkUnavailable as exc:
+        print(f"PENDING GitHub API unreachable ({exc}). Re-run when the network is back.")
         return 2
 
 
