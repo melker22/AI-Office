@@ -10,7 +10,9 @@ O total é de cerca de 125 defeitos únicos. Cada onda é uma Fleet própria e s
 
 Os executores desta rodada são **Grok Build 4.7** (principal) e **Composer 2.5** (tarefas mecânicas), porque a cota mensal da Cursor está em 73%. O **Sonnet** revisa.
 
-Todo defeito corrigido ganha um teste que falha antes da correção (L9, L19). Os playbooks de `qa/audit/` passam a entrar no ctest à medida que os defeitos são fechados.
+Todo defeito corrigido ganha um teste que falha antes da correção (L9, L19).
+
+Atenção: os 8 playbooks de `qa/audit/` só observam o comportamento; `scripts/check-audit-playbooks.sh` mostra que eles passam hoje. A onda que corrige cada defeito reescreve o playbook com `expect` do comportamento certo. O playbook deve falhar antes da correção e passar depois. Os playbooks de `qa/audit/` passam a entrar no ctest à medida que os defeitos são fechados.
 
 ## Onda 23 — Integridade, entrada hostil e transporte (todos os critical do core/MCP)
 

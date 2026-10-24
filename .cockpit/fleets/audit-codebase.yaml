@@ -150,8 +150,7 @@ nodes:
     # proves nothing. CodeRabbit on PR #12.
     run: >-
       scripts/fleet-verify-merged.sh 2 && test -s docs/audit/coderabbit-history.md && test -s docs/audit/module-sweep.md
-      && export AIOFFICE_HEADLESS=1 QT_QPA_PLATFORM=offscreen
-      && for f in qa/audit/*.json; do if ./build/linux/aioffice-cli play "$f" >/dev/null 2>&1; then echo "audit playbook passes today: $f"; exit 1; fi; done
+      && scripts/check-audit-playbooks.sh
 
   notion-sync:
     title: Sincronizar Notion (Sonnet)
