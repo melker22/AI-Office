@@ -3,8 +3,7 @@
   {"tool": "track_changes", "args": {"on": true}},
   {"tool": "insert_at_caret", "args": {"text": "A"}},
   {"tool": "insert_at_caret", "args": {"text": "B"}},
-  {"tool": "revision_list", "args": {}},
-  {"tool": "revision_accept", "args": {"id": "rev1"}},
+  {"tool": "revision_accept", "args": {"id": "rev1"}, "expect": {"ok": true}},
   {"tool": "insert_at_caret", "args": {"text": "C"}},
-  {"tool": "revision_list", "args": {}}
+  {"tool": "revision_list", "args": {}, "expect": {"revisions.0.id": "rev2", "revisions.0.text": "B", "revisions.1.id": "rev3", "revisions.1.text": "C"}}
 ]

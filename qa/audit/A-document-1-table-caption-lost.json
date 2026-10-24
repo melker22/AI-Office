@@ -1,11 +1,10 @@
 [
   {"tool": "document_new", "args": {"force": true}},
   {"tool": "insert_table", "args": {"rows": 2, "cols": 2, "header": false}},
-  {"tool": "document_get_outline", "args": {}},
-  {"tool": "insert_caption", "args": {"id": "t1", "text": "Vendas", "seq": {"name": "Tabela"}}},
-  {"tool": "document_get", "args": {}},
-  {"tool": "document_save", "args": {"path": "/tmp/audit-repro/caption.aio.json"}},
+  {"tool": "insert_caption", "args": {"id": "t1", "text": "Vendas", "seq": {"name": "Tabela"}}, "expect": {"ok": true}},
+  {"tool": "document_get", "args": {}, "expect": {"document.body.1.id": "t1", "document.body.1.caption": "Vendas"}},
+  {"tool": "document_save", "args": {"path": "/tmp/aio-audit/caption.aio.json"}, "expect": {"ok": true}},
   {"tool": "document_new", "args": {"force": true}},
-  {"tool": "document_open", "args": {"path": "/tmp/audit-repro/caption.aio.json"}},
-  {"tool": "document_get", "args": {}}
+  {"tool": "document_open", "args": {"path": "/tmp/aio-audit/caption.aio.json"}, "expect": {"ok": true}},
+  {"tool": "document_get", "args": {}, "expect": {"document.body.1.caption": "Vendas"}}
 ]

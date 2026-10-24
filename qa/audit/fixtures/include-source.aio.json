@@ -1,0 +1,5 @@
+{"schema": 1, "meta": {"title": "Include source", "author": "Ada", "track_changes": true},
+ "body": [{"id": "s1", "type": "paragraph", "style": "Normal", "runs": [{"text": "AC"}]}],
+ "revisions": [{"id": "rev-del", "author": "Ada", "kind": "delete", "block_id": "s1", "start": 1, "end": 1,
+                "text": "B", "timestamp": 1700000000000, "deleted_runs": [{"text": "B"}]}],
+ "bookmarks": [{"id": "bm1", "name": "marca", "block_id": "s1", "offset": 1}]}

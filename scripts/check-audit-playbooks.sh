@@ -9,8 +9,10 @@ cli=${1:-./build/linux/aioffice-cli}
 dir=${2:-qa/audit}
 if [ ! -x "$cli" ]; then echo "FAIL aioffice-cli not found or not executable: $cli"; exit 1; fi
 export AIOFFICE_HEADLESS=1 QT_QPA_PLATFORM=offscreen
+if [ -x "$dir/setup.sh" ]; then "$dir/setup.sh" || { echo "FAIL $dir/setup.sh"; exit 1; }; fi
 shopt -s nullglob
 files=("$dir"/*.json)
+if [ "${#files[@]}" -eq 0 ]; then echo "FAIL no playbooks in $dir (an empty set proves nothing)"; exit 1; fi
 status=0
 for f in "${files[@]}"; do
   out=$("$cli" play "$f" 2>&1); rc=$?

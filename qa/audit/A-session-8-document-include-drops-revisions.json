@@ -1,5 +1,9 @@
 [
   {"tool": "document_new", "args": {"force": true}},
-  {"tool": "document_include", "args": {"path": "/tmp/audit-repro/include-source.aio.json"}},
-  {"tool": "document_get", "args": {}}
+  {"tool": "document_include", "args": {"path": "/tmp/aio-audit/include-source.aio.json"}, "expect": {"ok": true}},
+  {"tool": "document_get", "args": {}, "expect": {
+    "document.body.1.runs.0.text": "AC",
+    "document.revisions.0.kind": "delete",
+    "document.revisions.0.text": "B",
+    "document.bookmarks.0.name": "marca"}}
 ]
