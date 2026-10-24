@@ -37,8 +37,8 @@ for n in [int(x) for x in sys.argv[1:]]:
         body=r.get("body") or ""
         for _ in range(3): body=re.sub(r'\n[ \t]*>[ \t]?', '\n', body)
         # positions of section headers
-        heads=[(m.start(), {'Outside diff range comments':'outside-diff','Duplicate comments':'duplicate','Nitpick comments':'nitpick','Additional comments':'additional'}[m.group(1)])
-               for m in re.finditer(r'(Outside diff range comments|Duplicate comments|Nitpick comments|Additional comments)\s*(?:\(\d+\)|:\s*\d+)', body)]
+        heads=[(m.start(), {'Outside diff range comments':'outside-diff','Duplicate comments':'duplicate','Nitpick comments':'nitpick','Additional comments':'additional','Critical comments':'body-critical','Major comments':'body-major','Minor comments':'body-minor','Trivial comments':'body-trivial'}[m.group(1)])
+               for m in re.finditer(r'(Outside diff range comments|Duplicate comments|Nitpick comments|Additional comments|Critical comments|Major comments|Minor comments|Trivial comments)\s*(?:\(\d+\)|:\s*\d+)', body)]
         if not heads: continue
         stop=body.find('Prompt for all review comments'); stop = stop if stop>0 else len(body)
         prev=0
@@ -55,7 +55,7 @@ for n in [int(x) for x in sys.argv[1:]]:
             if full: loc=full[-1]
             elif mm: loc=(mm[-1].group(1) or mm[-1].group(2))
             else:
-                fp=list(re.finditer(r'<summary>([^<()]+?)\s*\(\d+\)</summary>', body[:m.start()]))
+                fp=list(re.finditer(r'<summary>([^<()]+?)\s*(?:\(\d+\)|:\s*\d+)</summary>', body[:m.start()]))
                 ln=list(re.finditer(r'`(\d+(?:-\d+)?)`:', seg))
                 if fp: loc=fp[-1].group(1).strip()+(":"+ln[-1].group(1) if ln else "")
             # keep only the last finding inside seg

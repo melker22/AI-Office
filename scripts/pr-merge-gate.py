@@ -171,9 +171,14 @@ def classify_mergeability(pr: dict, status_pending: bool) -> tuple[list[str], bo
 
 
 _SECTION_RE = re.compile(
-    r"(Outside diff range comments|Duplicate comments|Nitpick comments|Additional comments)\s*(?:\(\d+\)|:\s*\d+)")
+    r"(Outside diff range comments|Duplicate comments|Nitpick comments|Additional comments"
+    r"|Critical comments|Major comments|Minor comments|Trivial comments)\s*(?:\(\d+\)|:\s*\d+)")
+# "<Severity> comments: N" appears when a review has too many findings to post inline (PR #11).
 _SECTION_KIND = {"Outside diff range comments": "outside-diff", "Duplicate comments": "duplicate",
-                 "Nitpick comments": "nitpick", "Additional comments": "additional"}
+                 "Nitpick comments": "nitpick", "Additional comments": "additional",
+                 "Critical comments": "body-critical", "Major comments": "body-major",
+                 "Minor comments": "body-minor", "Trivial comments": "body-trivial"}
+_BLOCKING_BODY_KINDS = ("outside-diff", "duplicate", "body-critical", "body-major", "body-minor")
 _ACK_RE = re.compile(r"^\s*cr-ack\s+([0-9a-f]{8,})\b[ \t]*(.*)$", re.M)
 
 
@@ -194,10 +199,18 @@ def body_findings(review: dict) -> list[dict]:
         if m.start() > stop:
             break
         kinds = [k for pos, k in heads if pos <= m.start()]
-        if not kinds or kinds[-1] not in ("outside-diff", "duplicate"):
+        if not kinds or kinds[-1] not in _BLOCKING_BODY_KINDS:
             continue
         t = re.findall(r"<(?:strong|em)>[^<]*</(?:strong|em)>\s*·\s*(.+?)\s*·\s*<code>([^<]+)</code>", seg)
-        title, loc = (re.sub(r"<[^>]+>", "", t[-1][0]).strip(), t[-1][1]) if t else ("?", "?")
+        if t:
+            title, loc = re.sub(r"<[^>]+>", "", t[-1][0]).strip(), t[-1][1]
+        else:  # grouped by file: <summary>path: N</summary> ... `lines`: **category** | ... **Title**
+            files = re.findall(r"<summary>([^<:]+?):\s*\d+</summary>", body[:m.start()])
+            ranges = re.findall(r"`(\d+(?:-\d+)?)`:", seg)
+            bolds = [b for b in re.findall(r"\*\*([^*\n]{8,240})\*\*", seg)
+                     if not re.search(r"Critical|Major|Minor|Trivial|Quick win|Heavy lift|<picture>", b)]
+            title = bolds[-1] if bolds else "?"
+            loc = (files[-1].strip() if files else "?") + (":" + ranges[-1] if ranges else "")
         out.append({"id": m.group(1), "kind": kinds[-1], "title": title, "loc": loc,
                     "commit": (review.get("commit_id") or "")[:7], "url": review.get("html_url", "")})
     return out
@@ -484,6 +497,14 @@ def self_test() -> int:
                                   "<blockquote>\n> x\n> <!-- cr-comment:v1:abcdefabcdefabcdefabcdef -->\n"
                                   "> </blockquote></details>\n🔇 Additional comments (2)\n"
                                   "<!-- cr-comment:v1:999999999999999999999999 -->"))
+    grouped = dict(new_fmt, body=("**Actionable comments posted: 1**\n<details>\n<summary><picture></picture> Minor comments: 1"
+                                  "</summary><blockquote>\n<details>\n<summary>scripts/qa-all.sh: 1</summary><blockquote>\n"
+                                  "`24-25`: **🎯 Functional Correctness** | **<picture></picture> Minor** | **⚡ Quick win**\n\n"
+                                  "**Read the variables by name.**\n\nbody\n<!-- cr-comment:v1:111111111111111111111111 -->\n"))
+    check("grouped 'Minor comments: N' body finding",
+          [(f["id"][:6], f["kind"], f["title"], f["loc"]) for f in body_findings(grouped)]
+          == [("111111", "body-minor", "Read the variables by name.", "scripts/qa-all.sh:24-25")],
+          str(body_findings(grouped)))
     check("new body format: one outside-diff finding", [f["id"] for f in body_findings(new_fmt)]
           == ["0123456789abcdef01234567"], str(body_findings(new_fmt)))
     check("old body format: one outside-diff finding, additional ignored",
