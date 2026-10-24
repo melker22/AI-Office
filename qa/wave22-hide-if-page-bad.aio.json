@@ -1,0 +1,8 @@
+{
+  "schema": 1,
+  "meta": {"title": "Legacy hide_if page"},
+  "body": [
+    {"id": "p1", "type": "paragraph", "runs": [{"text": "Visible"}]},
+    {"id": "p2", "type": "paragraph", "hide_if": "page > 1", "runs": [{"text": "Bad"}]}
+  ]
+}

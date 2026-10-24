@@ -115,7 +115,7 @@ Native `QPdfWriter` (no LibreOffice). Every export embeds document XMP (`dc:titl
 ### `document_get`
 
 Args: `{}`  
-Returns `{ "ok", "document": { ...full JSON... } }`.
+Returns `{ "ok", "document": { ...full JSON... }, "words" }`. `words` is the same visible count as `document_stats.words` (a block hidden by `hide_if` or `section_hidden` is omitted).
 
 ### `document_get_outline`
 
@@ -154,7 +154,7 @@ With `start`/`end`, applies to that range of the block’s plain text. Otherwise
 ### `apply_paragraph_format`
 
 Args: `{ "ids": ["p1"], "align"?: "left"|"center"|"right"|"justify"|"start"|"end", "dir"?: "auto"|"ltr"|"rtl", "style"?: string, "indent_left_mm"?: number, "indent_right_mm"?: number, "indent_first_mm"?: number, "space_before_pt"?: number, "space_after_pt"?: number, "line_height"?: number, "keep_with_next"?: bool, "break_before"?: bool, "orphans"?: int, "widows"?: int, "drop_cap_lines"?: int, "tabs"?: [{"pos_mm": number, "align"?: "left"|"right"|"center"|"decimal"}], "border_pt"?: number, "border_color"?: string, "list_restart"?: bool, "list_bullet"?: string, "lang"?: string, "writing_mode"?: string, "hide_if"?: string }`  
-`drop_cap_lines` ≥ 2 paints a visual drop cap in `page_preview`. Tab stops pair with `insert_tab` / `\t` in run text. `list_restart` resets decimal numbering; `list_bullet` is the custom marker. `keep_with_next` holds the next block on the same page; `break_before` starts a new page. `hide_if` is an expression (same language as `field_evaluate`). When it is true the block is omitted from layout, `page_preview`, PDF, and the `document_stats` paragraph count; the block stays in the JSON and in `search`. An invalid expression does not hide the block. `validate` reports `invalid_expression` with the block id. Pass `""` to clear it.
+`drop_cap_lines` ≥ 2 paints a visual drop cap in `page_preview`. Tab stops pair with `insert_tab` / `\t` in run text. `list_restart` resets decimal numbering; `list_bullet` is the custom marker. `keep_with_next` holds the next block on the same page; `break_before` starts a new page. `hide_if` is an expression (same language as `field_evaluate`). It is not redaction. When it is true the block is omitted from layout, `page_preview`, PDF, EPUB, and from `document_stats` / `stat` counts (except `stat` `pages`, which stays the real page total). The block stays in the JSON and in `search`. ODT and DOCX keep the block in the package. ODT writes a paragraph, heading, or list item into `content.xml` and, when `hide_if` is non-empty, inserts `<text:hidden-paragraph text:condition="ooow:…"/>`, plus `text:is-hidden="true"` when the expression is true. An ODT image that has bytes is still stored under `Pictures/`; that image paragraph is not given `text:hidden-paragraph`. ODT tables, breaks, and the table of contents are written without `text:hidden-paragraph` as well. DOCX writes the paragraph, including a table, a break, or an image. When the expression is true the paragraph mark is `w:vanish` (`w:pPr/w:rPr/w:vanish`); runs of an ordinary paragraph and of table cells are vanished too. The image part is still added under `word/media/`. A DOCX table of contents is written without `w:vanish`. When JSON is embedded, the expression (true or false) is stored in `word/aioffice.json` `conditionals`. It is evaluated **once before pagination**, always with `page=1` and `pages=1` (same rule as layout and PDF). Expressions that reference `page` or `pages` (in any letter case, e.g. LibreOffice's `Page`), and any other invalid expression, are rejected by `insert_blocks`, `replace_range`, `apply_paragraph_format`, `document_include`, and native JSON open (`.aio.json`, `.json`, `.aio`). The call returns `{ok:false, error}` and does not change the document, the dirty flag, or the undo stack. The page/pages message is `hide_if cannot depend on page or pages (evaluated once, before pagination)`; a syntax error is the parser error (usually `invalid expression`). `validate` reports `invalid_expression` with the block id. On ODT and DOCX import, a `hide_if` that is invalid or that references `page` or `pages` is dropped, the block stays visible, and the file still opens. Pass `""` to clear it.
 
 ### `apply_style`
 
@@ -313,7 +313,7 @@ Insere no caret. `xref`/`custom`/`merge` usam `arg`. Campo `merge` mostra `«arg
 ### `field_evaluate`
 
 Args: `{ "expr": string }`  
-Evaluates `expr` against the open document. Literals: numbers (`1`, `2.5`, `-3`) and strings (`"..."` or `'...'`). Names other than the numeric fields below read `doc.vars` as strings. Numeric fields: `page`, `pages`, `words`, `chars`, `paragraphs`, `tables`, `images`. Operators, tightest first: parentheses, `!`, comparisons (`== != < > <= >=`), `&&`, `||`. A comparison is numeric only when both sides are numbers; otherwise both sides are compared as strings (`2 < "10"` is false). Returns `{ "value", "type": "number"|"string"|"bool" }`. Syntax errors return `{ "ok": false, "error": "invalid expression" }`. `paragraphs` counts paragraphs that are not hidden by `hide_if`.
+Evaluates `expr` against the open document. Literals: numbers (`1`, `2.5`, `-3`) and strings (`"..."` or `'...'`). Names other than the numeric fields below read `doc.vars` as strings. Numeric fields: `page`, `pages`, `words`, `chars`, `paragraphs`, `tables`, `images`. Operators, tightest first: parentheses, `!`, comparisons (`== != < > <= >=`), `&&`, `||`. A comparison is numeric only when both sides are numbers; otherwise both sides are compared as strings (`2 < "10"` is false). Returns `{ "value", "type": "number"|"string"|"bool" }`. Syntax errors return `{ "ok": false, "error": "invalid expression" }`. `words`, `chars`, `paragraphs`, `tables` and `images` are the visible counts of the `stat` field and `document_stats` (blocks hidden by `hide_if` or `section_hidden` are left out). Inside a `hide_if` expression they are the totals of all blocks instead, so hiding cannot depend on itself. The `word_count` field shows the same visible word count.
 
 **Onda 18 — tipos novos:** `doc_info` com `arg` = `subject`|`keywords`|`created`|`modified`|`revision` (metadados do documento; `created`/`modified` podem vir de `doc.vars["doc.created"]` / `doc.modified`). `stat` com `arg` = `pages`|`words`|`chars`|`paragraphs`|`tables`|`images` (contagem de blocos visíveis; `pages` usa o layout quando disponível). `sender` com `arg` = `name`|`email`|`company`|`phone` lê `doc.vars["sender.<arg>"]`. `seq` com `arg` JSON `{name, format?}` (`format`: `arabic`|`roman`|`alpha`; contagem por `name` na ordem do documento). `input_list` com `arg` JSON `{options[], selected?}` mostra `selected` ou a primeira opção.
 
@@ -490,7 +490,7 @@ Alias of `import_markdown`. Args: `{ "markdown": string, "after_id"?: "end" }`.
 ### `integrate_help`
 
 Args: `{}`  
-Returns the human/AI integration blurb plus `title`, `words`, `outline`. No secrets.
+Returns the human/AI integration blurb plus `title`, `words`, `outline`. `words` is that same visible count. No secrets.
 
 ## MCP server
 

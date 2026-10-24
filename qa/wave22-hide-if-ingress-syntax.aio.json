@@ -1,0 +1,8 @@
+{
+  "schema": 1,
+  "meta": {"title": "Ingress hide_if syntax"},
+  "body": [
+    {"id": "p1", "type": "paragraph", "runs": [{"text": "Visible"}]},
+    {"id": "p2", "type": "paragraph", "hide_if": "???", "runs": [{"text": "Bad"}]}
+  ]
+}

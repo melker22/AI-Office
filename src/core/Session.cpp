@@ -216,6 +216,33 @@ bool isWorkingDocumentPath(const QString &path)
     return ext == QLatin1String("odt") || ext == QLatin1String("docx");
 }
 
+// Single list of extensions saveTo writes that are not a working document.
+// isReadOnlyExportSavePath and the export branch of saveTo both use it.
+bool isExportSaveExtension(const QString &ext)
+{
+    return ext == QLatin1String("epub") || ext == QLatin1String("pdf") || ext == QLatin1String("rtf")
+        || ext == QLatin1String("md") || ext == QLatin1String("markdown") || ext == QLatin1String("txt")
+        || ext == QLatin1String("html") || ext == QLatin1String("htm") || ext == QLatin1String("doc");
+}
+
+bool isReadOnlyExportSavePath(const QString &path)
+{
+    if (path.isEmpty() || isWorkingDocumentPath(path))
+        return false;
+    return isExportSaveExtension(QFileInfo(path).suffix().toLower());
+}
+
+// ODT and DOCX (and a .doc/.ott converted to ODT) may carry a hide_if that
+// native JSON would reject. Drop it, leave the block visible, and still open.
+// document_open has no warnings channel, so this stays silent.
+void dropInvalidImportedHideIf(Document &doc)
+{
+    for (Block &b : doc.body) {
+        if (!hideIfExprError(b.hideIf).isEmpty())
+            b.hideIf.clear();
+    }
+}
+
 } // namespace
 
 bool Session::saveTo(const QString &path, QString *error, bool embedJson, QJsonObject *exportInfo, QStringList *warnings)
@@ -247,6 +274,11 @@ bool Session::saveTo(const QString &path, QString *error, bool embedJson, QJsonO
             return false;
         rememberWorkingName();
         return true;
+    }
+    if (!isExportSaveExtension(ext)) {
+        if (error)
+            *error = QStringLiteral("Unknown extension: ") + ext;
+        return false;
     }
     if (ext == QLatin1String("doc")) {
         QTemporaryDir tmp;
@@ -302,6 +334,7 @@ bool Session::saveTo(const QString &path, QString *error, bool embedJson, QJsonO
         f.write(out.toUtf8());
         return true;
     }
+    // isExportSaveExtension said this extension is an export, but no branch wrote it.
     if (error)
         *error = QStringLiteral("Unknown extension: ") + ext;
     return false;
@@ -329,9 +362,11 @@ bool Session::loadFrom(const QString &path, QString *error)
                 *error = tableErr;
             return false;
         }
-        doc_ = Document::fromJson(docj.object());
-        doc_.fileName = QFileInfo(path).fileName();
-        for (const auto &b : doc_.body) {
+        // Validate before replacing the session. A bad hide_if (or align) leaves
+        // the open document, dirty flag, and undo stack untouched.
+        Document loaded = Document::fromJson(docj.object());
+        loaded.fileName = QFileInfo(path).fileName();
+        for (const auto &b : loaded.body) {
             const QString be = validateBlock(b);
             if (!be.isEmpty()) {
                 if (error)
@@ -339,25 +374,32 @@ bool Session::loadFrom(const QString &path, QString *error)
                 return false;
             }
         }
-        for (const auto &s : doc_.styles) {
+        for (const auto &s : loaded.styles) {
             if (!isValidBlockAlign(s.align)) {
                 if (error)
                     *error = QStringLiteral("invalid align in style: ") + s.align;
                 return false;
             }
         }
+        doc_ = loaded;
         return true;
     }
     if (ext == QLatin1String("odt")) {
-        if (!loadOdtFile(path, doc_, error))
+        Document loaded;
+        if (!loadOdtFile(path, loaded, error))
             return false;
-        doc_.fileName = QFileInfo(path).fileName();
+        dropInvalidImportedHideIf(loaded);
+        loaded.fileName = QFileInfo(path).fileName();
+        doc_ = loaded;
         return true;
     }
     if (ext == QLatin1String("docx")) {
-        if (!loadDocxFile(path, doc_, error))
+        Document loaded;
+        if (!loadDocxFile(path, loaded, error))
             return false;
-        doc_.fileName = QFileInfo(path).fileName();
+        dropInvalidImportedHideIf(loaded);
+        loaded.fileName = QFileInfo(path).fileName();
+        doc_ = loaded;
         return true;
     }
     if (ext == QLatin1String("epub")) {
@@ -376,7 +418,12 @@ bool Session::loadFrom(const QString &path, QString *error)
         const QString odt = tmp.filePath(QFileInfo(path).completeBaseName() + QStringLiteral(".odt"));
         if (!LokEngine::convertTo(path, odt, QStringLiteral("odt:writer8"), error))
             return false;
-        return loadOdtFile(odt, doc_, error);
+        Document loaded;
+        if (!loadOdtFile(odt, loaded, error))
+            return false;
+        dropInvalidImportedHideIf(loaded);
+        doc_ = loaded;
+        return true;
     }
     if (error)
         *error = QStringLiteral("Unknown extension: ") + ext + QStringLiteral(". Use odt, docx, doc, aio.json.");
@@ -436,6 +483,7 @@ QJsonObject Session::saveDocument(const QJsonObject &args)
         // clean session still reports dirty:false and document_new drops the
         // new title. A working-document save clears dirty_ below.
         if (nextTitle != doc_.title) {
+            pushUndo();
             doc_.title = nextTitle;
             markChanged();
         }
@@ -449,8 +497,8 @@ QJsonObject Session::saveDocument(const QJsonObject &args)
     QStringList warnings;
     if (!saveTo(path, &err, embedJson, &exported, &warnings))
         return fail(err);
-    // Exports (.epub, .pdf, .md, .txt, .html, .rtf, .doc) write the file and
-    // leave the editable document's path and dirty flag alone.
+    // Exports (.epub, .pdf, .md, .markdown, .txt, .html, .htm, .rtf, .doc) write
+    // the file and leave the editable document's path and dirty flag alone.
     if (isWorkingDocumentPath(path)) {
         path_ = path;
         dirty_ = false;
@@ -529,7 +577,7 @@ QJsonObject Session::getDocument(const QJsonObject &)
     refreshIfFields(doc_, dirty_);
     auto r = ok();
     r[QStringLiteral("document")] = doc_.toJson();
-    r[QStringLiteral("words")] = doc_.wordCount();
+    r[QStringLiteral("words")] = visibleWordCount(doc_);
     r[QStringLiteral("libreoffice")] = LokEngine::available();
     if (!revisionView_.isEmpty())
         r[QStringLiteral("revision_view")] = revisionView_;
@@ -796,6 +844,7 @@ QJsonObject Session::applyParagraphFormat(const QJsonObject &args)
             doc_.body[i].lang = args.value(QStringLiteral("lang")).toString();
         if (args.contains(QStringLiteral("section_hidden")))
             doc_.body[i].sectionHidden = args.value(QStringLiteral("section_hidden")).toBool();
+        // hide_if was checked in validateParagraphFormatArgs, before pushUndo.
         if (args.contains(QStringLiteral("hide_if")))
             doc_.body[i].hideIf = args.value(QStringLiteral("hide_if")).toString();
         if (args.contains(QStringLiteral("writing_mode")))
@@ -1414,7 +1463,7 @@ QJsonObject Session::integrateHelp(const QJsonObject &)
         QStringLiteral("Kimi")};
     r[QStringLiteral("libreoffice")] = LokEngine::available();
     r[QStringLiteral("title")] = doc_.title;
-    r[QStringLiteral("words")] = doc_.wordCount();
+    r[QStringLiteral("words")] = visibleWordCount(doc_);
     r[QStringLiteral("outline")] = getOutline({})[QStringLiteral("outline")];
     return r;
 }
@@ -4631,27 +4680,23 @@ QJsonObject Session::documentStats(const QJsonObject &)
 {
     DocumentLayout lay;
     lay.relayout(doc_, 1.0);
-    int paras = 0, images = 0, tables = 0, headings = 0, comments = 0, chars = 0;
+    const int pages = qMax(1, lay.pages);
+    int comments = 0;
     for (const auto &b : doc_.body) {
-        if (b.type == QLatin1String("paragraph") && !blockHiddenByExpr(doc_, b, 1, 1))
-            ++paras;
-        else if (b.type == QLatin1String("image"))
-            ++images;
-        else if (b.type == QLatin1String("table"))
-            ++tables;
-        else if (b.type == QLatin1String("heading"))
-            ++headings;
+        if (!documentBlockVisibleForStat(doc_, b, 1, 1))
+            continue;
         comments += b.comments.size();
-        chars += b.plainText().size();
     }
     auto r = ok();
-    r[QStringLiteral("words")] = doc_.wordCount();
-    r[QStringLiteral("chars")] = chars;
-    r[QStringLiteral("paragraphs")] = paras;
-    r[QStringLiteral("headings")] = headings;
+    r[QStringLiteral("words")] = documentStatCount(doc_, QStringLiteral("words"), 1, pages);
+    r[QStringLiteral("chars")] = documentStatCount(doc_, QStringLiteral("chars"), 1, pages);
+    r[QStringLiteral("paragraphs")] =
+        documentStatCount(doc_, QStringLiteral("paragraphs"), 1, pages);
+    r[QStringLiteral("headings")] =
+        documentStatCount(doc_, QStringLiteral("headings"), 1, pages);
     r[QStringLiteral("pages")] = lay.pages;
-    r[QStringLiteral("images")] = images;
-    r[QStringLiteral("tables")] = tables;
+    r[QStringLiteral("images")] = documentStatCount(doc_, QStringLiteral("images"), 1, pages);
+    r[QStringLiteral("tables")] = documentStatCount(doc_, QStringLiteral("tables"), 1, pages);
     r[QStringLiteral("comments")] = comments;
     return r;
 }
@@ -5060,6 +5105,11 @@ QJsonObject Session::documentInclude(const QJsonObject &args)
     if (!tableErr.isEmpty())
         return fail(tableErr);
     Document other = Document::fromJson(docj.object());
+    for (const auto &b : other.body) {
+        const QString be = validateBlock(b);
+        if (!be.isEmpty())
+            return fail(be);
+    }
     QString err;
     int at = insertIndex(args.value(QStringLiteral("after_id")).toString(QStringLiteral("end")), &err);
     if (at < 0)
@@ -5131,9 +5181,13 @@ QJsonObject Session::validate(const QJsonObject &)
         ids.insert(b.id);
         if (!known.contains(b.type))
             err(QStringLiteral("unknown_type"), b.id, QStringLiteral("unknown block type: ") + b.type);
+        // hide_if keeps the invalid_expression code. Align and dir stay invalid_block.
+        const QString hideErr = hideIfExprError(b.hideIf);
         const QString blockErr = validateBlock(b);
-        if (!blockErr.isEmpty())
+        if (!blockErr.isEmpty() && blockErr != hideErr)
             err(QStringLiteral("invalid_block"), b.id, blockErr);
+        if (!hideErr.isEmpty())
+            err(QStringLiteral("invalid_expression"), b.id, hideErr);
         if (b.type == QLatin1String("footnote") || b.type == QLatin1String("endnote"))
             noteIds.insert(b.id);
     }
@@ -5159,7 +5213,6 @@ QJsonObject Session::validate(const QJsonObject &)
         }
     };
     for (const auto &b : doc_.body) {
-        checkExpr(b.hideIf, b.id);
         for (const auto &r : b.runs) {
             checkRunExpr(r, b.id);
             if (!r.noteId.isEmpty() && !noteIds.contains(r.noteId) && !ids.contains(r.noteId))
@@ -5343,8 +5396,18 @@ QJsonObject Session::call(const QString &tool, const QJsonObject &args)
         QStringLiteral("revision_view"),
         QStringLiteral("image_library_list"),
     };
-    if (doc_.readOnly && !kReadOnlyOk.contains(tool))
-        return fail(QStringLiteral("document is read-only"));
+    if (doc_.readOnly && !kReadOnlyOk.contains(tool)) {
+        if (tool != QLatin1String("document_save")) {
+            return fail(QStringLiteral("document is read-only"));
+        }
+        QString savePath = args.value(QStringLiteral("path")).toString();
+        if (savePath.isEmpty())
+            savePath = path_;
+        if (args.contains(QStringLiteral("title"))
+            || !isReadOnlyExportSavePath(savePath)) {
+            return fail(QStringLiteral("document is read-only"));
+        }
+    }
     if (tool == QLatin1String("repeat_last")) {
         if (lastTool_.isEmpty())
             return fail(QStringLiteral("no last tool"));

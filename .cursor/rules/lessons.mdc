@@ -20,6 +20,6 @@ Detalhes e evidências: [`docs/LESSONS.md`](../../docs/LESSONS.md). Revisor: ver
 10. Mudou um invariante? Todos os criadores, accept/reject, import e arquivos antigos seguem.
 11. Operação em vários blocos grava dados por bloco.
 12. Teste cobre o critério inteiro, incluindo a ordem de operações que quebra.
-13. Todo `expect` pode falhar; falha de transporte/IPC nunca casa com `{"ok":false}`.
+13. Todo `expect` pode falhar; falha de transporte/IPC nunca casa com `{"ok":false}`. Autoteste (`--self-test`) inclui um caso de ponta a ponta pelo `main` real (L19).
 14. Nó isolado de fase posterior começa com `git merge` da integração anterior.
 15. Caminho especial de desenho (span de idioma, marcação) reusa o layout já shapeado (glyph runs); nunca redesenha substring plano com fonte/pen do bloco — perde formatação de run, drop cap e ruby.

@@ -558,7 +558,7 @@ bool paragraphVanished(const Document &doc, const DocumentLayout &lay, const Blo
 {
     if (b.hideIf.isEmpty())
         return false;
-    return blockHiddenByExpr(doc, b, lay.displayPage(lay.pageOf(b.id)), qMax(1, lay.pages));
+    return blockHiddenByExpr(doc, b, 1, 1);
 }
 
 void accountSeqRuns(DocxOut &o, const QVector<TextRun> &runs)

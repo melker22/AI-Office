@@ -3,7 +3,9 @@
 
 from __future__ import annotations
 
+import hashlib
 import io
+import json
 import zipfile
 from pathlib import Path
 
@@ -234,11 +236,95 @@ def write_fields_odt(path: Path) -> None:
     path.write_bytes(buf.getvalue())
 
 
+# Wave 22: foreign hide_if that hideIfExprError rejects must be dropped on import.
+# ooow:Page (LibreOffice spelling) and ooow:page both depend on the page, so the checker
+# (case-insensitive) rejects them; an unparseable condition is dropped too. A valid flag and
+# w:vanish "1" stay.
+ODT_HIDE_IMPORT_XML = (
+    '<?xml version="1.0" encoding="UTF-8"?>'
+    '<office:document-content xmlns:office="urn:oasis:names:tc:opendocument:xmlns:office:1.0" '
+    'xmlns:text="urn:oasis:names:tc:opendocument:xmlns:text:1.0" '
+    'xmlns:ooow="http://openoffice.org/2004/writer" office:version="1.3">'
+    "<office:body><office:text>"
+    '<text:p text:style-name="Standard"><text:hidden-paragraph text:condition="ooow:Page &gt; 1"/>Pagina</text:p>'
+    '<text:p text:style-name="Standard"><text:hidden-paragraph text:condition="ooow:page &gt; 1"/>Minuscula</text:p>'
+    '<text:p text:style-name="Standard"><text:hidden-paragraph text:condition="ooow:???"/>Ruim</text:p>'
+    '<text:p text:style-name="Standard"><text:hidden-paragraph text:condition="ooow:flag = &quot;on&quot;"/>Valido</text:p>'
+    "</office:text></office:body></office:document-content>"
+)
+
+
+def write_hide_import_odt(path: Path) -> None:
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w", compression=zipfile.ZIP_DEFLATED) as z:
+        z.writestr("mimetype", ODT_MIMETYPE, compress_type=zipfile.ZIP_STORED)
+        z.writestr("META-INF/manifest.xml", ODT_MANIFEST)
+        z.writestr("content.xml", ODT_HIDE_IMPORT_XML)
+    path.write_bytes(buf.getvalue())
+
+
+def write_hide_import_docx(path: Path) -> None:
+    paras = [
+        ("DocPage", "page > 1"),
+        ("DocBad", "???"),
+        ("DocOk", 'flag == "on"'),
+    ]
+    body = "".join(f"<w:p><w:r><w:t>{text}</w:t></w:r></w:p>" for text, _expr in paras)
+    body += (
+        "<w:p><w:pPr><w:rPr><w:vanish/></w:rPr></w:pPr>"
+        "<w:r><w:rPr><w:vanish/></w:rPr><w:t>Secret</w:t></w:r></w:p>"
+    )
+    document = (
+        '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
+        '<w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:body>'
+        + body
+        + "<w:sectPr><w:pgSz w:w=\"12240\" w:h=\"15840\"/></w:sectPr></w:body></w:document>"
+    )
+    conds = []
+    for text, expr in paras:
+        conds.append(
+            {
+                "type": "paragraph",
+                "fp": hashlib.sha256(text.encode()).hexdigest(),
+                "n": 1,
+                "hide_if": expr,
+            }
+        )
+    extra = json.dumps({"conditionals": conds}, separators=(",", ":"))
+    ctypes = """<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">
+<Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/>
+<Default Extension="xml" ContentType="application/xml"/>
+<Default Extension="json" ContentType="application/json"/>
+<Override PartName="/word/document.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml"/>
+<Override PartName="/word/aioffice.json" ContentType="application/json"/>
+<Override PartName="/docProps/core.xml" ContentType="application/vnd.openxmlformats-package.core-properties+xml"/>
+</Types>
+"""
+    core = """<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<cp:coreProperties xmlns:cp="http://schemas.openxmlformats.org/package/2006/metadata/core-properties"
+ xmlns:dc="http://purl.org/dc/elements/1.1/">
+<dc:title>Wave22 hide_if import</dc:title>
+</cp:coreProperties>
+"""
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w", compression=zipfile.ZIP_DEFLATED) as z:
+        z.writestr("[Content_Types].xml", ctypes)
+        z.writestr("_rels/.rels", RELS_ROOT)
+        z.writestr("word/document.xml", document)
+        z.writestr("word/_rels/document.xml.rels", DOC_RELS)
+        z.writestr("word/aioffice.json", extra)
+        z.writestr("docProps/core.xml", core)
+    path.write_bytes(buf.getvalue())
+
+
 def main() -> None:
     write_odt(ROOT / "wave17-odt-revisions-foreign.odt")
     write_docx(ROOT / "wave17-docx-revisions-foreign.docx")
     write_fields_docx(ROOT / "wave18-docx-fields-foreign.docx")
     write_fields_odt(ROOT / "wave18-odt-fields-foreign.odt")
+    write_hide_import_odt(ROOT / "wave22-hide-if-import.odt")
+    write_hide_import_docx(ROOT / "wave22-hide-if-import.docx")
     print("wrote", ROOT / "wave17-odt-revisions-foreign.odt")
     print("wrote", ROOT / "wave17-docx-revisions-foreign.docx")
     print("wrote", ROOT / "wave18-docx-fields-foreign.docx")

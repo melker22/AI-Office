@@ -319,6 +319,14 @@ struct Document {
     int wordCount() const;
 };
 
+// Visibility for stat fields and document_stats (sectionHidden + hideIf at page=1, pages=1).
+bool documentBlockVisibleForStat(const Document &doc, const Block &b, int page, int pages);
+// Words in blocks that document_stats keeps. hide_if uses page=1 and pages=1.
+// Document::wordCount() still counts every block, so a hide_if expression can
+// read the total without calling back into this function.
+int visibleWordCount(const Document &doc);
+int documentStatCount(const Document &doc, const QString &kind, int page, int pages);
+
 QString runDisplayText(const Document &doc, const TextRun &r, int page = 1, int pages = 1,
                        const TextRun *fieldInstance = nullptr);
 QString captionDisplayText(const Document &doc, const Block &b, int page = 1, int pages = 1);

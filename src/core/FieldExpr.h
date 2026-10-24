@@ -1,6 +1,7 @@
 #pragma once
 
 #include <QJsonValue>
+#include <QSet>
 #include <QString>
 #include <QVariant>
 
@@ -47,7 +48,18 @@ QJsonValue fieldExprJsonValue(const QVariant &value);
 FieldContext fieldContextFor(const Document &doc, int page, int pages);
 
 // True when hideIf evaluates truthy. Invalid expressions do not hide.
+// hideIf is always evaluated with page=1 and pages=1 (before pagination).
 bool blockHiddenByExpr(const Document &doc, const Block &block, int page, int pages);
+
+// Identifier names referenced by an expression (including page, pages, words, …).
+// Syntax errors yield a partial set; pair with FieldExpr::evaluate for validation.
+QSet<QString> fieldExprIdentifiers(const QString &expr);
+
+bool hideIfExprUsesPageOrPages(const QString &expr);
+
+// Empty when hide_if may be stored. Otherwise the same message document_validate
+// reports: page/pages dependency, or the expression parser error.
+QString hideIfExprError(const QString &expr);
 
 // Live text of an `if` field. On a bad arg or condition, returns "#ERR" and sets *exprOk false.
 QString evalIfField(const Document &doc, const QString &fieldArg, int page, int pages, bool *exprOk = nullptr,

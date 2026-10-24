@@ -173,6 +173,33 @@ def toc_anchor_texts(epub: Path) -> list[str]:
     return texts
 
 
+def footnote_aside_count(epub: Path) -> tuple[int, list[str]]:
+    """Count each XHTML aside once when epub:type's tokens include footnote.
+
+    The type attribute is {http://www.idpf.org/2007/ops}type. Tokens are the
+    attribute value split on whitespace. "footnotes" is not the token "footnote".
+    """
+    count = 0
+    problems: list[str] = []
+    type_attr = f"{{{EPUB_NS}}}type"
+    aside_tag = f"{{{XHTML_NS}}}aside"
+    with zipfile.ZipFile(epub, "r") as zf:
+        names = [n for n in zf.namelist() if n.lower().endswith(".xhtml")]
+        for name in names:
+            try:
+                root = ET.fromstring(zf.read(name))
+            except ET.ParseError as exc:
+                problems.append(f"{name}: not well-formed XML ({exc})")
+                continue
+            for aside in root.iter(aside_tag):
+                raw = aside.get(type_attr)
+                if raw is None:
+                    continue
+                if "footnote" in raw.split():
+                    count += 1
+    return count, problems
+
+
 def aside_plain(epub: Path) -> str:
     parts: list[str] = []
     with zipfile.ZipFile(epub) as zf:
@@ -221,8 +248,8 @@ def check_structure(epub: Path, exp: dict[str, Any]) -> list[str]:
 
     footnote_min = int(exp.get("footnote_aside_min", 0))
     if footnote_min > 0:
-        count = len(re.findall(r'epub:type="footnote"', bundle_lower))
-        count += len(re.findall(r"<aside[^>]+footnote", bundle_lower))
+        count, parse_problems = footnote_aside_count(epub)
+        errors.extend(parse_problems)
         if count < footnote_min:
             errors.append(f"expected at least {footnote_min} footnote aside(s), got {count}")
 
@@ -374,6 +401,27 @@ def write_minimal_epub(path: Path) -> None:
         zf.writestr("OEBPS/chapter.xhtml", chapter)
 
 
+def write_footnote_token_epub(path: Path) -> None:
+    """Asides whose epub:type token is footnote, plus a prefix that must not count."""
+    chapter = """<?xml version="1.0" encoding="UTF-8"?>
+<html xmlns="http://www.w3.org/1999/xhtml" xmlns:epub="http://www.idpf.org/2007/ops">
+<body>
+<aside epub:type="footnote"><p>A</p></aside>
+<aside epub:type="rearnote footnote"><p>B</p></aside>
+<aside epub:type="endnote footnote"><p>C</p></aside>
+<aside epub:type="footnotes"><p>D</p></aside>
+<p epub:type="footnote">Not an aside</p>
+</body>
+</html>"""
+    nav = """<?xml version="1.0" encoding="UTF-8"?>
+<html xmlns="http://www.w3.org/1999/xhtml" xmlns:epub="http://www.idpf.org/2007/ops">
+<body><nav epub:type="toc"><ol><li><a href="chapter.xhtml">Ch</a></li></ol></nav></body>
+</html>"""
+    with zipfile.ZipFile(path, "w") as zf:
+        zf.writestr("OEBPS/nav.xhtml", nav)
+        zf.writestr("OEBPS/chapter.xhtml", chapter)
+
+
 def self_test() -> int:
     ok = True
 
@@ -421,6 +469,19 @@ def self_test() -> int:
             ok = False
         else:
             print("ok   structure on minimal epub")
+
+        token_epub = Path(tmp) / "tokens.epub"
+        write_footnote_token_epub(token_epub)
+        token_count, token_problems = footnote_aside_count(token_epub)
+        if token_problems or token_count != 3:
+            print(
+                "FAIL self-test footnote token count:",
+                token_count,
+                token_problems,
+            )
+            ok = False
+        else:
+            print("ok   footnote aside token count")
 
         if shutil.which("epubcheck"):
             e, w, _ = run_epubcheck(epub)

@@ -139,7 +139,11 @@ QJsonArray toolDefinitions()
                               {QStringLiteral("list_bullet"), prop(QStringLiteral("string"))},
                               {QStringLiteral("lang"), prop(QStringLiteral("string"))},
                               {QStringLiteral("section_hidden"), prop(QStringLiteral("boolean"))},
-                              {QStringLiteral("hide_if"), prop(QStringLiteral("string"), QStringLiteral("Expression; paragraph is omitted from layout, preview, and PDF when true"))},
+                              {QStringLiteral("hide_if"),
+                               prop(QStringLiteral("string"),
+                                    QStringLiteral("Expression (evaluated once with page=1, pages=1); "
+                                                   "block omitted from layout, preview, PDF, and stats "
+                                                   "when true; page/pages in expr rejected"))},
                               {QStringLiteral("writing_mode"), prop(QStringLiteral("string"))},
                               {QStringLiteral("z_index"), prop(QStringLiteral("integer"))},
                               {QStringLiteral("connect_to"), prop(QStringLiteral("string"))},
