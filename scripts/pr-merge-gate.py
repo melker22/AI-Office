@@ -183,7 +183,8 @@ _SECTION_KIND = {"Outside diff range comments": "outside-diff", "Duplicate comme
                  "Minor comments": "body-minor", "Trivial comments": "body-trivial"}
 _BLOCKING_BODY_KINDS = ("outside-diff", "duplicate", "body-critical", "body-major", "body-minor")
 # A bare `cr-ack <id>` does not count: the line must say which commit fixed it or why it is not a defect.
-_ACK_RE = re.compile(r"^\s*cr-ack\s+([0-9a-f]{8,})\b[ \t]+(\S.*)$", re.M)
+# The id must be the FULL cr-comment marker id (a prefix could match two findings).
+_ACK_RE = re.compile(r"^\s*cr-ack\s+([0-9a-f]{16,})\b[ \t]+(\S.*)$", re.M)
 
 
 def body_findings(review: dict) -> list[dict]:
@@ -205,7 +206,9 @@ def body_findings(review: dict) -> list[dict]:
         kinds = [k for pos, k in heads if pos <= m.start()]
         if not kinds or kinds[-1] not in _BLOCKING_BODY_KINDS:
             continue
-        t = re.findall(r"<(?:strong|em)>[^<]*</(?:strong|em)>\s*·\s*(.+?)\s*·\s*<code>([^<]+)</code>", seg)
+        # the severity tag may wrap an icon: <strong><picture>…</picture> Major</strong> · title · <code>loc</code>
+        t = re.findall(r"<(strong|em)>(?:(?!</\1>).)*</\1>\s*·\s*(.+?)\s*·\s*<code>([^<]+)</code>", seg, re.S)
+        t = [(title_, loc_) for _tag, title_, loc_ in t]
         if t:
             title, loc = re.sub(r"<[^>]+>", "", t[-1][0]).strip(), t[-1][1]
         else:  # grouped by file: <summary>path: N</summary> ... `lines`: **category** | ... **Title**
@@ -296,11 +299,11 @@ def evaluate(pr_number: int, pr: dict, statuses: list, comments: list, reviews: 
         if not r["user"]["login"].startswith("coderabbit"):
             continue
         for f in body_findings(r):
-            if any(f["id"].startswith(a) for a in acks):
+            if f["id"] in acks:
                 continue
             problems.append(
-                f"UNACKED {f['kind']} {f['id'][:12]} \"{f['title']}\" ({f['loc']}) from the review of "
-                f"{f['commit']}: fix it, then comment `cr-ack {f['id'][:12]} <commit or reason>` {f['url']}"
+                f"UNACKED {f['kind']} {f['id']} \"{f['title']}\" ({f['loc']}) from the review of "
+                f"{f['commit']}: fix it, then comment `cr-ack {f['id']} <commit or reason>` {f['url']}"
             )
 
     merge_problems, merge_pending, merge_lines = classify_mergeability(pr, status_pending)
@@ -515,14 +518,22 @@ def self_test() -> int:
           [(f["id"], f["title"]) for f in body_findings(old_fmt)] == [("abcdefabcdefabcdefabcdef", "Preserve fieldArg.")],
           str(body_findings(old_fmt)))
     code, text, _n = run(pr(), success, reviews=[new_fmt, quiet_review])
-    check("unacked outside-diff from an earlier commit blocks", code == 1 and "UNACKED outside-diff 0123456789ab" in text, text)
-    human_ack = [{"user": {"login": "melker22", "type": "User"}, "body": "cr-ack 0123456789ab fixed in deadbeef"}]
+    check("unacked outside-diff from an earlier commit blocks", code == 1 and "UNACKED outside-diff 0123456789abcdef01234567" in text, text)
+    prefix_ack = [{"user": {"login": "melker22", "type": "User"}, "body": "cr-ack 0123456789abcdef fixed in deadbeef"}]
+    res = evaluate(10, pr(), success, [], [new_fmt, quiet_review], "2026-10-21T20:00:00Z", None, lambda: pr(), prefix_ack)
+    check("a prefix of the id does not acknowledge", res[0] == 1, "\n".join(res[1]))
+    icon_fmt = dict(new_fmt, body=new_fmt["body"].replace("<strong>🟠 Major</strong>",
+                    '<strong><picture><img src="x.svg" alt=""></picture> Major</strong>'))
+    check("severity tag with an icon still yields title and location",
+          [(f["title"], f["loc"]) for f in body_findings(icon_fmt)] == [("Keep exports read-only.", "Session.cpp:10-12")],
+          str(body_findings(icon_fmt)))
+    human_ack = [{"user": {"login": "melker22", "type": "User"}, "body": "cr-ack 0123456789abcdef01234567 fixed in deadbeef"}]
     res = evaluate(10, pr(), success, [], [new_fmt, quiet_review], "2026-10-21T20:00:00Z", None, lambda: pr(), human_ack)
     check("acked outside-diff passes", res[0] == 0, "\n".join(res[1]))
-    bare_ack = [{"user": {"login": "melker22", "type": "User"}, "body": "cr-ack 0123456789ab"}]
+    bare_ack = [{"user": {"login": "melker22", "type": "User"}, "body": "cr-ack 0123456789abcdef01234567"}]
     res = evaluate(10, pr(), success, [], [new_fmt, quiet_review], "2026-10-21T20:00:00Z", None, lambda: pr(), bare_ack)
     check("a bare cr-ack without commit or reason does not count", res[0] == 1, "\n".join(res[1]))
-    bot_ack = [{"user": {"login": "coderabbitai[bot]", "type": "Bot"}, "body": "cr-ack 0123456789ab"}]
+    bot_ack = [{"user": {"login": "coderabbitai[bot]", "type": "Bot"}, "body": "cr-ack 0123456789abcdef01234567 not a defect"}]
     res = evaluate(10, pr(), success, [], [new_fmt, quiet_review], "2026-10-21T20:00:00Z", None, lambda: pr(), bot_ack)
     check("a bot cannot acknowledge", res[0] == 1, "\n".join(res[1]))
 

@@ -98,7 +98,7 @@ Esqueleto para nós paralelos isolados:
 nas revisões do HEAD; `mergeable_state == clean` (relido antes do CLEAN). E **todo** achado bloqueante do corpo —
 "Outside diff range", "Duplicate", "Critical", "Major" ou "Minor" (Nitpick, Trivial e Additional não
 bloqueiam) — do corpo de **qualquer** revisão do PR — de qualquer commit, não só do HEAD — precisa de
-um comentário humano no PR com `cr-ack <id> <commit da correção ou motivo>` (o gate imprime o id). Depois,
+um comentário humano no PR com `cr-ack <id> <commit da correção ou motivo>` (o id completo do marcador, que o gate imprime; prefixo não vale). Depois,
 as threads não resolvidas são conferidas com a tool MCP do GitHub (`pull_request_read get_review_comments`).
 Só então merge. Token opcional: `GITHUB_TOKEN`/`GH_TOKEN`.
 

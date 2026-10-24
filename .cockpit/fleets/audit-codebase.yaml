@@ -121,7 +121,8 @@ nodes:
       {{needs.sweep.output}}
       Para CADA achado: leia o código e decida CONFIRMED (o cenário quebra de fato — se for barato,
       prove com um playbook em qa/audit/<id>.json rodado pelo ./build/linux/aioffice-cli depois de
-      `scripts/qa-all.sh`, ou com um teste mínimo; o playbook deve FALHAR hoje), PLAUSIBLE (o código
+      `scripts/qa-all.sh`, ou com um teste mínimo; o playbook tem `expect` com o comportamento CERTO e por
+      isso FALHA hoje — o gate seguinte roda cada um e exige a falha; playbook só de observação não serve), PLAUSIBLE (o código
       está errado mas a reprodução é cara — explique) ou REJECTED (o cenário não acontece; diga por quê).
       Ajuste a severidade se necessário. Cruze com docs/audit/coderabbit-history.md (Frente A): achado
       que já está lá como VALID vira referência, não duplicata.
@@ -145,7 +146,12 @@ nodes:
     type: gate
     gate: command
     needs: [confirm, history]
-    run: scripts/fleet-verify-merged.sh 2 && test -s docs/audit/coderabbit-history.md && test -s docs/audit/module-sweep.md
+    # Every reproduction playbook must FAIL today (it asserts the correct behaviour): a passing one
+    # proves nothing. CodeRabbit on PR #12.
+    run: >-
+      scripts/fleet-verify-merged.sh 2 && test -s docs/audit/coderabbit-history.md && test -s docs/audit/module-sweep.md
+      && export AIOFFICE_HEADLESS=1 QT_QPA_PLATFORM=offscreen
+      && for f in qa/audit/*.json; do if ./build/linux/aioffice-cli play "$f" >/dev/null 2>&1; then echo "audit playbook passes today: $f"; exit 1; fi; done
 
   notion-sync:
     title: Sincronizar Notion (Sonnet)
