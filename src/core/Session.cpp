@@ -419,6 +419,7 @@ struct ReplaceHit {
     int start = 0;
     int len = 0;
     int newLen = 0;
+    QString replacement;
 };
 
 struct RunPlan {
@@ -1461,6 +1462,31 @@ QJsonObject Session::insertBreak(const QJsonObject &args)
     return r;
 }
 
+// Replace [start, start+len) inside a format revision's prior slices. The
+// inserted run keeps the formatting of the first sliced run. An empty
+// replacement drops the slice. Coordinates are local to priorRuns.
+static void replaceFormatPriorSlice(QVector<TextRun> &runs, int start, int len, const QString &replacement)
+{
+    if (start < 0 || len < 0)
+        return;
+    int total = 0;
+    for (const auto &run : runs)
+        total += run.text.size();
+    if (start + len > total)
+        return;
+    const QVector<TextRun> before = splitRuns(runs, 0, start);
+    const QVector<TextRun> mid = splitRuns(runs, start, start + len);
+    const QVector<TextRun> after = splitRuns(runs, start + len, total);
+    QVector<TextRun> out = before;
+    if (!replacement.isEmpty()) {
+        TextRun rep = mid.isEmpty() ? TextRun{} : mid.first();
+        rep.text = replacement;
+        out.push_back(rep);
+    }
+    out += after;
+    runs = out;
+}
+
 QJsonObject Session::findReplace(const QJsonObject &args)
 {
     const QString find = args.value(QStringLiteral("find")).toString();
@@ -1499,6 +1525,7 @@ QJsonObject Session::findReplace(const QJsonObject &args)
                     h.start = (shiftRevisions ? prefix : 0) + at;
                     h.len = find.size();
                     h.newLen = repl.size();
+                    h.replacement = repl;
                     hits.push_back(h);
                     ++count;
                     runHit = true;
@@ -1510,11 +1537,13 @@ QJsonObject Session::findReplace(const QJsonObject &args)
                 auto it = re.globalMatch(text);
                 while (it.hasNext()) {
                     const QRegularExpressionMatch m = it.next();
+                    const QString expanded = all ? expandRegexReplacement(repl, m) : repl;
                     ReplaceHit h;
                     h.blockId = shiftRevisions ? blockId : QString();
                     h.start = (shiftRevisions ? prefix : 0) + m.capturedStart();
                     h.len = m.capturedLength();
-                    h.newLen = all ? expandRegexReplacement(repl, m).size() : repl.size();
+                    h.newLen = expanded.size();
+                    h.replacement = expanded;
                     hits.push_back(h);
                     ++count;
                     runHit = true;
@@ -1588,6 +1617,25 @@ QJsonObject Session::findReplace(const QJsonObject &args)
         }
         if (!fmt.isEmpty())
             applyFormatToRun(run, fmt);
+    }
+    // A format revision's priorRuns are the pre-change slices of [start, end).
+    // Growing `end` alone leaves a reject restoring the text from before the replace.
+    for (Revision &rv : doc_.revisions) {
+        if (rv.kind != QLatin1String("format") || rv.priorRuns.isEmpty())
+            continue;
+        QVector<ReplaceHit> inside;
+        for (const ReplaceHit &h : hits) {
+            if (h.blockId.isEmpty() || h.blockId != rv.blockId)
+                continue;
+            const int m0 = h.start;
+            const int m1 = h.start + h.len;
+            if (rv.start <= m0 && rv.end >= m1)
+                inside.push_back(h);
+        }
+        for (int i = inside.size() - 1; i >= 0; --i) {
+            const ReplaceHit &h = inside.at(i);
+            replaceFormatPriorSlice(rv.priorRuns, h.start - rv.start, h.len, h.replacement);
+        }
     }
     for (int i = 0; i < doc_.revisions.size(); ++i) {
         doc_.revisions[i].start = newStarts.at(i);
