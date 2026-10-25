@@ -8,6 +8,27 @@
 
 ---
 
+## 2026-10-25 — Fleet wave23 — Grok Build / Composer / Sonnet
+
+**Objective:** Close Fleet wave 23 (integrity, hostile I/O, MCP stdio transport, session invariants, T4 QA/CI). Document delivery on branch `fleet/wave23-integrity-89eb4702`; no push.
+
+**Done:**
+- MCP stdio writes newline-delimited JSON (`qa/check_mcp_stdio.py` / ctest `mcp_stdio`); legacy `Content-Length` still accepted on read only.
+- CLI/MCP IPC: no silent fallback to a blank local session after a connected GUI socket fails; user-scoped socket and LibreOffice convert in a private temp dir before atomic move.
+- Session: undo restores `{document, path, dirty}`; `batch` rejects `document_save`/`document_open`/exports/`set_read_only`; revision ids, structural edits, `set_selection` without dirty, table cap, `document_include` revisions; export uses a copy so read-only export does not mutate the working doc; field refresh order stabilized (`if`/`stat` with real page count).
+- Hostile I/O: zip inflation limits and under-declared size detection; truncated DOCX/ODT XML rejected; atomic `QSaveFile` on writes; JSON body/duplicate-id rules; captions/header-footer/EPUB id collision suffixes; EPUB image size/type limits.
+- T4: audit playbook gate, `qa-all` label filter, CircleCI artifact path, `fleet-verify-merged.sh` multiline output, merge-gate/fleet adjudication `success_output`, RTF `\u` self-test (A-qa-2..6, CR-3-032, CR-9).
+- Sonnet review loop (`wave23_io_hostile`, test #70) green; empty fix-pass findings on `3a52198`.
+- `scripts/qa-all.sh --gui --interop --pdf --formats`: **118/118** ctest passed, **0** failed (**2** disabled: `roundtrip_foreign_odt_wave17`, `roundtrip_foreign_docx_wave17` — A-qa-1 export/reimport gap, wave 24); real time **203.50 s**; interop skipped (no LibreOffice in this run).
+
+**Decisions:** Foreign DOCX/ODT revision round-trip compare is hardened but full green waits on wave 24 fidelity (disabled ctests document A-qa-1). GUI backlog (A-app-*, PR #11 QML) stays Fase Humano per spec.
+
+**Next suggested step:** Open PR into `main`, CI + CodeRabbit, merge with `scripts/pr-merge-gate.py`; Notion sync for wave 23 delivery.
+
+**Commits:** `3ddf3fe` fix: merge gate accepts a completed CodeRabbit review with nothing to post · `62f4a21` docs: wave 23 spec and fleet (integrity, hostile input, MCP stdio) · `caaa99a` docs: update lessons from PR #12 · `5ecf90e` fix: harden wave 23 T4 QA, CI, and Fleet gates (D18) · `c4df652` fix: reject hostile I/O and write saves atomically · `3c3ad52` fix: stop MCP and CLI from writing the wrong document · `1907ee6` Fix session history, revision ranges, and field refresh · `f888867` Merge 1907ee6: session history, revision ranges, and field refresh · `07cb77d` Merge c4df652: reject hostile I/O and write saves atomically · `d1671b2` Merge 5ecf90e: harden wave 23 T4 QA, CI, and Fleet gates · `8f6dc66` fix: unblock EPUB export QA after wave 23 T2×T3 merge · `363b669` fix: tag text frames as PDF figures in reading order · `3a52198` fix: count real zip inflation and publish PDF atomically
+
+---
+
 ## 2026-10-21 — Cursor Grok 4.7 — CodeRabbit PR #10
 
 **Objective:** Fix the 8 CodeRabbit findings on PR #10 (`fix/coderabbit-outside-diff`), then the next round on head `ab116ad`. Minimal changes, no loosened tests, no push, and do not touch `.cockpit/fleets/audit-codebase.yaml`.

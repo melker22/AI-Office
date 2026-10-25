@@ -1,6 +1,6 @@
 # Catálogo Writer — ideias do Guide, código nosso
 
-Espelho git do board **Roadmap para Produção** no Notion ([hub](https://app.notion.com/p/3cb46a79156b819daef5ea9d7c41385a)). Sync: **2026-10-21** (Fase IA **onda 20** entregue: export EPUB 3 + RTF nativo import/export, gate `--formats` com epubcheck 0/0 e suíte RTF; **Round-trip ODT/DOCX** continua **Partial**). Totais: **200 Done**, **10 Partial**, **41 Todo**. Coluna **Fase** = `IA` | `Humano` | `Infra` | `Fora`.
+Espelho git do board **Roadmap para Produção** no Notion ([hub](https://app.notion.com/p/3cb46a79156b819daef5ea9d7c41385a)). Sync: **2026-10-25** (Fase IA **onda 23** entregue: MCP stdio JSON por linha, falha IPC explícita, `batch` sem open/save/export, limites de entrada hostil e saves atómicos; **Round-trip ODT/DOCX** continua **Partial**). Totais: **200 Done**, **10 Partial**, **41 Todo** (contagens Notion podem estar desatualizadas até `notion-sync`). Coluna **Fase** = `IA` | `Humano` | `Infra` | `Fora`.
 
 Fonte citável: The Document Foundation — [LibreOffice Writer Guide 26.2](https://books.libreoffice.org/en/WG262/WG262.html). Atribuição e limites: [`ATTRIBUTION.md`](ATTRIBUTION.md).
 
@@ -10,6 +10,7 @@ Fonte citável: The Document Foundation — [LibreOffice Writer Guide 26.2](http
 - WPS Office e SoftMaker FreeOffice **não** são fonte.
 - Calc, Impress, Draw-app, Base e Math-as-OLE: **fora** deste Writer (linha Product *Planilha / PPT* = não começar). Formas *dentro* do documento de texto = cap. 11, no nosso canvas.
 - Equivalente a macros: **MCP/CLI**, não gravador.
+- Transporte MCP stdio: uma linha JSON por mensagem (sem `Content-Length` na escrita). Falha de IPC ou JSON CLI inválido → erro, sem editar documento fantasma. Tool `batch`: transacção só em memória — rejeita `document_open`, `document_save`, exports e `set_read_only` (detalhe em [`mcp-tools.md`](mcp-tools.md)).
 
 Camadas: `JSON+MCP+GUI` · `JSON+MCP` · `só JSON` · `infra`.
 
