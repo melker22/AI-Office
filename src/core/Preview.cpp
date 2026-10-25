@@ -23,6 +23,7 @@
 #include <QTextLayout>
 #include <QTextOption>
 #include <QDateTime>
+#include <QFileInfo>
 #include <QtMath>
 #include <algorithm>
 
@@ -344,8 +345,11 @@ QImage loadBlockImage(const Block &b)
     QImage img;
     if (!b.imageBytes.isEmpty())
         img.loadFromData(b.imageBytes);
-    if (img.isNull() && !b.imagePath.isEmpty())
-        img.load(b.imagePath);
+    if (img.isNull() && !b.imagePath.isEmpty()) {
+        const QFileInfo fi(b.imagePath);
+        if (fi.isFile())
+            img.load(b.imagePath);
+    }
     return img;
 }
 
@@ -2183,7 +2187,10 @@ static void paintArtifactPass(QPainter *p, const Document &doc, const DocumentLa
             pdfDrawText(p, QRectF(lay.marginL, 8 * lay.zoom, lay.contentW, 18 * lay.zoom), Qt::AlignLeft | Qt::AlignVCenter,
                         t);
             if (!hdr.imagePath.isEmpty()) {
-                QImage himg(hdr.imagePath);
+                QImage himg;
+                const QFileInfo hfi(hdr.imagePath);
+                if (hfi.isFile())
+                    himg = QImage(hdr.imagePath);
                 if (!himg.isNull()) {
                     const QImage sc = himg.scaledToHeight(qMax(8, int(16 * lay.zoom)), Qt::SmoothTransformation);
                     p->drawImage(QPointF(lay.marginL + lay.contentW - sc.width(), 6 * lay.zoom), sc);
