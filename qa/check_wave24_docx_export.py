@@ -91,6 +91,17 @@ def block_text(block: dict) -> str:
     return "".join((run.get("text") or "") for run in (block.get("runs") or []))
 
 
+def caption_runs_text(block: dict) -> str:
+    return "".join((run.get("text") or "") for run in (block.get("caption_runs") or []))
+
+
+def caption_has_seq(block: dict, name_fragment: str) -> bool:
+    for run in block.get("caption_runs") or []:
+        if run.get("field") == "seq" and name_fragment in (run.get("field_arg") or ""):
+            return True
+    return False
+
+
 def cell_text(cell: dict) -> str:
     text = "".join((run.get("text") or "") for run in (cell.get("runs") or []))
     for row in cell.get("nested") or []:
@@ -319,19 +330,36 @@ def check_captions(cli: Path, work: Path) -> list[str]:
                 return index, block
         return -1, None
 
-    table_at, _table = find_block(
+    table_at, table_blk = find_block(
         lambda b: b.get("type") == "table" and body_has_cell([b], "CapCell")
     )
     cap_at, cap = find_block(lambda b: b.get("style") == "Caption" and "Vendas" in block_text(b))
-    if cap is None or table_at < 0 or cap_at != table_at + 1:
+    table_caption_ok = False
+    if table_at >= 0 and cap_at == table_at + 1 and cap is not None:
+        table_caption_ok = any(
+            run.get("field") == "seq" and "Tabela" in (run.get("field_arg") or "")
+            for run in cap.get("runs") or []
+        )
+        if not table_caption_ok:
+            errors.append("D5 reopen Caption paragraph has no SEQ field named Tabela")
+    elif (
+        table_blk is not None
+        and "Vendas" in caption_runs_text(table_blk)
+        and caption_has_seq(table_blk, "Tabela")
+    ):
+        table_caption_ok = True
+    if table_at < 0 or not table_caption_ok:
         errors.append(
             f"D5 reopen caption is not the paragraph after the table (table {table_at}, caption {cap_at})"
         )
-    elif not any(run.get("field") == "seq" and "Tabela" in (run.get("field_arg") or "") for run in cap.get("runs") or []):
-        errors.append("D5 reopen Caption paragraph has no SEQ field named Tabela")
-    image_at, _image = find_block(lambda b: b.get("type") == "image")
-    foto_at, _foto = find_block(lambda b: b.get("style") == "Caption" and "Foto da capa" in block_text(b))
-    if image_at < 0 or foto_at != image_at + 1:
+    image_at, image_blk = find_block(lambda b: b.get("type") == "image")
+    foto_at, foto = find_block(lambda b: b.get("style") == "Caption" and "Foto da capa" in block_text(b))
+    image_caption_ok = False
+    if image_at >= 0 and foto_at == image_at + 1 and foto is not None:
+        image_caption_ok = True
+    elif image_blk is not None and "Foto da capa" in caption_runs_text(image_blk):
+        image_caption_ok = True
+    if image_at < 0 or not image_caption_ok:
         errors.append(
             f"D5 reopen image caption is not the next paragraph (image {image_at}, caption {foto_at})"
         )
