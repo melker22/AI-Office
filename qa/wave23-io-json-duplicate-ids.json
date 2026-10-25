@@ -1,0 +1,4 @@
+[
+  {"tool": "document_new", "args": {"force": true}},
+  {"tool": "document_open", "args": {"path": "duplicate-ids.aio.json"}, "expect": {"ok": false, "error": "duplicate block id: p1"}}
+]

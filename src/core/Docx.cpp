@@ -47,6 +47,7 @@ struct DocxOut {
     QSet<QString> syntheticBmBlockIds;
     QMap<QString, int> revWId;
     int nextWId = 1;
+    int nextBmId = 0; // w:id is unique across the document, not per paragraph
     QMap<QString, int> seqShown; // SEQ name -> how many of that name already emitted
 
     int wId(const QString &revId)
@@ -980,15 +981,14 @@ QString bookmarksAroundWml(const Document &doc, const QString &blockId, const QS
 {
     QString out = inner;
     QSet<QString> done;
-    int idx = 0;
     auto wrap = [&](const QString &key) {
         const QString name = o.bm(key);
         if (name.isEmpty() || done.contains(name))
             return;
         done.insert(name);
-        ++idx;
+        const int id = ++o.nextBmId;
         out = QStringLiteral("<w:bookmarkStart w:id=\"%1\" w:name=\"%2\"/>%3<w:bookmarkEnd w:id=\"%1\"/>")
-                  .arg(idx)
+                  .arg(id)
                   .arg(xmlEscape(name), out);
     };
     for (const auto &bm : doc.bookmarks) {
@@ -1340,14 +1340,7 @@ bool saveDocx(const Document &doc, const QString &path, QString *error, bool emb
     for (const auto &m : media)
         entries.push_back(m);
 
-    QFile f(path);
-    if (!f.open(QIODevice::WriteOnly)) {
-        if (error)
-            *error = QStringLiteral("Cannot write ") + path;
-        return false;
-    }
-    f.write(Zip::pack(entries));
-    return true;
+    return writeFileAtomic(path, Zip::pack(entries), error);
 }
 
 bool loadDocx(const QByteArray &zipData, Document &doc, QString *error)
@@ -1973,6 +1966,12 @@ bool loadDocx(const QByteArray &zipData, Document &doc, QString *error)
                 inTbl = false;
             }
         }
+    }
+    if (xml.hasError()) {
+        if (error)
+            *error = QStringLiteral("document.xml: %1 at line %2")
+                         .arg(xml.errorString(), QString::number(xml.lineNumber()));
+        return false;
     }
     applyFieldConditionals(doc, fieldConditionals);
     if (doc.body.isEmpty())

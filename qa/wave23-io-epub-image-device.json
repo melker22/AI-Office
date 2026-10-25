@@ -1,0 +1,5 @@
+[
+  {"tool": "document_new", "args": {"force": true}},
+  {"tool": "document_open", "args": {"path": "image-device.aio.json"}, "expect": {"ok": true}},
+  {"tool": "document_save", "args": {"path": "device-out.epub"}, "expect": {"ok": false, "error": "EPUB image is not a regular file: /dev/zero"}}
+]

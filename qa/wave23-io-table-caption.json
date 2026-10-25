@@ -1,0 +1,17 @@
+[
+  {"tool": "document_new", "args": {"force": true}},
+  {"tool": "insert_table", "args": {"rows": 2, "cols": 2, "header": false}},
+  {"tool": "insert_caption", "args": {"id": "t1", "text": "Vendas", "seq": {"name": "Tabela"}}, "expect": {"ok": true}},
+  {"tool": "document_get", "args": {}, "expect": {"document.body.1.id": "t1", "document.body.1.caption_runs.2.text": "Vendas"}},
+  {"tool": "document_stats", "args": {}, "expect": {"words": {"$gte": 1}}},
+  {"tool": "document_save", "args": {"path": "caption-round.aio.json"}, "expect": {"ok": true}},
+  {"tool": "document_new", "args": {"force": true}},
+  {"tool": "document_open", "args": {"path": "caption-round.aio.json"}, "expect": {"ok": true}},
+  {"tool": "document_get", "args": {}, "expect": {"document.body.1.caption_runs.2.text": "Vendas"}},
+  {"tool": "document_open", "args": {"path": "table-caption.aio.json"}, "expect": {"ok": true}},
+  {"tool": "document_get", "args": {}, "expect": {"document.body.1.caption": "Vendas"}},
+  {"tool": "document_save", "args": {"path": "caption-string.aio.json"}, "expect": {"ok": true}},
+  {"tool": "document_new", "args": {"force": true}},
+  {"tool": "document_open", "args": {"path": "caption-string.aio.json"}, "expect": {"ok": true}},
+  {"tool": "document_get", "args": {}, "expect": {"document.body.1.caption": "Vendas"}}
+]

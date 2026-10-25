@@ -1,0 +1,4 @@
+[
+  {"tool": "document_new", "args": {"force": true}},
+  {"tool": "document_open", "args": {"path": "spaces.odt"}, "expect": {"ok": false, "error": "text:s text:c exceeds 10000"}}
+]
