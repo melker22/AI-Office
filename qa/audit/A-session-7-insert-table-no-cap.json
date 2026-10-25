@@ -1,5 +1,4 @@
 [
   {"tool": "document_new", "args": {"force": true}},
-  {"tool": "insert_blocks", "args": {"blocks": [{"type": "table", "rows": 300, "cols": 64}], "after_id": "end"}, "expect": {"ok": false}},
   {"tool": "insert_table", "args": {"rows": 300, "cols": 64, "header": false}, "expect": {"ok": false}}
 ]

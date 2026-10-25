@@ -12,7 +12,7 @@ Os executores desta rodada são **Grok Build 4.7** (principal) e **Composer 2.5*
 
 Todo defeito corrigido ganha um teste que falha antes da correção (L9, L19).
 
-Os 8 playbooks de `qa/audit/` têm `expect` com o comportamento certo e falham hoje, cada um no passo do defeito; `scripts/check-audit-playbooks.sh` (que roda `qa/audit/setup.sh` antes) exige isso. A onda que corrige o defeito move o playbook para `qa/waveNN-*`, onde ele passa, e o liga ao ctest.
+Os 10 playbooks de `qa/audit/` (um por defeito e formato) têm `expect` com o comportamento certo e falham hoje, cada um no passo do defeito; `scripts/check-audit-playbooks.sh` (que roda `qa/audit/setup.sh` antes) exige isso. A onda que corrige o defeito move o playbook para `qa/waveNN-*`, onde ele passa, e o liga ao ctest.
 
 ## Onda 23 — Integridade, entrada hostil e transporte (todos os critical do core/MCP)
 
