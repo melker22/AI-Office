@@ -17,6 +17,10 @@ if [[ "${1:-}" == "--self-test" ]]; then
   cd "$(dirname "$0")/.." || exit 2
   head_sha=$(git rev-parse HEAD)
   bogus="0000000000000000000000000000000000000001"
+  rm -f /tmp/fleet-verify-self-pass.txt /tmp/fleet-verify-self-fail.txt
+  pass_out=$(mktemp)
+  fail_out=$(mktemp)
+  trap 'rm -f "$pass_out" "$fail_out"' EXIT
   export FLEET_NEEDS_DEMO_OUTPUT=$(
     cat <<EOF
 {
@@ -26,16 +30,16 @@ if [[ "${1:-}" == "--self-test" ]]; then
 }
 EOF
   )
-  if ! scripts/fleet-verify-merged.sh 1 >/tmp/fleet-verify-self-pass.txt 2>&1; then
+  if ! scripts/fleet-verify-merged.sh 1 >"$pass_out" 2>&1; then
     echo "FAIL self-test pass case (HEAD commit should verify)"
-    cat /tmp/fleet-verify-self-pass.txt
+    cat "$pass_out"
     exit 1
   fi
   echo "ok   self-test pass case (multiline JSON commit in HEAD)"
   export FLEET_NEEDS_DEMO_OUTPUT='{"commit":"'"${bogus}"'","qa_green":true}'
-  if scripts/fleet-verify-merged.sh 1 >/tmp/fleet-verify-self-fail.txt 2>&1; then
+  if scripts/fleet-verify-merged.sh 1 >"$fail_out" 2>&1; then
     echo "FAIL self-test fail case (bogus commit should fail)"
-    cat /tmp/fleet-verify-self-fail.txt
+    cat "$fail_out"
     exit 1
   fi
   echo "ok   self-test fail case (missing commit rejected)"
