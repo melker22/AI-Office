@@ -286,7 +286,7 @@ Args: `{ "id"?: string, "ids"?: [...], "delta"?: -1 }`
 
 ### `export_markdown` / `export_text` / `copy_markdown`
 
-`export_markdown {path?, ids?}` returns `{markdown}` and optionally writes UTF-8. Whole document if `ids` omitted.  
+`export_markdown {path?, ids?}` returns `{markdown}` and optionally writes UTF-8. Whole document if `ids` omitted. With `path`, the file is written atomically; a write failure returns `{ok:false, error}`.  
 `export_text` same with `{text}` (tables as tab-separated rows).  
 `export_html` same with `{html}` (simple semantic HTML).  
 `copy_markdown` is the selection (or `ids`) without a file.

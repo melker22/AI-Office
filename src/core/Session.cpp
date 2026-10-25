@@ -4233,10 +4233,10 @@ QJsonObject Session::writeExport(const QJsonObject &args, const QString &payload
     r[key] = payload;
     const QString path = args.value(QStringLiteral("path")).toString();
     if (!path.isEmpty()) {
-        QFile f(path);
-        if (!f.open(QIODevice::WriteOnly | QIODevice::Truncate))
-            return fail(QStringLiteral("cannot write path"));
-        f.write(payload.toUtf8());
+        // D11: export_markdown / export_text / export_html write atomically like every other format.
+        QString err;
+        if (!writeFileAtomic(path, payload.toUtf8(), &err))
+            return fail(err);
         r[QStringLiteral("path")] = path;
     }
     return r;
@@ -5629,10 +5629,26 @@ QJsonObject Session::batch(const QJsonObject &args)
     const QJsonArray calls = args.value(QStringLiteral("calls")).toArray();
     if (calls.isEmpty())
         return fail(QStringLiteral("calls is required"));
+    // repeat_last replays lastTool_: a document_save before the batch would otherwise write to disk
+    // from inside it (D5). Check what it would run, before and while the batch executes.
+    auto blockedReason = [](const QString &t, const QString &last) -> QString {
+        const QString eff = t == QLatin1String("repeat_last") ? last : t;
+        if (!toolForbiddenInBatch(eff))
+            return {};
+        return (t == eff ? t : t + QStringLiteral(" (") + eff + QStringLiteral(")"))
+            + QStringLiteral(" is not allowed inside batch");
+    };
+    auto batchBlockedReason = [&](const QString &t) { return blockedReason(t, lastTool_); };
+    // Pre-check: simulate the sequence (repeat_last repeats the previous call of the batch, or the
+    // last tool before it for the first call).
+    QString simulatedLast = lastTool_;
     for (const auto &v : calls) {
         const QString t = v.toObject().value(QStringLiteral("tool")).toString();
-        if (toolForbiddenInBatch(t))
-            return fail(t + QStringLiteral(" is not allowed inside batch"));
+        const QString blocked = blockedReason(t, simulatedLast);
+        if (!blocked.isEmpty())
+            return fail(blocked);
+        if (t != QLatin1String("repeat_last"))
+            simulatedLast = t;
     }
     const Document snap = doc_;
     const QString snapPath = path_;
@@ -5651,9 +5667,9 @@ QJsonObject Session::batch(const QJsonObject &args)
             err = QStringLiteral("each call needs tool");
             break;
         }
-        if (toolForbiddenInBatch(t)) {
+        if (const QString blocked = batchBlockedReason(t); !blocked.isEmpty()) {
             failed = true;
-            err = t + QStringLiteral(" is not allowed inside batch");
+            err = blocked;
             break;
         }
         const QJsonObject a = c.value(QStringLiteral("args")).toObject();
