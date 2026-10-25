@@ -1,0 +1,23 @@
+[
+  {"tool": "document_open", "args": {"path": "qa/fixtures/wave24-odt-notes.odt"}},
+  {"tool": "document_get", "args": {}, "expect": {
+    "document.body.0.type": "footnote",
+    "document.body.0.runs.0.text": "Body only",
+    "document.body.2.type": "endnote",
+    "document.body.2.runs.0.text": "End body"
+  }},
+  {"tool": "document_new", "args": {"title": "Wave24 notes", "force": true}},
+  {"tool": "insert_blocks", "args": {"after_id": "end", "blocks": [
+    {"id": "host", "type": "paragraph", "runs": [{"text": "Alpha"}]}
+  ]}},
+  {"tool": "insert_footnote", "args": {"id": "host", "offset": 5, "text": "Body only"}},
+  {"tool": "insert_endnote", "args": {"id": "host", "offset": 6, "text": "End body"}},
+  {"tool": "document_save", "args": {"path": "/tmp/aioffice-wave24-t3-d12.odt"}},
+  {"tool": "document_open", "args": {"path": "/tmp/aioffice-wave24-t3-d12.odt"}},
+  {"tool": "document_get", "args": {}, "expect": {
+    "document.body.1.type": "footnote",
+    "document.body.1.runs.0.text": "Body only",
+    "document.body.2.type": "endnote",
+    "document.body.2.runs.0.text": "End body"
+  }}
+]
