@@ -141,6 +141,11 @@ Formato: `L<n> — regra` · onde falhou (evidência) · ocorrências.
   ponta a ponta pelo `main` com a rede/IO falsos. · PR #10: o refactor do `scripts/pr-merge-gate.py`
   passou no autoteste e no QA 75/75, mas o caminho real lançava `TypeError` (tupla não desempacotada) e
   só apareceu no primeiro uso de verdade. · 1
+- **L22 — Teste não depende de privilégio: a CI roda como root.** `chmod` de diretório, permissão de
+  arquivo e "sem acesso" não bloqueiam root (imagem `nixos/nix` da CircleCI). Provoque a falha por um
+  meio que vale para qualquer usuário — `/dev/full`, FIFO, nome acima de `NAME_MAX`, entrada malformada —
+  e nunca faça o teste "recusar root" (vira CI vermelha, não proteção). · PR #13: `wave23_io_hostile`
+  passava local e falhava na CI com "refusing to run as root". · 1
 
 ## Processo (Fleets)
 

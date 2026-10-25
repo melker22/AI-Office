@@ -2,9 +2,11 @@
 """D11/D12: real zip inflation budget, and PDF publish that does not touch a hostile path.
 
 Zip cases lower the caps through the environment. Values above the built-in
-256 MiB / 1 GiB ceilings are ignored by the unpacker. The PDF case renders
-into a directory that cannot accept a new inode, so a publish that opens the
-destination early truncates the existing file.
+256 MiB / 1 GiB ceilings are ignored by the unpacker. The PDF case makes the
+publish fail after rendering: the destination name is so long (251 bytes) that
+QSaveFile's temporary sibling (name + ".XXXXXX") exceeds NAME_MAX, which fails
+for root too (CI runs as root, where directory modes block nothing). A publish
+that opened the destination early would truncate the existing file.
 """
 
 from __future__ import annotations
@@ -12,7 +14,6 @@ from __future__ import annotations
 import importlib.util
 import json
 import os
-import stat
 import subprocess
 import sys
 import tempfile
@@ -79,8 +80,6 @@ def main() -> int:
     if not Path(cli).is_file():
         print(f"missing {cli}", file=sys.stderr)
         return 2
-    if os.geteuid() == 0:
-        fail("refusing to run as root: directory mode would not block the publish")
 
     fixtures = load_fixtures()
     runtime_cm = w23.make_runtime()
@@ -141,19 +140,15 @@ def _pdf_publish_keeps_existing(cli: str, runtime: Path) -> None:
     env = base_env(runtime)
     sentinel = b"SENTINEL-EXISTING-PDF\n"
     with tempfile.TemporaryDirectory(prefix="aio-pdf-publish-") as raw:
-        parent = Path(raw) / "locked"
-        parent.mkdir()
-        target = parent / "existing.pdf"
+        name_max = os.pathconf(raw, "PC_NAME_MAX")
+        # The target fits; QSaveFile's "<name>.XXXXXX" temporary does not.
+        target = Path(raw) / ("p" * (name_max - 4 - 4) + ".pdf")
         target.write_bytes(sentinel)
-        parent.chmod(stat.S_IRUSR | stat.S_IXUSR | stat.S_IRGRP | stat.S_IXGRP | stat.S_IROTH | stat.S_IXOTH)
-        try:
-            obj = call(cli, env, "document_export_pdf", {"path": str(target)}, timeout=25)
-            expect_error(obj, f"Cannot write {target}", "unwritable directory")
-            got = target.read_bytes()
-            if got != sentinel:
-                fail(f"existing pdf was modified ({len(got)} bytes, starts {got[:24]!r})")
-        finally:
-            parent.chmod(stat.S_IRWXU)
+        obj = call(cli, env, "document_export_pdf", {"path": str(target)}, timeout=25)
+        expect_error(obj, f"Cannot write {target}", "temporary sibling cannot be created")
+        got = target.read_bytes()
+        if got != sentinel:
+            fail(f"existing pdf was modified ({len(got)} bytes, starts {got[:24]!r})")
     print("ok   failed pdf publish leaves the existing file untouched")
 
 
