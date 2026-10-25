@@ -234,6 +234,19 @@ set_tests_properties(tools_catalog PROPERTIES LABELS "playbook" WORKING_DIRECTOR
 add_test(NAME play_classify COMMAND "${CMAKE_COMMAND}" -E env AIOFFICE_PLAY_CLASSIFY_CHECK=1 AIOFFICE_HEADLESS=1 QT_QPA_PLATFORM=offscreen
     "${AIOFFICE_CLI}")
 set_tests_properties(play_classify PROPERTIES LABELS "playbook" WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}")
+add_test(NAME wave24_docx_export COMMAND "${CMAKE_COMMAND}" -E env AIOFFICE_HEADLESS=1 QT_QPA_PLATFORM=offscreen
+    "${Python3_EXECUTABLE}" "${CMAKE_SOURCE_DIR}/qa/check_wave24_docx_export.py" --cli "${AIOFFICE_CLI}")
+set_tests_properties(wave24_docx_export PROPERTIES
+    LABELS "playbook"
+    TIMEOUT 180
+    WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}"
+)
+add_test(NAME wave24_docx_export_selftest COMMAND "${Python3_EXECUTABLE}"
+    "${CMAKE_SOURCE_DIR}/qa/check_wave24_docx_export.py" --self-test)
+set_tests_properties(wave24_docx_export_selftest PROPERTIES
+    LABELS "playbook"
+    WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}"
+)
 
 # Roundtrip tests run Python; require it at configure time so a missing interpreter
 # fails loudly here instead of as "no such file or directory" inside ctest (CI container).
