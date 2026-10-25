@@ -365,7 +365,18 @@ void rebaseRevisionsOnSplit(Document &doc, const QString &oldId, const QString &
             right.text = rv.text.mid(cut - rv.start);
             rv.text = rv.text.left(cut - rv.start);
         }
-        right.priorRuns.clear();
+        // Format priorRuns cover the same character span as text. The right half
+        // used to keep none of them, so rejecting it restored nothing or the
+        // whole original range on the left.
+        if (!right.priorRuns.isEmpty()) {
+            const QVector<TextRun> prior = right.priorRuns;
+            int priorLen = 0;
+            for (const auto &run : prior)
+                priorLen += run.text.size();
+            const int leftChars = cut - rv.start;
+            rv.priorRuns = splitRuns(prior, 0, leftChars);
+            right.priorRuns = splitRuns(prior, leftChars, priorLen);
+        }
         right.deletedRuns.clear();
         right.id.clear();
         extra.push_back(right);
