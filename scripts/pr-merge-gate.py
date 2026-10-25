@@ -261,7 +261,7 @@ def acknowledgements(issue_comments: list) -> dict[str, str]:
 
 def evaluate(pr_number: int, pr: dict, statuses: list, comments: list, reviews: list,
              commit_date: str, since: str | None, refetch,
-             issue_comments: list | None = None) -> tuple[int, list[str]]:
+             issue_comments: list | None = None, head_pr_count: int = 1) -> tuple[int, list[str]]:
     """Decide the gate from already loaded API payloads. refetch() reads the PR again."""
     head = pr["head"]["sha"]
     problems: list[str] = []
@@ -302,7 +302,13 @@ def evaluate(pr_number: int, pr: dict, statuses: list, comments: list, reviews: 
     if not on_head and not pending:
         # With nothing to say, CodeRabbit finishes an incremental review without posting a review object:
         # its status is success / "Review completed". "Review paused" (or anything else) is still pending.
-        if st.get("CodeRabbit") == "success" and cr_desc.startswith("Review completed"):
+        # The commit status is per commit, not per PR: if another open PR has the same head, the
+        # "Review completed" may belong to that PR, so it proves nothing about this one.
+        if st.get("CodeRabbit") == "success" and cr_desc.startswith("Review completed") and head_pr_count > 1:
+            pending = True
+            lines.append(f"PENDING head commit is shared by {head_pr_count} open PRs; 'Review completed' "
+                         "cannot be attributed to this one (push a commit or wait for a review object)")
+        elif st.get("CodeRabbit") == "success" and cr_desc.startswith("Review completed"):
             lines.append("note: CodeRabbit completed the head review with no new review (nothing to report)")
         else:
             pending = True
@@ -391,12 +397,13 @@ def _main() -> int:
     comments = get_all(f"/pulls/{args.pr}/comments")
     reviews = get_all(f"/pulls/{args.pr}/reviews")
     issue_comments = get_all(f"/issues/{args.pr}/comments")
+    head_pr_count = sum(1 for p in get_all(f"/commits/{head}/pulls") if p.get("state") == "open") or 1
     commit_date = get(f"{API}/commits/{head}")["commit"]["committer"]["date"]
 
     def refetch():
         return get(f"{API}/pulls/{args.pr}")
 
-    return _print_result(*evaluate(args.pr, pr, statuses, comments, reviews, commit_date, args.since, refetch, issue_comments))
+    return _print_result(*evaluate(args.pr, pr, statuses, comments, reviews, commit_date, args.since, refetch, issue_comments, head_pr_count))
 
 
 def self_test() -> int:
@@ -458,6 +465,8 @@ def self_test() -> int:
               {"context": "CodeRabbit", "state": "success", "description": "Review paused"}]
     code, text, n = run(pr(), completed, reviews=[])
     check("'Review completed' with no review on the head is clean", code == 0 and "CLEAN" in text, text)
+    res = evaluate(10, pr(), completed, [], [], "2026-10-21T20:00:00Z", None, lambda: pr(), [], 2)
+    check("'Review completed' on a head shared by two open PRs is pending", res[0] == 2, "\n".join(res[1]))
     code, text, n = run(pr(), paused, reviews=[])
     check("'Review paused' with no review on the head is pending", code == 2 and "Review paused" in text, text)
     code, text, n = run(pr(), success)
