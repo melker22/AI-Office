@@ -45,7 +45,7 @@ if [ "$formats" = 1 ]; then
 fi
 
 status=0
-if ! run "ctest --test-dir build/linux --output-on-failure -L '${ctest_labels}'"; then
+if ! run "ctest --test-dir build/linux --output-on-failure --no-tests=error -L '${ctest_labels}'"; then
   status=1
 fi
 

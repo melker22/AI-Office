@@ -181,12 +181,15 @@ nodes:
     prompt: |
       Três passadas não zeraram os findings. Descarte os que não são defeitos (com motivo), faça
       UMA correção direta dos reais, rode `scripts/qa-all.sh --gui --interop` e pare. Nunca
-      pergunte a um humano nem comece outro ciclo.
+      pergunte a um humano nem comece outro ciclo. Submeta resolved = true só se nenhum defeito
+      real ficou aberto.
+    success_output: resolved
     output_contract:
       type: object
-      required: [verdict, accepted, dismissed]
+      required: [verdict, resolved, accepted, dismissed]
       properties:
         verdict: { type: string, enum: [resolved, failed] }
+        resolved: { type: boolean }
         accepted: { type: array, items: { type: string } }
         dismissed: { type: array, items: { type: string } }
 
@@ -201,8 +204,7 @@ nodes:
       Auditoria final de `git diff main...HEAD` contra docs/waves/wave17-roundtrip.md. Foque no
       invariante D1 e no caminho estrangeiro. Corrija só o crítico, commit, reporte em 10 linhas.
 
-  # Gate final: fix-pass/adjudicação podem comitar depois do qa-full. Um verdict "failed" do
-  # adjudicador já falha o nó e o loop no runtime da Fleet, pulando tudo daqui para baixo.
+  # Gate final: fix-pass/review-adjudication podem comitar depois do qa-full.
   qa-final:
     type: gate
     gate: command

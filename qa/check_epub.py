@@ -219,6 +219,36 @@ def png_size(data: bytes) -> tuple[int, int]:
     return int.from_bytes(data[16:20], "big"), int.from_bytes(data[20:24], "big")
 
 
+def html_has_nested_list(html: str) -> bool:
+    """True when an <ol> or <ul> appears inside a list item (not just sibling <li>s)."""
+    try:
+        root = ET.fromstring(html)
+    except ET.ParseError:
+        return bool(re.search(r"<li\b[^>]*>[\s\S]*?<(ol|ul)\b", html, flags=re.I))
+    xhtml = "http://www.w3.org/1999/xhtml"
+
+    def walk(elem: ET.Element) -> bool:
+        tag = elem.tag.split("}")[-1] if "}" in elem.tag else elem.tag
+        if tag == "li":
+            for child in elem:
+                ctag = child.tag.split("}")[-1] if "}" in child.tag else child.tag
+                if ctag in ("ol", "ul"):
+                    return True
+        for child in elem:
+            if walk(child):
+                return True
+        return False
+
+    if walk(root):
+        return True
+    # Fragment bundles may omit a single root; wrap and retry.
+    try:
+        wrapped = ET.fromstring(f'<div xmlns="{xhtml}">{html}</div>')
+    except ET.ParseError:
+        return False
+    return walk(wrapped)
+
+
 def check_structure(epub: Path, exp: dict[str, Any]) -> list[str]:
     errors: list[str] = []
     if exp.get("mimetype_stored_first", True) and not mimetype_stored_first(epub):
@@ -283,8 +313,8 @@ def check_structure(epub: Path, exp: dict[str, Any]) -> list[str]:
     if nested_list:
         if "<ol" not in bundle_lower and "<ul" not in bundle_lower:
             errors.append("missing list markup")
-        if nested_list == "required" and bundle_lower.count("<li") < 2:
-            errors.append("expected nested list with multiple items")
+        if nested_list == "required" and not html_has_nested_list(bundle):
+            errors.append("expected a list nested inside a list item")
 
     alt_text = exp.get("image_alt_contains")
     if isinstance(alt_text, str) and alt_text:
@@ -498,6 +528,21 @@ def self_test() -> int:
         ok = False
     else:
         print("ok   epubcheck absence detection")
+
+    flat = '<ul xmlns="http://www.w3.org/1999/xhtml"><li>A</li><li>B</li></ul>'
+    nested = (
+        '<ul xmlns="http://www.w3.org/1999/xhtml"><li>A<ul><li>B</li></ul></li></ul>'
+    )
+    if html_has_nested_list(flat):
+        print("FAIL self-test nested_list flat case should fail")
+        ok = False
+    else:
+        print("ok   nested_list flat case rejected")
+    if not html_has_nested_list(nested):
+        print("FAIL self-test nested_list nested case should pass")
+        ok = False
+    else:
+        print("ok   nested_list nested case accepted")
 
     mcp = (REPO / "docs" / "mcp-tools.md").read_text(encoding="utf-8")
     open_section = mcp.split("### `document_open`", 1)[1].split("### `document_save`", 1)[0]

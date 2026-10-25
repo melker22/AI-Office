@@ -194,12 +194,14 @@ nodes:
       Três passadas de revisão/correção não zeraram os findings. Aplique o critério de triagem:
       descarte achados que não são defeitos reais (com motivo), faça UMA correção direta dos
       defeitos reais, rode `scripts/qa-all.sh --gui` e pare. Nunca pergunte a um humano nem
-      comece outro ciclo.
+      comece outro ciclo. Submeta resolved = true só se nenhum defeito real ficou aberto.
+    success_output: resolved
     output_contract:
       type: object
-      required: [verdict, accepted, dismissed]
+      required: [verdict, resolved, accepted, dismissed]
       properties:
         verdict: { type: string, enum: [resolved, failed] }
+        resolved: { type: boolean }
         accepted: { type: array, items: { type: string } }
         dismissed: { type: array, items: { type: string } }
 
@@ -216,10 +218,8 @@ nodes:
       mapa de offsets (hifenação/campos/skip), risco para o tagging de PDF (D10). Corrija só
       defeitos críticos, commit, e reporte em até 10 linhas.
 
-  # Gate final: fix-pass/adjudicate podem comitar depois do qa-full, então o branch
+  # Gate final: fix-pass/review-adjudication podem comitar depois do qa-full, então o branch
   # final é testado de novo antes do handoff e da aprovação humana.
-  # (Um verdict "failed" do adjudicador já falha o nó e o loop no runtime da Fleet,
-  #  o que pula tudo daqui para baixo — não precisa de checagem extra.)
   qa-final:
     type: gate
     gate: command
