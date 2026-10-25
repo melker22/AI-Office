@@ -189,8 +189,11 @@ _BLOCKING_BODY_KINDS = ("outside-diff", "duplicate", "body-critical", "body-majo
 _ACK_RE = re.compile(r"^\s*cr-ack\s+([0-9a-f]{16,})\b[ \t]+(\S.*)$", re.M)
 
 
+# The prompt label starts the heading content (only an icon or 🤖 before it), so a finding whose own
+# <summary> title mentions the phrase is not taken for it.
 _PROMPT_HEADING_RE = re.compile(
-    r"^[ \t]*(?:<details>[ \t]*)?<summary>(?:(?!</summary>).)*Prompt for all review comments(?:(?!</summary>).)*</summary>", re.M)
+    r"^[ \t]*(?:<details>[ \t]*)?<summary>[ \t]*(?:<picture>(?:(?!</picture>).)*</picture>[ \t]*)?(?:🤖[ \t]*)?"
+    r"Prompt for all review comments[^<\n]*</summary>", re.M)
 
 
 def _is_heading(body: str, m: re.Match) -> bool:
@@ -213,8 +216,9 @@ def body_findings(review: dict, kinds: tuple = _BLOCKING_BODY_KINDS) -> list[dic
         body = re.sub(r"^[ \t]*>[ \t]?", "", body, flags=re.M)
     # The prompt section starts at its <summary> heading line; the same words quoted inside a finding
     # must not end the scan early (every later finding would be dropped).
-    pm = _PROMPT_HEADING_RE.search(body)
-    stop = pm.start() if pm else len(body)
+    # ... and it comes after every finding, so the LAST such heading is the boundary.
+    heads_prompt = list(_PROMPT_HEADING_RE.finditer(body))
+    stop = heads_prompt[-1].start() if heads_prompt else len(body)
     heads = [(m.start(), _SECTION_KIND[m.group(1)]) for m in _SECTION_RE.finditer(body) if _is_heading(body, m)]
     out: list[dict] = []
     prev = 0
@@ -561,6 +565,11 @@ def self_test() -> int:
     phrase = dict(new_fmt, body=new_fmt["body"].replace("> body\n", "> See the Prompt for all review comments section.\n"))
     check("the prompt-section phrase quoted inside a finding does not end the scan",
           [f["id"][:6] for f in body_findings(phrase)] == ["012345"], str(body_findings(phrase)))
+    in_title = dict(new_fmt, body=new_fmt["body"].replace(
+        "· Keep exports read-only. ·", "· Prompt for all review comments must stay last. ·"))
+    check("the prompt-section phrase in a finding title does not end the scan",
+          [(f["id"][:6], f["title"]) for f in body_findings(in_title)]
+          == [("012345", "Prompt for all review comments must stay last.")], str(body_findings(in_title)))
     check("section names quoted inside a finding do not change its section",
           [(f["id"][:6], f["kind"]) for f in body_findings(quoted)] == [("012345", "outside-diff")], str(body_findings(quoted)))
 
