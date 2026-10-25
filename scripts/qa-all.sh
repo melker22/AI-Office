@@ -45,7 +45,8 @@ if [ "$formats" = 1 ]; then
 fi
 
 status=0
-if ! run "ctest --test-dir build/linux --output-on-failure --no-tests=error -L '${ctest_labels}'"; then
+# Wave 24 fidelity judges stay registered but are excluded until T1–T4 land (label wave24).
+if ! run "ctest --test-dir build/linux --output-on-failure --no-tests=error -L '${ctest_labels}' -LE wave24"; then
   status=1
 fi
 

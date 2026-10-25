@@ -1,0 +1,18 @@
+[
+  {
+    "tool": "document_new",
+    "args": {
+      "title": "D15",
+      "force": true
+    }
+  },
+  {
+    "tool": "insert_shape",
+    "args": {
+      "after_id": "end",
+      "shape": "rect",
+      "width_mm": 20,
+      "height_mm": 10
+    }
+  }
+]

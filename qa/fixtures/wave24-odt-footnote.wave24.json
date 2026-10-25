@@ -1,0 +1,12 @@
+{
+  "decision": "D12",
+  "audit": [
+    "A-odf-1"
+  ],
+  "body": [
+    {
+      "block_index": 0,
+      "plain": "See"
+    }
+  ]
+}

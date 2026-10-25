@@ -1,0 +1,22 @@
+{
+  "decision": "D7",
+  "audit": [
+    "A-docx-10"
+  ],
+  "body": [
+    {
+      "block_index": 0,
+      "plain": ""
+    }
+  ],
+  "export": {
+    "docx": {
+      "must_contain": [
+        "w:delText"
+      ],
+      "must_not_contain": [
+        "<w:fldSimple"
+      ]
+    }
+  }
+}
