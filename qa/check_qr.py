@@ -148,7 +148,9 @@ def preview_steps(payload: bytes) -> list[dict]:
             "args": {
                 "after_id": "end",
                 "qr": payload.decode("ascii"),
-                "width_mm": 90,
+                # The block is the full text column wide; width_mm is its height.
+                # 160 mm is nearly square on A4, so page_preview does not stretch the symbol.
+                "width_mm": 160,
             },
             "expect": {"ok": True},
         },

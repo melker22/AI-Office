@@ -342,7 +342,7 @@ Insere um Heading 1 e um parágrafo por termo com números de página (`concorda
 
 - `insert_shape` `{shape: rect|ellipse|line, fill?, stroke?, width_mm?, height_mm?, connect_to?}`
 - `insert_chart` `{data: [{label, value}]}`
-- `insert_qr` `{qr: "texto"}` — matriz de preview (payload curto)
+- `insert_qr` `{qr: "texto"}` — símbolo QR ISO/IEC 18004, byte mode, versões 1–10, nível M. O texto é UTF-8. Acima de 213 bytes devolve `{ok:false, error:"QR payload exceeds version 10 level M capacity"}` e não grava um símbolo inválido.
 - `insert_equation` `{text, numbered?}`
 - `insert_form` `{kind: text|checkbox|dropdown, text?}`
 - `bibliography_set` / `insert_citation` — citação mínima (não é processador CSL)
