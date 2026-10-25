@@ -1,0 +1,335 @@
+version: 1
+name: wave24-docx-odt
+description: >
+  Onda 24 — fidelidade DOCX/ODT (ida e volta) e QR decodificável (auditoria 2026-10). Spec:
+  docs/waves/wave24-docx-odt-fidelity.md. Executor principal Grok Build (Cursor a 73% da cota).
+  Push/PR pré-aprovados pelo utilizador (ask_05e099babed7); o merge só sai com
+  scripts/pr-merge-gate.py limpo e threads resolvidas, conferidos pelo orquestrador.
+args:
+  opus_audit:
+    default: "false"
+    description: "true = auditoria final do Opus antes do PR"
+defaults:
+  agent: grok
+  model: grok-4.7
+  approval: full-access
+max_parallel: 4
+nodes:
+  lessons:
+    title: Lições dos PRs anteriores (Sonnet)
+    agent: claude
+    model: claude-sonnet-5
+    effort: medium
+    prompt: |
+      Projeto AI Office Writer. Mantenha docs/LESSONS.md e .cursor/rules/lessons.mdc. Não altere código.
+      Faça tudo neste turno, sem subagentes em segundo plano.
+      1. Veja em docs/LESSONS.md a linha "Última PR processada". Liste os PRs mergeados depois dela em
+         melker22/AI-Office (tool MCP do GitHub; `gh` não existe). Nenhum novo → não mude nada.
+      2. Para cada PR novo, leia as threads do CodeRabbit (pull_request_read get_review_comments), o CORPO
+         das revisões (outside-diff, "<Severity> comments: N") e as entradas em docs/AI_HANDOFF.md e
+         docs/AI_HANDOFF_ARCHIVE.md.
+      3. Defeito real que chegou ao CodeRabbit ou exigiu intervenção: instância de lição existente →
+         acrescente evidência e incremente; padrão novo → lição nova com regra VERIFICÁVEL. Sem evidência
+         (link de thread/commit) não entra.
+      4. Reescreva o checklist de .cursor/rules/lessons.mdc (máx. 15 itens) e atualize "Última PR processada".
+      5. Commit `docs: update lessons from PR #N` em inglês, sem push. Submeta commit =
+         `git rev-parse HEAD` (mesmo sem mudanças), qa_green = true, summary.
+    success_output: qa_green
+    output_contract: &executor_contract
+      type: object
+      required: [commit, qa_green, summary]
+      properties:
+        commit: { type: string, pattern: "^[0-9a-f]{40}$" }
+        qa_green: { type: boolean }
+        blocker: { type: string }
+        summary: { type: string }
+
+  t1-docx-in:
+    title: T1 import DOCX (Grok Build)
+    needs: [lessons]
+    effort: high
+    workspace: isolated
+    prompt: |
+      Projeto AI Office Writer (C++20/Qt 6). PRIMEIRO: `git merge {{needs.lessons.output.commit}}`.
+      Leia docs/waves/wave24-docx-odt-fidelity.md (decisões FECHADAS), os achados citados em
+      docs/audit/module-sweep.md / docs/audit/coderabbit-history.md / docs/audit/coderabbit-pr11.json,
+      docs/ORCHESTRATION.md e o checklist de .cursor/rules/lessons.mdc (L22: a CI roda como root e com
+      outra glibc — nenhum teste pode depender de privilégio ou de LD_PRELOAD herdado). Faça tudo neste
+      turno, sem subagentes em segundo plano.
+      Só a parte de IMPORT de src/core/Docx.cpp (loadDocx e auxiliares de leitura), docs/mcp-tools.md e qa/.
+      NÃO mexa no export DOCX (T2), em Odf.cpp (T3), em Qr.cpp (T4) nem em shell.nix/CMake/CI (T5).
+      Decisões: D1, D2, D3 (DOCX), D4 (import: pilha de tabelas aninhadas, gridSpan/vMerge), D5 (import da
+      legenda), D6, D7 (import), D8, D10. Use fixtures DOCX escritas à mão no estilo Word em
+      qa/fixtures/wave24-docx-*.docx (gere com um script python em qa/fixtures/, sem dependência externa).
+      Para cada decisão: primeiro um teste que FALHA hoje (qa/wave24-*.json ligado ao ctest, ou checker),
+      depois a correção. `scripts/qa-all.sh --gui --formats` verde. Commits em inglês (fix:/test:), sem
+      push. Submeta commit = `git rev-parse HEAD`, qa_green, summary (decisão → teste → commit).
+    success_output: qa_green
+    output_contract: *executor_contract
+
+  t2-docx-out:
+    title: T2 export DOCX + escape XML (Grok Build)
+    needs: [lessons]
+    effort: high
+    workspace: isolated
+    prompt: |
+      Projeto AI Office Writer (C++20/Qt 6). PRIMEIRO: `git merge {{needs.lessons.output.commit}}`.
+      Leia docs/waves/wave24-docx-odt-fidelity.md (decisões FECHADAS), os achados citados em
+      docs/audit/module-sweep.md / docs/audit/coderabbit-history.md / docs/audit/coderabbit-pr11.json,
+      docs/ORCHESTRATION.md e o checklist de .cursor/rules/lessons.mdc (L22: a CI roda como root e com
+      outra glibc — nenhum teste pode depender de privilégio ou de LD_PRELOAD herdado). Faça tudo neste
+      turno, sem subagentes em segundo plano.
+      Só a parte de EXPORT de src/core/Docx.cpp (saveDocx, runsToWml, runRPr e auxiliares de escrita),
+      src/core/Xml.{h,cpp}, docs/mcp-tools.md e qa/. NÃO mexa no import DOCX (T1) nem em Odf.cpp (T3).
+      Decisões: D4 (export: tabela aninhada e gridSpan/vMerge), D5 (export da legenda), D7 (export), D9
+      (xmlEscape + w:color), D11. Prove a ida e volta com o nosso import atual quando possível e, com
+      --interop, que o LibreOffice abre o DOCX com a estrutura certa.
+      Para cada decisão: primeiro um teste que FALHA hoje (qa/wave24-*.json ligado ao ctest, ou checker),
+      depois a correção. `scripts/qa-all.sh --gui --formats` verde. Commits em inglês (fix:/test:), sem
+      push. Submeta commit = `git rev-parse HEAD`, qa_green, summary (decisão → teste → commit).
+    success_output: qa_green
+    output_contract: *executor_contract
+
+  t3-odt:
+    title: T3 ODT (Grok Build)
+    needs: [lessons]
+    effort: high
+    workspace: isolated
+    prompt: |
+      Projeto AI Office Writer (C++20/Qt 6). PRIMEIRO: `git merge {{needs.lessons.output.commit}}`.
+      Leia docs/waves/wave24-docx-odt-fidelity.md (decisões FECHADAS), os achados citados em
+      docs/audit/module-sweep.md / docs/audit/coderabbit-history.md / docs/audit/coderabbit-pr11.json,
+      docs/ORCHESTRATION.md e o checklist de .cursor/rules/lessons.mdc (L22: a CI roda como root e com
+      outra glibc — nenhum teste pode depender de privilégio ou de LD_PRELOAD herdado). Faça tudo neste
+      turno, sem subagentes em segundo plano.
+      Só src/core/Odf.{h,cpp}, docs/mcp-tools.md e qa/. Para D15, reuse o pintor de bloco de Preview (como
+      o EPUB faz) sem mudar Preview. NÃO mexa em Docx.cpp, Xml.cpp (T2 muda xmlEscape; use-o) nem Qr.cpp.
+      Decisões: D3 (ODT), D4 (ODT), D9 (atributos ODT), D12, D13, D14, D15, D16. Fixtures ODT no estilo
+      LibreOffice em qa/fixtures/wave24-odt-*.odt (gere por script em qa/fixtures/).
+      Para cada decisão: primeiro um teste que FALHA hoje (qa/wave24-*.json ligado ao ctest, ou checker),
+      depois a correção. `scripts/qa-all.sh --gui --formats` verde. Commits em inglês (fix:/test:), sem
+      push. Submeta commit = `git rev-parse HEAD`, qa_green, summary (decisão → teste → commit).
+    success_output: qa_green
+    output_contract: *executor_contract
+
+  t4-qr:
+    title: T4 QR decodificável (Grok Build)
+    needs: [lessons]
+    effort: medium
+    workspace: isolated
+    prompt: |
+      Projeto AI Office Writer (C++20/Qt 6). PRIMEIRO: `git merge {{needs.lessons.output.commit}}`.
+      Leia docs/waves/wave24-docx-odt-fidelity.md (decisões FECHADAS), os achados citados em
+      docs/audit/module-sweep.md / docs/audit/coderabbit-history.md / docs/audit/coderabbit-pr11.json,
+      docs/ORCHESTRATION.md e o checklist de .cursor/rules/lessons.mdc (L22: a CI roda como root e com
+      outra glibc — nenhum teste pode depender de privilégio ou de LD_PRELOAD herdado). Faça tudo neste
+      turno, sem subagentes em segundo plano.
+      Só src/core/Qr.{h,cpp}, docs/mcp-tools.md e qa/. O juiz (zbarimg) é instalado no shell.nix pela T5;
+      até lá use `nix-shell -p zbar --run "zbarimg --raw <png>"` para provar.
+      Decisão: D17 (ISO/IEC 18004: reservar módulos de função antes dos dados, bits de formato do nível e
+      da máscara reais, escolha de máscara por penalidade, byte mode versões 1–10 nível M, erro claro acima
+      da capacidade). Teste: payloads de 1, 17, 100 e 200 bytes decodificados exatamente; payload acima
+      da capacidade → ok:false.
+      Para cada decisão: primeiro um teste que FALHA hoje (qa/wave24-*.json ligado ao ctest, ou checker),
+      depois a correção. `scripts/qa-all.sh --gui --formats` verde. Commits em inglês (fix:/test:), sem
+      push. Submeta commit = `git rev-parse HEAD`, qa_green, summary (decisão → teste → commit).
+    success_output: qa_green
+    output_contract: *executor_contract
+
+  t5-qa:
+    title: T5 QA, zbar e fixtures (Composer)
+    needs: [lessons]
+    agent: cursor
+    model: composer-2.5
+    workspace: isolated
+    prompt: |
+      Projeto AI Office Writer. PRIMEIRO: `git merge {{needs.lessons.output.commit}}`.
+      Leia docs/waves/wave24-docx-odt-fidelity.md (decisões FECHADAS), os achados citados em
+      docs/audit/module-sweep.md / docs/audit/coderabbit-history.md / docs/audit/coderabbit-pr11.json,
+      docs/ORCHESTRATION.md e o checklist de .cursor/rules/lessons.mdc (L22: a CI roda como root e com
+      outra glibc — nenhum teste pode depender de privilégio ou de LD_PRELOAD herdado). Faça tudo neste
+      turno, sem subagentes em segundo plano.
+      Só shell.nix, CMakeLists.txt (testes), scripts/qa-all.sh, .circleci/, qa/ (checkers e fixtures novos).
+      Decisão D18: (1) `zbar` no shell.nix fixado; (2) qa/check_qr.py exporta um documento com QR em PNG
+      (page_preview/insert_qr), PDF e ODT e roda `zbarimg --raw`, exigindo o payload exato (subprocess
+      com check=False explícito; ferramenta ausente = FALHA, nunca skip); (3) ctest ligando check_qr e os
+      playbooks qa/wave24-*; (4) reabilite os testes com DISABLED da onda 24 cujo comentário cita a onda 24
+      ou ids desta onda (eles podem falhar até T1–T4 entrarem — registre no summary quais).
+      Os checkers novos podem FALHAR até T1–T4 entrarem (esperado): qa_green aqui = `scripts/qa-all.sh
+      --gui --formats` verde EXCETO os testes que dependem de T1–T4 (liste-os no summary) e os checkers
+      funcionando (mostre um caso que passa e um que falha com a mensagem certa). Commits em inglês, sem
+      push. Submeta commit, qa_green, summary.
+    success_output: qa_green
+    output_contract: *executor_contract
+
+  integrate-1:
+    title: Integrar T1–T5 (Composer)
+    needs: [t1-docx-in, t2-docx-out, t3-odt, t4-qr, t5-qa]
+    agent: cursor
+    model: composer-2.5
+    prompt: |
+      Neste worktree, faça `git merge` dos commits EXATOS, nesta ordem:
+      {{needs.t1-docx-in.output.commit}}, {{needs.t2-docx-out.output.commit}},
+      {{needs.t3-odt.output.commit}}, {{needs.t4-qr.output.commit}}, {{needs.t5-qa.output.commit}}.
+      Conflitos esperados em Docx.cpp (T1 import × T2 export), CMakeLists.txt, docs/mcp-tools.md e
+      AI_HANDOFF: mantenha TODAS as adições. Rode `scripts/qa-all.sh --gui --formats`; corrija só quebras de
+      merge, commit. Submeta commit = HEAD após os merges, qa_green, summary.
+    success_output: qa_green
+    output_contract: *executor_contract
+
+  build-1:
+    type: gate
+    gate: command
+    needs: [integrate-1, lessons, t1-docx-in, t2-docx-out, t3-odt, t4-qr, t5-qa]
+    run: scripts/fleet-verify-merged.sh 7 && scripts/qa-all.sh --gui --formats
+
+  t6-regress:
+    title: T6 regressão completa (Grok Build)
+    effort: high
+    needs: [build-1]
+    prompt: |
+      Projeto AI Office Writer, worktree integrado da onda 24. Leia docs/waves/wave24-docx-odt-fidelity.md
+      (critério de pronto) e o checklist de lições. Faça tudo neste turno, sem subagentes em segundo plano.
+      Rode `scripts/qa-all.sh --gui --interop --pdf --formats`. Corrija o CÓDIGO (não testes nem
+      expectativas) até passar. Confirme: qa/audit/ não tem mais nenhum playbook desta onda (só os das
+      ondas 24–26, se houver); cada decisão D1–D17 tem um expect que falharia sem ela (liste no summary
+      decisão → arquivo de teste); qa/check_mcp_stdio.py passa. Decisão que pareça impossível → PARE e
+      reporte "PRECISA OPUS: ..." com evidência. Commit em inglês, sem push. Submeta commit/qa_green/summary.
+    success_output: qa_green
+    output_contract: *executor_contract
+
+  qa-full:
+    type: gate
+    gate: command
+    needs: [t6-regress]
+    run: scripts/fleet-verify-merged.sh 1 && scripts/qa-all.sh --gui --interop --pdf --formats
+
+  review:
+    type: loop
+    needs: [qa-full]
+    max_iterations: 3
+    on_exhausted: review-adjudication
+    until:
+      run: test "{{needs.review-pass.output.issues}}" -eq 0 && scripts/fleet-verify-merged.sh 1
+    nodes:
+      review-pass:
+        agent: claude
+        model: claude-sonnet-5
+        effort: high
+        session: continue
+        prompt: |
+          Você é o Tech Lead. PRIMEIRO verifique no diff cada item de .cursor/rules/lessons.mdc. Depois
+          revise `git diff main...HEAD` contra docs/waves/wave24-docx-odt-fidelity.md (D1–D19, critério de pronto).
+          Para cada decisão, confirme que o comportamento existe E que um teste falharia sem ele. Procure:
+          perda em ida e volta (DOCX/ODT, nosso e LibreOffice) de formatação de run, listas por tipo,
+          tabelas aninhadas/mescladas, legendas, notas, página, metadados e revisões; XML inválido gerado
+          (caracteres de controle, atributos sem escape, ids de bookmark repetidos); QR que o zbarimg não
+          decodifica; teste que depende de root/glibc (L22); regressões das ondas 12–23. Rode `scripts/qa-all.sh --gui --interop --pdf --formats`. Não corrija
+          nada. Só defeitos reais. Faça tudo neste turno. Submeta issues e findings ("arquivo:linha —
+          defeito — correção sugerida").
+        followup_prompt: |
+          Houve correção. Verifique de novo o checklist de lições e `git diff main...HEAD`, rode
+          `scripts/qa-all.sh --gui --interop --pdf --formats` e submeta só os findings que continuam ou surgiram.
+        output_contract:
+          type: object
+          required: [issues, findings]
+          properties:
+            issues: { type: integer, minimum: 0 }
+            findings: { type: array, items: { type: string } }
+      fix-pass:
+        needs: [review-pass]
+        effort: high
+        prompt: |
+          Projeto AI Office Writer (spec: docs/waves/wave24-docx-odt-fidelity.md; checklist .cursor/rules/lessons.mdc).
+          Findings: {{needs.review-pass.output.findings}}
+          Lista vazia → não altere nada. Senão corrija (com teste que falha antes), rode
+          `scripts/qa-all.sh --gui --interop --pdf --formats` e commit `fix: ...` em inglês, sem push.
+          Submeta commit = `git rev-parse HEAD`, qa_green, summary.
+        success_output: qa_green
+        output_contract: *executor_contract
+
+  review-adjudication:
+    title: Adjudicação final (Sonnet)
+    needs: [review]
+    agent: claude
+    model: claude-sonnet-5
+    effort: high
+    prompt: |
+      Três passadas não zeraram os findings. Descarte os que não são defeitos (com motivo), faça UMA
+      correção direta dos reais (com teste e commit), rode `scripts/qa-all.sh --gui --interop --pdf
+      --formats` e pare. Nunca pergunte a um humano. Submeta commit = `git rev-parse HEAD` e resolved =
+      true só se nenhum defeito real ficou aberto.
+    success_output: resolved
+    output_contract:
+      type: object
+      required: [verdict, resolved, accepted, dismissed, commit]
+      properties:
+        verdict: { type: string, enum: [resolved, failed] }
+        resolved: { type: boolean }
+        accepted: { type: array, items: { type: string } }
+        dismissed: { type: array, items: { type: string } }
+        commit: { type: string, pattern: "^[0-9a-f]{40}$" }
+
+  opus-audit:
+    title: Auditoria Opus (opcional)
+    needs: [review-adjudication]
+    enabled: "{{args.opus_audit}}"
+    agent: claude
+    model: claude-opus-5-5
+    effort: high
+    prompt: |
+      Auditoria final de `git diff main...HEAD` contra docs/waves/wave24-docx-odt-fidelity.md (foco: D4 tabelas,
+      D7/D10 revisões DOCX, D15 forma/gráfico/QR no ODT, D17 QR). Corrija só o crítico, commit.
+      Submeta commit/qa_green/summary.
+    success_output: qa_green
+    output_contract: *executor_contract
+
+  qa-final:
+    type: gate
+    gate: command
+    needs: [opus-audit, review-adjudication, t6-regress]
+    run: scripts/fleet-verify-merged.sh 1 && scripts/qa-all.sh --gui --interop --pdf --formats
+
+  handoff:
+    title: Handoff + catálogo (Composer)
+    needs: [qa-final]
+    agent: cursor
+    model: composer-2.5
+    prompt: |
+      Atualize só estes arquivos e commit `docs: ...` em inglês, sem push:
+      - docs/AI_HANDOFF.md: entrada nova no topo ("Fleet wave24 — Grok Build/Composer/Sonnet"), com o
+        resultado REAL de `scripts/qa-all.sh --gui --interop --pdf --formats` (rode-o) e
+        `git log main..HEAD --oneline` (hashes reais; não cite o hash do próprio commit).
+      - docs/audit/fix-plan.md: marque a onda 24 como entregue, item por item (corrigido / adiado com motivo).
+      - docs/WRITER_FEATURE_CATALOG.md: "Exportação/Importação DOCX e ODT" e "QR code" conforme o entregue.
+      Submeta commit/qa_green/summary. Resumo da revisão: {{needs.review.report}}
+    success_output: qa_green
+    output_contract: *executor_contract
+
+  notion-sync:
+    title: Sincronizar Notion (Sonnet)
+    needs: [handoff]
+    agent: claude
+    model: claude-sonnet-5
+    effort: low
+    prompt: |
+      Sincronize o Notion com o repositório (regra: documentação sempre atualizada). Tools MCP do
+      Notion; NÃO altere código; NÃO apague nem arquive páginas; nunca cole segredos. Fontes:
+      docs/audit/fix-plan.md, topo de docs/AI_HANDOFF.md, docs/waves/wave24-docx-odt-fidelity.md, docs/LESSONS.md.
+      Notion: hub 3cb46a79156b819daef5ea9d7c41385a; board collection://f3cc11ed-9e5e-4389-b49a-ca98f98dda62;
+      snapshot 3cb46a79156b8117a87fc72cd190f8c6. Atualize a seção "Auditoria 2026-10" do hub (onda 24
+      entregue: o que foi corrigido), "Última sync" e o snapshot. Reporte as mudanças.
+
+  open-pr:
+    title: Push + PR (Sonnet)
+    needs: [notion-sync]
+    agent: claude
+    model: claude-sonnet-5
+    effort: medium
+    prompt: |
+      Push deste branch para origin (nunca main) e PR para `main` em melker22/AI-Office via tool MCP do
+      GitHub (push/PR pré-aprovados pelo utilizador). Título em inglês
+      `fix: wave 24 — DOCX/ODT round-trip fidelity and decodable QR codes`. Corpo: resumo de
+      docs/waves/wave24-docx-odt-fidelity.md (diagnóstico + decisões), a lista de ids da auditoria corrigidos, test
+      plan e o handoff: {{needs.handoff.report}}. NÃO faça merge (o orquestrador roda o gate). Não
+      reescreva commits. Reporte a URL e o número do PR.
