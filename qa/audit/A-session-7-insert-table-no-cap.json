@@ -1,0 +1,4 @@
+[
+  {"tool": "document_new", "args": {"force": true}},
+  {"tool": "insert_table", "args": {"rows": 300, "cols": 64, "header": false}, "expect": {"ok": false}}
+]

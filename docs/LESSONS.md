@@ -107,7 +107,10 @@ Formato: `L<n> — regra` · onde falhou (evidência) · ocorrências.
   corpo ("Outside diff range comments") o que o GitHub não deixa postar inline; contar só inline deixou
   passar 5 achados reais. Usar `scripts/pr-merge-gate.py`. · PR #9 (2 achados: undo do título,
   exportação read-only), PR #9 1ª rodada (contagem dupla de notas no check_epub), PR #6
-  (`document_stats` com blocos ocultos), PR #4 (catálogo). · 5
+  (`document_stats` com blocos ocultos), PR #4 (catálogo). PR #10: o gate lia só as revisões do HEAD e
+  um push logo após a revisão de `343e3c5` escondeu 2 achados de corpo (export read-only altera o
+  documento; `stat pages` calculado antes de atualizar campos `if`) — todo achado de corpo, de qualquer
+  commit (Outside diff range, Duplicate, Critical, Major, Minor), agora exige `cr-ack <id> <commit ou motivo>`. · 7
 - **L17 — O nó `lessons` lê handoff atual E arquivo antes de avançar o marcador.** Se a entrada de
   handoff de um PR ainda não processado já foi movida para `AI_HANDOFF_ARCHIVE.md`, ler só
   `AI_HANDOFF.md` perde o registro de intervenção e o Passo 4 marca esse PR como processado sem revisitar
