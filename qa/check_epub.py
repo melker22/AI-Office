@@ -219,34 +219,53 @@ def png_size(data: bytes) -> tuple[int, int]:
     return int.from_bytes(data[16:20], "big"), int.from_bytes(data[20:24], "big")
 
 
+def _local_tag(tag: object) -> str:
+    if not isinstance(tag, str):
+        return ""
+    return tag.split("}")[-1] if "}" in tag else tag
+
+
+def _element_has_nested_list(root: ET.Element) -> bool:
+    """True when an ol or ul is a descendant of an li, including through a wrapper."""
+    for li in root.iter():
+        if _local_tag(li.tag) != "li":
+            continue
+        for desc in li.iter():
+            if desc is not li and _local_tag(desc.tag) in ("ol", "ul"):
+                return True
+    return False
+
+
 def html_has_nested_list(html: str) -> bool:
-    """True when an <ol> or <ul> appears inside a list item (not just sibling <li>s)."""
+    """True when one well-formed document nests ol/ul inside an li.
+
+    A parse error is not a nested list. Callers that have an EPUB must parse
+    each XHTML file; a concatenated bundle is not one document.
+    """
     try:
         root = ET.fromstring(html)
     except ET.ParseError:
-        return bool(re.search(r"<li\b[^>]*>[\s\S]*?<(ol|ul)\b", html, flags=re.I))
-    xhtml = "http://www.w3.org/1999/xhtml"
-
-    def walk(elem: ET.Element) -> bool:
-        tag = elem.tag.split("}")[-1] if "}" in elem.tag else elem.tag
-        if tag == "li":
-            for child in elem:
-                ctag = child.tag.split("}")[-1] if "}" in child.tag else child.tag
-                if ctag in ("ol", "ul"):
-                    return True
-        for child in elem:
-            if walk(child):
-                return True
         return False
+    return _element_has_nested_list(root)
 
-    if walk(root):
-        return True
-    # Fragment bundles may omit a single root; wrap and retry.
+
+def epub_has_nested_list(epub: Path) -> bool:
     try:
-        wrapped = ET.fromstring(f'<div xmlns="{xhtml}">{html}</div>')
-    except ET.ParseError:
+        zf = zipfile.ZipFile(epub)
+    except zipfile.BadZipFile:
         return False
-    return walk(wrapped)
+    with zf:
+        for name in zf.namelist():
+            lower = name.lower()
+            if not lower.endswith(".xhtml") and not lower.endswith(".html"):
+                continue
+            try:
+                root = ET.fromstring(zf.read(name))
+            except ET.ParseError:
+                continue
+            if _element_has_nested_list(root):
+                return True
+    return False
 
 
 def check_structure(epub: Path, exp: dict[str, Any]) -> list[str]:
@@ -313,7 +332,7 @@ def check_structure(epub: Path, exp: dict[str, Any]) -> list[str]:
     if nested_list:
         if "<ol" not in bundle_lower and "<ul" not in bundle_lower:
             errors.append("missing list markup")
-        if nested_list == "required" and not html_has_nested_list(bundle):
+        if nested_list == "required" and not epub_has_nested_list(epub):
             errors.append("expected a list nested inside a list item")
 
     alt_text = exp.get("image_alt_contains")
