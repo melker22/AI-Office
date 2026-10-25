@@ -1779,8 +1779,11 @@ static PdfTagRole roleForBlock(const Block &b)
         return PdfTagRole::ListItem;
     if (b.type == QLatin1String("table"))
         return PdfTagRole::TableCell;
+    // A text frame is a figure so reading_order is visible in the structure tree
+    // (Figure before P). Its glyphs stay on the shaped text path below.
     if (b.type == QLatin1String("image") || b.type == QLatin1String("shape") || b.type == QLatin1String("chart")
-        || b.type == QLatin1String("qr") || b.type == QLatin1String("equation") || b.type == QLatin1String("form"))
+        || b.type == QLatin1String("qr") || b.type == QLatin1String("equation") || b.type == QLatin1String("form")
+        || b.type == QLatin1String("frame"))
         return PdfTagRole::Figure;
     if (b.type == QLatin1String("footnote") || b.type == QLatin1String("endnote"))
         return PdfTagRole::Note;
@@ -2009,7 +2012,8 @@ static QVector<PdfTagMarker> pdfTagMarkersForPage(const Document &doc, const Doc
             }
             continue;
         }
-        if (role == PdfTagRole::Figure) {
+        // Frames keep the text-marker path (shaped runs, ruby, language spans).
+        if (role == PdfTagRole::Figure && b.type != QLatin1String("frame")) {
             PdfTagMarker m;
             m.role = PdfTagRole::Figure;
             m.blockId = lb.id;
@@ -2071,6 +2075,8 @@ static QVector<PdfTagMarker> pdfTagMarkersForPage(const Document &doc, const Doc
         m.fragment = fragment;
         m.level = qBound(1, b.level > 0 ? b.level : 1, 6);
         m.listLabel = role == PdfTagRole::ListItem && !lb.marker.isEmpty();
+        if (role == PdfTagRole::Figure)
+            m.alt = b.altText.isEmpty() ? b.plainText().trimmed() : b.altText;
         qreal top = 2;
         for (const auto &r : b.runs) {
             if (!r.ruby.isEmpty()) {
@@ -2667,7 +2673,8 @@ void paintPage(QPainter *p, const Document &doc, const DocumentLayout &lay, int 
         const LaidBlock *lb = bp ? laidFragment(ordered, m) : nullptr;
         const bool vert = bp && lb && verticalWriting(doc, *bp)
             && (m.role == PdfTagRole::Paragraph || m.role == PdfTagRole::Heading || m.role == PdfTagRole::ListItem
-                || m.role == PdfTagRole::Note || m.role == PdfTagRole::TocItem);
+                || m.role == PdfTagRole::Note || m.role == PdfTagRole::TocItem
+                || bp->type == QLatin1String("frame"));
         p->save();
         if (vert) {
             p->translate(lb->rect.center());
@@ -2679,7 +2686,7 @@ void paintPage(QPainter *p, const Document &doc, const DocumentLayout &lay, int 
             paintArtifactPass(p, doc, lay, page, m.artifactPass, ordered, caretOn, selId, caretOff, selRow, selCol);
         } else if (m.role == PdfTagRole::TableCell && lb && bp) {
             paintTableCellMarker(p, doc, lay, *lb, *bp, m, selId, selRow, selCol);
-        } else if (m.role == PdfTagRole::Figure && lb && bp) {
+        } else if (m.role == PdfTagRole::Figure && lb && bp && bp->type != QLatin1String("frame")) {
             paintFigureMarker(p, doc, lay, *lb, *bp);
         } else if (lb && bp) {
             paintTextMarker(p, doc, lay, *lb, *bp, m, docLang, selId, selStart, selEnd);
