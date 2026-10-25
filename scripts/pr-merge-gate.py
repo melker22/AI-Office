@@ -397,7 +397,10 @@ def _main() -> int:
     comments = get_all(f"/pulls/{args.pr}/comments")
     reviews = get_all(f"/pulls/{args.pr}/reviews")
     issue_comments = get_all(f"/issues/{args.pr}/comments")
-    head_pr_count = sum(1 for p in get_all(f"/commits/{head}/pulls") if p.get("state") == "open") or 1
+    # Only PRs whose own head IS this commit share the status; a stacked PR that merely contains the
+    # commit has a different head.
+    head_pr_count = sum(1 for p in get_all(f"/commits/{head}/pulls")
+                        if p.get("state") == "open" and (p.get("head") or {}).get("sha") == head) or 1
     commit_date = get(f"{API}/commits/{head}")["commit"]["committer"]["date"]
 
     def refetch():
