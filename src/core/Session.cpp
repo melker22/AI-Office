@@ -846,11 +846,14 @@ QJsonObject Session::getDocument(const QJsonObject &)
 {
     // A clean read leaves imported stat caches alone. An edit must republish
     // paragraphs/chars/tables/images before the JSON is returned.
+    resetRefreshLayoutPasses();
     refreshIfFields(doc_, dirty_);
     auto r = ok();
     r[QStringLiteral("document")] = doc_.toJson();
     r[QStringLiteral("words")] = visibleWordCount(doc_);
     r[QStringLiteral("libreoffice")] = LokEngine::available();
+    if (qEnvironmentVariableIsSet("AIOFFICE_COUNT_LAYOUT"))
+        r[QStringLiteral("layout_passes")] = refreshLayoutPasses();
     if (!revisionView_.isEmpty())
         r[QStringLiteral("revision_view")] = revisionView_;
     return r;

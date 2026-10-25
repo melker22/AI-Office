@@ -222,6 +222,9 @@ endforeach()
 set_tests_properties("playbook_wave23-io-zip-underdeclared.json" PROPERTIES
     ENVIRONMENT "AIOFFICE_ZIP_ENTRY_CAP=200000;AIOFFICE_ZIP_TOTAL_CAP=300000"
 )
+set_tests_properties("playbook_wave23-io-field-layout.json" PROPERTIES
+    ENVIRONMENT "AIOFFICE_COUNT_LAYOUT=1"
+)
 # QPdfWriter blocks on a fifo. Fail fast if the regular-file check regresses.
 set_tests_properties("playbook_wave23-io-export-pdf-target.json" PROPERTIES
     TIMEOUT 20

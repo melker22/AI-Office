@@ -1,0 +1,76 @@
+[
+  {"tool": "document_new", "args": {"force": true}},
+  {"tool": "insert_at_caret", "args": {"id": "p1", "offset": 0, "text": "word"}},
+  {"tool": "track_changes", "args": {"on": true}},
+  {"tool": "apply_character_format", "args": {"id": "p1", "bold": true}},
+  {"tool": "split_block", "args": {"id": "p1", "offset": 2}, "expect": {"ok": true, "id": "p2"}},
+  {"tool": "revision_list", "args": {}, "expect": {
+    "revisions.0.id": "rev1",
+    "revisions.0.kind": "format",
+    "revisions.0.block_id": "p1",
+    "revisions.0.start": 0,
+    "revisions.0.end": 2,
+    "revisions.0.prior_runs.0.text": "wo",
+    "revisions.0.prior_runs.0.bold": false,
+    "revisions.1.id": "rev2",
+    "revisions.1.kind": "format",
+    "revisions.1.block_id": "p2",
+    "revisions.1.start": 0,
+    "revisions.1.end": 2,
+    "revisions.1.prior_runs.0.text": "rd",
+    "revisions.1.prior_runs.0.bold": false
+  }},
+  {"tool": "document_get", "args": {}, "expect": {
+    "document.body.0.runs.0.text": "wo",
+    "document.body.0.runs.0.bold": true,
+    "document.body.1.runs.0.text": "rd",
+    "document.body.1.runs.0.bold": true
+  }},
+  {"tool": "revision_reject", "args": {"id": "rev1"}, "expect": {"ok": true}},
+  {"tool": "document_get", "args": {}, "expect": {
+    "document.body.0.runs.0.text": "wo",
+    "document.body.0.runs.0.bold": false,
+    "document.body.1.runs.0.text": "rd",
+    "document.body.1.runs.0.bold": true
+  }},
+  {"tool": "revision_reject", "args": {"id": "rev2"}, "expect": {"ok": true}},
+  {"tool": "document_get", "args": {}, "expect": {
+    "document.body.0.runs.0.text": "wo",
+    "document.body.0.runs.0.bold": false,
+    "document.body.1.runs.0.text": "rd",
+    "document.body.1.runs.0.bold": false
+  }},
+
+  {"tool": "document_new", "args": {"force": true}},
+  {"tool": "insert_at_caret", "args": {"id": "p1", "offset": 0, "text": "word"}},
+  {"tool": "track_changes", "args": {"on": true}},
+  {"tool": "apply_character_format", "args": {"id": "p1", "bold": true}},
+  {"tool": "split_block", "args": {"id": "p1", "offset": 2}, "expect": {"ok": true, "id": "p2"}},
+  {"tool": "revision_reject", "args": {"id": "rev2"}, "expect": {"ok": true}},
+  {"tool": "document_get", "args": {}, "expect": {
+    "document.body.0.runs.0.text": "wo",
+    "document.body.0.runs.0.bold": true,
+    "document.body.1.runs.0.text": "rd",
+    "document.body.1.runs.0.bold": false
+  }},
+  {"tool": "revision_reject", "args": {"id": "rev1"}, "expect": {"ok": true}},
+  {"tool": "document_get", "args": {}, "expect": {
+    "document.body.0.runs.0.text": "wo",
+    "document.body.0.runs.0.bold": false,
+    "document.body.1.runs.0.text": "rd",
+    "document.body.1.runs.0.bold": false
+  }},
+
+  {"tool": "document_new", "args": {"force": true}},
+  {"tool": "insert_at_caret", "args": {"id": "p1", "offset": 0, "text": "word"}},
+  {"tool": "track_changes", "args": {"on": true}},
+  {"tool": "apply_character_format", "args": {"id": "p1", "bold": true}},
+  {"tool": "split_block", "args": {"id": "p1", "offset": 2}, "expect": {"ok": true, "id": "p2"}},
+  {"tool": "revision_reject_all", "args": {}, "expect": {"ok": true}},
+  {"tool": "document_get", "args": {}, "expect": {
+    "document.body.0.runs.0.text": "wo",
+    "document.body.0.runs.0.bold": false,
+    "document.body.1.runs.0.text": "rd",
+    "document.body.1.runs.0.bold": false
+  }}
+]

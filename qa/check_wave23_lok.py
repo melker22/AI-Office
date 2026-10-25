@@ -10,7 +10,9 @@ from __future__ import annotations
 
 import json
 import os
+import shutil
 import stat
+import subprocess
 import sys
 import tempfile
 import time
@@ -59,6 +61,68 @@ def write_fake(directory: Path) -> Path:
     path.write_text(FAKE, encoding="utf-8")
     path.chmod(path.stat().st_mode | stat.S_IEXEC)
     return path
+
+
+def _compile_interpose(runtime: Path) -> Path:
+    gcc = shutil.which("gcc")
+    if not gcc:
+        fail("gcc is required to build the placeConverted interposer")
+    src = Path(__file__).resolve().parent / "place_convert_interpose.c"
+    so = runtime / "place_convert_interpose.so"
+    proc = subprocess.run(
+        [gcc, "-shared", "-fPIC", "-o", str(so), str(src), "-ldl"],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    if proc.returncode != 0 or not so.is_file():
+        fail(f"interposer build failed: {proc.stderr[-400:]}")
+    return so
+
+
+def _publish_failure_keeps_existing(cli: str, runtime: Path, fake: Path) -> None:
+    """An existing destination must survive a failed publish of converted bytes.
+
+    Native PDF is forced to fail (first export.pdf create returns EIO) so
+    LibreOffice placeConverted runs against the existing file. Renames onto
+    that path fail. The old code deletes the destination before the retry.
+    """
+    so = _compile_interpose(runtime)
+    dest = runtime / "kept.pdf"
+    dest.write_bytes(b"ORIGINAL")
+    log = runtime / "place-log.txt"
+    env = w23.child_env(
+        runtime,
+        extra={
+            "AIOFFICE_SOFFICE": str(fake),
+            "AIOFFICE_FAKE_SOFFICE_EXT": "pdf",
+            "AIOFFICE_FAKE_SOFFICE_EXIT": "0",
+            "LD_PRELOAD": str(so),
+            "AIOFFICE_PLACE_FAIL_DEST": str(dest.resolve()),
+            "AIOFFICE_FAIL_FIRST_EXPORT_PDF": "1",
+            "AIOFFICE_EXPORT_PDF_SEQ": str(runtime / "export-pdf-seq.txt"),
+            "AIOFFICE_PLACE_LOG": str(log),
+        },
+    )
+    proc = w23.run_cli(
+        cli,
+        ["call", "document_export_pdf", json.dumps({"path": str(dest)})],
+        env,
+        timeout=20,
+    )
+    text = proc.stdout.decode()
+    trace = log.read_text(encoding="utf-8") if log.is_file() else ""
+    if not dest.exists():
+        fail(f"publish removed the existing pdf; stdout={text[:400]!r} log={trace!r}")
+    if not stat.S_ISREG(dest.stat().st_mode):
+        fail(f"existing pdf is no longer a regular file; log={trace!r}")
+    if dest.read_bytes() != b"ORIGINAL":
+        fail(
+            f"existing pdf changed ({dest.read_bytes()[:40]!r}); stdout={text[:400]!r} log={trace!r}"
+        )
+    if proc.returncode == 0:
+        fail(f"failed publish was reported as success: {text[:400]} log={trace!r}")
+    print("ok   failed publish leaves the existing file untouched")
 
 
 def main() -> int:
@@ -136,6 +200,8 @@ def main() -> int:
         if output.read_bytes() != b"ORIGINAL":
             fail("failing soffice replaced the destination")
         print("ok   failed conversion leaves the destination untouched")
+
+        _publish_failure_keeps_existing(cli, runtime, fake)
 
         junk = runtime / "not-a-program"
         junk.write_bytes(b"not a program\n")

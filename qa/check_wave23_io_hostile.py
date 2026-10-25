@@ -14,6 +14,7 @@ from __future__ import annotations
 import importlib.util
 import json
 import os
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -88,6 +89,7 @@ def main() -> int:
         _zip_budget(cli, runtime, fixtures)
         _pdf_fifo(cli, runtime)
         _pdf_publish_keeps_existing(cli, runtime)
+        _fsync_parent(cli, runtime)
     finally:
         runtime_cm.cleanup()
     print("ok   zip real budget and atomic pdf publish")
@@ -124,6 +126,77 @@ def _zip_budget(cli: str, runtime: Path, fixtures) -> None:
         )
         expect_error(obj, "DOCX missing word/document.xml", "underdeclared-small.docx")
     print("ok   zip entries that under-declare uncompressed size")
+
+
+def _compile_fsync_interpose(runtime: Path) -> Path:
+    gcc = shutil.which("gcc")
+    if not gcc:
+        fail("gcc is required to build the fsync interposer")
+    src = REPO / "qa" / "fsync_interpose.c"
+    so = runtime / "fsync_interpose.so"
+    proc = subprocess.run(
+        [gcc, "-shared", "-fPIC", "-o", str(so), str(src), "-ldl"],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    if proc.returncode != 0 or not so.is_file():
+        fail(f"fsync interposer build failed: {proc.stderr[-400:]}")
+    return so
+
+
+def _save_blank(cli: str, runtime: Path, dest: Path, extra: dict) -> dict:
+    env = base_env(runtime, extra)
+    return call(cli, env, "document_save", {"path": str(dest)}, timeout=20)
+
+
+def _fsync_parent(cli: str, runtime: Path) -> None:
+    """After a successful commit, the parent directory must be fsynced.
+
+    EIO on that fsync is a write error. EINVAL is ignored (filesystems that
+    do not support directory fsync). The injection is LD_PRELOAD, so it fails
+    for root the same way it fails for anyone else.
+    """
+    so = _compile_fsync_interpose(runtime)
+    with tempfile.TemporaryDirectory(prefix="aio-fsync-") as raw:
+        parent = Path(raw).resolve()
+        dest = parent / "saved.aio.json"
+        log = parent / "fsync.log"
+        common = {
+            "LD_PRELOAD": str(so),
+            "AIOFFICE_FSYNC_LOG": str(log),
+            "AIOFFICE_FSYNC_FAIL_DIR": str(parent),
+        }
+
+        log.write_text("", encoding="utf-8")
+        einval = _save_blank(cli, runtime, dest, {**common, "AIOFFICE_FSYNC_FAIL_ERRNO": "EINVAL"})
+        if einval.get("ok") is not True:
+            fail(f"EINVAL directory fsync must be ignored, got {json.dumps(einval)[:500]}")
+        if str(parent) not in log.read_text(encoding="utf-8").splitlines():
+            fail(f"EINVAL save did not fsync {parent}; log={log.read_text()[:400]!r}")
+        print("ok   directory fsync EINVAL is ignored")
+
+        log.write_text("", encoding="utf-8")
+        eio = _save_blank(
+            cli, runtime, parent / "eio.aio.json", {**common, "AIOFFICE_FSYNC_FAIL_ERRNO": "EIO"}
+        )
+        err = str(eio.get("error") or "")
+        if eio.get("ok") is not False or "Cannot write" not in err:
+            fail(f"EIO directory fsync must fail the save, got {json.dumps(eio)[:500]}")
+        print("ok   directory fsync EIO fails the save")
+
+        log.write_text("", encoding="utf-8")
+        ok_save = _save_blank(
+            cli,
+            runtime,
+            parent / "ok.aio.json",
+            {"LD_PRELOAD": str(so), "AIOFFICE_FSYNC_LOG": str(log)},
+        )
+        if ok_save.get("ok") is not True:
+            fail(f"save without injected fsync error failed: {json.dumps(ok_save)[:500]}")
+        if str(parent) not in log.read_text(encoding="utf-8").splitlines():
+            fail(f"successful save did not fsync {parent}; log={log.read_text()[:400]!r}")
+        print("ok   atomic write fsyncs the parent directory")
 
 
 def _pdf_fifo(cli: str, runtime: Path) -> None:

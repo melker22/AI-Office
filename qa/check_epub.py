@@ -452,6 +452,21 @@ def write_footnote_token_epub(path: Path) -> None:
         zf.writestr("OEBPS/chapter.xhtml", chapter)
 
 
+def write_list_markup_epub(path: Path, chapter: str) -> None:
+    """Nav plus one chapter. Used to prove nested-list detection is per file."""
+    nav = """<?xml version="1.0" encoding="UTF-8"?>
+<html xmlns="http://www.w3.org/1999/xhtml">
+<body><nav><ol><li><a href="chapter.xhtml">Ch</a></li></ol></nav></body>
+</html>"""
+    chapter_xml = f"""<?xml version="1.0" encoding="UTF-8"?>
+<html xmlns="http://www.w3.org/1999/xhtml">
+<body>{chapter}</body>
+</html>"""
+    with zipfile.ZipFile(path, "w") as zf:
+        zf.writestr("OEBPS/nav.xhtml", nav)
+        zf.writestr("OEBPS/chapter.xhtml", chapter_xml)
+
+
 def self_test() -> int:
     ok = True
 
@@ -543,6 +558,26 @@ def self_test() -> int:
         ok = False
     else:
         print("ok   nested_list nested case accepted")
+
+    with tempfile.TemporaryDirectory(prefix="aioffice-epub-lists-") as tmp:
+        list_exp = {"nested_list": "required", "nav": False, "mimetype_stored_first": False}
+        flat_epub = Path(tmp) / "flat.epub"
+        write_list_markup_epub(flat_epub, "<ul><li>A</li><li>B</li></ul>")
+        flat_errs = check_structure(flat_epub, list_exp)
+        if "expected a list nested inside a list item" not in flat_errs:
+            print("FAIL self-test flat EPUB with nested_list required should fail:", flat_errs)
+            ok = False
+        else:
+            print("ok   flat EPUB nested_list required rejected")
+        nested_epub = Path(tmp) / "nested.epub"
+        write_list_markup_epub(nested_epub, "<ul><li>A<ul><li>B</li></ul></li></ul>")
+        nested_errs = check_structure(nested_epub, list_exp)
+        nested_bad = [e for e in nested_errs if "nested" in e or "list markup" in e]
+        if nested_bad:
+            print("FAIL self-test nested EPUB should pass:", nested_errs)
+            ok = False
+        else:
+            print("ok   nested EPUB nested_list required accepted")
 
     mcp = (REPO / "docs" / "mcp-tools.md").read_text(encoding="utf-8")
     open_section = mcp.split("### `document_open`", 1)[1].split("### `document_save`", 1)[0]

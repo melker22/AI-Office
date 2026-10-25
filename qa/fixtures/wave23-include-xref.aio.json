@@ -1,0 +1,27 @@
+{
+  "schema": 1,
+  "meta": {"title": "Include xref", "author": "Ada"},
+  "body": [
+    {
+      "id": "s1",
+      "type": "paragraph",
+      "style": "Normal",
+      "runs": [
+        {"text": "see "},
+        {"text": "marca", "field": "xref", "field_arg": "bm1"},
+        {"text": " and "},
+        {"text": "other", "field": "xref", "field_arg": "bm9"}
+      ]
+    },
+    {
+      "id": "s2",
+      "type": "paragraph",
+      "style": "Normal",
+      "runs": [{"text": "alvo"}]
+    }
+  ],
+  "bookmarks": [
+    {"id": "bm1", "name": "marca", "block_id": "s2", "offset": 0},
+    {"id": "bm9", "name": "outra", "block_id": "s2", "offset": 0}
+  ]
+}

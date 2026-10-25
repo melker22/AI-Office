@@ -11,6 +11,19 @@
 #include <functional>
 
 namespace aioffice {
+
+int gRefreshLayoutPasses = 0;
+
+void resetRefreshLayoutPasses()
+{
+    gRefreshLayoutPasses = 0;
+}
+
+int refreshLayoutPasses()
+{
+    return gRefreshLayoutPasses;
+}
+
 namespace {
 
 enum class Kind { Num, Str, Bool };
@@ -579,6 +592,7 @@ static bool isStructureField(const TextRun &r)
 
 static int layoutPageCount(const Document &doc)
 {
+    ++gRefreshLayoutPasses;
     DocumentLayout lay;
     lay.relayout(doc, 1.0);
     return qMax(1, lay.pages);

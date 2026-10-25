@@ -39,6 +39,10 @@ EOF
     exit 1
   fi
   echo "ok   self-test fail case (missing commit rejected)"
+  if [[ -e /tmp/fleet-verify-self-pass.txt || -e /tmp/fleet-verify-self-fail.txt ]]; then
+    echo "FAIL self-test recreated fixed /tmp paths"
+    exit 1
+  fi
   exit 0
 fi
 min=${1:-1}

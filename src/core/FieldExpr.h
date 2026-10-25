@@ -77,4 +77,9 @@ QString evalIfField(const Document &doc, const QString &fieldArg, int page, int 
 // fields are not rewritten again. `page` in cached field text stays 1.
 void refreshIfFields(Document &doc, bool includeStats = false);
 
+// Test hook. layoutPageCount inside refreshIfFields increments the counter.
+// document_get reports it only when AIOFFICE_COUNT_LAYOUT is set.
+void resetRefreshLayoutPasses();
+int refreshLayoutPasses();
+
 } // namespace aioffice
