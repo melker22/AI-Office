@@ -9,8 +9,11 @@ cli=${1:-./build/linux/aioffice-cli}
 dir=${2:-qa/audit}
 if [ ! -x "$cli" ]; then echo "FAIL aioffice-cli not found or not executable: $cli"; exit 1; fi
 export AIOFFICE_HEADLESS=1 QT_QPA_PLATFORM=offscreen
-# The playbooks use fixed /tmp/aio-audit paths: one checker at a time (setup + every playbook).
-exec 9>/tmp/aio-audit.lock
+# The playbooks use fixed /tmp/aio-audit paths: one checker at a time (setup + every playbook). The lock
+# lives in a directory only this user controls, so another user cannot redirect it with a symlink.
+lockdir=${XDG_RUNTIME_DIR:-$HOME/.cache}
+mkdir -p "$lockdir" || { echo "FAIL cannot create $lockdir"; exit 1; }
+exec 9>"$lockdir/aio-audit.lock"
 flock 9 || { echo "FAIL could not take /tmp/aio-audit.lock"; exit 1; }
 if [ -x "$dir/setup.sh" ]; then "$dir/setup.sh" || { echo "FAIL $dir/setup.sh"; exit 1; }; fi
 shopt -s nullglob
