@@ -522,6 +522,29 @@ def fields_roundtrip(cli):
         shutil.rmtree(work, ignore_errors=True)
 
 
+def wave24_docx_export(cli):
+    """LibreOffice must keep nested tables and merged cells from our DOCX export."""
+    script = ROOT / "qa" / "check_wave24_docx_export.py"
+    try:
+        proc = subprocess.run(
+            [sys.executable, str(script), "--cli", cli, "--interop"],
+            cwd=ROOT,
+            capture_output=True,
+            text=True,
+            timeout=300,
+            check=False,
+        )
+    except subprocess.TimeoutExpired:
+        print("FAIL interop wave24 docx: checker timed out")
+        return 1
+    sys.stdout.write(proc.stdout)
+    sys.stderr.write(proc.stderr)
+    if proc.returncode != 0:
+        print("FAIL interop wave24 docx export")
+        return 1
+    return 0
+
+
 def snapshot(cli, path):
     data = play(
         cli,
@@ -594,6 +617,7 @@ def main():
                 print(f"ok   interop {label}")
         status = fields_roundtrip(cli) or status
         status = rtf_interop_roundtrip(cli) or status
+        status = wave24_docx_export(cli) or status
         return status
     finally:
         shutil.rmtree(work, ignore_errors=True)

@@ -23,6 +23,25 @@
 
 **Commits:** `9b5a34d` test: add failing DOCX import playbooks for wave 24 · fix: import DOCX run properties, tables, captions, numbering, and native revisions
 
+## 2026-10-25 — Fleet wave24 t2-docx-out — Grok 4.7
+
+**Objective:** DOCX export for wave 24: nested tables and merged cells (D4), captions with a native SEQ (D5), a field inside a tracked delete (D7), XML 1.0 C0 controls and `w:color` (D9), and FILLIN escaping (D11). Leave DOCX import and ODT alone.
+
+**Done:**
+- `qa/check_wave24_docx_export.py` is ctest `wave24_docx_export` and `wave24_docx_export_selftest`. It failed on the previous export, then passed. With `--interop`, LibreOffice must keep the column span, the row span, and a nested table inside the cell.
+- `scripts/qa-interop.py` runs that checker with `--interop`.
+- Export writes `w:gridSpan`, `w:vMerge` (`restart` / `continue`), and omits a cell covered on the same row. A nested `w:tbl` is followed by a paragraph so LibreOffice keeps the inner table inside the cell. A caption is the next paragraph, style `Caption`; a `seq` in `caption_runs` is a native `SEQ`.
+- A field inside `w:del` is `w:delText` of the displayed text. The field kind stays on the revision in `word/aioffice.json`.
+- `xmlEscape` drops C0 controls other than tab, LF, and CR. `w:color` is written only for six hex digits.
+- Bookmark `w:id` values were already unique document-wide. A FILLIN prompt is field-quoted and XML-escaped once.
+- `scripts/qa-all.sh --gui --formats` on `3a46b22`: **118** passed, **0** failed, **2** disabled (`roundtrip_foreign_odt_wave17`, `roundtrip_foreign_docx_wave17`); ctest real time **349.68 s**. The checker `--interop` passed on the same tree. Not pushed.
+
+**Decisions:** The current importer does not read `gridSpan`, nested tables, or caption attachment (T1). This export checker reopens only what that importer already keeps. LibreOffice lifts a nested table out of the cell unless the cell ends with a paragraph after the inner `w:tbl`.
+
+**Next suggested step:** T1 DOCX import and T3 ODT. Notion sync is the `notion-sync` node.
+
+**Commits:** `05df4a2` test: check wave 24 DOCX export of spans, captions, and fields · `160a213` fix: export DOCX nested tables, merged cells, captions, and safe XML · `3a46b22` test: register the wave 24 DOCX check after Python is found
+
 ---
 
 ## 2026-10-25 — Fleet wave23 — Grok Build / Composer / Sonnet
@@ -437,68 +456,6 @@ b748399 feat: PDF export XMP metadata, PDF/A flatten warnings, and ua mode
 **Next suggested step:** integrate-1 with T2 metadata + T3 QA harness, then t4 full veraPDF UA and PDF/A.
 
 **Commits:** `64c8cea` feat: tag PDF structure for lists, tables, figures, notes, and TOC
-
----
-
-## 2026-10-20 — Cursor Grok 4.7 — DOCX conditional type and occurrence
-
-**Objective:** CodeRabbit major on PR #6: `rememberConditionals` / `applyFieldConditionals` matched only the block-text fingerprint and took the first candidate from `boundCi+1`. A TOC entry with the same text as a heading, or an earlier copy of the same paragraph, received `hide_if` / `if`. Do not touch `src/app/` or `.cockpit/`. No push.
-
-**Done:**
-- DOCX `conditionals` also store the block type and the 1-based occurrence of that (type, fingerprint) pair in export order. Import ignores other types and applies the record to the n-th block with the same type and fingerprint. No exact candidate means the record is not applied. A field still requires a plain run with the same text.
-- Playbook `qa/wave18-cond-occ.json`: a TOC of 3 entries with `hide_if` on one heading and a compound `if` on another; two empty paragraphs with `hide_if` only on the second; three paragraphs with the same text and `hide_if` only on the third.
-- `scripts/qa-all.sh --gui --interop`: **42/42** ctest passed; LibreOffice interop ok.
-
-**Decisions:** Occurrence counts every content block, including ones with no conditional. A TOC expands into `toc` blocks only, so heading and paragraph counts do not move. A fingerprint without a type or an occurrence is not applied.
-
-**Next suggested step:** Fleet `notion-sync`, then human `approve-pr`.
-
-**Commits:** `0f4bcae` fix: match DOCX conditionals by block type and occurrence
-
----
-
-## 2026-10-20 — Cursor Grok 4.7 — CodeRabbit wave 18 field fixes
-
-**Objective:** Fix the nine CodeRabbit defects on the wave 18 branch. The Fleet finding was already fixed. Do not touch `src/app/` or `.cockpit/`. No push.
-
-**Done:**
-- DOCX `conditionals` store the block id, a SHA-256 of the block text, and the run text. Import finds the block by that fingerprint in order and applies a field only when the run text matches a run that is still plain text. A TOC of 3 entries no longer moves `hide_if` / `if` onto an earlier paragraph. A native field that happens to show the same cached text is left as native.
-- Field expressions share a depth limit of 64 for parentheses and `!`. Past that, the error is `expression too deeply nested`, the `if` field shows `#ERR`, and `validate` reports `invalid_expression`.
-- `aioffice play` treats IPC/timeout/bad payload as a transport failure and aborts even when `expect` is `{"ok":false}`. A tool result `{ok:false}` still honors `expect`. `AIOFFICE_PLAY_CLASSIFY_CHECK=1` runs the classifier self-check.
-- A native Word `IF` is written only when both operands are a number or a double-quoted string. An identifier or single quotes exports the evaluated text; the expression comes back from the embedded JSON.
-- `stat` `words` uses `blockVisibleForStat` (`hide_if` and `section_hidden`), the same filter as chars and paragraphs.
-- An `expect` that is empty or not an object fails the playbook before the call.
-- `insert_field` serializes an object `arg` once for `seq` and `input_list`.
-- The `insert_field.arg` schema is `anyOf` string or object.
-- `FieldExpr.h` forward-declares `struct Document`.
-
-**Tests:** `qa/wave18-review.json` (TOC round-trip, depth, `stat` words, IF operands, object args). `qa/check_play_expect.py`. `play_classify`. `scripts/qa-all.sh --gui --interop`: **41/41** ctest passed; LibreOffice interop ok.
-
-**Decisions:** `document_stats.words` and the `word_count` field still use `Document::wordCount()` over every block. Only the `stat` field filters hidden blocks. A foreign `IF page > 1` from our export is evaluated text; `word/aioffice.json` restores the expression.
-
-**Next suggested step:** Fleet `notion-sync`, then human `approve-pr` and open the PR to `main`.
-
-**Commits:** `98194e3` fix: match DOCX conditionals by block text and harden fields
-
----
-
-## 2026-10-20 — Fleet wave18 — Composer / Cursor Grok / Grok Build / Sonnet
-
-**Objective:** Close the fleet wave 18 branch (dynamic fields + conditional text): record real QA on the integrated branch after the review loop fixes, sync `WRITER_FEATURE_CATALOG.md`.
-
-**Done:**
-- Fleet `review` closed with **`{"issues":0,"findings":[]}`** on the third pass; fix commits landed on the branch before handoff.
-- **`refreshIfFields`** on dirty `document_get`/`document_save` recalculates live `stat`/`seq` after structural edits (`insert_blocks`, `insert_at_caret`, `delete_range`); a **clean** foreign open keeps imported evaluated text until the session is marked dirty. `stat chars` self-reference converges (up to 6 passes) to match `document_stats`.
-- **`6845533`:** renumber `seq` on mid-document insert; `stat` counts exclude `hideIf` hidden paragraphs (aligned with `document_stats`).
-- **`f4e6cb1`:** stat refresh after structural edits (playbook `qa/wave18-expr.json` insert/delete/text-edit expects).
-- Manual re-checks (outside official playbooks): mid-insert `seq` + xref `category_number`; `stat` with `hideIf`; structural stat updates — all green.
-- **`scripts/qa-all.sh --gui --interop`** (nix-shell, full build): **38/38 ctest** passed (includes `playbook_wave18-expr.json`, `wave18-kinds`, `wave18-docx-fields`, `wave18-odt-fields`, foreign round-trips); **interop** LibreOffice **docx→odt**, **odt→docx**, and **wave18 fields** resave/hops green (exit 0).
-
-**Decisions:** Wave 18 D5/D6 honest limits stay as in `docs/waves/wave18-fields.md` (compound `if` on DOCX export, foreign `stat` paragraphs/tables/images, LO docx hop for `hideIf`). Do not re-open integrate merges on handoff.
-
-**Next suggested step:** Fleet **`notion-sync`** → human **`approve-pr`** → open PR to **`main`**.
-
-**Commits (branch vs `main`):** `f4e6cb1` fix: refresh stat fields after structural edits · `6845533` fix: renumber seq fields and drop hidden blocks from stat counts · `1d6c55d` merge: integrate wave18 DOCX and ODT field round-trip branches · `b1d50f4` docs: record the DOCX field commit hash in the handoff · `711f1ff` feat: round-trip DOCX IF, SEQ, stat, and document-info fields · `0c9fcd1` feat: round-trip wave 18 fields through ODT · `7778b7c` merge: integrate wave18 field kinds with field expressions · `2937c4a` docs: record the wave18 expression commit hash in the handoff · `7848309` feat: evaluate field expressions for conditional text · `486ddf3` feat: add wave18 field kinds, numbered captions, and seq xrefs · `f4c5323` docs: add wave 18 fields spec and Fleet; sync Notion from every Fleet
 
 ---
 

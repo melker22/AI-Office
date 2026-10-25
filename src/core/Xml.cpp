@@ -23,9 +23,14 @@ QString xmlEscape(const QString &s)
         case '\'':
             o += QLatin1String("&apos;");
             break;
-        default:
+        default: {
+            // XML 1.0 forbids every C0 control except tab, LF, and CR.
+            const ushort u = c.unicode();
+            if (u < 0x20 && u != 0x09 && u != 0x0A && u != 0x0D)
+                break;
             o += c;
             break;
+        }
         }
     }
     return o;
