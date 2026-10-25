@@ -13,7 +13,7 @@
 **Objective:** Import side of wave 24 DOCX fidelity (D1, D2, D3 DOCX, D4 import, D5 import, D6, D7 import, D8, D10). Export DOCX, ODT, QR, and CI stay on later nodes. No push.
 
 **Done:**
-- `loadDocx` reads `w:rPr` on/off (`w:sz`, `w:rFonts`, `w:color`, `w:highlight`), splits a paragraph around an inline image, stores real page millimetres and names A4/Letter/Legal/A3/A5 within 1 mm, keeps nested tables on a stack (`gridSpan` / `vMerge`), absorbs a following `Caption` paragraph into `caption_runs`, fills core.xml metadata when JSON omits the field, keeps a field inside `w:del` on the delete revision, maps `word/numbering.xml`, and always merges native `w:ins` / `w:del` / `w:rPrChange` with JSON revisions (deduped by block id, kind, start, end).
+- `loadDocx` reads `w:rPr` on/off (`w:sz`, `w:rFonts`, `w:color`, `w:highlight`), splits a paragraph around an inline image, stores real page millimetres and names A4/Letter/Legal/A3/A5 within 1 mm, keeps nested tables on a stack (`gridSpan` / `vMerge`), absorbs a following `Caption` paragraph into `caption_runs`, fills core.xml metadata when JSON omits the field, keeps a field inside `w:del` on the delete revision, maps `word/numbering.xml`, and always merges native `w:ins` / `w:del` / `w:rPrChange` with JSON revisions (a native mark is dropped when a JSON revision of the same block and kind already covers its range, including per-run `w:rPrChange` slices).
 - Hand-written fixtures `qa/fixtures/wave24-docx-*.docx` (script `qa/fixtures/make_wave24_docx.py`) and playbooks `qa/wave24-docx-d*.json`. They failed on the importer before this change.
 - `docs/mcp-tools.md` matches that import. Export, `Odf.cpp`, `Qr.cpp`, and the Nix/CMake/CI files were not edited.
 

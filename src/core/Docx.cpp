@@ -1898,10 +1898,13 @@ bool loadDocx(const QByteArray &zipData, Document &doc, QString *error)
                 doc.revisions[idx].blockId = b.id;
                 const Revision &rv = doc.revisions[idx];
                 for (int j = 0; j < doc.revisions.size(); ++j) {
-                    if (j == idx)
+                    if (j == idx || pendingRevisionIdx.contains(j))
                         continue;
+                    // JSON is loaded first. A native mark with the same kind whose
+                    // range sits inside that revision is the same change (export
+                    // splits one format revision into one w:rPrChange per run).
                     const Revision &ex = doc.revisions[j];
-                    if (ex.blockId == rv.blockId && ex.kind == rv.kind && ex.start == rv.start && ex.end == rv.end) {
+                    if (ex.blockId == rv.blockId && ex.kind == rv.kind && rv.start >= ex.start && rv.end <= ex.end) {
                         dropRev.push_back(idx);
                         break;
                     }
