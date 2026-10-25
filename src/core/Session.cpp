@@ -5595,8 +5595,21 @@ QJsonObject Session::documentInclude(const QJsonObject &args)
         usedBm.append(bm.id);
         renamedBms.push_back(bm);
     }
-    for (auto &b : incoming)
+    QSet<QString> hostNames;
+    for (const Bookmark &host : doc_.bookmarks) {
+        if (!host.name.isEmpty())
+            hostNames.insert(host.name);
+    }
+    QMap<QString, QString> nameMap;
+    for (const Bookmark &bm : renamedBms) {
+        if (!bm.name.isEmpty() && hostNames.contains(bm.name))
+            nameMap.insert(bm.name, bm.id);
+    }
+    for (auto &b : incoming) {
         remapBlockXrefBookmarks(b, bmMap);
+        remapXrefBookmarkIds(b.runs, nameMap);
+        remapXrefBookmarkIds(b.captionRuns, nameMap);
+    }
     QJsonArray ids;
     for (auto &b : incoming) {
         doc_.body.insert(at++, b);
