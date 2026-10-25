@@ -145,9 +145,20 @@ static int fail_dest_write(const char *path, int flags)
     return 1;
 }
 
+/* O_TMPFILE takes a mode even when O_CREAT is clear. On Linux O_TMPFILE is
+ * (__O_TMPFILE | O_DIRECTORY), so the mask must match every one of those bits. */
+static int needs_mode(int flags)
+{
+#if defined(O_TMPFILE)
+    if ((flags & O_TMPFILE) == O_TMPFILE)
+        return 1;
+#endif
+    return (flags & O_CREAT) != 0;
+}
+
 static mode_t mode_arg(int flags, va_list ap)
 {
-    if (flags & O_CREAT)
+    if (needs_mode(flags))
         return (mode_t)va_arg(ap, int);
     return 0;
 }
@@ -163,7 +174,7 @@ int open(const char *path, int flags, ...)
         real_open = dlsym(RTLD_NEXT, "open");
     if (fail_first_export_pdf(path, flags) || fail_dest_write(path, flags))
         return -1;
-    if (flags & O_CREAT)
+    if (needs_mode(flags))
         return real_open(path, flags, mode);
     return real_open(path, flags);
 }
@@ -179,7 +190,7 @@ int open64(const char *path, int flags, ...)
         real_open64 = dlsym(RTLD_NEXT, "open64");
     if (fail_first_export_pdf(path, flags) || fail_dest_write(path, flags))
         return -1;
-    if (flags & O_CREAT)
+    if (needs_mode(flags))
         return real_open64(path, flags, mode);
     return real_open64(path, flags);
 }
@@ -199,7 +210,7 @@ int openat(int dirfd, const char *path, int flags, ...)
         check = full;
     if (fail_first_export_pdf(check, flags) || fail_dest_write(check, flags))
         return -1;
-    if (flags & O_CREAT)
+    if (needs_mode(flags))
         return real_openat(dirfd, path, flags, mode);
     return real_openat(dirfd, path, flags);
 }
@@ -219,7 +230,7 @@ int openat64(int dirfd, const char *path, int flags, ...)
         check = full;
     if (fail_first_export_pdf(check, flags) || fail_dest_write(check, flags))
         return -1;
-    if (flags & O_CREAT)
+    if (needs_mode(flags))
         return real_openat64(dirfd, path, flags, mode);
     return real_openat64(dirfd, path, flags);
 }
