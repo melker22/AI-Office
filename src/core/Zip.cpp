@@ -1,12 +1,56 @@
 #include "core/Zip.h"
 
 #include <QDateTime>
+#include <QFileInfo>
+#include <QSaveFile>
+#include <QtGlobal>
 #include <zlib.h>
 
 #include <cstdint>
 #include <cstring>
 
 namespace aioffice {
+namespace {
+constexpr quint32 kMaxZipEntryUncompressed = 256u * 1024u * 1024u;
+constexpr qint64 kMaxZipBytes = 1ll << 30; // 1 GiB
+} // namespace
+
+bool ensureAtomicWriteTarget(const QString &path, QString *error)
+{
+    const QFileInfo fi(path);
+    // isFile() follows symlinks, so a link to /dev/full or a fifo fails here.
+    if (path.isEmpty() || (fi.exists() && !fi.isFile())) {
+        if (error)
+            *error = QStringLiteral("Cannot write ") + path;
+        return false;
+    }
+    return true;
+}
+
+bool writeFileAtomic(const QString &path, const QByteArray &bytes, QString *error)
+{
+    if (!ensureAtomicWriteTarget(path, error))
+        return false;
+    QSaveFile f(path);
+    if (!f.open(QIODevice::WriteOnly)) {
+        if (error)
+            *error = QStringLiteral("Cannot write ") + path;
+        return false;
+    }
+    if (f.write(bytes) != qint64(bytes.size())) {
+        f.cancelWriting();
+        if (error)
+            *error = QStringLiteral("Cannot write ") + path;
+        return false;
+    }
+    if (!f.commit()) {
+        if (error)
+            *error = QStringLiteral("Cannot write ") + path;
+        return false;
+    }
+    return true;
+}
+
 namespace {
 
 quint32 crcOf(const QByteArray &data)
@@ -37,17 +81,31 @@ QByteArray deflateRaw(const QByteArray &in)
     return out;
 }
 
-QByteArray inflateRaw(const QByteArray &in, quint32 uncompressed)
+// `tooLarge` is set when the declared or produced size exceeds the cap.
+// The output buffer never grows past that cap, and a declared size over the
+// cap is rejected before any allocation.
+QByteArray inflateRaw(const QByteArray &in, quint32 uncompressed, bool *tooLarge)
 {
+    if (tooLarge)
+        *tooLarge = false;
     if (in.isEmpty())
         return {};
+    if (uncompressed > kMaxZipEntryUncompressed) {
+        if (tooLarge)
+            *tooLarge = true;
+        return {};
+    }
     z_stream strm{};
     if (inflateInit2(&strm, -MAX_WBITS) != Z_OK)
         return {};
     strm.next_in = reinterpret_cast<Bytef *>(const_cast<char *>(in.constData()));
     strm.avail_in = static_cast<uInt>(in.size());
+    const int cap = static_cast<int>(uncompressed > 0 ? uncompressed : kMaxZipEntryUncompressed);
+    int start = uncompressed > 0 ? cap : static_cast<int>(qMin<qint64>(qint64(in.size()) * 4 + 64, cap));
+    if (start < 1)
+        start = 1;
     QByteArray out;
-    out.resize(static_cast<int>(uncompressed ? uncompressed : in.size() * 4 + 64));
+    out.resize(start);
     for (;;) {
         strm.next_out = reinterpret_cast<Bytef *>(out.data() + strm.total_out);
         strm.avail_out = static_cast<uInt>(out.size() - static_cast<int>(strm.total_out));
@@ -58,7 +116,14 @@ QByteArray inflateRaw(const QByteArray &in, quint32 uncompressed)
             return out;
         }
         if (ret == Z_BUF_ERROR || ret == Z_OK) {
-            out.resize(out.size() * 2);
+            if (out.size() >= cap) {
+                inflateEnd(&strm);
+                if (tooLarge)
+                    *tooLarge = true;
+                return {};
+            }
+            const int grown = out.size() > cap / 2 ? cap : out.size() * 2;
+            out.resize(grown);
             continue;
         }
         inflateEnd(&strm);
@@ -187,6 +252,11 @@ QByteArray Zip::pack(const QVector<ZipEntry> &entries)
 bool Zip::unpack(const QByteArray &zip, QVector<ZipEntry> &out, QString *error)
 {
     out.clear();
+    if (qint64(zip.size()) > kMaxZipBytes) {
+        if (error)
+            *error = QStringLiteral("archive entry too large");
+        return false;
+    }
     if (zip.size() < 22) {
         if (error)
             *error = QStringLiteral("ZIP too small");
@@ -206,6 +276,7 @@ bool Zip::unpack(const QByteArray &zip, QVector<ZipEntry> &out, QString *error)
     }
     const quint16 nfiles = u16(zip, eocd + 10);
     quint32 central = u32(zip, eocd + 16);
+    quint64 totalUncomp = 0;
     for (quint16 i = 0; i < nfiles; ++i) {
         if (central + 46 > static_cast<quint32>(zip.size()) || zip.mid(static_cast<int>(central), 4) != "PK\x01\x02") {
             if (error)
@@ -224,13 +295,25 @@ bool Zip::unpack(const QByteArray &zip, QVector<ZipEntry> &out, QString *error)
         const quint16 localExtra = u16(zip, static_cast<int>(localOff) + 28);
         const int dataOff = static_cast<int>(localOff) + 30 + localName + localExtra;
         const QByteArray packed = zip.mid(dataOff, static_cast<int>(comp));
+        if (uncomp > kMaxZipEntryUncompressed || totalUncomp + uncomp > quint64(kMaxZipBytes)) {
+            if (error)
+                *error = QStringLiteral("archive entry too large");
+            return false;
+        }
+        totalUncomp += uncomp;
         ZipEntry e;
         e.name = QString::fromUtf8(name);
         if (method == 0) {
             e.data = packed;
             e.store = true;
         } else if (method == 8) {
-            e.data = inflateRaw(packed, uncomp);
+            bool tooLarge = false;
+            e.data = inflateRaw(packed, uncomp, &tooLarge);
+            if (tooLarge) {
+                if (error)
+                    *error = QStringLiteral("archive entry too large");
+                return false;
+            }
             if (e.data.isEmpty() && uncomp > 0) {
                 if (error)
                     *error = QStringLiteral("Inflate failed for ") + e.name;

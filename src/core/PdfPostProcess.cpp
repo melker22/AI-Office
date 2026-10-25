@@ -1,5 +1,7 @@
 #include "core/PdfPostProcess.h"
 
+#include "core/Zip.h"
+
 #include <QFile>
 #include <QHash>
 #include <QMap>
@@ -244,18 +246,9 @@ struct IncrementalUpdate {
         if (!fileId.isEmpty())
             appended += " /ID " + fileId;
         appended += " >>\nstartxref\n" + QByteArray::number(xrefOffset) + "\n%%EOF\n";
-        QFile out(path);
-        if (!out.open(QIODevice::Append)) {
-            if (errorOut)
-                *errorOut = QStringLiteral("Cannot rewrite PDF: ") + path;
+        // Rewrite the whole file atomically. A failed commit leaves the previous PDF in place.
+        if (!writeFileAtomic(path, data + appended, errorOut))
             return false;
-        }
-        const qint64 n = out.write(appended);
-        if (n != appended.size() || !out.flush()) {
-            if (errorOut)
-                *errorOut = QStringLiteral("Short write while appending PDF update: ") + path;
-            return false;
-        }
         data += appended;
         return true;
     }

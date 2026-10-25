@@ -2,6 +2,8 @@
 
 #include "core/Document.h"
 
+#include "core/Zip.h"
+
 #include <QBuffer>
 #include <QFile>
 #include <QFileInfo>
@@ -739,14 +741,7 @@ bool saveRtf(const Document &doc, const QString &path, QString *error, QStringLi
     rtf += o.bodyText();
     rtf += QLatin1Char('}');
 
-    QFile f(path);
-    if (!f.open(QIODevice::WriteOnly)) {
-        if (error)
-            *error = QStringLiteral("Cannot write ") + path;
-        return false;
-    }
-    f.write(rtf.toUtf8());
-    return true;
+    return writeFileAtomic(path, rtf.toUtf8(), error);
 }
 
 } // namespace aioffice

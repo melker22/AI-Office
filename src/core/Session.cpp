@@ -9,6 +9,7 @@
 #include "core/Preview.h"
 #include "core/RtfReader.h"
 #include "core/Spell.h"
+#include "core/Zip.h"
 #include "lok/LokEngine.h"
 
 #include <QDateTime>
@@ -469,14 +470,18 @@ bool Session::saveTo(const QString &path, QString *error, bool embedJson, QJsonO
             doc_.fileName = QFileInfo(path).fileName();
     };
     const QString ext = QFileInfo(path).suffix().toLower();
+    const bool known = isNativeSessionJsonPath(path) || ext == QLatin1String("odt") || ext == QLatin1String("docx")
+        || isExportSaveExtension(ext);
+    if (!known) {
+        if (error)
+            *error = QStringLiteral("Unknown extension: ") + ext;
+        return false;
+    }
+    if (!ensureAtomicWriteTarget(path, error))
+        return false;
     if (isNativeSessionJsonPath(path)) {
-        QFile f(path);
-        if (!f.open(QIODevice::WriteOnly)) {
-            if (error)
-                *error = QStringLiteral("Cannot write ") + path;
+        if (!writeFileAtomic(path, doc_.toCanonicalJson(), error))
             return false;
-        }
-        f.write(doc_.toCanonicalJson());
         rememberWorkingName();
         return true;
     }
@@ -492,20 +497,38 @@ bool Session::saveTo(const QString &path, QString *error, bool embedJson, QJsonO
         rememberWorkingName();
         return true;
     }
-    if (!isExportSaveExtension(ext)) {
-        if (error)
-            *error = QStringLiteral("Unknown extension: ") + ext;
-        return false;
-    }
     if (ext == QLatin1String("doc")) {
         QTemporaryDir tmp;
+        if (!tmp.isValid()) {
+            if (error)
+                *error = QStringLiteral("Cannot write ") + path;
+            return false;
+        }
         const QString odt = tmp.filePath(QStringLiteral("tmp.odt"));
+        const QString docOut = tmp.filePath(QStringLiteral("tmp.doc"));
         if (!saveOdt(doc_, odt, error))
             return false;
-        return LokEngine::convertTo(odt, path, QStringLiteral("doc:MS Word 97"), error);
+        if (!LokEngine::convertTo(odt, docOut, QStringLiteral("doc:MS Word 97"), error))
+            return false;
+        QFile in(docOut);
+        if (!in.open(QIODevice::ReadOnly)) {
+            if (error)
+                *error = QStringLiteral("Cannot write ") + path;
+            return false;
+        }
+        return writeFileAtomic(path, in.readAll(), error);
     }
-    if (ext == QLatin1String("pdf"))
-        return exportPdf(QJsonObject{{QStringLiteral("path"), path}})[QStringLiteral("ok")].toBool();
+    if (ext == QLatin1String("pdf")) {
+        const QJsonObject r = exportPdf(QJsonObject{{QStringLiteral("path"), path}});
+        if (!r.value(QStringLiteral("ok")).toBool()) {
+            if (error) {
+                const QString e = r.value(QStringLiteral("error")).toString();
+                *error = e.isEmpty() ? QStringLiteral("Cannot write ") + path : e;
+            }
+            return false;
+        }
+        return true;
+    }
     if (ext == QLatin1String("epub")) {
         if (!saveEpub(doc_, path, error, exportInfo))
             return false;
@@ -542,14 +565,7 @@ bool Session::saveTo(const QString &path, QString *error, bool embedJson, QJsonO
                 out += plain + QLatin1Char('\n');
             }
         }
-        QFile f(path);
-        if (!f.open(QIODevice::WriteOnly)) {
-            if (error)
-                *error = QStringLiteral("Cannot write ") + path;
-            return false;
-        }
-        f.write(out.toUtf8());
-        return true;
+        return writeFileAtomic(path, out.toUtf8(), error);
     }
     // isExportSaveExtension said this extension is an export, but no branch wrote it.
     if (error)

@@ -195,6 +195,27 @@ foreach(_pb IN LISTS _aio_playbooks)
         WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}"
     )
 endforeach()
+
+# wave23 I/O regressions prepare /dev/full links and hostile fixtures themselves.
+# They must not depend on qa/audit/setup.sh or a hand-made /tmp directory.
+set(_wave23_io_fixture "${CMAKE_BINARY_DIR}/wave23-io-fixture")
+add_test(NAME wave23_io_setup
+    COMMAND bash "${CMAKE_SOURCE_DIR}/qa/wave23-io-setup.sh" "${_wave23_io_fixture}")
+set_tests_properties(wave23_io_setup PROPERTIES
+    FIXTURES_SETUP wave23_io
+    LABELS "playbook"
+    WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}"
+    TIMEOUT 60
+)
+file(GLOB _wave23_io_playbooks CONFIGURE_DEPENDS "${CMAKE_SOURCE_DIR}/qa/wave23-io-*.json")
+foreach(_pb IN LISTS _wave23_io_playbooks)
+    get_filename_component(_pb_name "${_pb}" NAME)
+    set_tests_properties("playbook_${_pb_name}" PROPERTIES
+        FIXTURES_REQUIRED wave23_io
+        WORKING_DIRECTORY "${_wave23_io_fixture}"
+        TIMEOUT 60
+    )
+endforeach()
 add_test(NAME tools_catalog COMMAND aioffice_cli tools)
 set_tests_properties(tools_catalog PROPERTIES LABELS "playbook" WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}")
 add_test(NAME play_classify COMMAND "${CMAKE_COMMAND}" -E env AIOFFICE_PLAY_CLASSIFY_CHECK=1 AIOFFICE_HEADLESS=1 QT_QPA_PLATFORM=offscreen
@@ -204,6 +225,16 @@ set_tests_properties(play_classify PROPERTIES LABELS "playbook" WORKING_DIRECTOR
 # Roundtrip tests run Python; require it at configure time so a missing interpreter
 # fails loudly here instead of as "no such file or directory" inside ctest (CI container).
 find_package(Python3 REQUIRED COMPONENTS Interpreter)
+add_test(NAME wave23_io_ids
+    COMMAND "${CMAKE_COMMAND}" -E env AIOFFICE_HEADLESS=1 QT_QPA_PLATFORM=offscreen
+        "${Python3_EXECUTABLE}" "${CMAKE_SOURCE_DIR}/qa/check_wave23_io_ids.py"
+        "${AIOFFICE_CLI}" "${_wave23_io_fixture}")
+set_tests_properties(wave23_io_ids PROPERTIES
+    FIXTURES_REQUIRED wave23_io
+    LABELS "playbook"
+    WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}"
+    TIMEOUT 120
+)
 set(_AIO_PYTHON "${CMAKE_SOURCE_DIR}/qa/check_roundtrip.py")
 add_test(NAME play_expect_shape COMMAND "${CMAKE_COMMAND}" -E env AIOFFICE_HEADLESS=1 QT_QPA_PLATFORM=offscreen
     "${Python3_EXECUTABLE}" "${CMAKE_SOURCE_DIR}/qa/check_play_expect.py" "${AIOFFICE_CLI}")

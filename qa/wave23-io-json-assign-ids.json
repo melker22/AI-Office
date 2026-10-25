@@ -1,0 +1,5 @@
+[
+  {"tool": "document_new", "args": {"force": true}},
+  {"tool": "document_open", "args": {"path": "assign-ids.aio.json"}, "expect": {"ok": true}},
+  {"tool": "document_get", "args": {}, "expect": {"document.body.0.id": "p2", "document.body.1.id": "p1"}}
+]
