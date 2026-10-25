@@ -486,6 +486,29 @@ def write_list_markup_epub(path: Path, chapter: str) -> None:
         zf.writestr("OEBPS/chapter.xhtml", chapter_xml)
 
 
+def write_nav_list_epub(path: Path, nav_name: str, nav_inner: str, chapter_inner: str) -> None:
+    """One manifest nav document plus a chapter. nav_name may omit the word nav."""
+    nav_xml = f"""<?xml version="1.0" encoding="UTF-8"?>
+<html xmlns="http://www.w3.org/1999/xhtml">
+<body>{nav_inner}</body>
+</html>"""
+    chapter_xml = f"""<?xml version="1.0" encoding="UTF-8"?>
+<html xmlns="http://www.w3.org/1999/xhtml">
+<body>{chapter_inner}</body>
+</html>"""
+    opf = f"""<?xml version="1.0" encoding="UTF-8"?>
+<package xmlns="http://www.idpf.org/2007/opf" version="3.0">
+  <manifest>
+    <item id="nav" href="{nav_name}" media-type="application/xhtml+xml" properties="nav"/>
+    <item id="c1" href="chapter.xhtml" media-type="application/xhtml+xml"/>
+  </manifest>
+</package>"""
+    with zipfile.ZipFile(path, "w") as zf:
+        zf.writestr(f"OEBPS/{nav_name}", nav_xml)
+        zf.writestr("OEBPS/chapter.xhtml", chapter_xml)
+        zf.writestr("OEBPS/content.opf", opf)
+
+
 def self_test() -> int:
     ok = True
 
@@ -597,6 +620,25 @@ def self_test() -> int:
             ok = False
         else:
             print("ok   nested EPUB nested_list required accepted")
+
+        nested_nav = "<ol><li>Ch<ul><li>Sub</li></ul></li></ol>"
+        flat_chapter = "<ul><li>A</li><li>B</li></ul>"
+        nav_epub = Path(tmp) / "nav-nested.epub"
+        write_nav_list_epub(nav_epub, "nav.xhtml", nested_nav, flat_chapter)
+        nav_errs = check_structure(nav_epub, list_exp)
+        if "expected a list nested inside a list item" not in nav_errs:
+            print("FAIL self-test nested TOC with flat chapters should fail:", nav_errs)
+            ok = False
+        else:
+            print("ok   nested TOC with flat chapters rejected")
+        toc_epub = Path(tmp) / "toc-nested.epub"
+        write_nav_list_epub(toc_epub, "toc.xhtml", nested_nav, flat_chapter)
+        toc_errs = check_structure(toc_epub, list_exp)
+        if "expected a list nested inside a list item" not in toc_errs:
+            print("FAIL self-test properties=nav TOC with flat chapters should fail:", toc_errs)
+            ok = False
+        else:
+            print("ok   properties=nav TOC with flat chapters rejected")
 
     mcp = (REPO / "docs" / "mcp-tools.md").read_text(encoding="utf-8")
     open_section = mcp.split("### `document_open`", 1)[1].split("### `document_save`", 1)[0]
