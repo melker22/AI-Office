@@ -270,6 +270,18 @@ set_tests_properties(wave23_io_hostile PROPERTIES
     WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}"
     TIMEOUT 60
 )
+# D17: page-preview PNGs must decode with zbarimg. The playbook above is the
+# capacity expect; this checker is the byte-for-byte judge.
+add_test(NAME wave24_qr
+    COMMAND "${CMAKE_COMMAND}" -E env AIOFFICE_HEADLESS=1 QT_QPA_PLATFORM=offscreen
+        "${Python3_EXECUTABLE}" "${CMAKE_SOURCE_DIR}/qa/check_qr.py"
+        --cli "${AIOFFICE_CLI}"
+        --playbook "${CMAKE_SOURCE_DIR}/qa/wave24-qr.json")
+set_tests_properties(wave24_qr PROPERTIES
+    LABELS "playbook"
+    WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}"
+    TIMEOUT 300
+)
 set(_AIO_PYTHON "${CMAKE_SOURCE_DIR}/qa/check_roundtrip.py")
 add_test(NAME play_expect_shape COMMAND "${CMAKE_COMMAND}" -E env AIOFFICE_HEADLESS=1 QT_QPA_PLATFORM=offscreen
     "${Python3_EXECUTABLE}" "${CMAKE_SOURCE_DIR}/qa/check_play_expect.py" "${AIOFFICE_CLI}")

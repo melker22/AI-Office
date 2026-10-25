@@ -7,6 +7,7 @@
 #include "core/Odf.h"
 #include "core/RtfWriter.h"
 #include "core/Preview.h"
+#include "core/Qr.h"
 #include "core/RtfReader.h"
 #include "core/Spell.h"
 #include "core/Zip.h"
@@ -4942,6 +4943,8 @@ QJsonObject Session::insertQr(const QJsonObject &args)
         b.qrText = args.value(QStringLiteral("text")).toString();
     if (b.qrText.isEmpty())
         return fail(QStringLiteral("qr is required"));
+    if (const QString capErr = qrCapacityError(b.qrText); !capErr.isEmpty())
+        return fail(capErr);
     b.imageWidthMm = int(args.value(QStringLiteral("width_mm")).toDouble(40));
     b.heightMm = args.value(QStringLiteral("height_mm")).toDouble(40);
     return insertTypedBlock(*this, b, args);

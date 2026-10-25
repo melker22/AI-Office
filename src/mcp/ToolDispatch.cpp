@@ -744,7 +744,8 @@ QJsonArray toolDefinitions()
                               {QStringLiteral("height_mm"), prop(QStringLiteral("number"))}},
                   QJsonArray{QStringLiteral("data")}));
     a.append(tool(QStringLiteral("insert_qr"),
-                  QStringLiteral("Insert a QR preview (byte mode, short payload). qr=text."),
+                  QStringLiteral("Insert a QR symbol (ISO/IEC 18004 byte mode, versions 1-10, level M). "
+                                 "qr=text as UTF-8. More than 213 bytes returns an error."),
                   QJsonObject{{QStringLiteral("after_id"), prop(QStringLiteral("string"))},
                               {QStringLiteral("qr"), prop(QStringLiteral("string"))},
                               {QStringLiteral("text"), prop(QStringLiteral("string"))},
