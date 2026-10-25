@@ -2,7 +2,6 @@
   "rtf": "/tmp/wave20-rtf-roundtrip-criterion.rtf",
   "plain_contains": [
     "Titulo RTF",
-    "bold",
     "italic",
     "Um",
     "Dois",
@@ -13,6 +12,16 @@
   ],
   "body": [
     {"block_index": 0, "type": "heading", "plain": "Titulo RTF"},
-    {"block_index": 1, "plain": "Mix bold and italic."}
+    {
+      "block_index": 1,
+      "plain": "Mix bold and italic.",
+      "runs": [
+        {"text": "Mix "},
+        {"text": "bold", "bold": true},
+        {"text": " and "},
+        {"text": "italic", "italic": true},
+        {"text": "."}
+      ]
+    }
   ]
 }

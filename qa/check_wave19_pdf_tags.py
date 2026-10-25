@@ -129,7 +129,7 @@ def main():
             timeout=120,
         )
     except FileNotFoundError:
-        print("verapdf not on PATH")
+        raise SystemExit("verapdf not on PATH")
     except subprocess.TimeoutExpired as exc:
         raise SystemExit("verapdf timed out after 120s") from exc
     else:

@@ -265,38 +265,98 @@ def revisions_from_aio(path: Path) -> list[dict]:
     return revs
 
 
-def compare_revision_lists(got: list[dict], want: list[dict]) -> None:
-    def norm(r: dict) -> dict:
+def body_from_aio(path: Path) -> list[dict]:
+    data = json.loads(path.read_text())
+    if "document" in data:
+        return data["document"].get("body") or []
+    return data.get("body") or []
+
+
+def block_id_index(body: list[dict]) -> dict[str, int]:
+    return {str(b.get("id") or ""): i for i, b in enumerate(body)}
+
+
+def compare_revision_lists(
+    got: list[dict],
+    got_body: list[dict],
+    want: list[dict],
+    want_body: list[dict],
+) -> None:
+    got_idx = block_id_index(got_body)
+    want_idx = block_id_index(want_body)
+
+    def norm(r: dict, idx: dict[str, int]) -> dict:
+        bid = str(r.get("block_id") or "")
         return {
             "kind": r.get("kind"),
+            "block": idx.get(bid, -1),
             "author": r.get("author"),
             "start": r.get("start"),
             "end": r.get("end"),
             "text": r.get("text") or "",
             "payload": r.get("payload") or "",
+            "prior_runs": [
+                {k: v for k, v in (pr or {}).items() if k in ("text", "bold", "italic", "underline", "strike")}
+                for pr in (r.get("prior_runs") or [])
+            ],
             "deleted_runs": [
                 {k: v for k, v in (dr or {}).items() if k in ("text", "bold", "italic", "underline", "strike")}
                 for dr in (r.get("deleted_runs") or [])
             ],
         }
 
-    g = sorted((norm(r) for r in got), key=lambda x: (x["kind"], x["start"], x["author"] or ""))
-    w = sorted((norm(r) for r in want), key=lambda x: (x["kind"], x["start"], x["author"] or ""))
+    g = sorted(
+        (norm(r, got_idx) for r in got),
+        key=lambda x: (x["block"], x["kind"], x["start"], x["author"] or ""),
+    )
+    w = sorted(
+        (norm(r, want_idx) for r in want),
+        key=lambda x: (x["block"], x["kind"], x["start"], x["author"] or ""),
+    )
     if len(g) != len(w):
         raise SystemExit(f"foreign revision count {len(g)} != {len(w)}")
     for a, b in zip(g, w):
-        for key in ("kind", "author", "start", "end", "text"):
+        for key in ("kind", "block", "author", "start", "end", "text", "payload"):
             if a[key] != b[key]:
                 raise SystemExit(f"foreign revision {key}: {a[key]!r} != {b[key]!r}")
-        if len(a["deleted_runs"]) != len(b["deleted_runs"]):
-            raise SystemExit(f"foreign deleted_runs len mismatch")
-        for dr_g, dr_w in zip(a["deleted_runs"], b["deleted_runs"]):
-            if not run_props_match(dr_g, dr_w):
-                raise SystemExit(f"foreign deleted_runs: {dr_g!r} != {dr_w!r}")
+        for label in ("prior_runs", "deleted_runs"):
+            if len(a[label]) != len(b[label]):
+                raise SystemExit(f"foreign {label} len mismatch")
+            for dr_g, dr_w in zip(a[label], b[label]):
+                if not run_props_match(dr_g, dr_w):
+                    raise SystemExit(f"foreign {label}: {dr_g!r} != {dr_w!r}")
+
+
+def self_test_compare_revisions() -> None:
+    body = [{"id": "p1"}, {"id": "p2"}]
+    want = [
+        {
+            "kind": "format",
+            "block_id": "p1",
+            "author": "Ada",
+            "start": 0,
+            "end": 1,
+            "payload": '{"bold":false}',
+            "prior_runs": [{"text": "A", "bold": True}],
+        }
+    ]
+    got_ok = [dict(want[0])]
+    compare_revision_lists(got_ok, body, want, body)
+    print("ok   compare_revision_lists pass case")
+    got_bad = [dict(want[0], block_id="p2")]
+    try:
+        compare_revision_lists(got_bad, body, want, body)
+    except SystemExit as exc:
+        if "block" not in str(exc):
+            raise
+        print(f"ok   compare_revision_lists fail case ({exc})")
+    else:
+        raise SystemExit("FAIL self-test compare_revision_lists fail case")
 
 
 def foreign_roundtrip(cli: Path, aio_path: Path, fmt: str, tmp: Path) -> None:
     want = revisions_from_aio(aio_path)
+    want_body = body_from_aio(aio_path)
     exported = tmp / f"exported.{fmt}"
     stripped = tmp / f"foreign.{fmt}"
     aio = str(aio_path.resolve())
@@ -312,11 +372,13 @@ def foreign_roundtrip(cli: Path, aio_path: Path, fmt: str, tmp: Path) -> None:
         cli,
         [
             {"tool": "document_open", "args": {"path": str(stripped)}},
+            {"tool": "document_get", "args": {}},
             {"tool": "revision_list", "args": {}},
         ],
     )
+    got_body = document_from_result(results[-2]).get("body") or []
     got = results[-1].get("revisions") or []
-    compare_revision_lists(got, want)
+    compare_revision_lists(got, got_body, want, want_body)
     print(f"foreign {fmt} round-trip OK", aio_path.name)
 
 
@@ -444,7 +506,12 @@ def main() -> None:
         nargs="?",
         help="Legacy mode: directory with from_json.json (wave12 roundtrip artifacts)",
     )
+    ap.add_argument("--self-test", action="store_true", help="unit checks for revision comparison")
     args = ap.parse_args()
+
+    if args.self_test:
+        self_test_compare_revisions()
+        return
 
     if not args.cli.is_file():
         raise SystemExit(f"CLI not found: {args.cli} (build aioffice_cli first)")

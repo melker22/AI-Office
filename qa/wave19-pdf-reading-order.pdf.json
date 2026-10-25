@@ -4,6 +4,6 @@
   "pdffonts": {"all_embedded": true},
   "qpdf": {
     "no_part_fallback": true,
-    "document_child_types": ["P", "P"]
+    "document_child_types": ["Figure", "P"]
   }
 }
