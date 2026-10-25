@@ -92,7 +92,7 @@ jobs:
       - run:
           name: CTest playbooks and roundtrip fixtures (headless MCP smoke suite)
           command: |
-            nix-shell --run "ctest --test-dir build/linux --output-on-failure --no-tests=error -L 'playbook|roundtrip|pdf|epub|rtf'" \
+            nix-shell --run "ctest --test-dir build/linux --output-on-failure --no-tests=error -L 'playbook|roundtrip|pdf|epub|rtf' -LE wave24" \
               > /tmp/last-playbook-output.txt 2>&1 || {
               echo "--- ctest FAILED ---"
               tail -n 80 /tmp/last-playbook-output.txt

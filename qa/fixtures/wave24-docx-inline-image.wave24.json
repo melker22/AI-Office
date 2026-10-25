@@ -1,0 +1,28 @@
+{
+  "decision": "D2",
+  "audit": [
+    "A-docx-5"
+  ],
+  "block_count_min": 3,
+  "block_types": [
+    "paragraph",
+    "image",
+    "paragraph"
+  ],
+  "body": [
+    {
+      "block_index": 0,
+      "type": "paragraph",
+      "plain": "Before"
+    },
+    {
+      "block_index": 1,
+      "type": "image"
+    },
+    {
+      "block_index": 2,
+      "type": "paragraph",
+      "plain": "After"
+    }
+  ]
+}

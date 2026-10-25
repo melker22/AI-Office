@@ -1,0 +1,43 @@
+[
+  {
+    "tool": "document_new",
+    "args": {
+      "title": "D11",
+      "force": true
+    }
+  },
+  {
+    "tool": "insert_blocks",
+    "args": {
+      "after_id": "end",
+      "blocks": [
+        {
+          "type": "paragraph",
+          "runs": [
+            {
+              "text": "One"
+            }
+          ]
+        }
+      ]
+    }
+  },
+  {
+    "tool": "bookmark_add",
+    "args": {
+      "id": "p1",
+      "name": "a",
+      "start": 0,
+      "end": 3
+    }
+  },
+  {
+    "tool": "bookmark_add",
+    "args": {
+      "id": "p1",
+      "name": "b",
+      "start": 0,
+      "end": 3
+    }
+  }
+]

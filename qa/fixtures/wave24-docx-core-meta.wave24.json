@@ -1,0 +1,12 @@
+{
+  "decision": "D6",
+  "audit": [
+    "A-docx-9"
+  ],
+  "meta": {
+    "title": "Wave24 Title",
+    "subject": "Wave24 Subject",
+    "keywords": "alpha, beta",
+    "author": "Ada Lovelace"
+  }
+}

@@ -1,0 +1,12 @@
+{
+  "decision": "D11",
+  "audit": [
+    "PR-11-DOCX-bookmark"
+  ],
+  "export_after_play": true,
+  "export": {
+    "docx": {
+      "unique_bookmark_ids": true
+    }
+  }
+}

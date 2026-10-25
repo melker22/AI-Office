@@ -1,0 +1,23 @@
+{
+  "decision": "D1",
+  "audit": [
+    "A-docx-4"
+  ],
+  "body": [
+    {
+      "block_index": 0,
+      "plain": "Styled",
+      "runs": [
+        {
+          "text": "Styled",
+          "size_pt": 14,
+          "font": "Arial",
+          "color": "#FF0000",
+          "bold": false,
+          "italic": false,
+          "underline": false
+        }
+      ]
+    }
+  ]
+}

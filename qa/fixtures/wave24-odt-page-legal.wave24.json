@@ -1,0 +1,11 @@
+{
+  "decision": "D3",
+  "audit": [
+    "A-odf-4"
+  ],
+  "page": {
+    "width_mm": 215.9,
+    "height_mm": 355.6,
+    "size": "Legal"
+  }
+}

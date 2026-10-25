@@ -1,0 +1,13 @@
+{
+  "decision": "D14",
+  "audit": [
+    "A-odf-7"
+  ],
+  "body": [
+    {
+      "block_index": 0,
+      "type": "list-item",
+      "plain": "Alpha"
+    }
+  ]
+}

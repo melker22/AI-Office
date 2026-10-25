@@ -1,0 +1,15 @@
+{
+  "decision": "D15",
+  "audit": [
+    "A-odf-8"
+  ],
+  "export_after_play": true,
+  "export": {
+    "odt": {
+      "odt_png_min": 1,
+      "must_not_contain": [
+        "<text:p></text:p>"
+      ]
+    }
+  }
+}
