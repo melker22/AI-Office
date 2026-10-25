@@ -431,7 +431,7 @@ FieldContext baseContext(const Document &doc, int page, int pages)
     ctx.pages = pages > 0 ? pages : 1;
     ctx.words = doc.wordCount();
     for (const Block &b : doc.body) {
-        ctx.chars += b.plainText().size();
+        ctx.chars += b.statText().size();
         if (b.type == QLatin1String("paragraph"))
             ++ctx.paragraphs;
         else if (b.type == QLatin1String("table"))

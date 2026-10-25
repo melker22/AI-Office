@@ -436,7 +436,7 @@ Clona o corpo por registo, substitui `{{chave}}` e campos `merge`, e insere queb
 
 ### `set_image` / `insert_caption`
 
-Alt, caption, wrap, âncora, `width_mm`, `rotate` (graus), `opacity` (0–1) no bloco imagem (ou caption em tabela). `caption` and `caption_runs` are stored on every block that has them, not only images, and `plainText()` (word count, diff, outline text) includes that caption. `insert_caption` args: `{ id, text?, seq?: { name, format?: arabic|roman|alpha } }` — com `seq`, grava `caption_runs` (`"<name> "` + campo seq + texto) para numeração viva e xref `category_number`.
+Alt, caption, wrap, âncora, `width_mm`, `rotate` (graus), `opacity` (0–1) no bloco imagem (ou caption em tabela). `caption` and `caption_runs` are stored on every block that has them, not only images. `plainText()` is the run text used by the caret, layout, diff, outline, and the DOCX fingerprint. Word and character counts add the caption through `statText()`. `insert_caption` args: `{ id, text?, seq?: { name, format?: arabic|roman|alpha } }` — com `seq`, grava `caption_runs` (`"<name> "` + campo seq + texto) para numeração viva e xref `category_number`.
 
 ### `undo` / `redo`
 

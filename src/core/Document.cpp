@@ -846,6 +846,12 @@ QString Block::plainText() const
         for (const auto &r : runs)
             t += r.text;
     }
+    return t;
+}
+
+QString Block::statText() const
+{
+    QString t = plainText();
     QString cap;
     if (!captionRuns.isEmpty()) {
         for (const auto &r : captionRuns)
@@ -1425,7 +1431,7 @@ int Document::wordCount() const
 {
     int n = 0;
     for (const auto &b : body) {
-        const auto parts = b.plainText().split(QRegularExpression(QStringLiteral("\\s+")), Qt::SkipEmptyParts);
+        const auto parts = b.statText().split(QRegularExpression(QStringLiteral("\\s+")), Qt::SkipEmptyParts);
         n += parts.size();
     }
     return n;
@@ -1555,7 +1561,7 @@ int visibleWordCount(const Document &doc)
     for (const auto &b : doc.body) {
         if (!documentBlockVisibleForStat(doc, b, 1, 1))
             continue;
-        const auto parts = b.plainText().split(QRegularExpression(QStringLiteral("\\s+")), Qt::SkipEmptyParts);
+        const auto parts = b.statText().split(QRegularExpression(QStringLiteral("\\s+")), Qt::SkipEmptyParts);
         n += parts.size();
     }
     return n;
@@ -1572,7 +1578,7 @@ int documentStatCount(const Document &doc, const QString &kind, int page, int pa
         for (const auto &b : doc.body) {
             if (!documentBlockVisibleForStat(doc, b, page, pages))
                 continue;
-            n += b.plainText().size();
+            n += b.statText().size();
         }
         return n;
     }
