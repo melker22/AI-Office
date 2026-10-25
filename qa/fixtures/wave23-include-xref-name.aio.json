@@ -1,31 +1,99 @@
 {
   "schema": 1,
-  "meta": {"title": "Include xref by name", "author": "Ada"},
+  "meta": {
+    "title": "Include xref by name",
+    "author": "Ada"
+  },
   "body": [
     {
       "id": "s1",
       "type": "paragraph",
       "style": "Normal",
       "runs": [
-        {"text": "see "},
-        {"text": "marca", "field": "xref", "field_arg": "marca"},
-        {"text": " and "},
-        {"text": "unica", "field": "xref", "field_arg": "unica"}
+        {
+          "text": "see "
+        },
+        {
+          "text": "marca",
+          "field": "xref",
+          "field_arg": "marca"
+        },
+        {
+          "text": " and "
+        },
+        {
+          "text": "unica",
+          "field": "xref",
+          "field_arg": "unica"
+        }
       ],
       "caption_runs": [
-        {"text": "legenda "},
-        {"text": "marca", "field": "xref", "field_arg": "marca"}
+        {
+          "text": "legenda "
+        },
+        {
+          "text": "marca",
+          "field": "xref",
+          "field_arg": "marca"
+        }
       ]
     },
     {
       "id": "s2",
       "type": "paragraph",
       "style": "Normal",
-      "runs": [{"text": "alvo importado"}]
+      "runs": [
+        {
+          "text": "alvo importado"
+        }
+      ]
+    },
+    {
+      "id": "s3",
+      "type": "table",
+      "rows": [
+        [
+          {
+            "runs": [
+              {
+                "text": "cell "
+              },
+              {
+                "text": "marca",
+                "field": "xref",
+                "field_arg": "marca"
+              }
+            ],
+            "nested": [
+              [
+                {
+                  "runs": [
+                    {
+                      "text": "marca",
+                      "field": "xref",
+                      "field_arg": "marca"
+                    }
+                  ]
+                }
+              ]
+            ]
+          }
+        ]
+      ]
     }
   ],
   "bookmarks": [
-    {"id": "bm9", "name": "marca", "block_id": "s2", "offset": 0},
-    {"id": "bm8", "name": "unica", "block_id": "s2", "offset": 0}
+    {
+      "id": "bm9",
+      "name": "marca",
+      "block_id": "s2",
+      "offset": 0
+    },
+    {
+      "id": "bm8",
+      "name": "unica",
+      "block_id": "s2",
+      "offset": 0
+    }
   ]
 }

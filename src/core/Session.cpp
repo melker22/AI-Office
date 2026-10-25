@@ -5509,24 +5509,32 @@ static void remapRunIds(QVector<TextRun> &runs, const QMap<QString, QString> &id
     }
 }
 
-static void remapXrefBookmarkIds(QVector<TextRun> &runs, const QMap<QString, QString> &bmMap)
+// An imported xref target is a bookmark id (remapped when the id was renamed) or, failing that, a
+// bookmark name that collides with a host name (retargeted to the imported bookmark's final id).
+static void remapXrefBookmarkIds(QVector<TextRun> &runs, const QMap<QString, QString> &bmMap,
+                                 const QMap<QString, QString> &nameMap)
 {
     for (auto &run : runs) {
-        if (run.field == QLatin1String("xref") && bmMap.contains(run.fieldArg))
+        if (run.field != QLatin1String("xref"))
+            continue;
+        if (bmMap.contains(run.fieldArg))
             run.fieldArg = bmMap.value(run.fieldArg);
+        else if (nameMap.contains(run.fieldArg))
+            run.fieldArg = nameMap.value(run.fieldArg);
     }
 }
 
-static void remapBlockXrefBookmarks(Block &b, const QMap<QString, QString> &bmMap)
+static void remapBlockXrefBookmarks(Block &b, const QMap<QString, QString> &bmMap,
+                                    const QMap<QString, QString> &nameMap)
 {
-    remapXrefBookmarkIds(b.runs, bmMap);
-    remapXrefBookmarkIds(b.captionRuns, bmMap);
+    remapXrefBookmarkIds(b.runs, bmMap, nameMap);
+    remapXrefBookmarkIds(b.captionRuns, bmMap, nameMap);
     for (auto &row : b.table) {
         for (auto &cell : row) {
-            remapXrefBookmarkIds(cell.runs, bmMap);
+            remapXrefBookmarkIds(cell.runs, bmMap, nameMap);
             for (auto &nrow : cell.nested) {
                 for (auto &nc : nrow)
-                    remapXrefBookmarkIds(nc.runs, bmMap);
+                    remapXrefBookmarkIds(nc.runs, bmMap, nameMap);
             }
         }
     }
@@ -5606,9 +5614,7 @@ QJsonObject Session::documentInclude(const QJsonObject &args)
             nameMap.insert(bm.name, bm.id);
     }
     for (auto &b : incoming) {
-        remapBlockXrefBookmarks(b, bmMap);
-        remapXrefBookmarkIds(b.runs, nameMap);
-        remapXrefBookmarkIds(b.captionRuns, nameMap);
+        remapBlockXrefBookmarks(b, bmMap, nameMap);
     }
     QJsonArray ids;
     for (auto &b : incoming) {
