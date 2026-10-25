@@ -1,0 +1,24 @@
+[
+  {"tool": "document_new", "args": {"force": true, "title": "Stable if"}},
+  {"tool": "insert_at_caret", "args": {"id": "p1", "offset": 0, "text": "one two three four "}},
+  {"tool": "insert_field", "args": {"id": "p1", "offset": 20, "kind": "if", "arg": {"cond": "words > 6", "then": "yes", "else": "five extra words here now"}}},
+  {"tool": "document_get", "args": {}, "expect": {"document.body.0.runs.1.text": "five extra words here now"}},
+  {"tool": "document_get", "args": {}, "expect": {"document.body.0.runs.1.text": "five extra words here now"}},
+
+  {"tool": "document_new", "args": {"force": true, "title": "If pages"}},
+  {"tool": "insert_at_caret", "args": {"id": "p1", "offset": 0, "text": "Hello"}},
+  {"tool": "insert_break", "args": {"kind": "page", "after_id": "p1"}},
+  {"tool": "insert_blocks", "args": {"after_id": "br1", "blocks": [{"id": "p2", "type": "paragraph", "runs": [{"text": ""}]}]}},
+  {"tool": "insert_field", "args": {"id": "p2", "offset": 0, "kind": "if", "arg": {"cond": "pages > 1", "then": "MULTI", "else": "ONE"}}},
+  {"tool": "document_get", "args": {}, "expect": {"document.body.2.runs.0.text": "MULTI"}},
+  {"tool": "document_get", "args": {}, "expect": {"document.body.2.runs.0.text": "MULTI"}},
+  {"tool": "insert_field", "args": {"id": "p1", "offset": 0, "kind": "stat", "arg": "pages"}},
+  {"tool": "document_get", "args": {}, "expect": {
+    "document.body.0.runs.0.text": "2",
+    "document.body.2.runs.0.text": "MULTI"
+  }},
+  {"tool": "document_get", "args": {}, "expect": {
+    "document.body.0.runs.0.text": "2",
+    "document.body.2.runs.0.text": "MULTI"
+  }}
+]
