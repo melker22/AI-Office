@@ -1465,7 +1465,8 @@ QJsonObject Session::insertBreak(const QJsonObject &args)
 
 // Replace [start, start+len) inside a format revision's prior slices. The
 // inserted run keeps the formatting of the first sliced run. An empty
-// replacement drops the slice. Coordinates are local to priorRuns.
+// replacement drops the slice. If that leaves no slices, keep one empty run so
+// revision_reject still has prior formatting. Coordinates are local to priorRuns.
 static void replaceFormatPriorSlice(QVector<TextRun> &runs, int start, int len, const QString &replacement)
 {
     if (start < 0 || len < 0)
@@ -1485,6 +1486,8 @@ static void replaceFormatPriorSlice(QVector<TextRun> &runs, int start, int len, 
         out.push_back(rep);
     }
     out += after;
+    if (out.isEmpty())
+        out.push_back(TextRun{});
     runs = out;
 }
 
