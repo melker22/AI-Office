@@ -1,5 +1,7 @@
 #include "lok/LokEngine.h"
 
+#include "core/Zip.h"
+
 #include <QDir>
 #include <QFile>
 #include <QFileInfo>
@@ -21,29 +23,23 @@ bool placeConverted(const QString &produced, const QString &finalPath, QString *
     const QFileInfo finalFi(finalPath);
     if (QFileInfo(produced).absoluteFilePath() == finalFi.absoluteFilePath())
         return true;
-    const QString stage = finalFi.absolutePath() + QLatin1Char('/') + QLatin1Char('.') + finalFi.fileName()
-        + QStringLiteral(".aioffice-new");
-    QFile::remove(stage);
-    if (!QFile::rename(produced, stage) && !QFile::copy(produced, stage)) {
+    // Publish the converted bytes in place. Renaming onto the destination and
+    // deleting it first can leave nothing behind when the second rename fails.
+    QFile in(produced);
+    if (!in.open(QIODevice::ReadOnly)) {
         if (error)
             *error = QStringLiteral("Could not move converted file to ") + finalPath;
         return false;
     }
-    if (QFile::rename(stage, finalPath))
-        return true;
-    // rename(2) replaces an existing file on Unix. If it did not, replace
-    // only after the converted bytes are already in this directory.
-    QFile::remove(finalPath);
-    if (QFile::rename(stage, finalPath))
-        return true;
-    if (QFile::copy(stage, finalPath)) {
-        QFile::remove(stage);
-        return true;
+    const QByteArray bytes = in.readAll();
+    const bool readFailed = in.error() != QFileDevice::NoError;
+    in.close();
+    if (readFailed) {
+        if (error)
+            *error = QStringLiteral("Could not move converted file to ") + finalPath;
+        return false;
     }
-    QFile::remove(stage);
-    if (error)
-        *error = QStringLiteral("Could not move converted file to ") + finalPath;
-    return false;
+    return writeFileAtomic(finalPath, bytes, error);
 }
 
 } // namespace

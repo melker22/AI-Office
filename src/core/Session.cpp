@@ -840,8 +840,7 @@ QJsonObject Session::exportPdf(const QJsonObject &args)
         }
         return r;
     }
-    // convertTo() removes the destination when a rename fails. A publish that
-    // already refused the path must not fall through to that.
+    // The path was already refused. Do not ask LibreOffice to publish it again.
     if (nativeErr == QStringLiteral("Cannot write ") + pdf)
         return fail(nativeErr);
     QTemporaryDir tmp;
