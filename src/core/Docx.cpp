@@ -105,6 +105,23 @@ void fillBookmarkNames(DocxOut &o, const Document &doc)
     }
 }
 
+// w:color w:val is six hex digits. A leading '#' is stripped. Anything else is omitted.
+QString docxHexColor(const QString &color)
+{
+    QString c = color;
+    if (c.startsWith(QLatin1Char('#')))
+        c = c.mid(1);
+    if (c.size() != 6)
+        return {};
+    for (const QChar ch : c) {
+        const ushort u = ch.unicode();
+        const bool hex = (u >= '0' && u <= '9') || (u >= 'A' && u <= 'F') || (u >= 'a' && u <= 'f');
+        if (!hex)
+            return {};
+    }
+    return c;
+}
+
 QString runRPr(const TextRun &r)
 {
     QString rPr;
@@ -124,11 +141,8 @@ QString runRPr(const TextRun &r)
         rPr += QStringLiteral("<w:sz w:val=\"%1\"/><w:szCs w:val=\"%1\"/>").arg(int(r.sizePt * 2));
     if (!r.font.isEmpty())
         rPr += QStringLiteral("<w:rFonts w:ascii=\"%1\" w:hAnsi=\"%1\"/>").arg(xmlEscape(r.font));
-    if (!r.color.isEmpty()) {
-        QString c = r.color;
-        c.remove(QLatin1Char('#'));
-        rPr += QStringLiteral("<w:color w:val=\"%1\"/>").arg(c);
-    }
+    if (const QString hex = docxHexColor(r.color); !hex.isEmpty())
+        rPr += QStringLiteral("<w:color w:val=\"%1\"/>").arg(hex);
     if (!r.highlight.isEmpty())
         rPr += QLatin1String("<w:highlight w:val=\"yellow\"/>");
     return rPr;
@@ -472,7 +486,7 @@ bool nativeWordField(const TextRun &r, DocxOut &o, QString &instr)
              || r.field == QLatin1String("custom"))
         instr = QStringLiteral(" DOCVARIABLE %1 ").arg(r.fieldArg);
     else if (r.field == QLatin1String("input"))
-        instr = QStringLiteral(" FILLIN \"%1\" ").arg(xmlEscape(r.fieldArg));
+        instr = QStringLiteral(" FILLIN %1 ").arg(quoteFieldResult(r.fieldArg));
     else if (r.field == QLatin1String("time"))
         instr = QStringLiteral(" TIME ");
     else if (r.field == QLatin1String("cite") || r.field == QLatin1String("citation"))
@@ -755,7 +769,9 @@ QString runsToWml(const QVector<TextRun> &runs, const Document &doc, DocxOut &o,
         if (vanish)
             rPr += QLatin1String("<w:vanish/>");
         QString instr;
-        if (!r.field.isEmpty() && nativeWordField(r, o, instr)) {
+        // A field inside w:del is the displayed text only. The field identity
+        // stays on the revision in word/aioffice.json (D7).
+        if (!asDeleted && !r.field.isEmpty() && nativeWordField(r, o, instr)) {
             const QString vis = xmlEscape(fieldVisible(doc, r, o, asDeleted));
             const QString innerPr = rPr.isEmpty() ? QString() : QStringLiteral("<w:rPr>%1</w:rPr>").arg(rPr);
             xml += QStringLiteral("<w:fldSimple w:instr=\"%1\"><w:r>%2<w:t>%3</w:t></w:r></w:fldSimple>")
@@ -1032,6 +1048,139 @@ QString pPr(const Block &b, bool vanish = false)
     return QStringLiteral("<w:pPr>%1</w:pPr>").arg(xml);
 }
 
+int twipsMm(double mm);
+
+QString tableWml(const QVector<QVector<TableCell>> &table, const QVector<double> &widthsMm,
+                 const Document &doc, DocxOut &o, bool van);
+
+QString nestedTableWml(const QVector<QVector<NestedCell>> &nested, const Document &doc, DocxOut &o, bool van)
+{
+    QVector<QVector<TableCell>> rows;
+    rows.reserve(nested.size());
+    for (const auto &nrow : nested) {
+        QVector<TableCell> row;
+        row.reserve(nrow.size());
+        for (const auto &nc : nrow) {
+            TableCell cell;
+            cell.runs = nc.runs;
+            row.push_back(cell);
+        }
+        rows.push_back(row);
+    }
+    return tableWml(rows, {}, doc, o, van);
+}
+
+// D4: colSpan → w:gridSpan (covered cells on that row are omitted). rowSpan →
+// w:vMerge restart on the anchor and continue on the cells below. A nested
+// grid is a w:tbl inside the cell, after the cell paragraph.
+QString tableWml(const QVector<QVector<TableCell>> &table, const QVector<double> &widthsMm,
+                 const Document &doc, DocxOut &o, bool van)
+{
+    int cols = 0;
+    const int rows = table.size();
+    for (const auto &row : table)
+        cols = qMax(cols, row.size());
+    struct Mark {
+        bool covered = false;
+        bool vContinue = false;
+        int span = 1;
+    };
+    QVector<QVector<Mark>> mark(rows);
+    for (int r = 0; r < rows; ++r)
+        mark[r].resize(cols);
+    auto colSpanOf = [&](int r, int c) {
+        return qBound(1, table[r][c].colSpan, qMax(1, table[r].size() - c));
+    };
+    auto rowSpanOf = [&](int r, int c) {
+        return qBound(1, table[r][c].rowSpan, qMax(1, rows - r));
+    };
+    for (int r = 0; r < rows; ++r) {
+        for (int c = 0; c < table[r].size(); ++c) {
+            if (mark[r][c].covered)
+                continue;
+            const int cs = colSpanOf(r, c);
+            const int rs = rowSpanOf(r, c);
+            for (int rr = r; rr < r + rs; ++rr) {
+                for (int cc = c; cc < c + cs && cc < mark[rr].size(); ++cc) {
+                    if (rr == r && cc == c)
+                        continue;
+                    mark[rr][cc].covered = true;
+                    if (cc == c) {
+                        mark[rr][cc].vContinue = true;
+                        mark[rr][cc].span = cs;
+                    }
+                }
+            }
+        }
+    }
+    auto colWidth = [&](int c) {
+        if (c >= 0 && c < widthsMm.size() && widthsMm.at(c) > 0)
+            return twipsMm(widthsMm.at(c));
+        return 2400;
+    };
+    QString xml = QStringLiteral("<w:tbl><w:tblPr><w:tblW w:w=\"0\" w:type=\"auto\"/></w:tblPr><w:tblGrid>");
+    for (int c = 0; c < cols; ++c)
+        xml += QStringLiteral("<w:gridCol w:w=\"%1\"/>").arg(colWidth(c));
+    xml += QStringLiteral("</w:tblGrid>");
+    const QString vanP = van ? QStringLiteral("<w:pPr><w:rPr><w:vanish/></w:rPr></w:pPr>") : QString();
+    for (int r = 0; r < rows; ++r) {
+        xml += QStringLiteral("<w:tr>");
+        for (int c = 0; c < table[r].size(); ++c) {
+            if (mark[r][c].covered && !mark[r][c].vContinue)
+                continue;
+            int span = 1;
+            QString merge;
+            if (mark[r][c].vContinue) {
+                span = qMax(1, mark[r][c].span);
+                merge = QStringLiteral("<w:vMerge w:val=\"continue\"/>");
+            } else {
+                span = colSpanOf(r, c);
+                if (rowSpanOf(r, c) > 1)
+                    merge = QStringLiteral("<w:vMerge w:val=\"restart\"/>");
+            }
+            QString tcPr;
+            if (span > 1)
+                tcPr += QStringLiteral("<w:gridSpan w:val=\"%1\"/>").arg(span);
+            tcPr += merge;
+            xml += QStringLiteral("<w:tc>");
+            if (!tcPr.isEmpty())
+                xml += QStringLiteral("<w:tcPr>") + tcPr + QStringLiteral("</w:tcPr>");
+            xml += QStringLiteral("<w:p>") + vanP;
+            if (!mark[r][c].vContinue)
+                xml += runsToWml(table[r][c].runs, doc, o, QString(), false, van);
+            xml += QStringLiteral("</w:p>");
+            if (!mark[r][c].vContinue && !table[r][c].nested.isEmpty()) {
+                xml += nestedTableWml(table[r][c].nested, doc, o, van);
+                // Word and LibreOffice keep a nested table only when the cell
+                // ends with a paragraph after the inner w:tbl.
+                xml += QStringLiteral("<w:p>") + vanP + QStringLiteral("</w:p>");
+            }
+            xml += QStringLiteral("</w:tc>");
+        }
+        xml += QStringLiteral("</w:tr>");
+    }
+    xml += QStringLiteral("</w:tbl>");
+    return xml;
+}
+
+QString captionWml(const Block &b, const Document &doc, DocxOut &o, bool van)
+{
+    QString inner;
+    if (!b.captionRuns.isEmpty())
+        inner = runsToWml(b.captionRuns, doc, o, QString(), false, van);
+    else if (!b.caption.isEmpty()) {
+        TextRun r;
+        r.text = b.caption;
+        inner = runsToWml(QVector<TextRun>{r}, doc, o, QString(), false, van);
+    } else
+        return {};
+    QString pPr = QStringLiteral("<w:pPr><w:pStyle w:val=\"Caption\"/>");
+    if (van)
+        pPr += QStringLiteral("<w:rPr><w:vanish/></w:rPr>");
+    pPr += QStringLiteral("</w:pPr>");
+    return QStringLiteral("<w:p>") + pPr + inner + QStringLiteral("</w:p>");
+}
+
 int twipsMm(double mm) { return int(std::lround(mm * 1440.0 / 25.4)); }
 double mmTwips(int tw) { return tw * 25.4 / 1440.0; }
 
@@ -1069,17 +1218,8 @@ bool saveDocx(const Document &doc, const QString &path, QString *error, bool emb
         const bool van = paragraphVanished(doc, lay, b);
         if (b.type == QLatin1String("table")) {
             accountSeqRuns(o, b.runs);
-            accountSeqRuns(o, b.captionRuns);
-            const QString vanP = van ? QStringLiteral("<w:pPr><w:rPr><w:vanish/></w:rPr></w:pPr>") : QString();
-            body += QLatin1String("<w:tbl><w:tblPr><w:tblW w:w=\"0\" w:type=\"auto\"/></w:tblPr>");
-            for (const auto &row : b.table) {
-                body += QLatin1String("<w:tr>");
-                for (const auto &cell : row)
-                    body += QStringLiteral("<w:tc><w:p>%1%2</w:p></w:tc>")
-                                .arg(vanP, runsToWml(cell.runs, doc, o, QString(), false, van));
-                body += QLatin1String("</w:tr>");
-            }
-            body += QLatin1String("</w:tbl>");
+            body += tableWml(b.table, b.colWidthsMm, doc, o, van);
+            body += captionWml(b, doc, o, van);
             continue;
         }
         if (b.type == QLatin1String("break")) {
@@ -1107,7 +1247,6 @@ bool saveDocx(const Document &doc, const QString &path, QString *error, bool emb
             continue;
         }
         if (b.type == QLatin1String("image")) {
-            accountSeqRuns(o, b.captionRuns);
             ++imgN;
             ++o.relN;
             const QString rid = QStringLiteral("rId%1").arg(o.relN);
@@ -1140,6 +1279,7 @@ bool saveDocx(const Document &doc, const QString &path, QString *error, bool emb
                         .arg(int(cx * 0.6))
                         .arg(rid)
                         .arg(vanP);
+            body += captionWml(b, doc, o, van);
             continue;
         }
         body += bookmarksAroundWml(doc, b.id,
@@ -1276,6 +1416,8 @@ bool saveDocx(const Document &doc, const QString &path, QString *error, bool emb
         "<w:pPr><w:outlineLvl w:val=\"1\"/></w:pPr><w:rPr><w:b/><w:sz w:val=\"32\"/></w:rPr></w:style>"
         "<w:style w:type=\"paragraph\" w:styleId=\"Title\"><w:name w:val=\"Title\"/>"
         "<w:rPr><w:b/><w:sz w:val=\"56\"/></w:rPr></w:style>"
+        "<w:style w:type=\"paragraph\" w:styleId=\"Caption\"><w:name w:val=\"caption\"/>"
+        "<w:basedOn w:val=\"Normal\"/></w:style>"
         "</w:styles>");
 
     QString coreInner = QStringLiteral("<dc:title>%1</dc:title>").arg(xmlEscape(doc.title));
