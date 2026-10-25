@@ -59,11 +59,11 @@ The document is a JSON object with **stable block IDs**. Agents must address con
 | --- | --- |
 | `paragraph` | `style`, `align`, `dir` (`auto`\|`ltr`\|`rtl`, default `auto`, omitted when `auto`), `runs` |
 | `heading` | `level` 1–6, `style`, `align`, `dir`, `runs` |
-| `list-item` | `level`, `list_kind` (`bullet` \| `decimal`), `runs` |
+| `list-item` | `level`, `list_kind` (`bullet` \| `decimal`, and from ODT also `lowerLetter` \| `upperLetter` \| `lowerRoman` \| `upperRoman`), `runs` |
 | `table` | `rows`: array of rows (each cell `{ "runs": [...] }`), or integers `rows` (1–200) and `cols` (1–64) with optional `header`, `header_texts`, `cells` — a non-integer or out-of-range pair is `{ok:false,error}` |
 | `image` | `path`, `image_b64`, `width_mm`, `rotate`, `opacity`, `flip_h`/`flip_v`, `crop` [L,T,R,B], `shadow_pt`, `z_index` |
 | `break` | `break_kind`: `page` \| `column` \| `section`; `hidden` esconde a secção seguinte |
-| `footnote` / `endnote` | nota; âncora no run via `note_id`; endnotes no fim da secção |
+| `footnote` / `endnote` | nota; âncora no run via `note_id`; endnotes no fim da secção. No ODT, `text:note-citation` é só a marca e não entra no corpo; importa-se o texto de `text:note-body` |
 | `toc` | sumário; `toc_targets` = ids dos headings |
 | `shape` | `shape` rect\|ellipse\|line, `fill`, `stroke`, `width_mm`, `height_mm`, `connect_to` |
 | `chart` | `data`: `[{label,value}]` |
@@ -95,7 +95,7 @@ Clears the session into a blank document with one empty `p1`. If the document is
 ### `document_open`
 
 Args: `{ "path": string }`  
-Opens ODT, DOCX, DOC (DOC needs LibreOffice), AIO JSON, or RTF (native reader). A `body` item that is not an object is `{ok:false,error:"body item is not an object"}`. An explicit duplicate block id is `{ok:false,error:"duplicate block id: …"}`. Ids that are missing are assigned only after the whole body is loaded, and they do not reuse an explicit id. Malformed DOCX/ODT XML fails the open (`document.xml: … at line N`, `content.xml: … at line N`) instead of returning a partial document. Each zip entry may produce at most 256 MiB uncompressed and the archive at most 1 GiB, counted from the bytes inflation actually writes. A central-directory size of 0 is not treated as empty: that entry still counts its real output, and several such entries share the 1 GiB total. A declared size above either limit fails the same way. Above either limit the error is `archive entry too large`. An ODT `text:s` whose `text:c` is above 10000 fails with `text:s text:c exceeds 10000`.
+Opens ODT, DOCX, DOC (DOC needs LibreOffice), AIO JSON, or RTF (native reader). A `body` item that is not an object is `{ok:false,error:"body item is not an object"}`. An explicit duplicate block id is `{ok:false,error:"duplicate block id: …"}`. Ids that are missing are assigned only after the whole body is loaded, and they do not reuse an explicit id. Malformed DOCX/ODT XML fails the open (`document.xml: … at line N`, `content.xml: … at line N`) instead of returning a partial document. Each zip entry may produce at most 256 MiB uncompressed and the archive at most 1 GiB, counted from the bytes inflation actually writes. A central-directory size of 0 is not treated as empty: that entry still counts its real output, and several such entries share the 1 GiB total. A declared size above either limit fails the same way. Above either limit the error is `archive entry too large`. An ODT `text:s` whose `text:c` is above 10000 fails with `text:s text:c exceeds 10000`. ODT import stores `width_mm` and `height_mm` from the page layout (`mm`, `cm`, `in`, or `pt`). The size name is `A4`, `Letter`, `Legal`, `A3`, or `A5` only when both sides match that size within 1 mm; otherwise the name is `custom`. Orientation comes from the measures (wider than tall is landscape). A run font is `style:font-name`, or `fo:font-family` when the font name is absent. List kind comes from the applied `text:list-style`: `list-level-style-bullet` is `bullet`, and `style:num-format` `1`, `a`, `A`, `i`, `I` is `decimal`, `lowerLetter`, `upperLetter`, `lowerRoman`, `upperRoman`. The level is the nesting depth. A nested `table:table` is `cell.nested`. `table:number-columns-spanned` and `table:number-rows-spanned` are `col_span` and `row_span`; `table:covered-table-cell` fills the covered slots. `text:bookmark` and `text:bookmark-start` are read inside the paragraph or heading at that character offset. A drawing without an `aioffice:extra` figure blob stays an image (`svg:title` / `svg:desc` become `alt`), including a shape that has no image bytes, so it does not become an empty paragraph.
 
 ### `document_save`
 
@@ -174,7 +174,7 @@ Copies font/size/bold/italic/color (and list attrs) from the caret run into the 
 ### `set_page_layout`
 
 Args: `{ "size"?: "A4"|…, "orientation"?: "portrait"|"landscape", "margins_mm"?: [t, r, b, l], "columns"?: 1|2|3, "column_widths"?: [2, 1], "hyphenate"?: bool, "hyphen_zone_mm"?: number, "gutter_mm"?: number, "gutter_mirror"?: bool, "column_gap_mm"?: number, "column_separator"?: bool, "border_pt"?: number, "border_color"?: string, "background"?: string, "style"?: string, "number_format"?: "arabic"|"roman"|"alpha", "number_start"?: int, "width_mm"?: number, "height_mm"?: number, "tone"?: "sepia"|"night", "grid_mm"?: number, "line_numbers"?: bool, "chapter_numbers"?: bool, "booklet"?: bool, "writing_mode"?: "vertical", "note_restart"?: bool }`  
-`style` copies `page_size` / `page_orientation` from a `kind=page` style. `number_format` / `number_start` change the printed page label; `insert_break {page_restart:true, page_number?:n}` restarts the counter. `column_widths` are relative weights when `columns` > 1. `width_mm`+`height_mm` override named sizes.
+`style` copies `page_size` / `page_orientation` from a `kind=page` style. `number_format` / `number_start` change the printed page label; `insert_break {page_restart:true, page_number?:n}` restarts the counter. `column_widths` are relative weights when `columns` > 1. `width_mm`+`height_mm` override named sizes. ODT export writes those millimetres; reopening names the page as above. Alignment written into ODT is one of `left`, `right`, `center`, `justify`, `start`, `end`, and page orientation is `portrait` or `landscape`. Style names and other ODT attribute values are XML-escaped.
 
 ### `insert_table`
 
@@ -345,6 +345,7 @@ Insere um Heading 1 e um parágrafo por termo com números de página (`concorda
 - `insert_qr` `{qr: "texto"}` — matriz de preview (payload curto)
 - `insert_equation` `{text, numbered?}`
 - `insert_form` `{kind: text|checkbox|dropdown, text?}`
+- ODT writes `shape`, `chart`, `qr`, and `form` as a PNG from the same block painter as the page (`svg:title` and `svg:desc` are `alt`). The original block is stored in `aioffice:extra` and restored on import when that blob is present. Without the blob the frame stays an image.
 - `bibliography_set` / `insert_citation` — citação mínima (não é processador CSL)
 - `figure_index` — índice de ilustrações (legendas)
 - `autotext_set` / `autotext_insert`
@@ -399,7 +400,7 @@ Pesquisei antes de começar: não existe biblioteca CSL C/C++ embutível com lic
 
 ### Wave 12 — fidelidade de round-trip, hiperlinks, campos, crossref, hifenação real
 
-- **Bookmarks e revisões (insert) → marcação real em ODT e DOCX**, não só o blob `aioffice:extra`/`word/aioffice.json` (que continua existindo como *fallback* de merge, preferindo a marcação nativa quando presente). ODT: `<text:bookmark-start/end>` por bloco; `<text:change-start/end>` + `<text:tracked-changes>` para revisões `insert`. DOCX: `<w:bookmarkStart/End>`; `<w:ins w:author w:date>` para revisões `insert`. **Revisões `delete` continuam só no blob JSON** — o modelo de edição remove o texto apagado imediatamente de `runs` (só fica um registo em `Revision.text`), então não há span vivo para embrulhar num `<w:del>`/`<text:change>` real; recriar isso exigiria reinserir `rev.text` sinteticamente na exportação, deixado para uma onda futura. Revisões `format` também continuam só no blob (sem mapeamento limpo em ODF/OOXML).
+- **Bookmarks e revisões (insert) → marcação real em ODT e DOCX**, não só o blob `aioffice:extra`/`word/aioffice.json` (que continua existindo como *fallback* de merge, preferindo a marcação nativa quando presente). ODT: `<text:bookmark text:name="…"/>` inside `text:p` / `text:h` at the bookmark offset (a `text:bookmark-start`/`end` pair in that same place is read the same way); `<text:change-start/end>` + `<text:tracked-changes>` para revisões `insert`. DOCX: `<w:bookmarkStart/End>`; `<w:ins w:author w:date>` para revisões `insert`. **Revisões `delete` continuam só no blob JSON** — o modelo de edição remove o texto apagado imediatamente de `runs` (só fica um registo em `Revision.text`), então não há span vivo para embrulhar num `<w:del>`/`<text:change>` real; recriar isso exigiria reinserir `rev.text` sinteticamente na exportação, deixado para uma onda futura. Revisões `format` também continuam só no blob (sem mapeamento limpo em ODF/OOXML).
 - **Hiperlink corrigido nos dois sentidos e nos dois formatos.** Antes: DOCX escrevia `w:anchor` para toda âncora (inclusive URL externa, que não funciona assim) e nenhum dos dois formatos lia `text:a`/`w:hyperlink` de volta — todo hiperlink se perdia ao reabrir. Agora: link interno (`#id`) usa `w:anchor`/`xlink:href` local; link externo aloca uma relationship (`r:id` + `_rels/document.xml.rels`, `TargetMode="External"`) no DOCX. Leitura implementada nos dois formatos.
 - `insert_at_caret` agora grava `Revision` (insert/delete) quando `track_changes` está ligado — antes só a digitação ao vivo no canvas (IPC) e `apply_character_format` gravavam revisão; a tool MCP mais usada para editar texto não gravava nada.
 - Hifenação real Knuth-Liang (`src/core/Hyphenation.h/.cpp`, dicionários `.dic` em `src/core/hyphen/`, proveniência e licenças em `hyphen/NOTICE.md`) substitui a heurística de sufixos. `hyph_en_US.dic` (GPL-2.0/LGPL-2.1/MPL-1.1 tri-license, usado sob LGPL-2.1) e `hyph_pt_BR.dic` (LGPLv3/MPL) — ambos compatíveis com GPL-3.0-or-later. Idioma por `TextRun.lang`/`Block.lang` (prefixo `en` = inglês, resto = português).
@@ -420,7 +421,7 @@ Mapa `{from: to}` no JSON do documento (sem GUI). O caret aplica a lista + defau
 ### `merge_cells` / `split_cells` / `table_sort` / `nest_table`
 
 `merge_cells {id, row, col, col_span?, row_span?}`. `table_sort {id, col}` ordena linhas de dados.  
-`nest_table {id, row, col, rows?, cols?}` cria uma tabela de um nível dentro da célula (`cell.nested` no JSON). No PDF etiquetado esse miolo continua no `/TD` pai, sem `/Table` aninhado.
+`nest_table {id, row, col, rows?, cols?}` cria uma tabela de um nível dentro da célula (`cell.nested` no JSON). No PDF etiquetado esse miolo continua no `/TD` pai, sem `/Table` aninhado. ODT writes `table:number-columns-spanned`, `table:number-rows-spanned`, `table:covered-table-cell`, and a nested `table:table` inside the cell, and reads that markup back.
 
 ### `mail_merge`
 

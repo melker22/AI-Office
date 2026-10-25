@@ -1,11 +1,13 @@
 #include "core/Odf.h"
 
 #include "core/FieldExpr.h"
+#include "core/Preview.h"
 #include "core/Xml.h"
 #include "core/Zip.h"
 
 #include <QDateTime>
 #include <QFile>
+#include <QHash>
 #include <QImage>
 #include <QJsonArray>
 #include <QJsonDocument>
@@ -14,6 +16,7 @@
 #include <QSet>
 #include <QXmlStreamReader>
 #include <algorithm>
+#include <cmath>
 
 namespace aioffice {
 namespace {
@@ -55,7 +58,7 @@ struct ParaStyleCounter {
 QString paraStyleForBlock(ParaStyleCounter &pc, const Block &b)
 {
     const QString parent = odfStyleName(styleForBlock(b));
-    const bool needAlign = !b.align.isEmpty();
+    const bool needAlign = !b.align.isEmpty() && isValidBlockAlign(b.align);
     const bool needDir = !b.dir.isEmpty() && b.dir != QLatin1String("auto");
     if (!needAlign && !needDir)
         return parent;
@@ -74,7 +77,7 @@ QString paraStyleForBlock(ParaStyleCounter &pc, const Block &b)
     pc.stylesXml += QStringLiteral(
                          "<style:style style:name=\"%1\" style:family=\"paragraph\" style:parent-style-name=\"%2\">"
                          "<style:paragraph-properties %3/></style:style>")
-                         .arg(name, parent, pp);
+                         .arg(xmlEscape(name), xmlEscape(parent), pp);
     return name;
 }
 
@@ -549,11 +552,13 @@ QString spansXml(SpanCounter &sc, const QVector<TextRun> &runs, const Document &
 // text:format-change is only a mark — ODF carries no previous character attributes.
 struct RevMark {
     int pos = 0;
-    int ord = 0; // 0 end, 1 delete point, 2 start — ends precede a point or a new range at the same offset
+    int ord = 0; // 0 end, 1 delete point, 2 start, 3 bookmark — ends precede a point or a new range at the same offset
     int seq = 0;
     const Revision *rv = nullptr;
     bool point = false;
     bool opening = false;
+    bool bookmark = false;
+    QString bookmarkName;
 };
 
 QString officeChangeInfo(const Revision *rv)
@@ -584,6 +589,14 @@ QString revisedSpansXml(SpanCounter &sc, const QString &blockId, const QVector<T
             marks.push_back(RevMark{s, 1, seq++, &rv, true, false});
         }
     }
+    for (const auto &bm : doc.bookmarks) {
+        if (bm.blockId != blockId)
+            continue;
+        const QString name = bm.name.isEmpty() ? bm.id : bm.name;
+        if (name.isEmpty())
+            continue;
+        marks.push_back(RevMark{qBound(0, bm.offset, total), 3, seq++, nullptr, false, false, true, name});
+    }
     std::sort(marks.begin(), marks.end(), [](const RevMark &a, const RevMark &b) {
         if (a.pos != b.pos)
             return a.pos < b.pos;
@@ -597,6 +610,10 @@ QString revisedSpansXml(SpanCounter &sc, const QString &blockId, const QVector<T
         if (m.pos > cursor) {
             out += spansXml(sc, splitRuns(runs, cursor, m.pos), doc);
             cursor = m.pos;
+        }
+        if (m.bookmark) {
+            out += QStringLiteral("<text:bookmark text:name=\"%1\"/>").arg(xmlEscape(m.bookmarkName));
+            continue;
         }
         const QString id = xmlEscape(m.rv->id);
         if (m.point) {
@@ -649,12 +666,365 @@ QString imageExt(const Block &b)
     return QStringLiteral("png");
 }
 
+bool parseOdfLengthMm(QString raw, double *out, bool requirePositive)
+{
+    raw = raw.trimmed();
+    if (raw.isEmpty() || !out)
+        return false;
+    double factor = 1.0;
+    if (raw.endsWith(QLatin1String("cm"), Qt::CaseInsensitive)) {
+        factor = 10.0;
+        raw.chop(2);
+    } else if (raw.endsWith(QLatin1String("mm"), Qt::CaseInsensitive)) {
+        factor = 1.0;
+        raw.chop(2);
+    } else if (raw.endsWith(QLatin1String("in"), Qt::CaseInsensitive)) {
+        factor = 25.4;
+        raw.chop(2);
+    } else if (raw.endsWith(QLatin1String("pt"), Qt::CaseInsensitive)) {
+        factor = 25.4 / 72.0;
+        raw.chop(2);
+    } else if (raw.endsWith(QLatin1String("pc"), Qt::CaseInsensitive)) {
+        factor = 25.4 / 6.0;
+        raw.chop(2);
+    }
+    bool ok = false;
+    const double v = raw.trimmed().toDouble(&ok);
+    if (!ok)
+        return false;
+    if (requirePositive && !(v > 0.0))
+        return false;
+    if (!requirePositive && v < 0.0)
+        return false;
+    *out = std::round((v * factor) * 100.0) / 100.0;
+    return true;
+}
+
+void applyNamedPage(Document &doc, double ww, double hh)
+{
+    struct Spec {
+        const char *name;
+        double w;
+        double h;
+    };
+    const Spec specs[] = {
+        {"A5", 148.0, 210.0},
+        {"A4", 210.0, 297.0},
+        {"A3", 297.0, 420.0},
+        {"Letter", 215.9, 279.4},
+        {"Legal", 215.9, 355.6},
+    };
+    const double pw = qMin(ww, hh);
+    const double ph = qMax(ww, hh);
+    QString name = QStringLiteral("custom");
+    double cw = ww;
+    double ch = hh;
+    for (const auto &s : specs) {
+        if (qAbs(pw - s.w) <= 1.0 && qAbs(ph - s.h) <= 1.0) {
+            name = QString::fromLatin1(s.name);
+            cw = s.w;
+            ch = s.h;
+            if (ww > hh)
+                std::swap(cw, ch);
+            break;
+        }
+    }
+    doc.page.size = name;
+    doc.page.widthMm = cw;
+    doc.page.heightMm = ch;
+    doc.page.orientation = (ww > hh) ? QStringLiteral("landscape") : QStringLiteral("portrait");
+}
+
+void readOdfPageLayout(Document &doc, const QByteArray &bytes, bool onlyIfMissing)
+{
+    if (bytes.isEmpty())
+        return;
+    if (onlyIfMissing && doc.page.widthMm > 0)
+        return;
+    QXmlStreamReader st(bytes);
+    while (!st.atEnd()) {
+        st.readNext();
+        if (!st.isStartElement())
+            continue;
+        if (!onlyIfMissing && st.name() == QLatin1String("columns")) {
+            const int n = st.attributes().value(QStringLiteral("fo:column-count")).toInt();
+            if (n > 0)
+                doc.page.columns = qBound(1, n, 3);
+            continue;
+        }
+        if (st.name() != QLatin1String("page-layout-properties"))
+            continue;
+        if (onlyIfMissing && doc.page.widthMm > 0)
+            continue;
+        const auto a = st.attributes();
+        double ww = 0;
+        double hh = 0;
+        const bool gotW = parseOdfLengthMm(a.value(QStringLiteral("fo:page-width")).toString(), &ww, true);
+        const bool gotH = parseOdfLengthMm(a.value(QStringLiteral("fo:page-height")).toString(), &hh, true);
+        if (gotW && gotH)
+            applyNamedPage(doc, ww, hh);
+        auto margin = [&](const QString &key, int index) {
+            double m = 0;
+            if (parseOdfLengthMm(a.value(key).toString(), &m, false))
+                doc.page.marginsMm[index] = m;
+        };
+        margin(QStringLiteral("fo:margin-top"), 0);
+        margin(QStringLiteral("fo:margin-right"), 1);
+        margin(QStringLiteral("fo:margin-bottom"), 2);
+        margin(QStringLiteral("fo:margin-left"), 3);
+    }
+}
+
+QString listKindFromNumFormat(const QString &fmt)
+{
+    if (fmt == QLatin1String("a"))
+        return QStringLiteral("lowerLetter");
+    if (fmt == QLatin1String("A"))
+        return QStringLiteral("upperLetter");
+    if (fmt == QLatin1String("i"))
+        return QStringLiteral("lowerRoman");
+    if (fmt == QLatin1String("I"))
+        return QStringLiteral("upperRoman");
+    return QStringLiteral("decimal");
+}
+
+void collectListStyles(const QByteArray &bytes, QMap<QString, QMap<int, QString>> &out)
+{
+    if (bytes.isEmpty())
+        return;
+    QXmlStreamReader xr(bytes);
+    QString cur;
+    while (!xr.atEnd()) {
+        xr.readNext();
+        if (xr.isEndElement() && xr.name() == QLatin1String("list-style")) {
+            cur.clear();
+            continue;
+        }
+        if (!xr.isStartElement())
+            continue;
+        const auto n = xr.name();
+        if (n == QLatin1String("list-style")) {
+            cur = xr.attributes().value(QStringLiteral("style:name")).toString();
+        } else if (!cur.isEmpty()
+                   && (n == QLatin1String("list-level-style-bullet")
+                       || n == QLatin1String("list-level-style-number"))) {
+            int level = xr.attributes().value(QStringLiteral("text:level")).toInt();
+            if (level <= 0)
+                level = 1;
+            const QString kind = n == QLatin1String("list-level-style-bullet")
+                ? QStringLiteral("bullet")
+                : listKindFromNumFormat(xr.attributes().value(QStringLiteral("style:num-format")).toString());
+            out[cur].insert(level, kind);
+        }
+    }
+}
+
+QString listKindFor(const QMap<QString, QMap<int, QString>> &styles, const QString &name, int level)
+{
+    if (name.isEmpty() || !styles.contains(name))
+        return QStringLiteral("decimal");
+    const QMap<int, QString> levels = styles.value(name);
+    if (levels.contains(level))
+        return levels.value(level);
+    int best = -1;
+    QString kind = QStringLiteral("decimal");
+    for (auto it = levels.cbegin(); it != levels.cend(); ++it) {
+        if (it.key() <= level && it.key() > best) {
+            best = it.key();
+            kind = it.value();
+        }
+    }
+    if (best < 0 && !levels.isEmpty())
+        return levels.first();
+    return kind;
+}
+
+QString listStyleXml(const QString &name, const QString &kind)
+{
+    const bool bullet = kind == QLatin1String("bullet");
+    QString fmt = QStringLiteral("1");
+    if (kind == QLatin1String("lowerLetter"))
+        fmt = QStringLiteral("a");
+    else if (kind == QLatin1String("upperLetter"))
+        fmt = QStringLiteral("A");
+    else if (kind == QLatin1String("lowerRoman"))
+        fmt = QStringLiteral("i");
+    else if (kind == QLatin1String("upperRoman"))
+        fmt = QStringLiteral("I");
+    QString levels;
+    for (int lv = 1; lv <= 9; ++lv) {
+        if (bullet) {
+            levels += QStringLiteral(
+                          "<text:list-level-style-bullet text:level=\"%1\" text:bullet-char=\"%2\"/>")
+                          .arg(lv)
+                          .arg(QChar(0x2022));
+        } else {
+            levels += QStringLiteral(
+                          "<text:list-level-style-number text:level=\"%1\" style:num-format=\"%2\"/>")
+                          .arg(lv)
+                          .arg(xmlEscape(fmt));
+        }
+    }
+    return QStringLiteral("<text:list-style style:name=\"%1\">%2</text:list-style>")
+        .arg(xmlEscape(name), levels);
+}
+
+bool cellHasText(const QVector<TextRun> &runs)
+{
+    for (const auto &r : runs) {
+        if (!r.text.isEmpty() || !r.field.isEmpty() || !r.noteId.isEmpty())
+            return true;
+    }
+    return false;
+}
+
+constexpr int kMaxOdtTableColumns = 256;
+
+QString odtTableTooWide()
+{
+    return QStringLiteral("ODT table row is wider than 256 columns");
+}
+
+bool appendNestedTable(QString &bodyXml, SpanCounter &sc, const QVector<QVector<NestedCell>> &nested,
+                       const Document &doc, QString *error)
+{
+    if (nested.size() > kMaxOdtTableColumns) {
+        if (error)
+            *error = odtTableTooWide();
+        return false;
+    }
+    int cols = 0;
+    for (const auto &row : nested) {
+        if (row.size() > kMaxOdtTableColumns) {
+            if (error)
+                *error = odtTableTooWide();
+            return false;
+        }
+        cols = qMax(cols, row.size());
+    }
+    bodyXml += QLatin1String("<table:table>");
+    for (int c = 0; c < cols; ++c)
+        bodyXml += QLatin1String("<table:table-column/>");
+    for (const auto &row : nested) {
+        bodyXml += QLatin1String("<table:table-row>");
+        for (const auto &cell : row) {
+            bodyXml += QLatin1String("<table:table-cell><text:p text:style-name=\"Standard\">");
+            bodyXml += spansXml(sc, cell.runs, doc);
+            bodyXml += QLatin1String("</text:p></table:table-cell>");
+        }
+        for (int c = row.size(); c < cols; ++c)
+            bodyXml += QLatin1String("<table:covered-table-cell/>");
+        bodyXml += QLatin1String("</table:table-row>");
+    }
+    bodyXml += QLatin1String("</table:table>");
+    return true;
+}
+
+bool appendOuterTable(QString &bodyXml, SpanCounter &sc, const QVector<QVector<TableCell>> &table,
+                      const Document &doc, QString *error)
+{
+    const int nRows = table.size();
+    if (nRows > kMaxOdtTableColumns) {
+        if (error)
+            *error = odtTableTooWide();
+        return false;
+    }
+    int cols = 0;
+    for (int r = 0; r < nRows; ++r) {
+        const auto &row = table[r];
+        if (row.size() > kMaxOdtTableColumns) {
+            if (error)
+                *error = odtTableTooWide();
+            return false;
+        }
+        qint64 width = 0;
+        for (int c = 0; c < row.size(); ++c) {
+            const int span = qMax(1, row[c].colSpan);
+            const int rspan = qMax(1, row[c].rowSpan);
+            if (span > kMaxOdtTableColumns || rspan > kMaxOdtTableColumns
+                || width > qint64(kMaxOdtTableColumns) - span || c > kMaxOdtTableColumns - span) {
+                if (error)
+                    *error = odtTableTooWide();
+                return false;
+            }
+            width += span;
+            cols = qMax(cols, c + span);
+        }
+        cols = qMax(cols, row.size());
+    }
+    if (cols > kMaxOdtTableColumns) {
+        if (error)
+            *error = odtTableTooWide();
+        return false;
+    }
+    QVector<QVector<char>> cover(nRows);
+    for (int r = 0; r < nRows; ++r)
+        cover[r] = QVector<char>(cols, 0);
+    for (int r = 0; r < nRows; ++r) {
+        for (int c = 0; c < table[r].size() && c < cols; ++c) {
+            if (cover[r][c])
+                continue;
+            const int cs = qMax(1, table[r][c].colSpan);
+            const int rs = qMax(1, table[r][c].rowSpan);
+            for (int rr = r; rr < qMin(nRows, r + rs); ++rr) {
+                for (int cc = c; cc < qMin(cols, c + cs); ++cc) {
+                    if (rr != r || cc != c)
+                        cover[rr][cc] = 1;
+                }
+            }
+        }
+    }
+    bodyXml += QLatin1String(
+        "<table:table xmlns:table=\"urn:oasis:names:tc:opendocument:xmlns:table:1.0\">");
+    for (int c = 0; c < cols; ++c)
+        bodyXml += QLatin1String("<table:table-column/>");
+    for (int r = 0; r < nRows; ++r) {
+        bodyXml += QLatin1String("<table:table-row>");
+        const int nStored = table[r].size();
+        for (int c = 0; c < cols; ++c) {
+            if (c >= nStored || cover[r][c]) {
+                bodyXml += QLatin1String("<table:covered-table-cell/>");
+                continue;
+            }
+            const TableCell &cell = table[r][c];
+            const int cs = qMax(1, cell.colSpan);
+            const int rs = qMax(1, cell.rowSpan);
+            QString attrs;
+            if (cs > 1)
+                attrs += QStringLiteral(" table:number-columns-spanned=\"%1\"").arg(cs);
+            if (rs > 1)
+                attrs += QStringLiteral(" table:number-rows-spanned=\"%1\"").arg(rs);
+            bodyXml += QStringLiteral("<table:table-cell%1>").arg(attrs);
+            if (cellHasText(cell.runs) || cell.nested.isEmpty()) {
+                bodyXml += QLatin1String("<text:p text:style-name=\"Standard\">");
+                bodyXml += spansXml(sc, cell.runs, doc);
+                bodyXml += QLatin1String("</text:p>");
+            }
+            if (!cell.nested.isEmpty() && !appendNestedTable(bodyXml, sc, cell.nested, doc, error))
+                return false;
+            bodyXml += QLatin1String("</table:table-cell>");
+        }
+        bodyXml += QLatin1String("</table:table-row>");
+    }
+    bodyXml += QLatin1String("</table:table>");
+    return true;
+}
+
+bool isPaintedFigure(const Block &b)
+{
+    return b.type == QLatin1String("shape") || b.type == QLatin1String("chart") || b.type == QLatin1String("qr")
+        || b.type == QLatin1String("form");
+}
+
 } // namespace
 
 bool saveOdt(const Document &doc, const QString &path, QString *error)
 {
     double wMm = 0, hMm = 0;
     doc.page.pageSizeMm(wMm, hMm);
+    QString orient = doc.page.orientation;
+    if (orient != QLatin1String("portrait") && orient != QLatin1String("landscape"))
+        orient = QStringLiteral("portrait");
     QString colsXml;
     if (doc.page.columns > 1)
         colsXml = QStringLiteral("<style:columns fo:column-count=\"%1\" fo:column-gap=\"0.5cm\"/>").arg(doc.page.columns);
@@ -665,7 +1035,7 @@ bool saveOdt(const Document &doc, const QString &path, QString *error)
         "%8</style:page-layout-properties></style:page-layout>")
                                    .arg(wMm)
                                    .arg(hMm)
-                                   .arg(doc.page.orientation)
+                                   .arg(xmlEscape(orient))
                                    .arg(doc.page.marginsMm[0])
                                    .arg(doc.page.marginsMm[1])
                                    .arg(doc.page.marginsMm[2])
@@ -683,8 +1053,8 @@ bool saveOdt(const Document &doc, const QString &path, QString *error)
         if (!s.color.isEmpty())
             tp += QStringLiteral("fo:color=\"%1\" ").arg(xmlEscape(s.color));
         QString pp;
-        if (!s.align.isEmpty())
-            pp += QStringLiteral("fo:text-align=\"%1\" ").arg(s.align);
+        if (!s.align.isEmpty() && isValidBlockAlign(s.align))
+            pp += QStringLiteral("fo:text-align=\"%1\" ").arg(xmlEscape(s.align));
         pp += QStringLiteral("fo:margin-top=\"%1pt\" fo:margin-bottom=\"%2pt\" ")
                   .arg(s.spaceBeforePt)
                   .arg(s.spaceAfterPt);
@@ -692,7 +1062,7 @@ bool saveOdt(const Document &doc, const QString &path, QString *error)
                           "<style:style style:name=\"%1\" style:family=\"paragraph\" style:parent-style-name=\"Standard\">"
                           "<style:paragraph-properties %2/><style:text-properties style:font-name=\"%3\" %4/>"
                           "</style:style>")
-                          .arg(odfStyleName(s.name), pp, xmlEscape(s.font), tp);
+                          .arg(xmlEscape(odfStyleName(s.name)), pp, xmlEscape(s.font), tp);
     }
     paraStyles += QLatin1String(
         "<style:style style:name=\"PBreak\" style:family=\"paragraph\">"
@@ -704,22 +1074,14 @@ bool saveOdt(const Document &doc, const QString &path, QString *error)
     SpanCounter sc;
     ParaStyleCounter psc;
     QString bodyXml;
+    QString listStylesXml;
+    QJsonArray figureBlocks;
     QVector<ZipEntry> pictures;
     QVector<const Revision *> usedRevisions;
     int imgN = 0;
+    int listStyleN = 0;
     int i = 0;
     const auto &body = doc.body;
-    auto bookmarksAround = [&](const QString &blockId, const QString &inner) {
-        QString out = inner;
-        for (const auto &bm : doc.bookmarks) {
-            if (bm.blockId != blockId)
-                continue;
-            out = QStringLiteral("<text:bookmark-start text:name=\"%1\"/>%2<text:bookmark-end text:name=\"%3\"/>")
-                      .arg(xmlEscape(bm.name.isEmpty() ? bm.id : bm.name), out,
-                           xmlEscape(bm.name.isEmpty() ? bm.id : bm.name));
-        }
-        return out;
-    };
     while (i < body.size()) {
         const Block &b = body[i];
         if (b.type == QLatin1String("footnote") || b.type == QLatin1String("endnote")) {
@@ -728,28 +1090,29 @@ bool saveOdt(const Document &doc, const QString &path, QString *error)
         }
         if (b.type == QLatin1String("list-item")) {
             const QString kind = b.listKind;
-            bodyXml += QLatin1String("<text:list>");
+            const QString styleName = QStringLiteral("AioL%1").arg(++listStyleN);
+            listStylesXml += listStyleXml(styleName, kind);
+            bodyXml += QStringLiteral("<text:list text:style-name=\"%1\">").arg(xmlEscape(styleName));
             while (i < body.size() && body[i].type == QLatin1String("list-item") && body[i].listKind == kind) {
                 QString inner = QStringLiteral("<text:p text:style-name=\"%1\">%2%3</text:p>")
-                                    .arg(paraStyleForBlock(psc, body[i]),
+                                    .arg(xmlEscape(paraStyleForBlock(psc, body[i])),
                                          hiddenParagraphXml(doc, body[i]),
                                          revisedSpansXml(sc, body[i].id, body[i].runs, doc, usedRevisions));
                 const int lv = qMax(1, body[i].level);
                 for (int n = 1; n < lv; ++n)
                     inner = QStringLiteral("<text:list><text:list-item>%1</text:list-item></text:list>").arg(inner);
-                bodyXml += QStringLiteral("<text:list-item>%1</text:list-item>").arg(bookmarksAround(body[i].id, inner));
+                bodyXml += QStringLiteral("<text:list-item>%1</text:list-item>").arg(inner);
                 ++i;
             }
             bodyXml += QLatin1String("</text:list>");
             continue;
         }
         if (b.type == QLatin1String("heading")) {
-            bodyXml += bookmarksAround(b.id,
-                QStringLiteral("<text:h text:style-name=\"%1\" text:outline-level=\"%2\">%3%4</text:h>")
-                    .arg(paraStyleForBlock(psc, b))
-                    .arg(b.level > 0 ? b.level : 1)
-                    .arg(hiddenParagraphXml(doc, b),
-                         revisedSpansXml(sc, b.id, b.runs, doc, usedRevisions)));
+            bodyXml += QStringLiteral("<text:h text:style-name=\"%1\" text:outline-level=\"%2\">%3%4</text:h>")
+                           .arg(xmlEscape(paraStyleForBlock(psc, b)))
+                           .arg(b.level > 0 ? b.level : 1)
+                           .arg(hiddenParagraphXml(doc, b),
+                                revisedSpansXml(sc, b.id, b.runs, doc, usedRevisions));
         } else if (b.type == QLatin1String("break")) {
             bodyXml += b.breakKind == QLatin1String("column")
                 ? QLatin1String("<text:p text:style-name=\"PColBreak\"/>")
@@ -769,40 +1132,8 @@ bool saveOdt(const Document &doc, const QString &path, QString *error)
                            "<text:index-body>%1</text:index-body></text:table-of-content>")
                            .arg(items);
         } else if (b.type == QLatin1String("table")) {
-            bodyXml += QLatin1String(
-                "<table:table xmlns:table=\"urn:oasis:names:tc:opendocument:xmlns:table:1.0\">");
-            // LibreOffice drops every column after the first when the table has no
-            // table:table-column. One empty column element per grid column is enough.
-            constexpr int kMaxOdtTableColumns = 256;
-            int colCount = 0;
-            for (const auto &row : b.table) {
-                qint64 width = 0;
-                for (const auto &cell : row) {
-                    const int span = qMax(1, cell.colSpan);
-                    if (span > kMaxOdtTableColumns || width > qint64(kMaxOdtTableColumns) - span) {
-                        if (error)
-                            *error = QStringLiteral("ODT table row is wider than 256 columns");
-                        return false;
-                    }
-                    width += span;
-                }
-                colCount = qMax(colCount, int(width));
-            }
-            for (int c = 0; c < colCount; ++c)
-                bodyXml += QLatin1String("<table:table-column/>");
-            for (const auto &row : b.table) {
-                bodyXml += QLatin1String("<table:table-row>");
-                for (const auto &cell : row) {
-                    QString spanAttr;
-                    if (cell.colSpan > 1)
-                        spanAttr += QStringLiteral(" table:number-columns-spanned=\"%1\"").arg(cell.colSpan);
-                    bodyXml += QStringLiteral(
-                        "<table:table-cell%1><text:p text:style-name=\"Standard\">%2</text:p></table:table-cell>")
-                                   .arg(spanAttr, spansXml(sc, cell.runs, doc));
-                }
-                bodyXml += QLatin1String("</table:table-row>");
-            }
-            bodyXml += QLatin1String("</table:table>");
+            if (!appendOuterTable(bodyXml, sc, b.table, doc, error))
+                return false;
         } else if (b.type == QLatin1String("image")) {
             ++imgN;
             const QString ext = imageExt(b);
@@ -821,11 +1152,44 @@ bool saveOdt(const Document &doc, const QString &path, QString *error)
                            "<draw:image xmlns:xlink=\"http://www.w3.org/1999/xlink\" xlink:href=\"%2\"/></draw:frame></text:p>")
                            .arg(b.imageWidthMm)
                            .arg(xmlEscape(href));
+        } else if (isPaintedFigure(b)) {
+            const QByteArray png = renderBlockPng(doc, b);
+            if (png.isEmpty()) {
+                if (error)
+                    *error = QStringLiteral("ODT figure raster failed: ") + b.id;
+                return false;
+            }
+            ++imgN;
+            const QString href = QStringLiteral("Pictures/image%1.png").arg(imgN);
+            pictures.push_back({href, png, false});
+            const QString name = b.id.isEmpty() ? QStringLiteral("aio-fig-%1").arg(imgN) : b.id;
+            double wmm = b.imageWidthMm > 0 ? b.imageWidthMm : (b.type == QLatin1String("qr") ? 40.0 : 80.0);
+            double hmm = b.heightMm > 0 ? b.heightMm : (b.type == QLatin1String("qr") ? wmm : 40.0);
+            if (b.type == QLatin1String("qr"))
+                hmm = wmm;
+            QString titleXml;
+            if (!b.altText.isEmpty()) {
+                const QString alt = xmlEscape(b.altText);
+                titleXml = QStringLiteral("<svg:title>%1</svg:title><svg:desc>%1</svg:desc>").arg(alt);
+            }
+            bodyXml += QStringLiteral(
+                           "<text:p text:style-name=\"Standard\"><draw:frame draw:name=\"%1\" "
+                           "svg:width=\"%2mm\" svg:height=\"%3mm\">%4"
+                           "<draw:image xlink:href=\"%5\"/></draw:frame></text:p>")
+                           .arg(xmlEscape(name))
+                           .arg(wmm)
+                           .arg(hmm)
+                           .arg(titleXml, xmlEscape(href));
+            QJsonObject fig = b.toJson();
+            if (!b.altText.isEmpty())
+                fig[QStringLiteral("alt")] = b.altText;
+            if (fig.value(QStringLiteral("id")).toString().isEmpty())
+                fig[QStringLiteral("id")] = name;
+            figureBlocks.append(fig);
         } else {
-            bodyXml += bookmarksAround(b.id,
-                QStringLiteral("<text:p text:style-name=\"%1\">%2%3</text:p>")
-                    .arg(paraStyleForBlock(psc, b), hiddenParagraphXml(doc, b),
-                         revisedSpansXml(sc, b.id, b.runs, doc, usedRevisions)));
+            bodyXml += QStringLiteral("<text:p text:style-name=\"%1\">%2%3</text:p>")
+                           .arg(xmlEscape(paraStyleForBlock(psc, b)), hiddenParagraphXml(doc, b),
+                                revisedSpansXml(sc, b.id, b.runs, doc, usedRevisions));
         }
         ++i;
     }
@@ -894,7 +1258,7 @@ bool saveOdt(const Document &doc, const QString &path, QString *error)
         "xmlns:ooow=\"http://openoffice.org/2004/writer\" office:version=\"1.3\">"
         "<office:automatic-styles>%1</office:automatic-styles>"
         "<office:body><office:text>%2%3%4</office:text></office:body></office:document-content>")
-                                   .arg(psc.stylesXml + sc.stylesXml,
+                                   .arg(psc.stylesXml + sc.stylesXml + listStylesXml,
                                         sequenceDeclsXml(doc) + userFieldDeclsXml(doc),
                                         trackedChangesXml, bodyXml);
 
@@ -925,6 +1289,8 @@ bool saveOdt(const Document &doc, const QString &path, QString *error)
     for (const auto &rv : doc.revisions)
         rvA.append(rv.toJson());
     extra[QStringLiteral("revisions")] = rvA;
+    if (!figureBlocks.isEmpty())
+        extra[QStringLiteral("figures")] = figureBlocks;
     const QString extraJson = QString::fromUtf8(QJsonDocument(extra).toJson(QJsonDocument::Compact));
     QString metaFields;
     if (!doc.subject.isEmpty())
@@ -986,6 +1352,24 @@ static void applyTextProps(TextRun &r, const QXmlStreamAttributes &a)
     }
     if (!a.value(QStringLiteral("fo:background-color")).isEmpty())
         r.highlight = a.value(QStringLiteral("fo:background-color")).toString();
+    QString font = a.value(QStringLiteral("style:font-name")).toString().trimmed();
+    if (font.isEmpty())
+        font = a.value(QStringLiteral("fo:font-family")).toString().trimmed();
+    auto stripQuotes = [](QString s) {
+        s = s.trimmed();
+        if (s.size() >= 2) {
+            const QChar q = s.front();
+            if ((q == QLatin1Char('\'') || q == QLatin1Char('"')) && s.back() == q)
+                s = s.mid(1, s.size() - 2).trimmed();
+        }
+        return s;
+    };
+    font = stripQuotes(font);
+    const int comma = font.indexOf(QLatin1Char(','));
+    if (comma >= 0)
+        font = stripQuotes(font.left(comma));
+    if (!font.isEmpty())
+        r.font = font;
 }
 
 struct TrackedChange {
@@ -1127,47 +1511,12 @@ bool loadOdt(const QByteArray &zipData, Document &doc, QString *error)
     const QByteArray stylesBytes = Zip::file(entries, QStringLiteral("styles.xml"));
     collectParaStyles(stylesBytes, paraStyles);
     collectParaStyles(content, paraStyles);
-
-    if (!stylesBytes.isEmpty()) {
-        QXmlStreamReader st(stylesBytes);
-        while (!st.atEnd()) {
-            st.readNext();
-            if (!st.isStartElement())
-                continue;
-            if (st.name() == QLatin1String("columns")) {
-                const int n = st.attributes().value(QStringLiteral("fo:column-count")).toInt();
-                if (n > 0)
-                    doc.page.columns = qBound(1, n, 3);
-                continue;
-            }
-            if (st.name() != QLatin1String("page-layout-properties"))
-                continue;
-            const auto a = st.attributes();
-            QString w = a.value(QStringLiteral("fo:page-width")).toString();
-            QString h = a.value(QStringLiteral("fo:page-height")).toString();
-            w.remove(QStringLiteral("mm"));
-            h.remove(QStringLiteral("mm"));
-            const double ww = w.toDouble();
-            const double hh = h.toDouble();
-            if (ww > 0 && hh > 0) {
-                if (qAbs(ww - 215.9) < 2 || qAbs(hh - 215.9) < 2)
-                    doc.page.size = QStringLiteral("Letter");
-                else
-                    doc.page.size = QStringLiteral("A4");
-                doc.page.orientation = (ww > hh) ? QStringLiteral("landscape") : QStringLiteral("portrait");
-            }
-            auto mm = [&](const QString &k, int i) {
-                QString v = a.value(k).toString();
-                v.remove(QStringLiteral("mm"));
-                if (!v.isEmpty())
-                    doc.page.marginsMm[i] = v.toDouble();
-            };
-            mm(QStringLiteral("fo:margin-top"), 0);
-            mm(QStringLiteral("fo:margin-right"), 1);
-            mm(QStringLiteral("fo:margin-bottom"), 2);
-            mm(QStringLiteral("fo:margin-left"), 3);
-        }
-    }
+    QMap<QString, QMap<int, QString>> listStyles;
+    collectListStyles(stylesBytes, listStyles);
+    collectListStyles(content, listStyles);
+    readOdfPageLayout(doc, stylesBytes, false);
+    readOdfPageLayout(doc, content, true);
+    QHash<QString, Block> figureById;
 
     const QByteArray metaBytes = Zip::file(entries, QStringLiteral("meta.xml"));
     if (!metaBytes.isEmpty()) {
@@ -1202,6 +1551,11 @@ bool loadOdt(const QByteArray &zipData, Document &doc, QString *error)
                     doc.bookmarks.push_back(Bookmark::fromJson(b.toObject()));
                 for (const auto &r : extra.value(QStringLiteral("revisions")).toArray())
                     doc.revisions.push_back(Revision::fromJson(r.toObject()));
+                for (const auto &v : extra.value(QStringLiteral("figures")).toArray()) {
+                    Block fb = Block::fromJson(v.toObject());
+                    if (!fb.id.isEmpty())
+                        figureById.insert(fb.id, fb);
+                }
             }
         }
     }
@@ -1238,17 +1592,38 @@ bool loadOdt(const QByteArray &zipData, Document &doc, QString *error)
     QString pendingDir;
     QString listKind;
     int listLevel = 0;
+    QVector<QString> listStyleStack;
     bool inText = false;
     bool inTable = false;
-    Block tableBlock;
-    QVector<TableCell> tableRow;
-    double pendingFrameWidthMm = 0;
-    auto hasBookmarkNamed = [&](const QString &name) {
-        for (const auto &bm : doc.bookmarks) {
-            if (bm.name == name || bm.id == name)
-                return true;
-        }
-        return false;
+    struct OdtTableFrame {
+        bool nested = false;
+        QVector<QVector<TableCell>> rows;
+        QVector<TableCell> row;
+        QVector<QVector<NestedCell>> nestRows;
+        QVector<NestedCell> nestRow;
+        bool inCell = false;
+        bool covered = false;
+        int colSpan = 1;
+        int rowSpan = 1;
+        int repeat = 1;
+        QVector<TextRun> savedRuns;
+        QVector<QVector<NestedCell>> cellNested;
+    };
+    QVector<OdtTableFrame> tableStack;
+    struct DrawAcc {
+        int depth = 0;
+        bool emitted = false;
+        QString name;
+        QString title;
+        QString desc;
+        double widthMm = 0;
+    };
+    DrawAcc draw;
+    auto isDrawingName = [](QStringView n) {
+        return n == QLatin1String("frame") || n == QLatin1String("rect") || n == QLatin1String("ellipse")
+            || n == QLatin1String("circle") || n == QLatin1String("line") || n == QLatin1String("custom-shape")
+            || n == QLatin1String("path") || n == QLatin1String("polygon") || n == QLatin1String("polyline")
+            || n == QLatin1String("chart");
     };
     auto hasRevisionId = [&](const QString &id) {
         for (const auto &rv : doc.revisions) {
@@ -1308,27 +1683,125 @@ bool loadOdt(const QByteArray &zipData, Document &doc, QString *error)
         pendingAlign.clear();
         pendingDir.clear();
     };
+    auto placeBookmark = [&](const QString &name) {
+        if (name.isEmpty())
+            return;
+        int idx = -1;
+        for (int i = 0; i < doc.bookmarks.size(); ++i) {
+            if (doc.bookmarks[i].name == name || doc.bookmarks[i].id == name) {
+                idx = i;
+                break;
+            }
+        }
+        if (idx < 0) {
+            Bookmark bm;
+            bm.name = name;
+            bm.id = QStringLiteral("bm%1").arg(doc.bookmarks.size() + 1);
+            bm.blockId = QStringLiteral("pending");
+            doc.bookmarks.push_back(bm);
+            idx = doc.bookmarks.size() - 1;
+        }
+        doc.bookmarks[idx].offset = curLen();
+        if (!pendingBookmarkIdx.contains(idx))
+            pendingBookmarkIdx.push_back(idx);
+    };
+    auto emitDetached = [&](Block block, bool keepId) {
+        bool hadText = !spanRun.text.trimmed().isEmpty() || !spanRun.field.isEmpty();
+        for (const auto &r : runs) {
+            if (!r.text.trimmed().isEmpty() || !r.field.isEmpty())
+                hadText = true;
+        }
+        if (hadText)
+            flushPara();
+        else {
+            runs.clear();
+            startRun();
+            inText = false;
+        }
+        if (!keepId || block.id.isEmpty() || doc.indexOf(block.id) >= 0)
+            doc.assignId(block);
+        doc.body.push_back(block);
+    };
+    auto parseTableBound = [&](const QString &raw, int *out) -> bool {
+        if (raw.isEmpty()) {
+            *out = 1;
+            return true;
+        }
+        bool ok = false;
+        const qlonglong v = raw.toLongLong(&ok);
+        if (!ok || v < 1 || v > kMaxOdtTableColumns) {
+            if (error)
+                *error = odtTableTooWide();
+            return false;
+        }
+        *out = int(v);
+        return true;
+    };
 
     while (!xml.atEnd()) {
         xml.readNext();
         if (xml.isStartElement()) {
             const auto n = xml.name();
             if (n == QLatin1String("list")) {
+                QString sn = xml.attributes().value(QStringLiteral("text:style-name")).toString();
+                if (sn.isEmpty() && !listStyleStack.isEmpty())
+                    sn = listStyleStack.last();
+                listStyleStack.push_back(sn);
                 ++listLevel;
-                listKind = QStringLiteral("decimal");
+                listKind = listKindFor(listStyles, sn, listLevel);
             } else if (n == QLatin1String("list-item")) {
                 currentType = QStringLiteral("list-item");
             } else if (n == QLatin1String("table")) {
+                if (!tableStack.isEmpty()) {
+                    if (!spanRun.text.isEmpty() || !spanRun.field.isEmpty())
+                        runs.push_back(spanRun);
+                    tableStack.last().savedRuns = runs;
+                    runs.clear();
+                    startRun();
+                } else if (inText) {
+                    flushPara();
+                }
+                OdtTableFrame frame;
+                frame.nested = !tableStack.isEmpty();
+                tableStack.push_back(frame);
                 inTable = true;
-                tableBlock = Block{};
-                tableBlock.type = QStringLiteral("table");
-            } else if (n == QLatin1String("table-row") && inTable) {
-                tableRow.clear();
-            } else if (n == QLatin1String("table-cell") && inTable) {
+            } else if (n == QLatin1String("table-row") && !tableStack.isEmpty()) {
+                if (tableStack.last().nested)
+                    tableStack.last().nestRow.clear();
+                else
+                    tableStack.last().row.clear();
+            } else if ((n == QLatin1String("table-cell") || n == QLatin1String("covered-table-cell"))
+                       && !tableStack.isEmpty()) {
+                auto &tb = tableStack.last();
+                tb.inCell = true;
+                tb.covered = n == QLatin1String("covered-table-cell");
+                tb.cellNested.clear();
+                const auto attrs = xml.attributes();
+                if (!parseTableBound(attrs.value(QStringLiteral("table:number-columns-spanned")).toString(), &tb.colSpan)
+                    || !parseTableBound(attrs.value(QStringLiteral("table:number-rows-spanned")).toString(), &tb.rowSpan)
+                    || !parseTableBound(attrs.value(QStringLiteral("table:number-columns-repeated")).toString(),
+                                        &tb.repeat))
+                    return false;
                 runs.clear();
                 startRun();
-                inText = true;
+                inText = !tb.covered;
                 currentType = QStringLiteral("paragraph");
+            } else if (isDrawingName(n)) {
+                if (draw.depth == 0) {
+                    draw = {};
+                    draw.name = xml.attributes().value(QStringLiteral("draw:name")).toString();
+                    double w = 0;
+                    if (parseOdfLengthMm(xml.attributes().value(QStringLiteral("svg:width")).toString(), &w, true)
+                        || parseOdfLengthMm(xml.attributes().value(QStringLiteral("width")).toString(), &w, true))
+                        draw.widthMm = w;
+                }
+                ++draw.depth;
+            } else if ((n == QLatin1String("title") || n == QLatin1String("desc")) && draw.depth > 0) {
+                const QString t = xml.readElementText();
+                if (n == QLatin1String("title"))
+                    draw.title = t;
+                else
+                    draw.desc = t;
             } else if (n == QLatin1String("h")) {
                 runs.clear();
                 startRun();
@@ -1388,16 +1861,33 @@ bool loadOdt(const QByteArray &zipData, Document &doc, QString *error)
                 nb.id = xml.attributes().value(QStringLiteral("text:id")).toString();
                 const QString cls = xml.attributes().value(QStringLiteral("text:note-class")).toString();
                 nb.type = cls == QLatin1String("endnote") ? QStringLiteral("endnote") : QStringLiteral("footnote");
-                QString txt;
+                QStringList parts;
+                QString cur;
+                int bodyDepth = 0;
+                bool inNotePara = false;
                 while (!xml.atEnd()) {
                     xml.readNext();
-                    if (xml.isEndElement() && xml.name() == QLatin1String("note"))
+                    if (xml.isStartElement() && xml.name() == QLatin1String("note-body"))
+                        ++bodyDepth;
+                    else if (xml.isStartElement() && bodyDepth > 0
+                             && (xml.name() == QLatin1String("p") || xml.name() == QLatin1String("h"))) {
+                        inNotePara = true;
+                        cur.clear();
+                    } else if (xml.isCharacters() && inNotePara)
+                        cur += xml.text();
+                    else if (xml.isEndElement() && inNotePara
+                             && (xml.name() == QLatin1String("p") || xml.name() == QLatin1String("h"))) {
+                        const QString t = cur.trimmed();
+                        if (!t.isEmpty())
+                            parts.push_back(t);
+                        inNotePara = false;
+                    } else if (xml.isEndElement() && xml.name() == QLatin1String("note-body"))
+                        bodyDepth = qMax(0, bodyDepth - 1);
+                    else if (xml.isEndElement() && xml.name() == QLatin1String("note"))
                         break;
-                    if (xml.isCharacters())
-                        txt += xml.text();
                 }
                 TextRun nr;
-                nr.text = txt.trimmed();
+                nr.text = parts.join(QStringLiteral("\n"));
                 nb.runs.push_back(nr);
                 if (nb.id.isEmpty() || doc.indexOf(nb.id) >= 0)
                     doc.assignId(nb);
@@ -1600,14 +2090,8 @@ bool loadOdt(const QByteArray &zipData, Document &doc, QString *error)
                 toc.runs.push_back(tr);
                 doc.assignId(toc);
                 doc.body.push_back(toc);
-            } else if (n == QLatin1String("bookmark-start") && !hasBookmarkNamed(xml.attributes().value(QStringLiteral("text:name")).toString())) {
-                Bookmark bm;
-                bm.name = xml.attributes().value(QStringLiteral("text:name")).toString();
-                bm.id = QStringLiteral("bm%1").arg(doc.bookmarks.size() + 1);
-                bm.blockId = QStringLiteral("pending");
-                bm.offset = curLen();
-                doc.bookmarks.push_back(bm);
-                pendingBookmarkIdx.push_back(doc.bookmarks.size() - 1);
+            } else if (n == QLatin1String("bookmark") || n == QLatin1String("bookmark-start")) {
+                placeBookmark(xml.attributes().value(QStringLiteral("text:name")).toString());
             } else if (n == QLatin1String("change-start") && inText
                        && !hasRevisionId(xml.attributes().value(QStringLiteral("text:change-id")).toString())) {
                 changeStartOff[xml.attributes().value(QStringLiteral("text:change-id")).toString()] = curLen();
@@ -1661,42 +2145,31 @@ bool loadOdt(const QByteArray &zipData, Document &doc, QString *error)
                     runs.push_back(spanRun);
                 curLinkHref = xml.attributes().value(QStringLiteral("xlink:href")).toString();
                 startRun();
-            } else if (n == QLatin1String("frame")) {
-                QString w = xml.attributes().value(QStringLiteral("svg:width")).toString();
-                if (w.isEmpty())
-                    w = xml.attributes().value(QStringLiteral("width")).toString();
-                w.remove(QStringLiteral("mm"));
-                w.remove(QStringLiteral("cm"));
-                pendingFrameWidthMm = w.toDouble();
-                if (xml.attributes().value(QStringLiteral("svg:width")).toString().contains(QLatin1String("cm")))
-                    pendingFrameWidthMm *= 10;
             } else if (n == QLatin1String("image")) {
                 QString href = xml.attributes().value(QStringLiteral("href")).toString();
                 if (href.isEmpty())
                     href = xml.attributes().value(QStringLiteral("xlink:href")).toString();
-                if (!href.isEmpty()) {
-                    bool hadText = !spanRun.text.trimmed().isEmpty();
-                    for (const auto &r : runs) {
-                        if (!r.text.trimmed().isEmpty())
-                            hadText = true;
-                    }
-                    if (hadText)
-                        flushPara();
-                    else {
-                        runs.clear();
-                        startRun();
-                        inText = false;
-                    }
+                const QString alt = !draw.title.isEmpty() ? draw.title : draw.desc;
+                if (!href.isEmpty() || (draw.depth > 0 && figureById.contains(draw.name))) {
                     Block img;
-                    img.type = QStringLiteral("image");
-                    img.imagePath = href;
-                    img.imageBytes = Zip::file(entries, href);
-                    if (img.imageBytes.isEmpty())
-                        img.imageBytes = Zip::file(entries, href.startsWith(QLatin1Char('/')) ? href.mid(1) : href);
-                    img.imageWidthMm = pendingFrameWidthMm > 0 ? int(qRound(pendingFrameWidthMm)) : 80;
-                    pendingFrameWidthMm = 0;
-                    doc.assignId(img);
-                    doc.body.push_back(img);
+                    bool keepId = false;
+                    if (draw.depth > 0 && figureById.contains(draw.name)) {
+                        img = figureById.take(draw.name);
+                        keepId = true;
+                        if (img.altText.isEmpty())
+                            img.altText = alt;
+                    } else {
+                        img.type = QStringLiteral("image");
+                        img.altText = alt;
+                        img.imagePath = href;
+                        img.imageBytes = Zip::file(entries, href);
+                        if (img.imageBytes.isEmpty() && !href.isEmpty())
+                            img.imageBytes = Zip::file(entries, href.startsWith(QLatin1Char('/')) ? href.mid(1) : href);
+                        img.imageWidthMm = draw.widthMm > 0 ? int(qRound(draw.widthMm)) : 80;
+                    }
+                    emitDetached(img, keepId);
+                    if (draw.depth > 0)
+                        draw.emitted = true;
                 }
             }
         } else if (xml.isCharacters() && inText && !xml.isWhitespace()) {
@@ -1714,29 +2187,101 @@ bool loadOdt(const QByteArray &zipData, Document &doc, QString *error)
                     runs.push_back(spanRun);
                 curLinkHref.clear();
                 startRun();
-            } else if (n == QLatin1String("table-cell") && inTable) {
+            } else if ((n == QLatin1String("table-cell") || n == QLatin1String("covered-table-cell"))
+                       && !tableStack.isEmpty()) {
+                auto &tb = tableStack.last();
                 if (!spanRun.text.isEmpty())
                     runs.push_back(spanRun);
-                TableCell cell;
-                cell.runs = runs;
-                tableRow.push_back(cell);
+                if (tb.row.size() + tb.nestRow.size() + tb.repeat > kMaxOdtTableColumns) {
+                    if (error)
+                        *error = odtTableTooWide();
+                    return false;
+                }
+                if (tb.nested) {
+                    NestedCell nc;
+                    if (!tb.covered) {
+                        nc.runs = runs;
+                        for (const auto &nrow : tb.cellNested) {
+                            for (const auto &inner : nrow) {
+                                for (const auto &r : inner.runs) {
+                                    if (!r.text.isEmpty())
+                                        nc.runs.push_back(r);
+                                }
+                            }
+                        }
+                    }
+                    for (int i = 0; i < tb.repeat; ++i)
+                        tb.nestRow.push_back(nc);
+                } else {
+                    TableCell cell;
+                    if (!tb.covered) {
+                        cell.runs = runs;
+                        cell.colSpan = tb.colSpan;
+                        cell.rowSpan = tb.rowSpan;
+                        cell.nested = tb.cellNested;
+                    }
+                    for (int i = 0; i < tb.repeat; ++i)
+                        tb.row.push_back(cell);
+                }
+                tb.cellNested.clear();
+                tb.inCell = false;
                 runs.clear();
                 startRun();
                 inText = false;
-            } else if (n == QLatin1String("table-row") && inTable) {
-                tableBlock.table.push_back(tableRow);
-            } else if (n == QLatin1String("table") && inTable) {
-                doc.assignId(tableBlock);
-                doc.body.push_back(tableBlock);
-                inTable = false;
+            } else if (n == QLatin1String("table-row") && !tableStack.isEmpty()) {
+                auto &tb = tableStack.last();
+                if (tb.nested) {
+                    tb.nestRows.push_back(tb.nestRow);
+                    tb.nestRow.clear();
+                } else {
+                    tb.rows.push_back(tb.row);
+                    tb.row.clear();
+                }
+            } else if (n == QLatin1String("table") && !tableStack.isEmpty()) {
+                OdtTableFrame done = tableStack.takeLast();
+                if (tableStack.isEmpty()) {
+                    Block b;
+                    b.type = QStringLiteral("table");
+                    b.table = done.rows;
+                    doc.assignId(b);
+                    doc.body.push_back(b);
+                    inTable = false;
+                    inText = false;
+                } else {
+                    auto &outer = tableStack.last();
+                    if (outer.cellNested.isEmpty())
+                        outer.cellNested = done.nestRows;
+                    else {
+                        for (const auto &nrow : done.nestRows)
+                            outer.cellNested.push_back(nrow);
+                    }
+                    runs = outer.savedRuns;
+                    startRun();
+                    inText = outer.inCell && !outer.covered;
+                    inTable = true;
+                }
+            } else if (isDrawingName(n) && draw.depth > 0) {
+                --draw.depth;
+                if (draw.depth == 0 && !draw.emitted) {
+                    Block img;
+                    img.type = QStringLiteral("image");
+                    img.altText = !draw.title.isEmpty() ? draw.title : draw.desc;
+                    img.imageWidthMm = draw.widthMm > 0 ? int(qRound(draw.widthMm)) : 80;
+                    emitDetached(img, false);
+                    draw.emitted = true;
+                }
             } else if (n == QLatin1String("h")) {
                 flushPara();
             } else if (n == QLatin1String("p") && inText && !inTable) {
                 flushPara();
             } else if (n == QLatin1String("list")) {
+                if (!listStyleStack.isEmpty())
+                    listStyleStack.removeLast();
                 listLevel = qMax(0, listLevel - 1);
                 if (listLevel == 0)
                     listKind.clear();
+                else if (!listStyleStack.isEmpty())
+                    listKind = listKindFor(listStyles, listStyleStack.last(), listLevel);
             }
         }
     }

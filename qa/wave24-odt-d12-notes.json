@@ -11,7 +11,7 @@
     {"id": "host", "type": "paragraph", "runs": [{"text": "Alpha"}]}
   ]}},
   {"tool": "insert_footnote", "args": {"id": "host", "offset": 5, "text": "Body only"}},
-  {"tool": "insert_endnote", "args": {"id": "host", "offset": 5, "text": "End body"}},
+  {"tool": "insert_endnote", "args": {"id": "host", "offset": 6, "text": "End body"}},
   {"tool": "document_save", "args": {"path": "/tmp/aioffice-wave24-t3-d12.odt"}},
   {"tool": "document_open", "args": {"path": "/tmp/aioffice-wave24-t3-d12.odt"}},
   {"tool": "document_get", "args": {}, "expect": {
