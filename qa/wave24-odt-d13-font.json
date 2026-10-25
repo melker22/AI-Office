@@ -1,0 +1,19 @@
+[
+  {"tool": "document_open", "args": {"path": "qa/fixtures/wave24-odt-font.odt"}},
+  {"tool": "document_get", "args": {}, "expect": {
+    "document.body.0.runs.0.text": "Sans",
+    "document.body.0.runs.0.font": "Liberation Sans",
+    "document.body.1.runs.0.text": "Family",
+    "document.body.1.runs.0.font": "Carlito"
+  }},
+  {"tool": "document_new", "args": {"title": "Wave24 font", "force": true}},
+  {"tool": "insert_blocks", "args": {"after_id": "end", "blocks": [
+    {"id": "pfont", "type": "paragraph", "runs": [{"text": "Sans", "font": "Liberation Sans"}]}
+  ]}},
+  {"tool": "document_save", "args": {"path": "/tmp/aioffice-wave24-t3-d13.odt"}},
+  {"tool": "document_open", "args": {"path": "/tmp/aioffice-wave24-t3-d13.odt"}},
+  {"tool": "document_get", "args": {}, "expect": {
+    "document.body.1.runs.0.text": "Sans",
+    "document.body.1.runs.0.font": "Liberation Sans"
+  }}
+]

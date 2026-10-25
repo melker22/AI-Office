@@ -1,0 +1,34 @@
+[
+  {"tool": "document_open", "args": {"path": "qa/fixtures/wave24-odt-table.odt"}},
+  {"tool": "document_get", "args": {}, "expect": {
+    "document.body.0.type": "table",
+    "document.body.0.rows.0.0.runs.0.text": "Merged",
+    "document.body.0.rows.0.0.col_span": 2,
+    "document.body.0.rows.0.0.row_span": 2,
+    "document.body.0.rows.0.0.nested.0.0.runs.0.text": "InA",
+    "document.body.0.rows.0.0.nested.0.1.runs.0.text": "InB",
+    "document.body.0.rows.0.2.runs.0.text": "Right",
+    "document.body.0.rows.1.2.runs.0.text": "Below"
+  }},
+  {"tool": "document_new", "args": {"title": "Wave24 table", "force": true}},
+  {"tool": "insert_table", "args": {"after_id": "end", "rows": 2, "cols": 3, "header": false}},
+  {"tool": "set_cell", "args": {"id": "t1", "row": 0, "col": 0, "text": "Merged"}},
+  {"tool": "set_cell", "args": {"id": "t1", "row": 0, "col": 2, "text": "Right"}},
+  {"tool": "set_cell", "args": {"id": "t1", "row": 1, "col": 2, "text": "Below"}},
+  {"tool": "merge_cells", "args": {"id": "t1", "row": 0, "col": 0, "col_span": 2, "row_span": 2}},
+  {"tool": "nest_table", "args": {"id": "t1", "row": 0, "col": 0, "rows": 1, "cols": 2}},
+  {"tool": "set_cell", "args": {"id": "t1", "row": 0, "col": 0, "nested_row": 0, "nested_col": 0, "text": "InA"}},
+  {"tool": "set_cell", "args": {"id": "t1", "row": 0, "col": 0, "nested_row": 0, "nested_col": 1, "text": "InB"}},
+  {"tool": "document_save", "args": {"path": "/tmp/aioffice-wave24-t3-d4.odt"}},
+  {"tool": "document_open", "args": {"path": "/tmp/aioffice-wave24-t3-d4.odt"}},
+  {"tool": "document_get", "args": {}, "expect": {
+    "document.body.1.type": "table",
+    "document.body.1.rows.0.0.runs.0.text": "Merged",
+    "document.body.1.rows.0.0.col_span": 2,
+    "document.body.1.rows.0.0.row_span": 2,
+    "document.body.1.rows.0.0.nested.0.0.runs.0.text": "InA",
+    "document.body.1.rows.0.0.nested.0.1.runs.0.text": "InB",
+    "document.body.1.rows.0.2.runs.0.text": "Right",
+    "document.body.1.rows.1.2.runs.0.text": "Below"
+  }}
+]

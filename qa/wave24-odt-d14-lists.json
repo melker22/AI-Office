@@ -1,0 +1,47 @@
+[
+  {"tool": "document_open", "args": {"path": "qa/fixtures/wave24-odt-lists.odt"}},
+  {"tool": "document_get", "args": {}, "expect": {
+    "document.body.0.type": "list-item",
+    "document.body.0.runs.0.text": "Apple",
+    "document.body.0.list_kind": "bullet",
+    "document.body.0.level": 1,
+    "document.body.1.runs.0.text": "One",
+    "document.body.1.list_kind": "decimal",
+    "document.body.1.level": 1,
+    "document.body.2.runs.0.text": "aye",
+    "document.body.2.list_kind": "lowerLetter",
+    "document.body.2.level": 2,
+    "document.body.3.runs.0.text": "Bee",
+    "document.body.3.list_kind": "upperLetter",
+    "document.body.3.level": 1,
+    "document.body.4.runs.0.text": "eye",
+    "document.body.4.list_kind": "lowerRoman",
+    "document.body.4.level": 1,
+    "document.body.5.runs.0.text": "Eye",
+    "document.body.5.list_kind": "upperRoman",
+    "document.body.5.level": 1
+  }},
+  {"tool": "document_new", "args": {"title": "Wave24 lists", "force": true}},
+  {"tool": "insert_blocks", "args": {"after_id": "end", "blocks": [
+    {"id": "lb", "type": "list-item", "list_kind": "bullet", "level": 1, "runs": [{"text": "Apple"}]},
+    {"id": "ld", "type": "list-item", "list_kind": "decimal", "level": 1, "runs": [{"text": "One"}]},
+    {"id": "la", "type": "list-item", "list_kind": "lowerLetter", "level": 2, "runs": [{"text": "aye"}]},
+    {"id": "lA", "type": "list-item", "list_kind": "upperLetter", "level": 1, "runs": [{"text": "Bee"}]},
+    {"id": "li", "type": "list-item", "list_kind": "lowerRoman", "level": 1, "runs": [{"text": "eye"}]},
+    {"id": "lI", "type": "list-item", "list_kind": "upperRoman", "level": 1, "runs": [{"text": "Eye"}]}
+  ]}},
+  {"tool": "document_save", "args": {"path": "/tmp/aioffice-wave24-t3-d14.odt"}},
+  {"tool": "document_open", "args": {"path": "/tmp/aioffice-wave24-t3-d14.odt"}},
+  {"tool": "document_get", "args": {}, "expect": {
+    "document.body.1.list_kind": "bullet",
+    "document.body.1.level": 1,
+    "document.body.1.runs.0.text": "Apple",
+    "document.body.2.list_kind": "decimal",
+    "document.body.2.level": 1,
+    "document.body.3.list_kind": "lowerLetter",
+    "document.body.3.level": 2,
+    "document.body.4.list_kind": "upperLetter",
+    "document.body.5.list_kind": "lowerRoman",
+    "document.body.6.list_kind": "upperRoman"
+  }}
+]

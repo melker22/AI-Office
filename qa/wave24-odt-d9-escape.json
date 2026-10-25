@@ -1,0 +1,16 @@
+[
+  {"tool": "document_new", "args": {"title": "Wave24 escape", "force": true}},
+  {"tool": "create_style", "args": {"name": "A&B\"C", "font": "Liberation Serif", "align": "center"}},
+  {"tool": "insert_blocks", "args": {"after_id": "end", "blocks": [
+    {"id": "styled", "type": "paragraph", "style": "A&B\"C", "runs": [{"text": "Styled"}]},
+    {"id": "aligned", "type": "paragraph", "style": "A&B\"C", "align": "center", "runs": [{"text": "Aligned"}]}
+  ]}},
+  {"tool": "document_save", "args": {"path": "/tmp/aioffice-wave24-t3-d9.odt"}},
+  {"tool": "document_open", "args": {"path": "/tmp/aioffice-wave24-t3-d9.odt"}},
+  {"tool": "document_get", "args": {}, "expect": {
+    "document.body.1.style": "A&B\"C",
+    "document.body.1.runs.0.text": "Styled",
+    "document.body.2.align": "center",
+    "document.body.2.runs.0.text": "Aligned"
+  }}
+]
