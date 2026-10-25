@@ -15,7 +15,7 @@
     "document.body.0.runs.0.text": "Hello"
   }},
 
-  {"tool": "insert_break", "args": {"kind": "page", "after_id": "p1"}, "expect": {"ok": true, "id": "br1"}},
+  {"tool": "insert_break", "args": {"kind": "page", "after_id": "p1"}, "expect": {"ok": true, "ids.0": "br1"}},
   {"tool": "insert_blocks", "args": {"after_id": "br1", "blocks": [{"id": "p2", "type": "paragraph", "runs": [{"text": ""}]}]}, "expect": {"ok": true}},
   {"tool": "insert_field", "args": {"id": "p2", "offset": 0, "kind": "if", "arg": {"cond": "pages > 1", "then": "MULTI", "else": "ONE"}}, "expect": {"ok": true}},
   {"tool": "document_get", "args": {}, "expect": {
