@@ -16,6 +16,98 @@
 #endif
 
 namespace aioffice {
+namespace {
+
+constexpr int kMaxFrameBytes = 32 * 1024 * 1024;
+
+bool startsWithContentLength(const QByteArray &buffer)
+{
+    return buffer.left(64).toLower().startsWith("content-length:");
+}
+
+// Legacy LSP-style input. Only when the buffer itself starts with the header.
+// Returns false when the frame is incomplete (*needMore) or was skipped.
+bool takeContentLengthMessage(QByteArray *buffer, QJsonObject *msg, bool *needMore)
+{
+    *needMore = false;
+    const int headerEndR = buffer->indexOf("\r\n\r\n");
+    const int headerEndN = buffer->indexOf("\n\n");
+    int sep = -1;
+    int sepLen = 0;
+    if (headerEndR >= 0 && (headerEndN < 0 || headerEndR <= headerEndN)) {
+        sep = headerEndR;
+        sepLen = 4;
+    } else if (headerEndN >= 0) {
+        sep = headerEndN;
+        sepLen = 2;
+    }
+    if (sep < 0) {
+        if (buffer->size() > 65536)
+            buffer->clear();
+        *needMore = !buffer->isEmpty();
+        return false;
+    }
+    int length = -1;
+    const QList<QByteArray> lines = buffer->left(sep).split('\n');
+    for (QByteArray line : lines) {
+        line = line.trimmed();
+        if (line.endsWith('\r'))
+            line.chop(1);
+        if (line.toLower().startsWith("content-length:")) {
+            bool ok = false;
+            length = line.mid(line.indexOf(':') + 1).trimmed().toInt(&ok);
+            if (!ok)
+                length = -1;
+        }
+    }
+    if (length < 0 || length > kMaxFrameBytes) {
+        buffer->remove(0, sep + sepLen);
+        return false;
+    }
+    if (buffer->size() < sep + sepLen + length) {
+        *needMore = true;
+        return false;
+    }
+    const QByteArray body = buffer->mid(sep + sepLen, length);
+    buffer->remove(0, sep + sepLen + length);
+    const auto doc = QJsonDocument::fromJson(body);
+    if (!doc.isObject())
+        return false;
+    *msg = doc.object();
+    return true;
+}
+
+bool parseToolArguments(const QJsonObject &params, QJsonObject *args, QString *error)
+{
+    if (!params.contains(QStringLiteral("arguments"))) {
+        *args = {};
+        return true;
+    }
+    const QJsonValue value = params.value(QStringLiteral("arguments"));
+    if (value.isObject()) {
+        *args = value.toObject();
+        return true;
+    }
+    if (value.isString()) {
+        const QByteArray raw = value.toString().trimmed().toUtf8();
+        if (raw.isEmpty()) {
+            *args = {};
+            return true;
+        }
+        QJsonParseError parseError;
+        const auto doc = QJsonDocument::fromJson(raw, &parseError);
+        if (parseError.error != QJsonParseError::NoError || !doc.isObject()) {
+            *error = QStringLiteral("invalid JSON arguments");
+            return false;
+        }
+        *args = doc.object();
+        return true;
+    }
+    *error = QStringLiteral("invalid JSON arguments");
+    return false;
+}
+
+} // namespace
 
 McpServer::McpServer(Session *session, QObject *parent)
     : QObject(parent)
@@ -61,49 +153,29 @@ void McpServer::onStdin()
 void McpServer::handleBuffer()
 {
     for (;;) {
-        // Content-Length framing
-        const int headerEnd = buffer_.indexOf("\r\n\r\n");
-        const int headerEndN = buffer_.indexOf("\n\n");
-        int sep = -1;
-        int sepLen = 0;
-        if (headerEnd >= 0) {
-            sep = headerEnd;
-            sepLen = 4;
-        } else if (headerEndN >= 0 && (buffer_.startsWith("Content-Length:") || buffer_.startsWith("content-length:"))) {
-            sep = headerEndN;
-            sepLen = 2;
-        }
-        if (sep >= 0) {
-            const QByteArray header = buffer_.left(sep);
-            int length = -1;
-            for (const auto &line : header.split('\n')) {
-                const QByteArray l = line.trimmed();
-                if (l.toLower().startsWith("content-length:")) {
-                    length = l.mid(l.indexOf(':') + 1).trimmed().toInt();
-                }
-            }
-            if (length < 0) {
-                buffer_.remove(0, sep + sepLen);
-                continue;
-            }
-            if (buffer_.size() < sep + sepLen + length)
+        if (startsWithContentLength(buffer_)) {
+            const int before = buffer_.size();
+            QJsonObject msg;
+            bool needMore = false;
+            if (takeContentLengthMessage(&buffer_, &msg, &needMore))
+                handleMessage(msg);
+            if (needMore)
                 return;
-            const QByteArray body = buffer_.mid(sep + sepLen, length);
-            buffer_.remove(0, sep + sepLen + length);
-            const auto doc = QJsonDocument::fromJson(body);
-            if (doc.isObject())
-                handleMessage(doc.object());
+            if (buffer_.size() == before) {
+                buffer_.clear();
+                return;
+            }
             continue;
         }
-        // NDJSON fallback
         const int nl = buffer_.indexOf('\n');
-        if (nl < 0)
+        if (nl < 0) {
+            if (buffer_.size() > kMaxFrameBytes)
+                buffer_.clear();
             return;
+        }
         const QByteArray line = buffer_.left(nl).trimmed();
         buffer_.remove(0, nl + 1);
-        if (line.isEmpty() || line.startsWith("Content-Length"))
-            continue;
-        if (!line.startsWith('{'))
+        if (line.isEmpty())
             continue;
         const auto doc = QJsonDocument::fromJson(line);
         if (doc.isObject())
@@ -113,10 +185,42 @@ void McpServer::handleBuffer()
 
 void McpServer::writeMessage(const QJsonObject &msg)
 {
-    const QByteArray body = QJsonDocument(msg).toJson(QJsonDocument::Compact);
-    const QByteArray frame = "Content-Length: " + QByteArray::number(body.size()) + "\r\n\r\n" + body;
-    fwrite(frame.constData(), 1, static_cast<size_t>(frame.size()), stdout);
+    // One compact JSON object per line. Never a Content-Length header.
+    QByteArray body = QJsonDocument(msg).toJson(QJsonDocument::Compact);
+    body.append('\n');
+    fwrite(body.constData(), 1, static_cast<size_t>(body.size()), stdout);
     fflush(stdout);
+}
+
+QJsonObject McpServer::invokeTool(const QString &name, const QJsonObject &args)
+{
+    if (callMode_ == CallMode::Undecided) {
+        if (!qEnvironmentVariableIsEmpty("AIOFFICE_HEADLESS")) {
+            callMode_ = CallMode::Headless;
+        } else {
+            QString detail;
+            const IpcProbe probe = ipcProbe(&detail);
+            if (probe == IpcProbe::Connected) {
+                callMode_ = CallMode::Gui;
+            } else if (probe == IpcProbe::NoGui) {
+                callMode_ = CallMode::Headless;
+            } else {
+                // Stay off the local session for the rest of the process.
+                callMode_ = CallMode::Gui;
+                return toolResultErr(detail.isEmpty() ? QStringLiteral("IPC failure: connect failed") : detail);
+            }
+        }
+    }
+    if (callMode_ == CallMode::Headless)
+        return session_->call(name, args);
+
+    QString ipcErr;
+    const QJsonObject out = ipcCall(name, args, &ipcErr);
+    if (!ipcErr.isEmpty())
+        return out;
+    if (!out.contains(QStringLiteral("ok")))
+        return toolResultErr(QStringLiteral("IPC failure: invalid response"));
+    return out;
 }
 
 void McpServer::handleMessage(const QJsonObject &msg)
@@ -174,21 +278,13 @@ void McpServer::handleMessage(const QJsonObject &msg)
     if (method == QLatin1String("tools/call") || method == QLatin1String("call")) {
         const auto params = msg.value(QStringLiteral("params")).toObject();
         const QString name = params.value(QStringLiteral("name")).toString();
-        QJsonObject args = params.value(QStringLiteral("arguments")).toObject();
-        if (args.isEmpty() && params.value(QStringLiteral("arguments")).isString()) {
-            args = QJsonDocument::fromJson(params.value(QStringLiteral("arguments")).toString().toUtf8()).object();
+        QJsonObject args;
+        QString argError;
+        if (!parseToolArguments(params, &args, &argError)) {
+            replyErr(-32602, argError);
+            return;
         }
-        QJsonObject out;
-        QString ipcErr;
-        if (!session_->liveConnected() && ipcAvailable()) {
-            out = ipcCall(name, args, &ipcErr);
-            if (!ipcErr.isEmpty() && !out.value(QStringLiteral("ok")).toBool()) {
-                // fall through to local
-                out = session_->call(name, args);
-            }
-        } else {
-            out = session_->call(name, args);
-        }
+        const QJsonObject out = invokeTool(name, args);
         QJsonObject result;
         result[QStringLiteral("content")] = QJsonArray{QJsonObject{
             {QStringLiteral("type"), QStringLiteral("text")},

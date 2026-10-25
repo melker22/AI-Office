@@ -210,6 +210,21 @@ add_test(NAME play_expect_shape COMMAND "${CMAKE_COMMAND}" -E env AIOFFICE_HEADL
 set_tests_properties(play_expect_shape PROPERTIES LABELS "playbook" WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}")
 add_test(NAME mcp_doc_export_prose COMMAND "${Python3_EXECUTABLE}" "${CMAKE_SOURCE_DIR}/qa/check_mcp_prose.py")
 set_tests_properties(mcp_doc_export_prose PROPERTIES LABELS "playbook" WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}")
+add_test(NAME mcp_stdio COMMAND "${CMAKE_COMMAND}" -E env AIOFFICE_HEADLESS=1 QT_QPA_PLATFORM=offscreen
+    "${Python3_EXECUTABLE}" "${CMAKE_SOURCE_DIR}/qa/check_mcp_stdio.py" "${AIOFFICE_CLI}")
+set_tests_properties(mcp_stdio PROPERTIES LABELS "playbook" TIMEOUT 60 WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}")
+add_test(NAME wave23_ipc COMMAND "${CMAKE_COMMAND}" -E env AIOFFICE_HEADLESS=1 QT_QPA_PLATFORM=offscreen
+    "${Python3_EXECUTABLE}" "${CMAKE_SOURCE_DIR}/qa/check_wave23_ipc.py" "${AIOFFICE_CLI}")
+set_tests_properties(wave23_ipc PROPERTIES LABELS "playbook" TIMEOUT 90 WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}")
+add_test(NAME wave23_socket COMMAND "${CMAKE_COMMAND}" -E env AIOFFICE_HEADLESS=1 QT_QPA_PLATFORM=offscreen
+    "${Python3_EXECUTABLE}" "${CMAKE_SOURCE_DIR}/qa/check_wave23_socket.py" "${AIOFFICE_CLI}")
+set_tests_properties(wave23_socket PROPERTIES LABELS "playbook" TIMEOUT 60 WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}")
+add_test(NAME wave23_lok COMMAND "${CMAKE_COMMAND}" -E env AIOFFICE_HEADLESS=1 QT_QPA_PLATFORM=offscreen
+    "${Python3_EXECUTABLE}" "${CMAKE_SOURCE_DIR}/qa/check_wave23_lok.py" "${AIOFFICE_CLI}")
+set_tests_properties(wave23_lok PROPERTIES LABELS "playbook" TIMEOUT 60 WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}")
+add_test(NAME wave23_cli COMMAND "${CMAKE_COMMAND}" -E env AIOFFICE_HEADLESS=1 QT_QPA_PLATFORM=offscreen
+    "${Python3_EXECUTABLE}" "${CMAKE_SOURCE_DIR}/qa/check_wave23_cli.py" "${AIOFFICE_CLI}")
+set_tests_properties(wave23_cli PROPERTIES LABELS "playbook" TIMEOUT 60 WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}")
 add_test(NAME pr_merge_gate_selftest COMMAND "${Python3_EXECUTABLE}" "${CMAKE_SOURCE_DIR}/scripts/pr-merge-gate.py" --self-test)
 set_tests_properties(pr_merge_gate_selftest PROPERTIES LABELS "playbook" WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}")
 file(GLOB _aio_fixtures CONFIGURE_DEPENDS "${CMAKE_SOURCE_DIR}/qa/fixtures/*-foreign.docx" "${CMAKE_SOURCE_DIR}/qa/fixtures/*-foreign.odt")

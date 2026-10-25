@@ -5,14 +5,54 @@
 #include <QFileInfo>
 #include <QProcess>
 #include <QStandardPaths>
+#include <QTemporaryDir>
 
 namespace aioffice {
+namespace {
+
+bool executableFile(const QString &path)
+{
+    const QFileInfo fi(path);
+    return fi.isFile() && fi.isExecutable();
+}
+
+bool placeConverted(const QString &produced, const QString &finalPath, QString *error)
+{
+    const QFileInfo finalFi(finalPath);
+    if (QFileInfo(produced).absoluteFilePath() == finalFi.absoluteFilePath())
+        return true;
+    const QString stage = finalFi.absolutePath() + QLatin1Char('/') + QLatin1Char('.') + finalFi.fileName()
+        + QStringLiteral(".aioffice-new");
+    QFile::remove(stage);
+    if (!QFile::rename(produced, stage) && !QFile::copy(produced, stage)) {
+        if (error)
+            *error = QStringLiteral("Could not move converted file to ") + finalPath;
+        return false;
+    }
+    if (QFile::rename(stage, finalPath))
+        return true;
+    // rename(2) replaces an existing file on Unix. If it did not, replace
+    // only after the converted bytes are already in this directory.
+    QFile::remove(finalPath);
+    if (QFile::rename(stage, finalPath))
+        return true;
+    if (QFile::copy(stage, finalPath)) {
+        QFile::remove(stage);
+        return true;
+    }
+    QFile::remove(stage);
+    if (error)
+        *error = QStringLiteral("Could not move converted file to ") + finalPath;
+    return false;
+}
+
+} // namespace
 
 QString LokEngine::findSoffice()
 {
     const QByteArray env = qgetenv("AIOFFICE_SOFFICE");
-    if (!env.isEmpty() && QFileInfo::exists(QString::fromUtf8(env)))
-        return QString::fromUtf8(env);
+    if (!env.isEmpty())
+        return executableFile(QString::fromUtf8(env)) ? QString::fromUtf8(env) : QString();
 
     const QString inPath = QStandardPaths::findExecutable(QStringLiteral("soffice"));
     if (!inPath.isEmpty())
@@ -34,7 +74,7 @@ QString LokEngine::findSoffice()
 #endif
     };
     for (const auto &c : candidates) {
-        if (QFileInfo::exists(c))
+        if (executableFile(c))
             return c;
     }
     return {};
@@ -68,50 +108,58 @@ bool LokEngine::convertTo(const QString &inputPath, const QString &outputPath, c
             *error = QStringLiteral("LibreOffice (soffice) not found. Install it to convert DOC/PDF.");
         return false;
     }
-    QFileInfo outFi(outputPath);
-    QDir().mkpath(outFi.absolutePath());
-    QStringList args = {
+    const QFileInfo outFi(outputPath);
+    if (!QDir().mkpath(outFi.absolutePath())) {
+        if (error)
+            *error = QStringLiteral("Cannot create ") + outFi.absolutePath();
+        return false;
+    }
+    // soffice names the output from the input stem inside --outdir. A private
+    // directory keeps a sibling that shares that stem from being overwritten.
+    QTemporaryDir work;
+    if (!work.isValid()) {
+        if (error)
+            *error = QStringLiteral("Could not create a temporary directory");
+        return false;
+    }
+    const QStringList args = {
         QStringLiteral("--headless"),
         QStringLiteral("--norestore"),
         QStringLiteral("--nolockcheck"),
         QStringLiteral("--convert-to"),
         filter,
         QStringLiteral("--outdir"),
-        outFi.absolutePath(),
+        work.path(),
         QFileInfo(inputPath).absoluteFilePath(),
     };
     QProcess p;
     p.setProcessChannelMode(QProcess::MergedChannels);
     p.start(soffice, args);
+    if (!p.waitForStarted(5000)) {
+        if (error)
+            *error = QStringLiteral("soffice failed to start");
+        return false;
+    }
     if (!p.waitForFinished(120000)) {
         p.kill();
+        p.waitForFinished(3000);
         if (error)
             *error = QStringLiteral("soffice timed out");
         return false;
     }
-    if (p.exitCode() != 0) {
+    if (p.exitStatus() != QProcess::NormalExit || p.exitCode() != 0) {
         if (error)
             *error = QStringLiteral("soffice failed: ") + QString::fromUtf8(p.readAll());
         return false;
     }
-    // soffice names output from the input stem + new extension
-    const QString produced = outFi.absolutePath() + QLatin1Char('/')
-        + QFileInfo(inputPath).completeBaseName() + QLatin1Char('.')
-        + QFileInfo(outputPath).suffix();
-    if (QFileInfo::exists(produced) && QFileInfo(produced).absoluteFilePath() != outFi.absoluteFilePath()) {
-        QFile::remove(outputPath);
-        if (!QFile::rename(produced, outputPath) && !QFile::copy(produced, outputPath)) {
-            if (error)
-                *error = QStringLiteral("Could not move converted file to ") + outputPath;
-            return false;
-        }
-    }
-    if (!QFileInfo::exists(outputPath)) {
+    const QString produced = QDir(work.path()).filePath(
+        QFileInfo(inputPath).completeBaseName() + QLatin1Char('.') + outFi.suffix());
+    if (!QFileInfo::exists(produced)) {
         if (error)
             *error = QStringLiteral("Conversion produced no file");
         return false;
     }
-    return true;
+    return placeConverted(produced, outFi.absoluteFilePath(), error);
 }
 
 bool LokEngine::exportPdf(const QString &inputPath, const QString &pdfPath, QString *error)

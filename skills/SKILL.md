@@ -24,7 +24,7 @@ A local Writer (ODT/DOCX/DOC). It does **not** ship a model and does **not** tak
 
 If `aioffice` is not on `PATH`, use the built binary (e.g. `build/linux/aioffice`).
 
-3. CLI fallback: `aioffice call TOOL '<json>'` (same tools). Live GUI is used when the socket is up.
+3. CLI fallback: `aioffice call TOOL '<json>'` (same tools). The live GUI is used only when the per-user socket accepts a connection and `AIOFFICE_HEADLESS` is unset. If the connection drops after connect, the call is an IPC failure and does not edit a blank document. MCP stdio is one JSON object per line.
 
 4. Call `integrate_help` once, then `document_get`.
 

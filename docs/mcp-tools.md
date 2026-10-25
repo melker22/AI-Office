@@ -1,6 +1,6 @@
 # Semantic document + MCP/CLI contract
 
-All tools are available as MCP `tools/call` and as `aioffice call <name> '<json args>'`. Playbooks: `aioffice play script.json` (JSON array of `{tool, args}`, runs `batch`). A call entry may add `"expect": {"dot.path": value, ...}` to assert a field of that call's own JSON result (dot-path, numeric segments index arrays, e.g. `document.body.0.runs.1.bold`); a mismatch fails the playbook the same way `ok:false` does, printing what was expected vs. what came back. For numeric fields, `expect` also accepts a one-key object operator: `{"$gt"|"$lt"|"$gte"|"$lte"|"$ne": number}` (compared to the actual number at that path).
+All tools are available as MCP `tools/call` and as `aioffice call <name> '<json args>'`. Playbooks: `aioffice play script.json` (JSON array of `{tool, args}`). Play runs each step in order and stops at the first failing expect. It keeps the earlier steps; rolling several edits back together is the `batch` tool. A call entry may add `"expect": {"dot.path": value, ...}` to assert a field of that call's own JSON result (dot-path, numeric segments index arrays, e.g. `document.body.0.runs.1.bold`); a mismatch fails the playbook the same way `ok:false` does, printing what was expected vs. what came back. For numeric fields, `expect` also accepts a one-key object operator: `{"$gt"|"$lt"|"$gte"|"$lte"|"$ne": number}` (compared to the actual number at that path).
 
 The document is a JSON object with **stable block IDs**. Agents must address content by `id`, never by pixel or mouse.
 
@@ -497,8 +497,8 @@ Returns the human/AI integration blurb plus `title`, `words`, `outline`. `words`
 - Name: `ai-office`
 - Stdio: `aioffice mcp`
 - Protocol: JSON-RPC 2.0, MCP `2024-11-05` (`initialize`, `notifications/initialized`, `tools/list`, `tools/call`)
-- Transport: `Content-Length` frames **or** newline-delimited JSON
+- Transport: one compact JSON object per line, terminated by a newline. A legacy `Content-Length` header is accepted on input only and is never written.
 
 ## Live vs headless
 
-If the GUI is running, `document_open` / edits target the **live** document. Headless MCP keeps its own session until `document_open` / `document_save`.
+`AIOFFICE_HEADLESS=1` forces a private session. Otherwise the live GUI is used when the per-user socket (`aioffice-<uid>`) accepts a connection. A missing socket or a refused connect means there is no GUI, so the CLI and MCP run headless. A failure after connect (timeout, partial frame, invalid response) returns `{ok:false, error:"IPC failure: …"}` and does not edit a blank document. MCP chooses GUI or headless once, on the first `tools/call`, and keeps that choice. `initialize` and `tools/list` do not lock the mode. `aioffice new` honours `AIOFFICE_HEADLESS`. `aioffice play` runs steps in order and stops at the first failing expect.

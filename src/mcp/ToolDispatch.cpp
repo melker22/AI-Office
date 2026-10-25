@@ -24,6 +24,21 @@ QJsonObject stringOrObject(const QString &desc)
     return o;
 }
 
+QJsonObject intOrAll(const QString &desc)
+{
+    QJsonObject o;
+    QJsonArray anyOf;
+    anyOf.append(QJsonObject{{QStringLiteral("type"), QStringLiteral("integer")}});
+    QJsonObject all;
+    all[QStringLiteral("type")] = QStringLiteral("string");
+    all[QStringLiteral("enum")] = QJsonArray{QStringLiteral("all")};
+    anyOf.append(all);
+    o.insert(QStringLiteral("anyOf"), anyOf);
+    if (!desc.isEmpty())
+        o.insert(QStringLiteral("description"), desc);
+    return o;
+}
+
 QJsonObject tool(const QString &name, const QString &desc, const QJsonObject &properties,
                  const QJsonArray &required = {})
 {
@@ -242,7 +257,7 @@ QJsonArray toolDefinitions()
     a.append(tool(QStringLiteral("redo"), QStringLiteral("Redo."), {}));
     a.append(tool(QStringLiteral("page_preview"),
                   QStringLiteral("PNG preview of a page (base64). page=n, page=all, or from/to inclusive range."),
-                  QJsonObject{{QStringLiteral("page"), prop(QStringLiteral("integer"))},
+                  QJsonObject{{QStringLiteral("page"), intOrAll(QStringLiteral("1-based page number, or \"all\""))},
                               {QStringLiteral("from"), prop(QStringLiteral("integer"))},
                               {QStringLiteral("to"), prop(QStringLiteral("integer"))},
                               {QStringLiteral("zoom"), prop(QStringLiteral("number"))}}));
