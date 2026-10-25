@@ -1,6 +1,7 @@
 #include "core/Zip.h"
 
 #include <QDateTime>
+#include <QFile>
 #include <QFileInfo>
 #include <QSaveFile>
 #include <QtGlobal>
@@ -8,6 +9,12 @@
 
 #include <cstdint>
 #include <cstring>
+
+#if defined(Q_OS_UNIX)
+#include <cerrno>
+#include <fcntl.h>
+#include <unistd.h>
+#endif
 
 namespace aioffice {
 namespace {
@@ -52,6 +59,37 @@ bool ensureAtomicWriteTarget(const QString &path, QString *error)
     return true;
 }
 
+namespace {
+
+// commit() already renamed the temp onto `path`. Flush the parent directory
+// so that directory entry survives a crash. EINVAL means this filesystem
+// cannot fsync a directory; any other failure is a real error.
+bool fsyncParentDirectory(const QString &path)
+{
+#if defined(Q_OS_UNIX)
+    const QByteArray dirPath = QFile::encodeName(QFileInfo(path).absolutePath());
+    const int fd = ::open(dirPath.constData(), O_RDONLY | O_CLOEXEC);
+    if (fd < 0)
+        return false;
+    int rc = -1;
+#if defined(F_FULLFSYNC)
+    rc = ::fcntl(fd, F_FULLFSYNC);
+#else
+    rc = ::fsync(fd);
+#endif
+    const int savedErrno = errno;
+    ::close(fd);
+    if (rc != 0 && savedErrno != EINVAL)
+        return false;
+    return true;
+#else
+    Q_UNUSED(path);
+    return true;
+#endif
+}
+
+} // namespace
+
 bool writeFileAtomic(const QString &path, const QByteArray &bytes, QString *error)
 {
     if (!ensureAtomicWriteTarget(path, error))
@@ -69,6 +107,11 @@ bool writeFileAtomic(const QString &path, const QByteArray &bytes, QString *erro
         return false;
     }
     if (!f.commit()) {
+        if (error)
+            *error = QStringLiteral("Cannot write ") + path;
+        return false;
+    }
+    if (!fsyncParentDirectory(path)) {
         if (error)
             *error = QStringLiteral("Cannot write ") + path;
         return false;
