@@ -1,0 +1,6 @@
+[
+  {"tool": "document_new", "args": {"force": true}},
+  {"tool": "insert_at_caret", "args": {"text": "hello"}},
+  {"tool": "document_export_pdf", "args": {"path": "fail.pdf"}, "expect": {"ok": false, "error": "Cannot write fail.pdf"}},
+  {"tool": "document_export_pdf", "args": {"path": "export.pdf.fifo"}, "expect": {"ok": false, "error": "Cannot write export.pdf.fifo"}}
+]

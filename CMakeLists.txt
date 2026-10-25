@@ -216,6 +216,16 @@ foreach(_pb IN LISTS _wave23_io_playbooks)
         TIMEOUT 60
     )
 endforeach()
+# Real inflated bytes, not the central-directory size. Caps match
+# ZIP_ENTRY_CAP / ZIP_TOTAL_CAP in qa/wave23-io-fixtures.py and stay below
+# the built-in 256 MiB / 1 GiB ceilings.
+set_tests_properties("playbook_wave23-io-zip-underdeclared.json" PROPERTIES
+    ENVIRONMENT "AIOFFICE_ZIP_ENTRY_CAP=200000;AIOFFICE_ZIP_TOTAL_CAP=300000"
+)
+# QPdfWriter blocks on a fifo. Fail fast if the regular-file check regresses.
+set_tests_properties("playbook_wave23-io-export-pdf-target.json" PROPERTIES
+    TIMEOUT 20
+)
 add_test(NAME tools_catalog COMMAND aioffice_cli tools)
 set_tests_properties(tools_catalog PROPERTIES LABELS "playbook" WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}")
 add_test(NAME play_classify COMMAND "${CMAKE_COMMAND}" -E env AIOFFICE_PLAY_CLASSIFY_CHECK=1 AIOFFICE_HEADLESS=1 QT_QPA_PLATFORM=offscreen
@@ -234,6 +244,15 @@ set_tests_properties(wave23_io_ids PROPERTIES
     LABELS "playbook"
     WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}"
     TIMEOUT 120
+)
+add_test(NAME wave23_io_hostile
+    COMMAND "${CMAKE_COMMAND}" -E env AIOFFICE_HEADLESS=1 QT_QPA_PLATFORM=offscreen
+        "${Python3_EXECUTABLE}" "${CMAKE_SOURCE_DIR}/qa/check_wave23_io_hostile.py"
+        "${AIOFFICE_CLI}")
+set_tests_properties(wave23_io_hostile PROPERTIES
+    LABELS "playbook"
+    WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}"
+    TIMEOUT 60
 )
 set(_AIO_PYTHON "${CMAKE_SOURCE_DIR}/qa/check_roundtrip.py")
 add_test(NAME play_expect_shape COMMAND "${CMAKE_COMMAND}" -E env AIOFFICE_HEADLESS=1 QT_QPA_PLATFORM=offscreen

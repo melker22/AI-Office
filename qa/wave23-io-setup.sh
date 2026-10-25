@@ -9,4 +9,5 @@ for name in fail.aio.json fail.docx fail.odt fail.rtf fail.epub fail.md fail.txt
   ln -s /dev/full "$d/$name"
 done
 mkfifo -m 600 "$d/image.fifo"
+mkfifo -m 600 "$d/export.pdf.fifo"
 python3 "$root/qa/wave23-io-fixtures.py" "$d"

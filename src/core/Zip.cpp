@@ -13,6 +13,31 @@ namespace aioffice {
 namespace {
 constexpr quint32 kMaxZipEntryUncompressed = 256u * 1024u * 1024u;
 constexpr qint64 kMaxZipBytes = 1ll << 30; // 1 GiB
+
+// Tests lower these to prove the real-byte budget without a 1 GiB allocation.
+// A missing, unparsable, or larger value is ignored, so the environment cannot
+// raise the built-in ceiling.
+quint64 limitFromEnv(const char *name, quint64 ceiling)
+{
+    const QByteArray v = qgetenv(name);
+    if (v.isEmpty())
+        return ceiling;
+    bool ok = false;
+    const quint64 n = v.toULongLong(&ok);
+    if (!ok || n < 1 || n > ceiling)
+        return ceiling;
+    return n;
+}
+
+quint32 zipEntryCap()
+{
+    return static_cast<quint32>(limitFromEnv("AIOFFICE_ZIP_ENTRY_CAP", kMaxZipEntryUncompressed));
+}
+
+qint64 zipTotalCap()
+{
+    return static_cast<qint64>(limitFromEnv("AIOFFICE_ZIP_TOTAL_CAP", static_cast<quint64>(kMaxZipBytes)));
+}
 } // namespace
 
 bool ensureAtomicWriteTarget(const QString &path, QString *error)
@@ -81,27 +106,38 @@ QByteArray deflateRaw(const QByteArray &in)
     return out;
 }
 
-// `tooLarge` is set when the declared or produced size exceeds the cap.
-// The output buffer never grows past that cap, and a declared size over the
-// cap is rejected before any allocation.
-QByteArray inflateRaw(const QByteArray &in, quint32 uncompressed, bool *tooLarge)
+// `tooLarge` is set when the bytes zlib actually produces would pass the
+// per-entry cap or `budget` (what this entry may still add to the archive).
+// The buffer grows with that output. It does not start at the declared size:
+// that field is attacker-controlled, and 0 means "unknown", not "empty".
+QByteArray inflateRaw(const QByteArray &in, quint32 uncompressed, quint64 budget, bool *tooLarge)
 {
     if (tooLarge)
         *tooLarge = false;
-    if (in.isEmpty())
-        return {};
-    if (uncompressed > kMaxZipEntryUncompressed) {
+    const quint32 entryCap = zipEntryCap();
+    if (uncompressed > entryCap) {
         if (tooLarge)
             *tooLarge = true;
         return {};
     }
+    if (in.isEmpty())
+        return {};
+    quint64 cap64 = qMin(static_cast<quint64>(entryCap), budget);
+    if (uncompressed > 0)
+        cap64 = qMin(cap64, static_cast<quint64>(uncompressed));
+    if (cap64 < 1) {
+        if (tooLarge)
+            *tooLarge = true;
+        return {};
+    }
+    const int cap = static_cast<int>(cap64);
     z_stream strm{};
     if (inflateInit2(&strm, -MAX_WBITS) != Z_OK)
         return {};
     strm.next_in = reinterpret_cast<Bytef *>(const_cast<char *>(in.constData()));
     strm.avail_in = static_cast<uInt>(in.size());
-    const int cap = static_cast<int>(uncompressed > 0 ? uncompressed : kMaxZipEntryUncompressed);
-    int start = uncompressed > 0 ? cap : static_cast<int>(qMin<qint64>(qint64(in.size()) * 4 + 64, cap));
+    const qint64 guess = qint64(in.size()) * 4 + 64;
+    int start = static_cast<int>(qMin(guess, qint64(cap)));
     if (start < 1)
         start = 1;
     QByteArray out;
@@ -111,12 +147,18 @@ QByteArray inflateRaw(const QByteArray &in, quint32 uncompressed, bool *tooLarge
         strm.avail_out = static_cast<uInt>(out.size() - static_cast<int>(strm.total_out));
         const int ret = inflate(&strm, Z_FINISH);
         if (ret == Z_STREAM_END) {
+            if (strm.total_out > static_cast<uLong>(cap)) {
+                inflateEnd(&strm);
+                if (tooLarge)
+                    *tooLarge = true;
+                return {};
+            }
             out.resize(static_cast<int>(strm.total_out));
             inflateEnd(&strm);
             return out;
         }
         if (ret == Z_BUF_ERROR || ret == Z_OK) {
-            if (out.size() >= cap) {
+            if (static_cast<qint64>(strm.total_out) >= cap || out.size() >= cap) {
                 inflateEnd(&strm);
                 if (tooLarge)
                     *tooLarge = true;
@@ -276,7 +318,17 @@ bool Zip::unpack(const QByteArray &zip, QVector<ZipEntry> &out, QString *error)
     }
     const quint16 nfiles = u16(zip, eocd + 10);
     quint32 central = u32(zip, eocd + 16);
-    quint64 totalUncomp = 0;
+    // Running total of bytes actually produced. A central-directory size of 0
+    // must not skip this: several such entries otherwise sum past the archive cap.
+    quint64 totalProduced = 0;
+    const quint64 totalCap = static_cast<quint64>(zipTotalCap());
+    const quint32 entryCap = zipEntryCap();
+    const auto rejectTooLarge = [&]() {
+        out.clear();
+        if (error)
+            *error = QStringLiteral("archive entry too large");
+        return false;
+    };
     for (quint16 i = 0; i < nfiles; ++i) {
         if (central + 46 > static_cast<quint32>(zip.size()) || zip.mid(static_cast<int>(central), 4) != "PK\x01\x02") {
             if (error)
@@ -295,30 +347,34 @@ bool Zip::unpack(const QByteArray &zip, QVector<ZipEntry> &out, QString *error)
         const quint16 localExtra = u16(zip, static_cast<int>(localOff) + 28);
         const int dataOff = static_cast<int>(localOff) + 30 + localName + localExtra;
         const QByteArray packed = zip.mid(dataOff, static_cast<int>(comp));
-        if (uncomp > kMaxZipEntryUncompressed || totalUncomp + uncomp > quint64(kMaxZipBytes)) {
-            if (error)
-                *error = QStringLiteral("archive entry too large");
-            return false;
-        }
-        totalUncomp += uncomp;
+        // A declared size already over the cap is rejected before inflation.
+        // A declared 0 is not a size, so only the bytes produced below count.
+        if (uncomp > entryCap || (uncomp > 0 && totalProduced + uncomp > totalCap))
+            return rejectTooLarge();
         ZipEntry e;
         e.name = QString::fromUtf8(name);
         if (method == 0) {
+            const quint64 produced = static_cast<quint64>(packed.size());
+            if (produced > entryCap || totalProduced + produced > totalCap)
+                return rejectTooLarge();
             e.data = packed;
             e.store = true;
+            totalProduced += produced;
         } else if (method == 8) {
             bool tooLarge = false;
-            e.data = inflateRaw(packed, uncomp, &tooLarge);
-            if (tooLarge) {
-                if (error)
-                    *error = QStringLiteral("archive entry too large");
-                return false;
-            }
+            const quint64 remaining = totalCap - totalProduced;
+            e.data = inflateRaw(packed, uncomp, remaining, &tooLarge);
+            if (tooLarge)
+                return rejectTooLarge();
             if (e.data.isEmpty() && uncomp > 0) {
                 if (error)
                     *error = QStringLiteral("Inflate failed for ") + e.name;
                 return false;
             }
+            const quint64 produced = static_cast<quint64>(e.data.size());
+            if (produced > entryCap || totalProduced + produced > totalCap)
+                return rejectTooLarge();
+            totalProduced += produced;
         } else {
             if (error)
                 *error = QStringLiteral("Unsupported ZIP method");

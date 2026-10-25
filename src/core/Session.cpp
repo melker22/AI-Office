@@ -786,6 +786,11 @@ QJsonObject Session::exportPdf(const QJsonObject &args)
     const QString pdf = args.value(QStringLiteral("path")).toString();
     if (pdf.isEmpty())
         return fail(QStringLiteral("path is required"));
+    // saveTo() checks this for document_save. document_export_pdf calls here
+    // directly, so a fifo must be rejected before QPdfWriter opens it.
+    QString targetErr;
+    if (!ensureAtomicWriteTarget(pdf, &targetErr))
+        return fail(targetErr);
     QString nativeErr;
     const bool pdfa = args.value(QStringLiteral("pdfa")).toBool()
         || args.value(QStringLiteral("pdf_a")).toBool();
@@ -823,6 +828,10 @@ QJsonObject Session::exportPdf(const QJsonObject &args)
         }
         return r;
     }
+    // convertTo() removes the destination when a rename fails. A publish that
+    // already refused the path must not fall through to that.
+    if (nativeErr == QStringLiteral("Cannot write ") + pdf)
+        return fail(nativeErr);
     QTemporaryDir tmp;
     const QString odt = tmp.filePath(QStringLiteral("export.odt"));
     QString err;

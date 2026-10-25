@@ -16,37 +16,70 @@ def raw_deflate(data: bytes) -> bytes:
     return comp.compress(data) + comp.flush()
 
 
+# The underdeclared playbook lowers the unpacker to these caps (CMake
+# ENVIRONMENT on playbook_wave23-io-zip-underdeclared.json). Both stay far
+# below the built-in 256 MiB / 1 GiB ceilings. Three `chunk` entries sum past
+# the total; one entry of entry_cap + 50 KiB exceeds only the per-entry cap.
+ZIP_ENTRY_CAP = 200_000
+ZIP_TOTAL_CAP = 300_000
+ZIP_UNDERDECLARED_CHUNK = 120_000
+
+
+def zip_entries(entries: list[tuple[str, bytes, int]]) -> bytes:
+    """ZIP with method 8. `declared` is the central-directory uncompressed size."""
+    local = bytearray()
+    recs: list[tuple[bytes, int, int, int, int, int]] = []
+    for name, payload, declared in entries:
+        comp = raw_deflate(payload)
+        crc = zlib.crc32(payload) & 0xFFFFFFFF
+        name_b = name.encode("utf-8")
+        method = 8
+        offset = len(local)
+        local += b"PK\x03\x04" + struct.pack(
+            "<HHHHHIIIHH",
+            20,
+            0,
+            method,
+            0,
+            0,
+            crc,
+            len(comp),
+            declared & 0xFFFFFFFF,
+            len(name_b),
+            0,
+        )
+        local += name_b + comp
+        recs.append((name_b, crc, len(comp), declared & 0xFFFFFFFF, method, offset))
+    central = bytearray()
+    for name_b, crc, comp_len, declared, method, offset in recs:
+        central += b"PK\x01\x02" + struct.pack(
+            "<HHHHHHIIIHHHHHII",
+            0x0314,
+            20,
+            0,
+            method,
+            0,
+            0,
+            crc,
+            comp_len,
+            declared,
+            len(name_b),
+            0,
+            0,
+            0,
+            0,
+            0,
+            offset,
+        )
+        central += name_b
+    eocd = b"PK\x05\x06" + struct.pack(
+        "<HHHHIIH", 0, 0, len(recs), len(recs), len(central), len(local), 0
+    )
+    return bytes(local) + bytes(central) + eocd
+
+
 def zip_lying_uncompressed(name: str, payload: bytes, declared: int) -> bytes:
-    comp = raw_deflate(payload)
-    crc = zlib.crc32(payload) & 0xFFFFFFFF
-    name_b = name.encode("utf-8")
-    method = 8
-    local = b"PK\x03\x04" + struct.pack(
-        "<HHHHHIIIHH", 20, 0, method, 0, 0, crc, len(comp), declared & 0xFFFFFFFF, len(name_b), 0
-    )
-    local += name_b + comp
-    central = b"PK\x01\x02" + struct.pack(
-        "<HHHHHHIIIHHHHHII",
-        0x0314,
-        20,
-        0,
-        method,
-        0,
-        0,
-        crc,
-        len(comp),
-        declared & 0xFFFFFFFF,
-        len(name_b),
-        0,
-        0,
-        0,
-        0,
-        0,
-        0,
-    )
-    central += name_b
-    eocd = b"PK\x05\x06" + struct.pack("<HHHHIIH", 0, 0, 1, 1, len(central), len(local), 0)
-    return local + central + eocd
+    return zip_entries([(name, payload, declared)])
 
 
 ODF_CONTENT_OPEN = (
@@ -69,6 +102,20 @@ def main() -> int:
     dest = Path(sys.argv[1])
     declared = 256 * 1024 * 1024 + 1
     (dest / "bomb.docx").write_bytes(zip_lying_uncompressed("word/document.xml", b"x", declared))
+    chunk = b"\0" * ZIP_UNDERDECLARED_CHUNK
+    (dest / "underdeclared.docx").write_bytes(
+        zip_entries(
+            [
+                ("a/1.bin", chunk, 0),
+                ("a/2.bin", chunk, 0),
+                ("a/3.bin", chunk, 0),
+            ]
+        )
+    )
+    (dest / "underdeclared-entry.docx").write_bytes(
+        zip_entries([("word/huge.bin", b"\0" * (ZIP_ENTRY_CAP + 50_000), 0)])
+    )
+    (dest / "underdeclared-small.docx").write_bytes(zip_entries([("pad.bin", b"\0" * 1000, 0)]))
     zip_stored(
         dest / "truncated.docx",
         {

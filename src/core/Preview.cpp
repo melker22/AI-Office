@@ -3,8 +3,11 @@
 #include "core/Hyphenation.h"
 #include "core/PdfPostProcess.h"
 #include "core/Qr.h"
+#include "core/Zip.h"
 
 #include <QBuffer>
+#include <QFile>
+#include <QTemporaryDir>
 #include <QJsonObject>
 #include <QFontMetricsF>
 #include <QMap>
@@ -3002,7 +3005,16 @@ bool exportNativePdf(const Document &doc, const QString &path, QString *error, b
         }
         seq = order;
     }
-    QPdfWriter writer(path);
+    // QPdfWriter truncates the path it opens. Render into a private file and
+    // publish with QSaveFile only after post-process succeeds.
+    QTemporaryDir stageDir;
+    if (!stageDir.isValid()) {
+        if (error)
+            *error = QStringLiteral("Cannot write PDF ") + path;
+        return false;
+    }
+    const QString staged = stageDir.filePath(QStringLiteral("export.pdf"));
+    QPdfWriter writer(staged);
     if (booklet)
         writer.setPageSize(QPageSize(QSizeF(wMm * 2, hMm), QPageSize::Millimeter));
     else
@@ -3129,7 +3141,7 @@ bool exportNativePdf(const Document &doc, const QString &path, QString *error, b
         }
     }
     QString postErr;
-    if (!pdfPostProcessAddExtras(path, annots, physPageDocPage.size(), &postErr)) {
+    if (!pdfPostProcessAddExtras(staged, annots, physPageDocPage.size(), &postErr)) {
         if (error)
             *error = postErr;
         return false;
@@ -3145,18 +3157,31 @@ bool exportNativePdf(const Document &doc, const QString &path, QString *error, b
         perPageMarkers[phys] = pdfTagMarkersForPage(doc, lay, docPage);
     }
     QString tagErr;
-    if (!pdfPostProcessTagStructure(path, perPageMarkers, documentLanguage(doc), doc.readingOrder, &tagErr)) {
+    if (!pdfPostProcessTagStructure(staged, perPageMarkers, documentLanguage(doc), doc.readingOrder, &tagErr)) {
         if (error)
             *error = tagErr;
         return false;
     }
     QString unicodeErr;
-    if (!pdfPostProcessFixToUnicode(path, subsetUnicode, &unicodeErr)) {
+    if (!pdfPostProcessFixToUnicode(staged, subsetUnicode, &unicodeErr)) {
         if (error)
             *error = unicodeErr;
         return false;
     }
-    return true;
+    QFile produced(staged);
+    if (!produced.open(QIODevice::ReadOnly)) {
+        if (error)
+            *error = QStringLiteral("Cannot write PDF ") + path;
+        return false;
+    }
+    const QByteArray bytes = produced.readAll();
+    produced.close();
+    if (bytes.isEmpty()) {
+        if (error)
+            *error = QStringLiteral("Cannot write PDF ") + path;
+        return false;
+    }
+    return writeFileAtomic(path, bytes, error);
 }
 
 void pdfPostProcessSetDisplayDocTitle(bool enable) { g_pdfPostProcessDisplayDocTitle = enable; }
