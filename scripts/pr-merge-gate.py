@@ -36,6 +36,7 @@ Unresolved review threads need GraphQL (auth); the orchestrator checks them with
 from __future__ import annotations
 
 import argparse
+from pathlib import Path
 import contextlib
 import io
 import http.client
@@ -90,7 +91,7 @@ def get(url: str):
     except urllib.error.HTTPError as exc:
         try:
             body = exc.read().decode("utf-8", errors="replace")
-        except (urllib.error.URLError, TimeoutError, ConnectionError, http.client.HTTPException) as read_exc:
+        except (OSError, http.client.HTTPException) as read_exc:  # incl. ssl.SSLError, timeouts, resets
             raise NetworkUnavailable(f"HTTP {exc.code}, body unreadable: {read_exc!r}") from read_exc
         message = body
         try:
@@ -104,8 +105,9 @@ def get(url: str):
         if exc.code >= 500:
             raise NetworkUnavailable(f"HTTP {exc.code}: {message}") from exc
         raise
-    except (urllib.error.URLError, TimeoutError, ConnectionError, http.client.HTTPException) as exc:
-        # HTTPError (a URLError subclass) is handled above; this is the transport failing.
+    except (OSError, http.client.HTTPException) as exc:
+        # HTTPError (a URLError subclass) is handled above; this is the transport failing: URLError, TLS
+        # (ssl.SSLError, an OSError raised while reading the body), timeouts and resets.
         raise NetworkUnavailable(repr(exc)) from exc
 
 
@@ -187,16 +189,28 @@ _BLOCKING_BODY_KINDS = ("outside-diff", "duplicate", "body-critical", "body-majo
 _ACK_RE = re.compile(r"^\s*cr-ack\s+([0-9a-f]{16,})\b[ \t]+(\S.*)$", re.M)
 
 
+def _is_heading(body: str, m: re.Match) -> bool:
+    """A section name only counts as a heading in heading position: `**…name (N)**` or
+    `<summary>…name: N</summary>` starting its line. The same words quoted inside a finding's text
+    must not switch the active section (an outside-diff finding would become a nitpick)."""
+    line_start = body.rfind("\n", 0, m.start()) + 1
+    prefix = body[line_start:m.start()]
+    after = body[m.end():m.end() + 10]
+    bold = prefix.lstrip().startswith("**") and "**" not in prefix.lstrip()[2:] and after.startswith("**")
+    summary = prefix.lstrip().startswith("<summary>") and after.startswith("</summary>")
+    return bold or summary
+
+
 def body_findings(review: dict, kinds: tuple = _BLOCKING_BODY_KINDS) -> list[dict]:
     """Outside-diff and duplicate findings in one CodeRabbit review body (old <em> and new <strong>
     formats). Each ends with a <!-- cr-comment:v1:HEX --> marker, which is its id."""
     body = review.get("body") or ""
-    for _ in range(3):  # nested "> " quote prefixes
-        body = re.sub(r"\n[ \t]*>[ \t]?", "\n", body)
+    for _ in range(3):  # nested "> " quote prefixes, the first line included
+        body = re.sub(r"^[ \t]*>[ \t]?", "", body, flags=re.M)
     stop = body.find("Prompt for all review comments")
     if stop < 0:
         stop = len(body)
-    heads = [(m.start(), _SECTION_KIND[m.group(1)]) for m in _SECTION_RE.finditer(body)]
+    heads = [(m.start(), _SECTION_KIND[m.group(1)]) for m in _SECTION_RE.finditer(body) if _is_heading(body, m)]
     out: list[dict] = []
     prev = 0
     for m in re.finditer(r"<!--\s*cr-comment:v1:([0-9a-f]+)\s*-->", body):
@@ -500,10 +514,10 @@ def self_test() -> int:
                  "<details><summary>🤖 Prompt for all review comments with AI agents</summary>\n"
                  "<!-- cr-comment:v1:ffffffffffffffffffffffff --></details>"),
     }
-    old_fmt = dict(new_fmt, body=("Outside diff range comments (1)**\n> \n> <details>\n> <summary><em>🟠 Major</em>"
+    old_fmt = dict(new_fmt, body=("> **⚠️ Outside diff range comments (1)**\n> \n> <details>\n> <summary><em>🟠 Major</em>"
                                   " · Preserve fieldArg. · <code>src/core/Odf.cpp:70-72</code></summary>"
                                   "<blockquote>\n> x\n> <!-- cr-comment:v1:abcdefabcdefabcdefabcdef -->\n"
-                                  "> </blockquote></details>\n🔇 Additional comments (2)\n"
+                                  "> </blockquote></details>\n<details>\n<summary>🔇 Additional comments (2)</summary><blockquote>\n"
                                   "<!-- cr-comment:v1:999999999999999999999999 -->"))
     grouped = dict(new_fmt, body=("**Actionable comments posted: 1**\n<details>\n<summary><picture></picture> Minor comments: 1"
                                   "</summary><blockquote>\n<details>\n<summary>scripts/qa-all.sh: 1</summary><blockquote>\n"
@@ -537,6 +551,41 @@ def self_test() -> int:
     bot_ack = [{"user": {"login": "coderabbitai[bot]", "type": "Bot"}, "body": "cr-ack 0123456789abcdef01234567 not a defect"}]
     res = evaluate(10, pr(), success, [], [new_fmt, quiet_review], "2026-10-21T20:00:00Z", None, lambda: pr(), bot_ack)
     check("a bot cannot acknowledge", res[0] == 1, "\n".join(res[1]))
+
+    quoted = dict(new_fmt, body=new_fmt["body"].replace("> body\n", "> It cites Nitpick comments (1) and Minor comments: 3 in its text.\n"))
+    check("section names quoted inside a finding do not change its section",
+          [(f["id"][:6], f["kind"]) for f in body_findings(quoted)] == [("012345", "outside-diff")], str(body_findings(quoted)))
+
+    # Real CodeRabbit review bodies (old <em>, new <strong> with icons, grouped "Minor comments: N"):
+    # the number of blocking body findings per PR must not change when the parser does.
+    fixtures = Path(__file__).resolve().parent.parent / "qa" / "fixtures" / "coderabbit"
+    expected_counts = {1: 1, 2: 3, 4: 1, 6: 1, 9: 3, 10: 3, 11: 28}
+    for n, want in expected_counts.items():
+        path = fixtures / f"pr{n}-reviews.json"
+        if not path.is_file():
+            check(f"real review bodies of PR #{n}", False, f"missing {path}")
+            continue
+        got = [f for r in json.loads(path.read_text(encoding="utf-8")) for f in body_findings(r)]
+        check(f"real review bodies of PR #{n}: {want} blocking body finding(s)",
+              len(got) == want and all(f["loc"] != "?" and f["title"] != "?" for f in got),
+              str([(f["kind"], f["title"][:40], f["loc"]) for f in got]))
+
+    import ssl
+    real_urlopen2, real_argv2 = urllib.request.urlopen, sys.argv
+
+    def tls_urlopen(*_a, **_k):
+        raise ssl.SSLError("The handshake operation timed out")
+
+    urllib.request.urlopen, sys.argv = tls_urlopen, ["pr-merge-gate.py", "10"]
+    try:
+        buf = io.StringIO()
+        with contextlib.redirect_stdout(buf):
+            code = main()
+        check("a TLS failure is pending", code == 2 and "unreachable" in buf.getvalue(), buf.getvalue())
+    except Exception as exc:  # noqa: BLE001
+        check("a TLS failure is pending", False, repr(exc))
+    finally:
+        urllib.request.urlopen, sys.argv = real_urlopen2, real_argv2
 
     # A network failure is pending (exit 2), never a traceback that reads as "something to triage".
     real_urlopen, real_argv = urllib.request.urlopen, sys.argv

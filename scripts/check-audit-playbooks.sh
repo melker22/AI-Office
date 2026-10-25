@@ -16,7 +16,10 @@ files=("$dir"/*.json)
 if [ "${#files[@]}" -eq 0 ]; then echo "FAIL no playbooks in $dir (an empty set proves nothing)"; exit 1; fi
 work=$(mktemp -d) || { echo "FAIL mktemp"; exit 1; }
 trap 'rm -rf "$work"' EXIT
-if [ -x "$dir/setup.sh" ]; then "$dir/setup.sh" "$work/data" || { echo "FAIL $dir/setup.sh"; exit 1; }; fi
+if [ -e "$dir/setup.sh" ]; then
+  [ -x "$dir/setup.sh" ] || { echo "FAIL $dir/setup.sh exists but is not executable"; exit 1; }
+  "$dir/setup.sh" "$work/data" || { echo "FAIL $dir/setup.sh"; exit 1; }
+fi
 status=0
 for f in "${files[@]}"; do
   pb="$work/$(basename "$f")"
