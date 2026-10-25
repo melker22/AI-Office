@@ -80,6 +80,66 @@ def _compile_interpose(runtime: Path) -> Path:
     return so
 
 
+_PUBLISH_VERBS = (
+    "fail-rename",
+    "fail-renameat",
+    "fail-renameat2",
+    "fail-dest-open",
+    "link-dest",
+    "linkat-dest",
+)
+
+
+def _publish_attempt_on_dest(trace: str, dest: Path) -> bool:
+    """True when the interposer logged a write, link, or rename onto dest."""
+    want = str(dest.resolve())
+    for line in trace.splitlines():
+        verb, sep, path = line.partition(" ")
+        if not sep or verb not in _PUBLISH_VERBS or not path:
+            continue
+        if path == want or os.path.realpath(path) == want:
+            return True
+    return False
+
+
+def _tmpfile_mode_is_forwarded(so: Path, runtime: Path) -> None:
+    """O_TMPFILE carries a mode even without O_CREAT. The interposer must forward it."""
+    if not hasattr(os, "O_TMPFILE"):
+        fail("O_TMPFILE is required to prove the interposer forwards mode")
+    script = runtime / "tmpfile_mode.py"
+    script.write_text(
+        "import os, stat, sys\n"
+        "fd = os.open(sys.argv[1], os.O_RDWR | os.O_TMPFILE, 0o600)\n"
+        "mode = stat.S_IMODE(os.fstat(fd).st_mode)\n"
+        "os.close(fd)\n"
+        "if mode != 0o600:\n"
+        "    raise SystemExit('mode %o' % mode)\n",
+        encoding="utf-8",
+    )
+    env = os.environ.copy()
+    env["LD_PRELOAD"] = str(so)
+    for key in (
+        "AIOFFICE_PLACE_FAIL_DEST",
+        "AIOFFICE_FAIL_FIRST_EXPORT_PDF",
+        "AIOFFICE_EXPORT_PDF_SEQ",
+        "AIOFFICE_PLACE_LOG",
+    ):
+        env.pop(key, None)
+    proc = subprocess.run(
+        [sys.executable, str(script), str(runtime)],
+        capture_output=True,
+        text=True,
+        env=env,
+        check=False,
+    )
+    if proc.returncode != 0:
+        fail(
+            "O_TMPFILE mode was not forwarded: "
+            f"rc={proc.returncode} stdout={proc.stdout[-200:]!r} stderr={proc.stderr[-300:]!r}"
+        )
+    print("ok   O_TMPFILE mode is forwarded")
+
+
 def _publish_failure_keeps_existing(cli: str, runtime: Path, fake: Path) -> None:
     """An existing destination must survive a failed publish of converted bytes.
 
@@ -88,6 +148,7 @@ def _publish_failure_keeps_existing(cli: str, runtime: Path, fake: Path) -> None
     that path fail. The old code deletes the destination before the retry.
     """
     so = _compile_interpose(runtime)
+    _tmpfile_mode_is_forwarded(so, runtime)
     dest = runtime / "kept.pdf"
     dest.write_bytes(b"ORIGINAL")
     log = runtime / "place-log.txt"
@@ -102,6 +163,7 @@ def _publish_failure_keeps_existing(cli: str, runtime: Path, fake: Path) -> None
             "AIOFFICE_FAIL_FIRST_EXPORT_PDF": "1",
             "AIOFFICE_EXPORT_PDF_SEQ": str(runtime / "export-pdf-seq.txt"),
             "AIOFFICE_PLACE_LOG": str(log),
+            "AIOFFICE_FAKE_SOFFICE_LOG": str(runtime / "publish-soffice.json"),
         },
     )
     proc = w23.run_cli(
@@ -112,6 +174,17 @@ def _publish_failure_keeps_existing(cli: str, runtime: Path, fake: Path) -> None
     )
     text = proc.stdout.decode()
     trace = log.read_text(encoding="utf-8") if log.is_file() else ""
+    soffice_log = runtime / "publish-soffice.json"
+    if not soffice_log.is_file():
+        fail(f"fake soffice did not run; stdout={text[:400]!r} log={trace!r}")
+    try:
+        recorded = json.loads(soffice_log.read_text(encoding="utf-8"))
+    except json.JSONDecodeError as exc:
+        fail(f"fake soffice log is not JSON: {exc}")
+    if not recorded.get("argv"):
+        fail(f"fake soffice log has no argv: {recorded!r}")
+    if not _publish_attempt_on_dest(trace, dest):
+        fail(f"interposer did not record a publish attempt on {dest}; log={trace!r}")
     if not dest.exists():
         fail(f"publish removed the existing pdf; stdout={text[:400]!r} log={trace!r}")
     if not stat.S_ISREG(dest.stat().st_mode):
