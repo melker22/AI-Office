@@ -172,7 +172,8 @@ struct Block {
 
     QJsonObject toJson() const;
     static Block fromJson(const QJsonObject &o);
-    QString plainText() const;
+    QString plainText() const; // runs and table cells only; caret, layout, DOCX fingerprint
+    QString statText() const;  // plainText plus caption, for word and character counts
 };
 
 struct StyleDef {

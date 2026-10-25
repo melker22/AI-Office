@@ -1,0 +1,34 @@
+[
+  {"tool": "document_new", "args": {"force": true}},
+  {"tool": "document_get", "args": {}, "expect": {"ok": true, "dirty": false, "layout_passes": 0}},
+
+  {"tool": "insert_at_caret", "args": {"id": "p1", "offset": 0, "text": "Hello"}},
+  {"tool": "document_get", "args": {}, "expect": {"ok": true, "dirty": true, "layout_passes": {"$gte": 1}}},
+
+  {"tool": "document_save", "args": {"path": "layout-clean.aio.json"}, "expect": {"ok": true}},
+  {"tool": "document_new", "args": {"force": true}},
+  {"tool": "document_open", "args": {"path": "layout-clean.aio.json"}, "expect": {"ok": true}},
+  {"tool": "document_get", "args": {}, "expect": {
+    "ok": true,
+    "dirty": false,
+    "layout_passes": 0,
+    "document.body.0.runs.0.text": "Hello"
+  }},
+
+  {"tool": "insert_break", "args": {"kind": "page", "after_id": "p1"}, "expect": {"ok": true, "ids.0": "br1"}},
+  {"tool": "insert_blocks", "args": {"after_id": "br1", "blocks": [{"id": "p2", "type": "paragraph", "runs": [{"text": ""}]}]}, "expect": {"ok": true}},
+  {"tool": "insert_field", "args": {"id": "p2", "offset": 0, "kind": "if", "arg": {"cond": "pages > 1", "then": "MULTI", "else": "ONE"}}, "expect": {"ok": true}},
+  {"tool": "document_get", "args": {}, "expect": {
+    "document.body.2.runs.0.text": "MULTI",
+    "layout_passes": {"$gte": 1}
+  }},
+  {"tool": "document_save", "args": {"path": "layout-if.aio.json"}, "expect": {"ok": true}},
+  {"tool": "document_new", "args": {"force": true}},
+  {"tool": "document_open", "args": {"path": "layout-if.aio.json"}, "expect": {"ok": true}},
+  {"tool": "document_get", "args": {}, "expect": {
+    "ok": true,
+    "dirty": false,
+    "document.body.2.runs.0.text": "MULTI",
+    "layout_passes": {"$gte": 1}
+  }}
+]

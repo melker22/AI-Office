@@ -1,0 +1,22 @@
+[
+  {"tool": "document_new", "args": {"force": true}},
+  {"tool": "insert_at_caret", "args": {"id": "p1", "offset": 0, "text": "Hi"}},
+  {"tool": "insert_caption", "args": {"id": "p1", "text": "Legend"}, "expect": {"ok": true}},
+  {"tool": "caret_geometry", "args": {"id": "p1", "offset": 2}, "expect": {"ok": true}},
+  {"tool": "caret_geometry", "args": {"id": "p1", "offset": 3}, "expect": {"ok": false, "error": "offset out of range"}},
+  {"tool": "document_stats", "args": {}, "expect": {"ok": true, "words": 2, "chars": 9}},
+  {"tool": "field_evaluate", "args": {"expr": "words"}, "expect": {"ok": true, "value": 2}},
+  {"tool": "field_evaluate", "args": {"expr": "chars"}, "expect": {"ok": true, "value": 9}},
+
+  {"tool": "document_new", "args": {"force": true}},
+  {"tool": "insert_at_caret", "args": {"id": "p1", "offset": 0, "text": "Hello"}},
+  {"tool": "insert_caption", "args": {"id": "p1", "text": "Legend"}, "expect": {"ok": true}},
+  {"tool": "apply_paragraph_format", "args": {"id": "p1", "hide_if": "flag == \"on\""}, "expect": {"ok": true}},
+  {"tool": "document_save", "args": {"path": "caption-hide.docx"}, "expect": {"ok": true}},
+  {"tool": "document_new", "args": {"force": true}},
+  {"tool": "document_open", "args": {"path": "caption-hide.docx"}, "expect": {"ok": true}},
+  {"tool": "document_get", "args": {}, "expect": {
+    "document.body.0.runs.0.text": "Hello",
+    "document.body.0.hide_if": "flag == \"on\""
+  }}
+]

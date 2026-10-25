@@ -153,20 +153,21 @@ nodes:
     prompt: |
       Três passadas não zeraram os findings. Descarte os que não são defeitos (com motivo),
       faça UMA correção direta dos reais (com commit), rode `scripts/qa-all.sh --gui` e pare.
-      Nunca pergunte a um humano. Submeta também commit = `git rev-parse HEAD`, mesmo sem mudanças.
+      Nunca pergunte a um humano. Submeta também commit = `git rev-parse HEAD`, mesmo sem mudanças,
+      e resolved = true só se nenhum defeito real ficou aberto.
+    success_output: resolved
     output_contract:
       type: object
-      required: [verdict, accepted, dismissed, commit]
+      required: [verdict, resolved, accepted, dismissed, commit]
       properties:
         commit: { type: string, pattern: "^[0-9a-f]{40}$" }
         verdict: { type: string, enum: [resolved, failed] }
+        resolved: { type: boolean }
         accepted: { type: array, items: { type: string } }
         dismissed: { type: array, items: { type: string } }
 
   # Gate final: fix-pass/adjudicate podem comitar depois do qa-full, então o branch
   # final é testado de novo antes do handoff e da aprovação humana.
-  # (Um verdict "failed" do adjudicador já falha o nó e o loop no runtime da Fleet,
-  #  o que pula tudo daqui para baixo — não precisa de checagem extra.)
   qa-final:
     type: gate
     gate: command

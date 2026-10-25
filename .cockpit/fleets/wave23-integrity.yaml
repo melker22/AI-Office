@@ -1,0 +1,308 @@
+version: 1
+name: wave23-integrity
+description: >
+  Onda 23 — integridade, entrada hostil e transporte (auditoria 2026-10). Spec:
+  docs/waves/wave23-integrity.md. Executor principal Grok Build (Cursor a 73% da cota mensal).
+  Push/PR pré-aprovados pelo utilizador (ask_05e099babed7); o merge só sai com
+  scripts/pr-merge-gate.py limpo, rodado pelo orquestrador.
+args:
+  opus_audit:
+    default: "false"
+    description: "true = auditoria final do Opus antes do PR"
+defaults:
+  agent: grok
+  model: grok-4.7
+  approval: full-access
+max_parallel: 4
+nodes:
+  lessons:
+    title: Lições dos PRs anteriores (Sonnet)
+    agent: claude
+    model: claude-sonnet-5
+    effort: medium
+    prompt: |
+      Projeto AI Office Writer. Mantenha docs/LESSONS.md e .cursor/rules/lessons.mdc. Não altere código.
+      Faça tudo neste turno, sem subagentes em segundo plano.
+      1. Veja em docs/LESSONS.md a linha "Última PR processada". Liste os PRs mergeados depois dela em
+         melker22/AI-Office (tool MCP do GitHub; `gh` não existe). Nenhum novo → não mude nada.
+      2. Para cada PR novo, leia as threads do CodeRabbit (pull_request_read get_review_comments), o CORPO
+         das revisões (outside-diff, "<Severity> comments: N") e as entradas em docs/AI_HANDOFF.md e
+         docs/AI_HANDOFF_ARCHIVE.md.
+      3. Defeito real que chegou ao CodeRabbit ou exigiu intervenção: instância de lição existente →
+         acrescente evidência e incremente; padrão novo → lição nova com regra VERIFICÁVEL. Sem evidência
+         (link de thread/commit) não entra.
+      4. Reescreva o checklist de .cursor/rules/lessons.mdc (máx. 15 itens) e atualize "Última PR processada".
+      5. Commit `docs: update lessons from PR #N` em inglês, sem push. Submeta commit =
+         `git rev-parse HEAD` (mesmo sem mudanças), qa_green = true, summary.
+    success_output: qa_green
+    output_contract: &executor_contract
+      type: object
+      required: [commit, qa_green, summary]
+      properties:
+        commit: { type: string, pattern: "^[0-9a-f]{40}$" }
+        qa_green: { type: boolean }
+        blocker: { type: string }
+        summary: { type: string }
+
+  t1-mcp:
+    title: T1 MCP stdio, IPC e CLI (Grok Build)
+    effort: high
+    needs: [lessons]
+    workspace: isolated
+    prompt: |
+      Projeto AI Office Writer (C++20/Qt 6). PRIMEIRO: `git merge {{needs.lessons.output.commit}}`.
+      Leia docs/waves/wave23-integrity.md (D1–D3, D16, D17, D19, D20 — decisões FECHADAS), os achados
+      citados em docs/audit/module-sweep.md e docs/audit/coderabbit-pr11.json, docs/ORCHESTRATION.md e o
+      checklist de .cursor/rules/lessons.mdc. Faça tudo neste turno, sem subagentes em segundo plano.
+      Só src/mcp/, src/cli/, src/lok/, docs/mcp-tools.md, skills/ (se o framing estiver documentado lá),
+      CMakeLists.txt (testes) e qa/. NÃO toque em src/core/ nem src/app/ (outras tarefas).
+      Para cada decisão: primeiro um teste que FALHA hoje (qa/check_mcp_stdio.py ligado ao ctest label
+      playbook; playbooks qa/wave23-mcp-*.json / testes de CLI), depois a correção. Prove D1 com o servidor
+      real como subprocess, parse estrito linha a linha. `scripts/qa-all.sh --gui --formats` verde.
+      Commits em inglês (fix:), sem push. Submeta commit = `git rev-parse HEAD`, qa_green, summary
+      (liste decisão → teste → commit).
+    success_output: qa_green
+    output_contract: *executor_contract
+
+  t2-session:
+    title: T2 invariantes da sessão e campos (Grok Build)
+    effort: high
+    needs: [lessons]
+    workspace: isolated
+    prompt: |
+      Projeto AI Office Writer (C++20/Qt 6). PRIMEIRO: `git merge {{needs.lessons.output.commit}}`.
+      Leia docs/waves/wave23-integrity.md (D4–D10, D19, D20 — FECHADAS), os achados A-session-*,
+      A-document-5/6, CR-10-113 e CR-10-114 em docs/audit/, e o checklist de lições. Faça tudo neste
+      turno, sem subagentes em segundo plano.
+      Só src/core/Session.{h,cpp} (NÃO a parte de escrita de arquivos de Session::saveTo — é da T3),
+      src/core/FieldExpr.{h,cpp}, o refresh de campos em src/core/Document.cpp (refreshIfFields e afins;
+      NÃO fromJson/toJson/plainText — T3), docs/mcp-tools.md e qa/. NÃO toque em src/mcp, src/cli, Docx,
+      Odf, Rtf*, Epub, Zip.
+      Converta qa/audit/A-session-{1,2,3,6,7,8}-*.json em playbooks de regressão qa/wave23-session-*.json
+      (eles já têm o expect do comportamento CERTO e falham hoje — confirme com
+      scripts/check-audit-playbooks.sh antes de corrigir) e apague os originais de qa/audit/. Inclua também
+      o caso do `insert_blocks` com tabela 300×64 (já rejeitado hoje) como guarda de regressão. Escreva também testes que falham hoje para D7, D9 e D10 (inclusive "dois document_get
+      seguidos sem edição devolvem o mesmo texto" e `if` com o total real de páginas). Depois corrija.
+      `scripts/qa-all.sh --gui --formats` verde. Commits em inglês, sem push. Submeta commit, qa_green,
+      summary (decisão → teste → commit).
+    success_output: qa_green
+    output_contract: *executor_contract
+
+  t3-io:
+    title: T3 escrita atômica, limites e XML (Grok Build)
+    needs: [lessons]
+    workspace: isolated
+    effort: medium
+    prompt: |
+      Projeto AI Office Writer (C++20/Qt 6). PRIMEIRO: `git merge {{needs.lessons.output.commit}}`.
+      Leia docs/waves/wave23-integrity.md (D11–D15, D19, D20 — FECHADAS), os achados A-docx-1/2/3,
+      A-odf-2/3/9, A-rtf-3, A-epub-1/6, A-document-1/2/3/7 e os de escrita/ids do PR #11 em docs/audit/,
+      e o checklist de lições. Faça tudo neste turno, sem subagentes em segundo plano.
+      Só src/core/Docx.cpp, Odf.cpp, RtfWriter.cpp, Epub.cpp, Zip.{h,cpp}, PdfPostProcess.cpp (só a escrita),
+      Document.cpp (fromJson/toJson/plainText/ids — NÃO o refresh de campos, que é da T2), a parte de
+      escrita de arquivos de Session::saveTo, docs/mcp-tools.md e qa/.
+      Converta qa/audit/A-document-1-*.json e qa/audit/A-{docx-3,odf-9,rtf-3}-write-failure-ignored-*.json
+      em regressões qa/wave23-io-*.json e apague os originais. Testes que falham hoje: zip com entrada declarada > 256 MiB
+      (gere o zip com cabeçalho mentiroso, sem alocar de verdade), DOCX/ODT com XML truncado, `text:s
+      text:c=2000000000`, JSON com item de body não-objeto e ids duplicados, imagem EPUB de FIFO/device,
+      escrita em /dev/full para TODO formato. Os playbooks de qa/audit usam /tmp/aio-audit preparado por
+      qa/audit/setup.sh; as regressões no ctest preparam o próprio ambiente (links para /dev/full, fixture)
+      com um teste de setup do CMake (FIXTURES_SETUP/FIXTURES_REQUIRED), nunca dependendo de estado manual. Depois corrija. `scripts/qa-all.sh --gui --formats` verde.
+      Commits em inglês, sem push. Submeta commit, qa_green, summary (decisão → teste → commit).
+    success_output: qa_green
+    output_contract: *executor_contract
+
+  t4-qa:
+    title: T4 QA, CI e Fleets (Composer)
+    needs: [lessons]
+    agent: cursor
+    model: composer-2.5
+    workspace: isolated
+    prompt: |
+      Projeto AI Office Writer. PRIMEIRO: `git merge {{needs.lessons.output.commit}}`. Leia
+      docs/waves/wave23-integrity.md (D18–D20), o bloco "T4 QA, CI e Fleet" de docs/audit/fix-plan.md e os
+      achados correspondentes (A-qa-1..6; do PR #11: scripts/fleet-verify-merged.sh, scripts/qa-all.sh,
+      CMakePresets.json, .circleci/config.yml, qa/check_roundtrip.py; CR-3-032; o nitpick CR-9 do marcador
+      `\\u`), e o checklist de lições. Faça tudo neste turno, sem subagentes em segundo plano.
+      Só qa/ (exceto qa/audit), scripts/ (exceto pr-merge-gate.py e coderabbit-collect.py), CMakeLists.txt
+      (testes), CMakePresets.json, .circleci/, .cockpit/fleets/task.yaml e wave16/17/18-*.yaml.
+      Cada checker endurecido precisa poder falhar: mostre um caso que passa e um que falha. Se um checker
+      endurecido revelar defeito das ondas 24–26, registre o teste com `DISABLED TRUE` e comentário com o
+      id da auditoria (D18) — nunca afrouxe. `scripts/qa-all.sh --gui --formats` verde e
+      `cockpit fleet validate <nome> --directory .` sem erro para cada YAML tocado. Commits em inglês, sem
+      push. Submeta commit, qa_green, summary.
+    success_output: qa_green
+    output_contract: *executor_contract
+
+  integrate-1:
+    title: Integrar T1–T4 (Composer)
+    needs: [t1-mcp, t2-session, t3-io, t4-qa]
+    agent: cursor
+    model: composer-2.5
+    prompt: |
+      Neste worktree, faça `git merge` dos commits EXATOS, nesta ordem:
+      {{needs.t1-mcp.output.commit}}, {{needs.t2-session.output.commit}},
+      {{needs.t3-io.output.commit}}, {{needs.t4-qa.output.commit}}.
+      Conflitos esperados em Session.cpp (T2 lógica × T3 escrita), Document.cpp (T2 campos × T3 JSON),
+      CMakeLists.txt, docs/mcp-tools.md e AI_HANDOFF: mantenha TODAS as adições. Rode
+      `scripts/qa-all.sh --gui --formats`; corrija só quebras de merge, commit. Submeta commit = HEAD após
+      os merges, qa_green, summary.
+    success_output: qa_green
+    output_contract: *executor_contract
+
+  build-1:
+    type: gate
+    gate: command
+    needs: [integrate-1, lessons, t1-mcp, t2-session, t3-io, t4-qa]
+    run: scripts/fleet-verify-merged.sh 6 && scripts/qa-all.sh --gui --formats
+
+  t5-regress:
+    title: T5 regressão completa (Grok Build)
+    effort: high
+    needs: [build-1]
+    prompt: |
+      Projeto AI Office Writer, worktree integrado da onda 23. Leia docs/waves/wave23-integrity.md
+      (critério de pronto) e o checklist de lições. Faça tudo neste turno, sem subagentes em segundo plano.
+      Rode `scripts/qa-all.sh --gui --interop --pdf --formats`. Corrija o CÓDIGO (não testes nem
+      expectativas) até passar. Confirme: qa/audit/ não tem mais nenhum playbook desta onda (só os das
+      ondas 24–26, se houver); cada decisão D1–D17 tem um expect que falharia sem ela (liste no summary
+      decisão → arquivo de teste); qa/check_mcp_stdio.py passa. Decisão que pareça impossível → PARE e
+      reporte "PRECISA OPUS: ..." com evidência. Commit em inglês, sem push. Submeta commit/qa_green/summary.
+    success_output: qa_green
+    output_contract: *executor_contract
+
+  qa-full:
+    type: gate
+    gate: command
+    needs: [t5-regress]
+    run: scripts/fleet-verify-merged.sh 1 && scripts/qa-all.sh --gui --interop --pdf --formats
+
+  review:
+    type: loop
+    needs: [qa-full]
+    max_iterations: 3
+    on_exhausted: review-adjudication
+    until:
+      run: test "{{needs.review-pass.output.issues}}" -eq 0 && scripts/fleet-verify-merged.sh 1
+    nodes:
+      review-pass:
+        agent: claude
+        model: claude-sonnet-5
+        effort: high
+        session: continue
+        prompt: |
+          Você é o Tech Lead. PRIMEIRO verifique no diff cada item de .cursor/rules/lessons.mdc. Depois
+          revise `git diff main...HEAD` contra docs/waves/wave23-integrity.md (D1–D20, critério de pronto).
+          Para cada decisão, confirme que o comportamento existe E que um teste falharia sem ele. Procure:
+          tool com efeito em disco que escapou do bloqueio do batch; ponto de escrita que não usa QSaveFile;
+          caminho de IPC que ainda executa local após falha; framing MCP com `\n` embutido (JSON não
+          compacto); revisões corrompidas por split/join/find_replace; export que ainda altera doc_;
+          regressões das ondas 12–22. Rode `scripts/qa-all.sh --gui --interop --pdf --formats`. Não corrija
+          nada. Só defeitos reais. Faça tudo neste turno. Submeta issues e findings ("arquivo:linha —
+          defeito — correção sugerida").
+        followup_prompt: |
+          Houve correção. Verifique de novo o checklist de lições e `git diff main...HEAD`, rode
+          `scripts/qa-all.sh --gui --interop --pdf --formats` e submeta só os findings que continuam ou surgiram.
+        output_contract:
+          type: object
+          required: [issues, findings]
+          properties:
+            issues: { type: integer, minimum: 0 }
+            findings: { type: array, items: { type: string } }
+      fix-pass:
+        needs: [review-pass]
+        effort: high
+        prompt: |
+          Projeto AI Office Writer (spec: docs/waves/wave23-integrity.md; checklist .cursor/rules/lessons.mdc).
+          Findings: {{needs.review-pass.output.findings}}
+          Lista vazia → não altere nada. Senão corrija (com teste que falha antes), rode
+          `scripts/qa-all.sh --gui --interop --pdf --formats` e commit `fix: ...` em inglês, sem push.
+          Submeta commit = `git rev-parse HEAD`, qa_green, summary.
+        success_output: qa_green
+        output_contract: *executor_contract
+
+  review-adjudication:
+    title: Adjudicação final (Sonnet)
+    needs: [review]
+    agent: claude
+    model: claude-sonnet-5
+    effort: high
+    prompt: |
+      Três passadas não zeraram os findings. Descarte os que não são defeitos (com motivo), faça UMA
+      correção direta dos reais (com teste e commit), rode `scripts/qa-all.sh --gui --interop --pdf
+      --formats` e pare. Nunca pergunte a um humano. Submeta commit = `git rev-parse HEAD` e resolved =
+      true só se nenhum defeito real ficou aberto.
+    success_output: resolved
+    output_contract:
+      type: object
+      required: [verdict, resolved, accepted, dismissed, commit]
+      properties:
+        verdict: { type: string, enum: [resolved, failed] }
+        resolved: { type: boolean }
+        accepted: { type: array, items: { type: string } }
+        dismissed: { type: array, items: { type: string } }
+        commit: { type: string, pattern: "^[0-9a-f]{40}$" }
+
+  opus-audit:
+    title: Auditoria Opus (opcional)
+    needs: [review-adjudication]
+    enabled: "{{args.opus_audit}}"
+    agent: claude
+    model: claude-opus-5-5
+    effort: high
+    prompt: |
+      Auditoria final de `git diff main...HEAD` contra docs/waves/wave23-integrity.md (foco: D1 framing
+      MCP, D2 IPC, D4/D5 undo e batch, D11 escrita atômica). Corrija só o crítico, commit.
+      Submeta commit/qa_green/summary.
+    success_output: qa_green
+    output_contract: *executor_contract
+
+  qa-final:
+    type: gate
+    gate: command
+    needs: [opus-audit, review-adjudication, t5-regress]
+    run: scripts/fleet-verify-merged.sh 1 && scripts/qa-all.sh --gui --interop --pdf --formats
+
+  handoff:
+    title: Handoff + catálogo (Composer)
+    needs: [qa-final]
+    agent: cursor
+    model: composer-2.5
+    prompt: |
+      Atualize só estes arquivos e commit `docs: ...` em inglês, sem push:
+      - docs/AI_HANDOFF.md: entrada nova no topo ("Fleet wave23 — Grok Build/Composer/Sonnet"), com o
+        resultado REAL de `scripts/qa-all.sh --gui --interop --pdf --formats` (rode-o) e
+        `git log main..HEAD --oneline` (hashes reais; não cite o hash do próprio commit).
+      - docs/audit/fix-plan.md: marque a onda 23 como entregue, item por item (corrigido / adiado com motivo).
+      - docs/WRITER_FEATURE_CATALOG.md: só se algum comportamento visível mudou (MCP stdio, CLI, batch).
+      Submeta commit/qa_green/summary. Resumo da revisão: {{needs.review.report}}
+    success_output: qa_green
+    output_contract: *executor_contract
+
+  notion-sync:
+    title: Sincronizar Notion (Sonnet)
+    needs: [handoff]
+    agent: claude
+    model: claude-sonnet-5
+    effort: low
+    prompt: |
+      Sincronize o Notion com o repositório (regra: documentação sempre atualizada). Tools MCP do
+      Notion; NÃO altere código; NÃO apague nem arquive páginas; nunca cole segredos. Fontes:
+      docs/audit/fix-plan.md, topo de docs/AI_HANDOFF.md, docs/waves/wave23-integrity.md, docs/LESSONS.md.
+      Notion: hub 3cb46a79156b819daef5ea9d7c41385a; board collection://f3cc11ed-9e5e-4389-b49a-ca98f98dda62;
+      snapshot 3cb46a79156b8117a87fc72cd190f8c6. Atualize a seção "Auditoria 2026-10" do hub (onda 23
+      entregue: o que foi corrigido), "Última sync" e o snapshot. Reporte as mudanças.
+
+  open-pr:
+    title: Push + PR (Sonnet)
+    needs: [notion-sync]
+    agent: claude
+    model: claude-sonnet-5
+    effort: medium
+    prompt: |
+      Push deste branch para origin (nunca main) e PR para `main` em melker22/AI-Office via tool MCP do
+      GitHub (push/PR pré-aprovados pelo utilizador). Título em inglês
+      `fix: wave 23 — integrity, hostile input and MCP stdio transport`. Corpo: resumo de
+      docs/waves/wave23-integrity.md (diagnóstico + decisões), a lista de ids da auditoria corrigidos, test
+      plan e o handoff: {{needs.handoff.report}}. NÃO faça merge (o orquestrador roda o gate). Não
+      reescreva commits. Reporte a URL e o número do PR.

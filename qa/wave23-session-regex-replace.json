@@ -1,0 +1,61 @@
+[
+  {"tool": "document_new", "args": {"force": true}},
+  {"tool": "insert_at_caret", "args": {"id": "p1", "offset": 0, "text": "cat"}},
+  {"tool": "track_changes", "args": {"on": true}},
+  {"tool": "apply_character_format", "args": {"id": "p1", "bold": true}},
+  {"tool": "find_replace", "args": {"find": "a", "replace": "[\\0]", "regex": true, "all": true}, "expect": {"ok": true, "count": 1}},
+  {"tool": "document_get", "args": {}, "expect": {
+    "document.body.0.runs.0.text": "c[a]t",
+    "document.body.0.runs.0.bold": true
+  }},
+  {"tool": "revision_list", "args": {}, "expect": {
+    "revisions.0.id": "rev1",
+    "revisions.0.kind": "format",
+    "revisions.0.block_id": "p1",
+    "revisions.0.start": 0,
+    "revisions.0.end": 5,
+    "revisions.0.prior_runs.0.text": "c",
+    "revisions.0.prior_runs.0.bold": false,
+    "revisions.0.prior_runs.1.text": "[a]",
+    "revisions.0.prior_runs.1.bold": false,
+    "revisions.0.prior_runs.2.text": "t",
+    "revisions.0.prior_runs.2.bold": false
+  }},
+  {"tool": "revision_reject", "args": {"id": "rev1"}, "expect": {"ok": true}},
+  {"tool": "document_get", "args": {}, "expect": {
+    "document.body.0.runs.0.text": "c",
+    "document.body.0.runs.0.bold": false,
+    "document.body.0.runs.1.text": "[a]",
+    "document.body.0.runs.1.bold": false,
+    "document.body.0.runs.2.text": "t",
+    "document.body.0.runs.2.bold": false
+  }},
+
+  {"tool": "document_new", "args": {"force": true}},
+  {"tool": "insert_at_caret", "args": {"id": "p1", "offset": 0, "text": "cat"}},
+  {"tool": "track_changes", "args": {"on": true}},
+  {"tool": "apply_character_format", "args": {"id": "p1", "bold": true}},
+  {"tool": "find_replace", "args": {"find": "a", "replace": "\\\\", "regex": true, "all": true}, "expect": {"ok": true, "count": 1}},
+  {"tool": "document_get", "args": {}, "expect": {
+    "document.body.0.runs.0.text": "c\\t",
+    "document.body.0.runs.0.bold": true
+  }},
+  {"tool": "revision_list", "args": {}, "expect": {
+    "revisions.0.kind": "format",
+    "revisions.0.start": 0,
+    "revisions.0.end": 3,
+    "revisions.0.prior_runs.0.text": "c",
+    "revisions.0.prior_runs.1.text": "\\",
+    "revisions.0.prior_runs.1.bold": false,
+    "revisions.0.prior_runs.2.text": "t"
+  }},
+  {"tool": "revision_reject", "args": {"id": "rev1"}, "expect": {"ok": true}},
+  {"tool": "document_get", "args": {}, "expect": {
+    "document.body.0.runs.0.text": "c",
+    "document.body.0.runs.0.bold": false,
+    "document.body.0.runs.1.text": "\\",
+    "document.body.0.runs.1.bold": false,
+    "document.body.0.runs.2.text": "t",
+    "document.body.0.runs.2.bold": false
+  }}
+]

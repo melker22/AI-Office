@@ -958,14 +958,7 @@ bool saveOdt(const Document &doc, const QString &path, QString *error)
     for (const auto &pic : pictures)
         entries.push_back(pic);
 
-    QFile f(path);
-    if (!f.open(QIODevice::WriteOnly)) {
-        if (error)
-            *error = QStringLiteral("Cannot write ") + path;
-        return false;
-    }
-    f.write(Zip::pack(entries));
-    return true;
+    return writeFileAtomic(path, Zip::pack(entries), error);
 }
 
 static void applyTextProps(TextRun &r, const QXmlStreamAttributes &a)
@@ -1427,10 +1420,20 @@ bool loadOdt(const QByteArray &zipData, Document &doc, QString *error)
                 if (inText && !inTable)
                     pendingHideIf = ooowToExpr(xml.attributes().value(QStringLiteral("text:condition")).toString());
             } else if (n == QLatin1String("s") && inText) {
-                int count = xml.attributes().value(QStringLiteral("text:c")).toInt();
-                if (count <= 0)
-                    count = 1;
-                spanRun.text += QString(count, QLatin1Char(' '));
+                const QString cAttr = xml.attributes().value(QStringLiteral("text:c")).toString();
+                qlonglong count = 1;
+                if (!cAttr.isEmpty()) {
+                    bool okCount = false;
+                    const qlonglong raw = cAttr.toLongLong(&okCount);
+                    if (!okCount || raw > 10000) {
+                        if (error)
+                            *error = QStringLiteral("text:s text:c exceeds 10000");
+                        return false;
+                    }
+                    if (raw > 0)
+                        count = raw;
+                }
+                spanRun.text += QString(int(count), QLatin1Char(' '));
             } else if (n == QLatin1String("drop-down")) {
                 if (!spanRun.text.isEmpty() || !spanRun.field.isEmpty())
                     runs.push_back(spanRun);
@@ -1737,9 +1740,10 @@ bool loadOdt(const QByteArray &zipData, Document &doc, QString *error)
             }
         }
     }
-    if (xml.hasError() && doc.body.isEmpty()) {
+    if (xml.hasError()) {
         if (error)
-            *error = QStringLiteral("ODT XML: ") + xml.errorString();
+            *error = QStringLiteral("content.xml: %1 at line %2")
+                         .arg(xml.errorString(), QString::number(xml.lineNumber()));
         return false;
     }
     if (doc.body.isEmpty())

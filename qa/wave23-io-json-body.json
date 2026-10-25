@@ -1,0 +1,4 @@
+[
+  {"tool": "document_new", "args": {"force": true}},
+  {"tool": "document_open", "args": {"path": "body-nonobject.aio.json"}, "expect": {"ok": false, "error": "body item is not an object"}}
+]

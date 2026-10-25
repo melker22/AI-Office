@@ -1,0 +1,42 @@
+[
+  {"tool": "document_new", "args": {"force": true}},
+  {"tool": "insert_at_caret", "args": {"text": "v1"}},
+  {"tool": "document_save", "args": {"path": "/tmp/wave23-session-batch.aio.json"}, "expect": {"ok": true}},
+  {"tool": "batch", "args": {"calls": [
+    {"tool": "insert_at_caret", "args": {"text": "Y"}},
+    {"tool": "document_save", "args": {}},
+    {"tool": "insert_blocks", "args": {"blocks": [{"type": "paragraph", "runs": [{"text": "x"}]}], "after_id": "nonexistent-id-should-fail"}}
+  ]}, "expect": {"ok": false, "error": "document_save is not allowed inside batch"}},
+  {"tool": "document_get", "args": {}, "expect": {"dirty": false}},
+  {"tool": "document_stats", "args": {}, "expect": {"chars": 2}},
+  {"tool": "document_new", "args": {"force": true}},
+  {"tool": "document_open", "args": {"path": "/tmp/wave23-session-batch.aio.json"}, "expect": {"ok": true}},
+  {"tool": "document_stats", "args": {}, "expect": {"chars": 2}},
+  {"tool": "batch", "args": {"calls": [
+    {"tool": "insert_at_caret", "args": {"text": "Z"}},
+    {"tool": "document_open", "args": {"path": "/tmp/wave23-session-batch.aio.json"}}
+  ]}, "expect": {"ok": false, "error": "document_open is not allowed inside batch"}},
+  {"tool": "document_stats", "args": {}, "expect": {"chars": 2}},
+  {"tool": "batch", "args": {"calls": [
+    {"tool": "document_new", "args": {"force": true}}
+  ]}, "expect": {"ok": false, "error": "document_new is not allowed inside batch"}},
+  {"tool": "document_stats", "args": {}, "expect": {"chars": 2}},
+  {"tool": "batch", "args": {"calls": [
+    {"tool": "set_read_only", "args": {"on": true}}
+  ]}, "expect": {"ok": false, "error": "set_read_only is not allowed inside batch"}},
+  {"tool": "batch", "args": {"calls": [
+    {"tool": "export_text", "args": {"path": "/tmp/wave23-session-batch-export.txt"}}
+  ]}, "expect": {"ok": false, "error": "export_text is not allowed inside batch"}},
+  {"tool": "batch", "args": {"calls": [
+    {"tool": "document_export_pdf", "args": {"path": "/tmp/wave23-session-batch.pdf"}}
+  ]}, "expect": {"ok": false, "error": "document_export_pdf is not allowed inside batch"}},
+  {"tool": "document_save", "args": {"path": "/tmp/wave23-session-batch.aio.json"}, "expect": {"ok": true}},
+  {"tool": "batch", "args": {"calls": [
+    {"tool": "repeat_last", "args": {}}
+  ]}, "expect": {"ok": false, "error": "repeat_last (document_save) is not allowed inside batch"}},
+  {"tool": "batch", "args": {"calls": [
+    {"tool": "insert_at_caret", "args": {"text": "Q"}},
+    {"tool": "repeat_last", "args": {}}
+  ]}, "expect": {"ok": true}},
+  {"tool": "document_stats", "args": {}, "expect": {"chars": 4}}
+]

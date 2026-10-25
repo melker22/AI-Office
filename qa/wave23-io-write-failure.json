@@ -1,0 +1,18 @@
+[
+  {"tool": "document_new", "args": {"force": true}},
+  {"tool": "insert_at_caret", "args": {"text": "hello"}},
+  {"tool": "document_save", "args": {"path": "fail.aio.json"}, "expect": {"ok": false, "error": "Cannot write fail.aio.json"}},
+  {"tool": "document_save", "args": {"path": "fail.docx"}, "expect": {"ok": false, "error": "Cannot write fail.docx"}},
+  {"tool": "document_save", "args": {"path": "fail.odt"}, "expect": {"ok": false, "error": "Cannot write fail.odt"}},
+  {"tool": "document_save", "args": {"path": "fail.rtf"}, "expect": {"ok": false, "error": "Cannot write fail.rtf"}},
+  {"tool": "document_save", "args": {"path": "fail.epub"}, "expect": {"ok": false, "error": "Cannot write fail.epub"}},
+  {"tool": "document_save", "args": {"path": "fail.md"}, "expect": {"ok": false, "error": "Cannot write fail.md"}},
+  {"tool": "document_save", "args": {"path": "fail.txt"}, "expect": {"ok": false, "error": "Cannot write fail.txt"}},
+  {"tool": "document_save", "args": {"path": "fail.html"}, "expect": {"ok": false, "error": "Cannot write fail.html"}},
+  {"tool": "document_save", "args": {"path": "fail.pdf"}, "expect": {"ok": false, "error": "Cannot write fail.pdf"}},
+  {"tool": "document_save", "args": {"path": "fail.doc"}, "expect": {"ok": false, "error": "Cannot write fail.doc"}},
+  {"tool": "export_markdown", "args": {"path": "fail.md"}, "expect": {"ok": false, "error": "Cannot write fail.md"}},
+  {"tool": "export_text", "args": {"path": "fail.txt"}, "expect": {"ok": false, "error": "Cannot write fail.txt"}},
+  {"tool": "export_html", "args": {"path": "fail.html"}, "expect": {"ok": false, "error": "Cannot write fail.html"}},
+  {"tool": "document_get", "args": {}, "expect": {"dirty": true, "path": ""}}
+]

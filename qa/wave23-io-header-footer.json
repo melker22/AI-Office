@@ -1,0 +1,9 @@
+[
+  {"tool": "document_new", "args": {"force": true}},
+  {"tool": "set_header", "args": {"chapter": true}, "expect": {"ok": true}},
+  {"tool": "set_footer", "args": {"image": "mark.png"}, "expect": {"ok": true}},
+  {"tool": "document_save", "args": {"path": "header.aio.json"}, "expect": {"ok": true}},
+  {"tool": "document_new", "args": {"force": true}},
+  {"tool": "document_open", "args": {"path": "header.aio.json"}, "expect": {"ok": true}},
+  {"tool": "document_get", "args": {}, "expect": {"document.meta.header.chapter": true, "document.meta.footer.image": "mark.png"}}
+]

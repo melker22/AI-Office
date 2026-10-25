@@ -196,12 +196,15 @@ nodes:
     prompt: |
       Três passadas não zeraram os findings. Descarte os que não são defeitos (com motivo), faça UMA
       correção direta dos reais (com commit), rode `scripts/qa-all.sh --gui --interop` e pare. Nunca
-      pergunte a um humano. Submeta também commit = `git rev-parse HEAD`.
+      pergunte a um humano. Submeta também commit = `git rev-parse HEAD` e resolved = true só se
+      nenhum defeito real ficou aberto.
+    success_output: resolved
     output_contract:
       type: object
-      required: [verdict, accepted, dismissed, commit]
+      required: [verdict, resolved, accepted, dismissed, commit]
       properties:
         verdict: { type: string, enum: [resolved, failed] }
+        resolved: { type: boolean }
         accepted: { type: array, items: { type: string } }
         dismissed: { type: array, items: { type: string } }
         commit: { type: string, pattern: "^[0-9a-f]{40}$" }

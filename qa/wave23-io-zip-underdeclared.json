@@ -1,0 +1,6 @@
+[
+  {"tool": "document_new", "args": {"force": true}},
+  {"tool": "document_open", "args": {"path": "underdeclared.docx"}, "expect": {"ok": false, "error": "archive entry too large"}},
+  {"tool": "document_open", "args": {"path": "underdeclared-entry.docx"}, "expect": {"ok": false, "error": "archive entry too large"}},
+  {"tool": "document_open", "args": {"path": "underdeclared-small.docx"}, "expect": {"ok": false, "error": "DOCX missing word/document.xml"}}
+]

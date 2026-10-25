@@ -1,5 +1,0 @@
-[
-  {"tool": "document_new", "args": {"force": true}},
-  {"tool": "insert_at_caret", "args": {"text": "hello"}},
-  {"tool": "document_save", "args": {"path": "/tmp/aio-audit/fail.docx"}, "expect": {"ok": false}}
-]

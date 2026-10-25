@@ -1,6 +1,6 @@
 # Semantic document + MCP/CLI contract
 
-All tools are available as MCP `tools/call` and as `aioffice call <name> '<json args>'`. Playbooks: `aioffice play script.json` (JSON array of `{tool, args}`, runs `batch`). A call entry may add `"expect": {"dot.path": value, ...}` to assert a field of that call's own JSON result (dot-path, numeric segments index arrays, e.g. `document.body.0.runs.1.bold`); a mismatch fails the playbook the same way `ok:false` does, printing what was expected vs. what came back. For numeric fields, `expect` also accepts a one-key object operator: `{"$gt"|"$lt"|"$gte"|"$lte"|"$ne": number}` (compared to the actual number at that path).
+All tools are available as MCP `tools/call` and as `aioffice call <name> '<json args>'`. Playbooks: `aioffice play script.json` (JSON array of `{tool, args}`). Play runs each step in order and stops at the first failing expect. It keeps the earlier steps; rolling several edits back together is the `batch` tool. A call entry may add `"expect": {"dot.path": value, ...}` to assert a field of that call's own JSON result (dot-path, numeric segments index arrays, e.g. `document.body.0.runs.1.bold`); a mismatch fails the playbook the same way `ok:false` does, printing what was expected vs. what came back. For numeric fields, `expect` also accepts a one-key object operator: `{"$gt"|"$lt"|"$gte"|"$lte"|"$ne": number}` (compared to the actual number at that path).
 
 The document is a JSON object with **stable block IDs**. Agents must address content by `id`, never by pixel or mouse.
 
@@ -95,27 +95,27 @@ Clears the session into a blank document with one empty `p1`. If the document is
 ### `document_open`
 
 Args: `{ "path": string }`  
-Opens ODT, DOCX, DOC (DOC needs LibreOffice), AIO JSON, or RTF (native reader).
+Opens ODT, DOCX, DOC (DOC needs LibreOffice), AIO JSON, or RTF (native reader). A `body` item that is not an object is `{ok:false,error:"body item is not an object"}`. An explicit duplicate block id is `{ok:false,error:"duplicate block id: …"}`. Ids that are missing are assigned only after the whole body is loaded, and they do not reuse an explicit id. Malformed DOCX/ODT XML fails the open (`document.xml: … at line N`, `content.xml: … at line N`) instead of returning a partial document. Each zip entry may produce at most 256 MiB uncompressed and the archive at most 1 GiB, counted from the bytes inflation actually writes. A central-directory size of 0 is not treated as empty: that entry still counts its real output, and several such entries share the 1 GiB total. A declared size above either limit fails the same way. Above either limit the error is `archive entry too large`. An ODT `text:s` whose `text:c` is above 10000 fails with `text:s text:c exceeds 10000`.
 
 ### `document_save`
 
 Args: `{ "path"?: string, "title"?: string }`  
-Saves to `path` or the last opened/saved path. Format from extension. Native session JSON (`.aio.json`, `.json`, `.aio`), `.odt`, and `.docx` become the working file (path updated, dirty cleared). `.epub`, `.pdf`, `.md`, `.txt`, `.html`, `.rtf`, and `.doc` are exports: the file is written and the working path stays unchanged. The dirty flag stays unchanged unless `title` is a new value. `.doc` is export-only and is written by LibreOffice as Word 97 (`doc:MS Word 97`); it does not become the working file. `title`, when set to a new value, updates the session title before the write; on an export path the document stays dirty until a later native JSON (`.aio.json`, `.json`, `.aio`), `.odt`, or `.docx` save. RTF export warnings are returned in `warnings`. **RTF** (`.rtf`) is written natively
+Saves to `path` or the last opened/saved path. Format from extension. Every format is written with `QSaveFile` (the previous file stays if the write or commit fails). A target that exists and is not a regular file (a device, a fifo, or a symlink to one) fails the same way. On failure the result is `{ok:false,error}` and the working path and dirty flag stay as they were. Native session JSON (`.aio.json`, `.json`, `.aio`), `.odt`, and `.docx` become the working file (the working path is updated, dirty cleared) and refresh fields on the live document only after a successful write. `.epub`, `.pdf`, `.md`, `.txt`, `.html`, `.rtf`, and `.doc` are exports: fields are refreshed on a copy used only for the write, then the live document is restored, so path, dirty, and cached field text stay unchanged (unless `title` is a new value, which still dirties the session); the file is written and the working path stays unchanged. The dirty flag stays unchanged unless `title` is a new value. `.doc` is export-only and is written by LibreOffice as Word 97 (`doc:MS Word 97`); it does not become the working file. `title`, when set to a new value, updates the session title before the write; on an export path the document stays dirty until a later native JSON (`.aio.json`, `.json`, `.aio`), `.odt`, or `.docx` save. RTF export warnings are returned in `warnings`. **RTF** (`.rtf`) is written natively
 (`RtfWriter`: `\fonttbl`, `\colortbl`, `\stylesheet`, paragraph/character formatting, `\listtable`, tables with
 `\trhdr`, `\page`, `\footnote`, `\pict\pngblip`, `\field`, `\bkmkstart`, `\u`/`\uc`, `\rtlpar`, `\lang`). Tracked
 revisions, block comments, and shapes/forms are flattened to plain text (full fidelity stays in `.aio.json`/ODT/DOCX).
 
-`.epub` writes EPUB 3 and does not import it (`document_open` on `.epub` returns `{ok:false,error}`: "EPUB import is not supported"). The package is `mimetype` first and stored (no compression), `META-INF/container.xml`, and `OEBPS/content.opf` with `dc:title`, `dc:creator` when the document has an author, `dc:language`, a stable `dc:identifier` (`urn:uuid` version 5 of the title and author), `dcterms:modified`, and schema.org accessibility metadata (`accessMode`, `accessibilityFeature`, `accessibilityHazard`, `accessibilitySummary`). `nav.xhtml` lists headings and landmarks. Each Heading 1 starts an XHTML file; a document with no Heading 1 is one file; content before the first Heading 1 is front matter. CSS comes from the named styles. Images are package resources with their media type (PNG, JPEG, or GIF; anything else is re-encoded as PNG, rejected above 32MB or when it is not a bitmap). Tables use `th scope="col"` for the header row. Lists are nested `ol`/`ul`. Notes are `aside epub:type="footnote"` (or `endnote`) plus `epub:type="noteref"`. `xml:lang`/`lang` and `dir` follow the block and, when a run's language differs, the span. Fields are the evaluated text. A block whose `hide_if` is true is omitted. Page breaks are omitted. Shapes, charts, and QR codes are PNG painted by the same figure painter as the page, with `alt`. On success the result adds `format` (`"epub"`), `chapters`, `images`, and `identifier`.
+`.epub` writes EPUB 3 and does not import it (`document_open` on `.epub` returns `{ok:false,error}`: "EPUB import is not supported"). The package is `mimetype` first and stored (no compression), `META-INF/container.xml`, and `OEBPS/content.opf` with `dc:title`, `dc:creator` when the document has an author, `dc:language`, a stable `dc:identifier` (`urn:uuid` version 5 of the title and author), `dcterms:modified`, and schema.org accessibility metadata (`accessMode`, `accessibilityFeature`, `accessibilityHazard`, `accessibilitySummary`). `nav.xhtml` lists headings and landmarks. Each Heading 1 starts an XHTML file; a document with no Heading 1 is one file; content before the first Heading 1 is front matter. CSS comes from the named styles. Images are package resources with their media type (PNG, JPEG, or GIF; anything else is re-encoded as PNG, rejected above 32MB, when the path is not a regular file, or when it is not a bitmap). Block ids are sanitized to XML ids; two ids that sanitize to the same string get a numeric suffix (`-2`, `-3`, …) so the result stays unique. Tables use `th scope="col"` for the header row. Lists are nested `ol`/`ul`. Notes are `aside epub:type="footnote"` (or `endnote`) plus `epub:type="noteref"`. `xml:lang`/`lang` and `dir` follow the block and, when a run's language differs, the span. Fields are the evaluated text. A block whose `hide_if` is true is omitted. Page breaks are omitted. Shapes, charts, and QR codes are PNG painted by the same figure painter as the page, with `alt`. On success the result adds `format` (`"epub"`), `chapters`, `images`, and `identifier`.
 
 ### `document_export_pdf`
 
 Args: `{ "path": string, "pdfa"?: bool, "ua"?: bool, "from"?: int, "to"?: int, "booklet"?: bool, "copies"?: int, "comments"?: bool }`  
-Native `QPdfWriter` (no LibreOffice). Every export embeds document XMP (`dc:title` / `dc:creator` / `dc:description` as RDF values, `pdf:Keywords` / `pdf:Producer`, `xmp:CreateDate` / `ModifyDate` / `CreatorTool`) and the same fields in `/Info` (plus `Creator`). Document language is catalog `/Lang`, not `dc:language`. No `pdf:Trapped` in XMP or `/Info`. `pdfa=true` requests PDF/A-1b (`pdfaid:part=1`, `conformance=B`); translucent watermark, image opacity, and drop shadows are painted opaque and listed in `warnings[]`. `ua=true` adds `pdfuaid:part=1` (with the PDF/A extension schema when combined with `pdfa`), sets `/ViewerPreferences/DisplayDocTitle true`, and fails with `{ok:false,error}` if any image lacks `alt`; without `ua`, missing alt is only a `warnings[]` entry. `from`/`to` are 1-based inclusive. `booklet` imprints 2-up in booklet order. `copies` (default 1) repeats the exported page sequence. Tagged PDF (wave 19) emits `/L`/`/LI`/`/Lbl`/`/LBody`, `/Table`/`/TR`/`/TH`/`/TD` (the header row is repeated on each page fragment), `/Figure` with `/Alt`, `/Note`, `/TOC`/`/TOCI`, `/Annot` when `comments` is set, `/Artifact` for page chrome, catalog `/Lang`, and `/Span` `/Lang` when a run's language differs. `cell.nested` (a list or table inside a cell) stays inside the parent `/TD` as running text and does not get its own `/L` or `/Table`. When the content-stream clips do not match the marker list, that page falls back to one `/Part`. `comments:true` writes real PDF sticky-note annotations. Falls back to soffice only if native write fails.
+Native `QPdfWriter` (no LibreOffice). Every export embeds document XMP (`dc:title` / `dc:creator` / `dc:description` as RDF values, `pdf:Keywords` / `pdf:Producer`, `xmp:CreateDate` / `ModifyDate` / `CreatorTool`) and the same fields in `/Info` (plus `Creator`). Document language is catalog `/Lang`, not `dc:language`. No `pdf:Trapped` in XMP or `/Info`. `pdfa=true` requests PDF/A-1b (`pdfaid:part=1`, `conformance=B`); translucent watermark, image opacity, and drop shadows are painted opaque and listed in `warnings[]`. `ua=true` adds `pdfuaid:part=1` (with the PDF/A extension schema when combined with `pdfa`), sets `/ViewerPreferences/DisplayDocTitle true`, and fails with `{ok:false,error}` if any image lacks `alt`; without `ua`, missing alt is only a `warnings[]` entry. `from`/`to` are 1-based inclusive. `booklet` imprints 2-up in booklet order. `copies` (default 1) repeats the exported page sequence. Tagged PDF (wave 19) emits `/L`/`/LI`/`/Lbl`/`/LBody`, `/Table`/`/TR`/`/TH`/`/TD` (the header row is repeated on each page fragment), `/Figure` with `/Alt`, `/Note`, `/TOC`/`/TOCI`, `/Annot` when `comments` is set, `/Artifact` for page chrome, catalog `/Lang`, and `/Span` `/Lang` when a run's language differs. `cell.nested` (a list or table inside a cell) stays inside the parent `/TD` as running text and does not get its own `/L` or `/Table`. When the content-stream clips do not match the marker list, that page falls back to one `/Part`. `comments:true` writes real PDF sticky-note annotations. A path that exists and is not a regular file (a fifo, a device, or a symlink to one) fails with `{ok:false,error:"Cannot write <path>"}` before that path is opened. The PDF is rendered in a private temporary file and published with `QSaveFile` only after rendering and post-processing finish, so a failed export leaves an existing file unchanged. Falls back to soffice only if the native renderer fails. A destination that cannot be published returns the write error and does not call soffice.
 
 ### `document_get`
 
 Args: `{}`  
-Returns `{ "ok", "document": { ...full JSON... }, "words" }`. `words` is the same visible count as `document_stats.words` (a block hidden by `hide_if` or `section_hidden` is omitted).
+Returns `{ "ok", "document": { ...full JSON... }, "words" }`. `words` is the same visible count as `document_stats.words` (a block hidden by `hide_if` or `section_hidden` is omitted). Before the JSON is built, `if`, `seq`, and xref `category_number` are refreshed to one fixed point using the real layout page total (`page` in the field text stays 1). On a word-count cycle the lexicographic minimum is kept, so two `document_get` calls with no edit return the same text. `stat` is rewritten only when the document is dirty; a clean read leaves an imported stat cache alone. `document_stats` lays out the cached text and does not refresh fields.
 
 ### `document_get_outline`
 
@@ -180,7 +180,7 @@ Args: `{ "size"?: "A4"|…, "orientation"?: "portrait"|"landscape", "margins_mm"
 
 Args: `{ "after_id": "end", "rows": 4, "cols": 3, "header": true, "header_texts"?: ["A","B"], "cells"?: ["..."], "col_widths_mm"?: [40, 40, 40] }`
 
-If `header` is true, `header_texts` fill **row 0**. `cells` fill from **row 1**. Row 0 is painted as a header band.
+If `header` is true, `header_texts` fill **row 0**. `cells` fill from **row 1**. Row 0 is painted as a header band. `rows` must be 1..200 and `cols` 1..64 (omitted values stay 3). Anything else fails with `{ok:false, error:"table rows/cols out of range"}` before the grid is built. When `header` is true and `rows` is 1, the row count becomes 2 after that check. `nest_table` uses the same cap (omitted `rows`/`cols` stay 2).
 
 ### `insert_image`
 
@@ -203,7 +203,7 @@ Insert `\n` or `\t` at the caret (`id`/`offset` optional). Does not split the bl
 ### `find_replace`
 
 Args: `{ "find": string, "replace": string, "all"?: false, "regex"?: false }`  
-`all` defaults to **false** (first match). `regex` uses `QRegularExpression`. Returns `{ "ok", "count" }`.
+`all` defaults to **false** (first match). `regex` uses `QRegularExpression`. Returns `{ "ok", "count" }`. Tracked revisions on body text move with each replacement. A replacement that would cut a revision in half fails the whole call with `{ok:false, error:"replacement would split a revision"}` and leaves the document unchanged. Table-cell matches do not move revisions.
 
 ### `search`
 
@@ -223,7 +223,7 @@ Returns `{ ids: [...] }` and selects the first match.
 ### `split_block`
 
 Args: `{ "id"?: string, "offset"?: int }`  
-Splits at the caret if `id` is omitted. The new block takes `create_style.next` when set.
+Splits at the caret if `id` is omitted. The new block takes `create_style.next` when set. Revisions at or after the cut move onto the new block (offsets rebased by the cut). A range that crosses the cut is split into two revisions. `join_blocks` and a backspace that joins blocks rebase the absorbed block's revisions onto the survivor.
 
 ### `insert_labels`
 
@@ -236,7 +236,7 @@ Table surgery on a table `id` (the selected table in the GUI). `set_cell`: `{id,
 
 ### `selection_get` / `set_selection` / `insert_at_caret`
 
-Shared caret: `{anchor_id, anchor_off, focus_id, focus_off, row?, col?}`. `insert_at_caret` types at the caret. If the selection is a range (offsets differ on the same block), the range is **replaced**.
+Shared caret: `{anchor_id, anchor_off, focus_id, focus_off, row?, col?}`. `set_selection` does not mark the document dirty; `dirty` in the result is the flag already stored. `insert_at_caret` types at the caret. If the selection is a range (offsets differ on the same block), the range is **replaced**.
 
 ### `move_blocks` / `duplicate_blocks`
 
@@ -248,7 +248,7 @@ Args: `{ "id": "p1", "text": "...", "author"?: "IA" }` / `{ "comment_id": "..." 
 
 ### `document_set_title` / `set_header` / `set_footer`
 
-Title/author/subject/keywords/watermark; header/footer `{text, page_numbers, chapter?: bool, image?: path, even?: bool, first?: bool}`. `chapter=true` appends the last Heading 1 on or before the page (also `{chapter}` in `text`). `set_vars {vars:{k:v}}` or `{name,value}`. `insert_field {kind:var, arg}` reads vars. `set_read_only {on}` blocks mutations except reads, export, `document_new`/`open`, and itself.
+Title/author/subject/keywords/watermark; header/footer `{text, page_numbers, chapter?: bool, image?: path, even?: bool, first?: bool}`. A header or footer that has only `chapter` or `image` set is still stored in the document JSON. `chapter=true` appends the last Heading 1 on or before the page (also `{chapter}` in `text`). `set_vars {vars:{k:v}}` or `{name,value}`. `insert_field {kind:var, arg}` reads vars. `set_read_only {on}` blocks mutations except reads, export, `document_new`/`open`, and itself.
 
 ### `insert_html` / `insert_plain`
 
@@ -286,7 +286,7 @@ Args: `{ "id"?: string, "ids"?: [...], "delta"?: -1 }`
 
 ### `export_markdown` / `export_text` / `copy_markdown`
 
-`export_markdown {path?, ids?}` returns `{markdown}` and optionally writes UTF-8. Whole document if `ids` omitted.  
+`export_markdown {path?, ids?}` returns `{markdown}` and optionally writes UTF-8. Whole document if `ids` omitted. With `path`, the file is written atomically; a write failure returns `{ok:false, error}`.  
 `export_text` same with `{text}` (tables as tab-separated rows).  
 `export_html` same with `{html}` (simple semantic HTML).  
 `copy_markdown` is the selection (or `ids`) without a file.
@@ -308,7 +308,7 @@ Hiperlink na seleção (`url`). Marcador nomeado no bloco (`name`, `id` opcional
 ### `insert_field`
 
 Args: `{ "kind": "page_number"|"page_count"|"date"|"title"|"author"|"xref"|"filename"|"word_count"|"custom"|"merge"|"if"|"doc_info"|"stat"|"sender"|"seq"|"input_list", "arg"?: string|object, "xref_kind"?: string }`  
-Insere no caret. `xref`/`custom`/`merge` usam `arg`. Campo `merge` mostra `«arg»` até `mail_merge`. `date` usa `arg` como formato Qt (`dd/MM/yyyy` por omissão; `yyyy-MM-dd hh:mm` para data/hora). `if` takes `arg` as `{ "cond": string, "then": string, "else": string }` (object or JSON string). `cond` is an expression; the field shows `then` or `else`. A syntax error shows `#ERR` and `validate` reports `invalid_expression`.
+Insere no caret. `xref`/`custom`/`merge` usam `arg`. Campo `merge` mostra `«arg»` até `mail_merge`. `date` usa `arg` como formato Qt (`dd/MM/yyyy` por omissão; `yyyy-MM-dd hh:mm` para data/hora). `if` takes `arg` as `{ "cond": string, "then": string, "else": string }` (object or JSON string). `cond` is an expression; the field shows `then` or `else`. `document_get` and a working-document save re-evaluate it with the real page total (`pages`) and `page` 1. A syntax error shows `#ERR` and `validate` reports `invalid_expression`.
 
 ### `field_evaluate`
 
@@ -363,7 +363,7 @@ Insere um Heading 1 e um parágrafo por termo com números de página (`concorda
 
 - `image_library_add` `{path}` / `image_library_list` / `image_library_insert` `{index|path, after_id?}`
 - `insert_bibliography` `{style: apa|abnt, title?, after_id?}` — lista APA/ABNT-lite a partir de `bibliography_set` (não é CSL)
-- `document_include` `{path, after_id?}` — insere outro `.aio.json` com IDs novos
+- `document_include` `{path, after_id?}` — insere outro `.aio.json` com IDs de bloco novos. Revisões e marcadores são copiados; `block_id` segue o mapa. Um id que não colide é mantido (mesmo não numérico). Colisão ou id vazio aloca `revN` / `bmN` pelo maior número já usado + 1.
 - `find_replace` extra: `format` aplicado aos runs substituídos
 - `toc_update` cria estilos nomeados `TOC 1`…`TOC 6` e aplica `char_style` por nível
 - `track_changes` + `apply_character_format` grava `Revision.payload` (JSON do formato)
@@ -436,11 +436,12 @@ Clona o corpo por registo, substitui `{{chave}}` e campos `merge`, e insere queb
 
 ### `set_image` / `insert_caption`
 
-Alt, caption, wrap, âncora, `width_mm`, `rotate` (graus), `opacity` (0–1) no bloco imagem (ou caption em tabela). `insert_caption` args: `{ id, text?, seq?: { name, format?: arabic|roman|alpha } }` — com `seq`, grava `caption_runs` (`"<name> "` + campo seq + texto) para numeração viva e xref `category_number`.
+Alt, caption, wrap, âncora, `width_mm`, `rotate` (graus), `opacity` (0–1) no bloco imagem (ou caption em tabela). `caption` and `caption_runs` are stored on every block that has them, not only images. `plainText()` is the run text used by the caret, layout, diff, outline, and the DOCX fingerprint. Word and character counts add the caption through `statText()`. `insert_caption` args: `{ id, text?, seq?: { name, format?: arabic|roman|alpha } }` — com `seq`, grava `caption_runs` (`"<name> "` + campo seq + texto) para numeração viva e xref `category_number`.
 
 ### `undo` / `redo`
 
-Args: `{}`
+Args: `{}`  
+Each frame is the document, its path, and the dirty flag. Undo and redo restore all three. They do not force dirty.
 
 ### `page_preview`
 
@@ -476,12 +477,12 @@ Returns `{ ok, valid, errors: [{code,id?,message}], blocks }`. Checks unique ids
 ### `batch`
 
 Args: `{ "calls": [ { "tool": "apply_style", "args": { ... } }, ... ] }`  
-Runs every call in order. First `{ok:false}` **rolls back** the whole batch (no nested `batch`/`undo`/`checkpoint`). One undo frame on success.
+Runs every call in order. First `{ok:false}` **rolls back** the whole batch. Before any step, `document_save`, `document_open`, `document_new`, `set_read_only` / `set_readonly`, export tools (`document_export_pdf`, `export_markdown`, `export_text`, `export_html`, and their `document_export_*` / `export_txt` aliases), and `batch` / `undo` / `redo` / `checkpoint` / `restore` / `restore_checkpoint` are rejected with `{ok:false, error:"<tool> is not allowed inside batch"}`. One undo frame on success.
 
 ### `checkpoint` / `restore`
 
 Args: `{}`  
-Snapshot / restore the session. Distinct from caret `undo`. `restore` fails with `{ok:false,error:"no checkpoint"}`.
+Snapshot / restore the session (document, path, dirty flag, and selection). Distinct from caret `undo`. `restore` does not force dirty. `restore` fails with `{ok:false,error:"no checkpoint"}`.
 
 ### `insert_markdown`
 
@@ -497,8 +498,8 @@ Returns the human/AI integration blurb plus `title`, `words`, `outline`. `words`
 - Name: `ai-office`
 - Stdio: `aioffice mcp`
 - Protocol: JSON-RPC 2.0, MCP `2024-11-05` (`initialize`, `notifications/initialized`, `tools/list`, `tools/call`)
-- Transport: `Content-Length` frames **or** newline-delimited JSON
+- Transport: one compact JSON object per line, terminated by a newline. A legacy `Content-Length` header is accepted on input only and is never written.
 
 ## Live vs headless
 
-If the GUI is running, `document_open` / edits target the **live** document. Headless MCP keeps its own session until `document_open` / `document_save`.
+`AIOFFICE_HEADLESS=1` forces a private session. Otherwise the live GUI is used when the per-user socket (`aioffice-<uid>`) accepts a connection. A missing socket or a refused connect means there is no GUI, so the CLI and MCP run headless. A failure after connect (timeout, partial frame, invalid response) returns `{ok:false, error:"IPC failure: …"}` and does not edit a blank document. MCP chooses GUI or headless once, on the first `tools/call`, and keeps that choice. `initialize` and `tools/list` do not lock the mode. `aioffice new` honours `AIOFFICE_HEADLESS`. `aioffice play` runs steps in order and stops at the first failing expect.

@@ -1,0 +1,24 @@
+[
+  {"tool": "document_new", "args": {"force": true}},
+  {"tool": "insert_at_caret", "args": {"id": "p1", "offset": 0, "text": "hospedeiro"}},
+  {"tool": "bookmark_add", "args": {"id": "p1", "name": "marca"}, "expect": {"ok": true, "bookmark_id": "bm1"}},
+  {"tool": "document_include", "args": {"path": "qa/fixtures/wave23-include-xref-name.aio.json"}, "expect": {"ok": true, "count": 3}},
+  {"tool": "document_get", "args": {}, "expect": {
+    "document.bookmarks.0.id": "bm1",
+    "document.bookmarks.0.name": "marca",
+    "document.bookmarks.0.block_id": "p1",
+    "document.bookmarks.1.id": "bm9",
+    "document.bookmarks.1.name": "marca",
+    "document.bookmarks.2.id": "bm8",
+    "document.bookmarks.2.name": "unica",
+    "document.body.1.runs.1.field": "xref",
+    "document.body.1.runs.1.field_arg": "bm9",
+    "document.body.1.runs.3.field": "xref",
+    "document.body.1.runs.3.field_arg": "unica",
+    "document.body.1.caption_runs.1.field": "xref",
+    "document.body.1.caption_runs.1.field_arg": "bm9",
+    "document.body.2.runs.0.text": "alvo importado",
+    "document.body.3.rows.0.0.runs.1.field_arg": "bm9",
+    "document.body.3.rows.0.0.nested.0.0.runs.0.field_arg": "bm9"
+  }}
+]

@@ -6,9 +6,24 @@
 #include <QJsonDocument>
 #include <QJsonObject>
 #include <QSet>
+#include <QStringList>
 #include <cmath>
+#include <functional>
 
 namespace aioffice {
+
+int gRefreshLayoutPasses = 0;
+
+void resetRefreshLayoutPasses()
+{
+    gRefreshLayoutPasses = 0;
+}
+
+int refreshLayoutPasses()
+{
+    return gRefreshLayoutPasses;
+}
+
 namespace {
 
 enum class Kind { Num, Str, Bool };
@@ -416,7 +431,7 @@ FieldContext baseContext(const Document &doc, int page, int pages)
     ctx.pages = pages > 0 ? pages : 1;
     ctx.words = doc.wordCount();
     for (const Block &b : doc.body) {
-        ctx.chars += b.plainText().size();
+        ctx.chars += b.statText().size();
         if (b.type == QLatin1String("paragraph"))
             ++ctx.paragraphs;
         else if (b.type == QLatin1String("table"))
@@ -575,61 +590,173 @@ static bool isStructureField(const TextRun &r)
     return r.field == QLatin1String("xref") && r.xrefKind == QLatin1String("category_number");
 }
 
-void refreshIfFields(Document &doc, bool includeStats)
+static bool runNeedsFieldRefresh(const TextRun &r)
 {
-    int statPages = 1;
-    if (includeStats) {
-        DocumentLayout lay;
-        lay.relayout(doc, 1.0);
-        statPages = qMax(1, lay.pages);
+    return r.field == QLatin1String("if") || r.field == QLatin1String("seq")
+        || r.field == QLatin1String("xref") || r.field == QLatin1String("stat");
+}
+
+static bool runsNeedFieldRefresh(const QVector<TextRun> &runs)
+{
+    for (const TextRun &r : runs) {
+        if (runNeedsFieldRefresh(r))
+            return true;
     }
-    // Seq and category_number first: a stat/chars count reads the stored run text.
-    auto walk = [&](QVector<TextRun> &runs, bool stats) -> bool {
-        bool changed = false;
+    return false;
+}
+
+static bool documentHasRefreshField(const Document &doc)
+{
+    for (const Block &b : doc.body) {
+        if (runsNeedFieldRefresh(b.runs) || runsNeedFieldRefresh(b.captionRuns))
+            return true;
+        for (const auto &row : b.table) {
+            for (const auto &cell : row) {
+                if (runsNeedFieldRefresh(cell.runs))
+                    return true;
+                for (const auto &nrow : cell.nested) {
+                    for (const auto &nc : nrow) {
+                        if (runsNeedFieldRefresh(nc.runs))
+                            return true;
+                    }
+                }
+            }
+        }
+    }
+    return false;
+}
+
+static int layoutPageCount(const Document &doc)
+{
+    ++gRefreshLayoutPasses;
+    DocumentLayout lay;
+    lay.relayout(doc, 1.0);
+    return qMax(1, lay.pages);
+}
+
+static void eachFieldRun(Document &doc, const std::function<void(QVector<TextRun> &)> &fn)
+{
+    for (Block &b : doc.body) {
+        fn(b.runs);
+        fn(b.captionRuns);
+        for (auto &row : b.table) {
+            for (auto &cell : row) {
+                fn(cell.runs);
+                for (auto &nrow : cell.nested) {
+                    for (auto &nc : nrow)
+                        fn(nc.runs);
+                }
+            }
+        }
+    }
+}
+
+static QStringList structureFieldTexts(const Document &doc)
+{
+    QStringList out;
+    auto take = [&](const QVector<TextRun> &runs) {
+        for (const TextRun &r : runs) {
+            if (isStructureField(r))
+                out.append(r.text);
+        }
+    };
+    for (const Block &b : doc.body) {
+        take(b.runs);
+        take(b.captionRuns);
+        for (const auto &row : b.table) {
+            for (const auto &cell : row) {
+                take(cell.runs);
+                for (const auto &nrow : cell.nested) {
+                    for (const auto &nc : nrow)
+                        take(nc.runs);
+                }
+            }
+        }
+    }
+    return out;
+}
+
+static bool keyLess(const QStringList &a, const QStringList &b)
+{
+    const int n = qMin(a.size(), b.size());
+    for (int i = 0; i < n; ++i) {
+        if (a.at(i) < b.at(i))
+            return true;
+        if (b.at(i) < a.at(i))
+            return false;
+    }
+    return a.size() < b.size();
+}
+
+static bool rewriteFieldRuns(Document &doc, bool stats, int pages)
+{
+    bool changed = false;
+    eachFieldRun(doc, [&](QVector<TextRun> &runs) {
         for (TextRun &r : runs) {
             const bool stat = r.field == QLatin1String("stat");
             if (stats != stat)
                 continue;
             if (!stat && !isStructureField(r))
                 continue;
-            const int pagesArg = stat && r.fieldArg == QLatin1String("pages") ? statPages : 1;
+            const int pagesArg = stat ? (r.fieldArg == QLatin1String("pages") ? pages : 1) : pages;
             const QString next = runDisplayText(doc, r, 1, pagesArg, &r);
             if (next == r.text)
                 continue;
             r.text = next;
             changed = true;
         }
-        return changed;
-    };
-    auto eachRun = [&](bool stats) -> bool {
-        bool changed = false;
-        for (Block &b : doc.body) {
-            if (walk(b.runs, stats))
-                changed = true;
-            if (walk(b.captionRuns, stats))
-                changed = true;
-            for (auto &row : b.table) {
-                for (auto &cell : row) {
-                    if (walk(cell.runs, stats))
-                        changed = true;
-                    for (auto &nrow : cell.nested) {
-                        for (auto &nc : nrow) {
-                            if (walk(nc.runs, stats))
-                                changed = true;
-                        }
-                    }
-                }
+    });
+    return changed;
+}
+
+// Word-count cycles (if text feeds the next words total) keep the lexicographic
+// minimum of the cycle, which does not depend on which side the walk started on.
+static void settleStructureFields(Document &doc, int pages)
+{
+    QVector<Document> seenDocs;
+    QVector<QStringList> seenKeys;
+    for (int guard = 0; guard < 8; ++guard) {
+        const QStringList key = structureFieldTexts(doc);
+        int seen = -1;
+        for (int i = 0; i < seenKeys.size(); ++i) {
+            if (seenKeys.at(i) == key) {
+                seen = i;
+                break;
             }
         }
-        return changed;
-    };
-    eachRun(false);
+        if (seen >= 0) {
+            int best = seen;
+            for (int j = seen + 1; j < seenKeys.size(); ++j) {
+                if (keyLess(seenKeys.at(j), seenKeys.at(best)))
+                    best = j;
+            }
+            doc = seenDocs.at(best);
+            return;
+        }
+        seenDocs.push_back(doc);
+        seenKeys.push_back(key);
+        if (!rewriteFieldRuns(doc, false, pages))
+            return;
+    }
+}
+
+void refreshIfFields(Document &doc, bool includeStats)
+{
+    if (!includeStats && !documentHasRefreshField(doc))
+        return;
+    const int seededPages = layoutPageCount(doc);
+    settleStructureFields(doc, seededPages);
+    int pages = layoutPageCount(doc);
+    if (pages != seededPages) {
+        settleStructureFields(doc, pages);
+        pages = layoutPageCount(doc);
+    }
     if (!includeStats)
         return;
     // chars/words include the stat field's own cached digits. One pass can change
     // that length and therefore the next total; repeat until the numbers settle.
     for (int pass = 0; pass < 6; ++pass) {
-        if (!eachRun(true))
+        if (!rewriteFieldRuns(doc, true, pages))
             break;
     }
 }

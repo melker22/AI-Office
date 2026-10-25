@@ -1,0 +1,23 @@
+[
+  {"tool": "document_new", "args": {"force": true}},
+  {"tool": "insert_at_caret", "args": {"text": "AAA"}},
+  {"tool": "document_save", "args": {"path": "/tmp/wave23-session-undo-a.aio.json"}, "expect": {"ok": true}},
+  {"tool": "document_new", "args": {"force": true}},
+  {"tool": "insert_at_caret", "args": {"text": "BBB"}},
+  {"tool": "document_save", "args": {"path": "/tmp/wave23-session-undo-b.aio.json"}, "expect": {"ok": true}},
+  {"tool": "document_open", "args": {"path": "/tmp/wave23-session-undo-a.aio.json"}, "expect": {"ok": true}},
+  {"tool": "document_open", "args": {"path": "/tmp/wave23-session-undo-b.aio.json"}, "expect": {"ok": true}},
+  {"tool": "undo", "args": {}, "expect": {"ok": true}},
+  {"tool": "document_get", "args": {}, "expect": {"document.body.0.runs.0.text": "AAA", "path": "/tmp/wave23-session-undo-a.aio.json", "dirty": false}},
+  {"tool": "redo", "args": {}, "expect": {"ok": true}},
+  {"tool": "document_get", "args": {}, "expect": {"document.body.0.runs.0.text": "BBB", "path": "/tmp/wave23-session-undo-b.aio.json", "dirty": false}},
+  {"tool": "undo", "args": {}, "expect": {"ok": true}},
+  {"tool": "document_new", "args": {"force": true}},
+  {"tool": "document_open", "args": {"path": "/tmp/wave23-session-undo-b.aio.json"}, "expect": {"ok": true}},
+  {"tool": "document_get", "args": {}, "expect": {"document.body.0.runs.0.text": "BBB", "path": "/tmp/wave23-session-undo-b.aio.json", "dirty": false}},
+  {"tool": "checkpoint", "args": {}, "expect": {"ok": true}},
+  {"tool": "insert_at_caret", "args": {"id": "p1", "offset": 3, "text": "X"}},
+  {"tool": "document_get", "args": {}, "expect": {"dirty": true, "document.body.0.runs.0.text": "BBB", "document.body.0.runs.1.text": "X"}},
+  {"tool": "restore", "args": {}, "expect": {"ok": true, "dirty": false, "path": "/tmp/wave23-session-undo-b.aio.json"}},
+  {"tool": "document_get", "args": {}, "expect": {"document.body.0.runs.0.text": "BBB", "dirty": false, "path": "/tmp/wave23-session-undo-b.aio.json"}}
+]

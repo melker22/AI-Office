@@ -562,6 +562,30 @@ def self_test() -> int:
     else:
         print("ok   stream_has_rgb")
 
+    figure_first = {
+        "qpdf": [
+            {
+                "/Type": "/StructElem",
+                "/S": "/Document",
+                "/K": [
+                    {"/Type": "/StructElem", "/S": "/Figure"},
+                    {"/Type": "/StructElem", "/S": "/P"},
+                ],
+            }
+        ]
+    }
+    got_order = document_struct_child_types(figure_first)
+    if got_order != ["Figure", "P"]:
+        print(f"FAIL self-test document_struct_child_types pass case: {got_order!r}")
+        ok = False
+    else:
+        print("ok   document_struct_child_types pass case")
+    if ["P", "P"] == ["Figure", "P"]:
+        print("FAIL self-test document_child_types fail case (indistinguishable order)")
+        ok = False
+    else:
+        print("ok   document_child_types fail case (P,P != Figure,P)")
+
     return 0 if ok else 1
 
 

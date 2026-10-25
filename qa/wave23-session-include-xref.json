@@ -1,0 +1,17 @@
+[
+  {"tool": "document_new", "args": {"force": true}},
+  {"tool": "bookmark_add", "args": {"id": "p1", "name": "host"}, "expect": {"ok": true, "bookmark_id": "bm1"}},
+  {"tool": "document_include", "args": {"path": "qa/fixtures/wave23-include-xref.aio.json"}, "expect": {"ok": true, "count": 2}},
+  {"tool": "document_get", "args": {}, "expect": {
+    "document.bookmarks.0.id": "bm1",
+    "document.bookmarks.0.name": "host",
+    "document.bookmarks.1.id": "bm2",
+    "document.bookmarks.1.name": "marca",
+    "document.bookmarks.2.id": "bm9",
+    "document.bookmarks.2.name": "outra",
+    "document.body.1.runs.1.field": "xref",
+    "document.body.1.runs.1.field_arg": "bm2",
+    "document.body.1.runs.3.field": "xref",
+    "document.body.1.runs.3.field_arg": "bm9"
+  }}
+]

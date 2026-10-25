@@ -3,8 +3,11 @@
 #include "core/Hyphenation.h"
 #include "core/PdfPostProcess.h"
 #include "core/Qr.h"
+#include "core/Zip.h"
 
 #include <QBuffer>
+#include <QFile>
+#include <QTemporaryDir>
 #include <QJsonObject>
 #include <QFontMetricsF>
 #include <QMap>
@@ -23,6 +26,7 @@
 #include <QTextLayout>
 #include <QTextOption>
 #include <QDateTime>
+#include <QFileInfo>
 #include <QtMath>
 #include <algorithm>
 
@@ -344,8 +348,11 @@ QImage loadBlockImage(const Block &b)
     QImage img;
     if (!b.imageBytes.isEmpty())
         img.loadFromData(b.imageBytes);
-    if (img.isNull() && !b.imagePath.isEmpty())
-        img.load(b.imagePath);
+    if (img.isNull() && !b.imagePath.isEmpty()) {
+        const QFileInfo fi(b.imagePath);
+        if (fi.isFile())
+            img.load(b.imagePath);
+    }
     return img;
 }
 
@@ -1775,8 +1782,11 @@ static PdfTagRole roleForBlock(const Block &b)
         return PdfTagRole::ListItem;
     if (b.type == QLatin1String("table"))
         return PdfTagRole::TableCell;
+    // A text frame is a figure so reading_order is visible in the structure tree
+    // (Figure before P). Its glyphs stay on the shaped text path below.
     if (b.type == QLatin1String("image") || b.type == QLatin1String("shape") || b.type == QLatin1String("chart")
-        || b.type == QLatin1String("qr") || b.type == QLatin1String("equation") || b.type == QLatin1String("form"))
+        || b.type == QLatin1String("qr") || b.type == QLatin1String("equation") || b.type == QLatin1String("form")
+        || b.type == QLatin1String("frame"))
         return PdfTagRole::Figure;
     if (b.type == QLatin1String("footnote") || b.type == QLatin1String("endnote"))
         return PdfTagRole::Note;
@@ -2005,7 +2015,8 @@ static QVector<PdfTagMarker> pdfTagMarkersForPage(const Document &doc, const Doc
             }
             continue;
         }
-        if (role == PdfTagRole::Figure) {
+        // Frames keep the text-marker path (shaped runs, ruby, language spans).
+        if (role == PdfTagRole::Figure && b.type != QLatin1String("frame")) {
             PdfTagMarker m;
             m.role = PdfTagRole::Figure;
             m.blockId = lb.id;
@@ -2067,6 +2078,8 @@ static QVector<PdfTagMarker> pdfTagMarkersForPage(const Document &doc, const Doc
         m.fragment = fragment;
         m.level = qBound(1, b.level > 0 ? b.level : 1, 6);
         m.listLabel = role == PdfTagRole::ListItem && !lb.marker.isEmpty();
+        if (role == PdfTagRole::Figure)
+            m.alt = b.altText.isEmpty() ? b.plainText().trimmed() : b.altText;
         qreal top = 2;
         for (const auto &r : b.runs) {
             if (!r.ruby.isEmpty()) {
@@ -2183,7 +2196,10 @@ static void paintArtifactPass(QPainter *p, const Document &doc, const DocumentLa
             pdfDrawText(p, QRectF(lay.marginL, 8 * lay.zoom, lay.contentW, 18 * lay.zoom), Qt::AlignLeft | Qt::AlignVCenter,
                         t);
             if (!hdr.imagePath.isEmpty()) {
-                QImage himg(hdr.imagePath);
+                QImage himg;
+                const QFileInfo hfi(hdr.imagePath);
+                if (hfi.isFile())
+                    himg = QImage(hdr.imagePath);
                 if (!himg.isNull()) {
                     const QImage sc = himg.scaledToHeight(qMax(8, int(16 * lay.zoom)), Qt::SmoothTransformation);
                     p->drawImage(QPointF(lay.marginL + lay.contentW - sc.width(), 6 * lay.zoom), sc);
@@ -2660,7 +2676,8 @@ void paintPage(QPainter *p, const Document &doc, const DocumentLayout &lay, int 
         const LaidBlock *lb = bp ? laidFragment(ordered, m) : nullptr;
         const bool vert = bp && lb && verticalWriting(doc, *bp)
             && (m.role == PdfTagRole::Paragraph || m.role == PdfTagRole::Heading || m.role == PdfTagRole::ListItem
-                || m.role == PdfTagRole::Note || m.role == PdfTagRole::TocItem);
+                || m.role == PdfTagRole::Note || m.role == PdfTagRole::TocItem
+                || bp->type == QLatin1String("frame"));
         p->save();
         if (vert) {
             p->translate(lb->rect.center());
@@ -2672,7 +2689,7 @@ void paintPage(QPainter *p, const Document &doc, const DocumentLayout &lay, int 
             paintArtifactPass(p, doc, lay, page, m.artifactPass, ordered, caretOn, selId, caretOff, selRow, selCol);
         } else if (m.role == PdfTagRole::TableCell && lb && bp) {
             paintTableCellMarker(p, doc, lay, *lb, *bp, m, selId, selRow, selCol);
-        } else if (m.role == PdfTagRole::Figure && lb && bp) {
+        } else if (m.role == PdfTagRole::Figure && lb && bp && bp->type != QLatin1String("frame")) {
             paintFigureMarker(p, doc, lay, *lb, *bp);
         } else if (lb && bp) {
             paintTextMarker(p, doc, lay, *lb, *bp, m, docLang, selId, selStart, selEnd);
@@ -2988,7 +3005,16 @@ bool exportNativePdf(const Document &doc, const QString &path, QString *error, b
         }
         seq = order;
     }
-    QPdfWriter writer(path);
+    // QPdfWriter truncates the path it opens. Render into a private file and
+    // publish with QSaveFile only after post-process succeeds.
+    QTemporaryDir stageDir;
+    if (!stageDir.isValid()) {
+        if (error)
+            *error = QStringLiteral("Cannot write PDF ") + path;
+        return false;
+    }
+    const QString staged = stageDir.filePath(QStringLiteral("export.pdf"));
+    QPdfWriter writer(staged);
     if (booklet)
         writer.setPageSize(QPageSize(QSizeF(wMm * 2, hMm), QPageSize::Millimeter));
     else
@@ -3115,7 +3141,7 @@ bool exportNativePdf(const Document &doc, const QString &path, QString *error, b
         }
     }
     QString postErr;
-    if (!pdfPostProcessAddExtras(path, annots, physPageDocPage.size(), &postErr)) {
+    if (!pdfPostProcessAddExtras(staged, annots, physPageDocPage.size(), &postErr)) {
         if (error)
             *error = postErr;
         return false;
@@ -3131,18 +3157,31 @@ bool exportNativePdf(const Document &doc, const QString &path, QString *error, b
         perPageMarkers[phys] = pdfTagMarkersForPage(doc, lay, docPage);
     }
     QString tagErr;
-    if (!pdfPostProcessTagStructure(path, perPageMarkers, documentLanguage(doc), doc.readingOrder, &tagErr)) {
+    if (!pdfPostProcessTagStructure(staged, perPageMarkers, documentLanguage(doc), doc.readingOrder, &tagErr)) {
         if (error)
             *error = tagErr;
         return false;
     }
     QString unicodeErr;
-    if (!pdfPostProcessFixToUnicode(path, subsetUnicode, &unicodeErr)) {
+    if (!pdfPostProcessFixToUnicode(staged, subsetUnicode, &unicodeErr)) {
         if (error)
             *error = unicodeErr;
         return false;
     }
-    return true;
+    QFile produced(staged);
+    if (!produced.open(QIODevice::ReadOnly)) {
+        if (error)
+            *error = QStringLiteral("Cannot write PDF ") + path;
+        return false;
+    }
+    const QByteArray bytes = produced.readAll();
+    produced.close();
+    if (bytes.isEmpty()) {
+        if (error)
+            *error = QStringLiteral("Cannot write PDF ") + path;
+        return false;
+    }
+    return writeFileAtomic(path, bytes, error);
 }
 
 void pdfPostProcessSetDisplayDocTitle(bool enable) { g_pdfPostProcessDisplayDocTitle = enable; }

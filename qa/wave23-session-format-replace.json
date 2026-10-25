@@ -1,0 +1,32 @@
+[
+  {"tool": "document_new", "args": {"force": true}},
+  {"tool": "insert_at_caret", "args": {"id": "p1", "offset": 0, "text": "abc"}},
+  {"tool": "track_changes", "args": {"on": true}},
+  {"tool": "apply_character_format", "args": {"id": "p1", "bold": true}},
+  {"tool": "find_replace", "args": {"find": "b", "replace": "XX"}, "expect": {"ok": true, "count": 1}},
+  {"tool": "document_get", "args": {}, "expect": {
+    "document.body.0.runs.0.text": "aXXc",
+    "document.body.0.runs.0.bold": true
+  }},
+  {"tool": "revision_list", "args": {}, "expect": {
+    "revisions.0.id": "rev1",
+    "revisions.0.kind": "format",
+    "revisions.0.start": 0,
+    "revisions.0.end": 4,
+    "revisions.0.prior_runs.0.text": "a",
+    "revisions.0.prior_runs.0.bold": false,
+    "revisions.0.prior_runs.1.text": "XX",
+    "revisions.0.prior_runs.1.bold": false,
+    "revisions.0.prior_runs.2.text": "c",
+    "revisions.0.prior_runs.2.bold": false
+  }},
+  {"tool": "revision_reject", "args": {"id": "rev1"}, "expect": {"ok": true}},
+  {"tool": "document_get", "args": {}, "expect": {
+    "document.body.0.runs.0.text": "a",
+    "document.body.0.runs.0.bold": false,
+    "document.body.0.runs.1.text": "XX",
+    "document.body.0.runs.1.bold": false,
+    "document.body.0.runs.2.text": "c",
+    "document.body.0.runs.2.bold": false
+  }}
+]

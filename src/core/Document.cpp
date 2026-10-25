@@ -9,6 +9,7 @@
 #include <QSet>
 #include <algorithm>
 #include <functional>
+#include <utility>
 
 namespace aioffice {
 
@@ -441,12 +442,20 @@ QString validateDocumentBody(const QJsonObject &root)
     const QJsonValue body = root.value(QStringLiteral("body"));
     if (!body.isArray())
         return {};
+    QSet<QString> ids;
     for (const QJsonValue &v : body.toArray()) {
         if (!v.isObject())
-            continue;
-        const QString err = validateTableShorthand(v.toObject());
+            return QStringLiteral("body item is not an object");
+        const QJsonObject o = v.toObject();
+        const QString err = validateTableShorthand(o);
         if (!err.isEmpty())
             return err;
+        const QString id = o.value(QStringLiteral("id")).toString();
+        if (id.isEmpty())
+            continue;
+        if (ids.contains(id))
+            return QStringLiteral("duplicate block id: ") + id;
+        ids.insert(id);
     }
     return {};
 }
@@ -537,10 +546,6 @@ QJsonObject Block::toJson() const
             o[QStringLiteral("image_mime")] = imageMime;
         if (!altText.isEmpty())
             o[QStringLiteral("alt")] = altText;
-        if (!caption.isEmpty())
-            o[QStringLiteral("caption")] = caption;
-        if (!captionRuns.isEmpty())
-            o[QStringLiteral("caption_runs")] = runsToJson(captionRuns);
         if (!wrap.isEmpty())
             o[QStringLiteral("wrap")] = wrap;
         if (!anchor.isEmpty())
@@ -663,6 +668,10 @@ QJsonObject Block::toJson() const
         o[QStringLiteral("section_hidden")] = true;
     if (!hideIf.isEmpty())
         o[QStringLiteral("hide_if")] = hideIf;
+    if (!caption.isEmpty())
+        o[QStringLiteral("caption")] = caption;
+    if (!captionRuns.isEmpty())
+        o[QStringLiteral("caption_runs")] = runsToJson(captionRuns);
     return o;
 }
 
@@ -815,27 +824,46 @@ Block Block::fromJson(const QJsonObject &o)
 
 QString Block::plainText() const
 {
+    QString t;
     if (type == QLatin1String("table")) {
         QStringList parts;
         for (const auto &row : table) {
             for (const auto &cell : row) {
-                QString t;
+                QString cellText;
                 for (const auto &r : cell.runs)
-                    t += r.text;
+                    cellText += r.text;
                 for (const auto &nrow : cell.nested) {
                     for (const auto &nc : nrow) {
                         for (const auto &r : nc.runs)
-                            t += r.text;
+                            cellText += r.text;
                     }
                 }
-                parts << t;
+                parts << cellText;
             }
         }
-        return parts.join(QLatin1Char(' '));
+        t = parts.join(QLatin1Char(' '));
+    } else {
+        for (const auto &r : runs)
+            t += r.text;
     }
-    QString t;
-    for (const auto &r : runs)
-        t += r.text;
+    return t;
+}
+
+QString Block::statText() const
+{
+    QString t = plainText();
+    QString cap;
+    if (!captionRuns.isEmpty()) {
+        for (const auto &r : captionRuns)
+            cap += r.text;
+    } else {
+        cap = caption;
+    }
+    if (!cap.isEmpty()) {
+        if (!t.isEmpty() && !t.endsWith(QLatin1Char(' ')))
+            t += QLatin1Char(' ');
+        t += cap;
+    }
     return t;
 }
 
@@ -1116,9 +1144,9 @@ QJsonObject Document::toJson() const
     if (!author.isEmpty())
         meta[QStringLiteral("author")] = author;
     meta[QStringLiteral("page")] = page.toJson();
-    if (!header.text.isEmpty() || header.pageNumbers)
+    if (header.active())
         meta[QStringLiteral("header")] = header.toJson();
-    if (!footer.text.isEmpty() || footer.pageNumbers)
+    if (footer.active())
         meta[QStringLiteral("footer")] = footer.toJson();
     if (headerEven.active())
         meta[QStringLiteral("header_even")] = headerEven.toJson();
@@ -1289,11 +1317,21 @@ Document Document::fromJson(const QJsonObject &o)
             defaultStyle(QStringLiteral("Heading 3")),
         };
     }
-    for (const auto &b : o.value(QStringLiteral("body")).toArray()) {
-        Block blk = Block::fromJson(b.toObject());
-        if (blk.id.isEmpty())
-            d.assignId(blk);
-        d.body.push_back(blk);
+    // Load every block before assigning missing ids, so an explicit id later in
+    // the body cannot collide with one minted for an earlier block.
+    QVector<Block> loaded;
+    const QJsonArray bodyIn = o.value(QStringLiteral("body")).toArray();
+    loaded.reserve(bodyIn.size());
+    for (const auto &b : bodyIn) {
+        if (!b.isObject())
+            continue;
+        loaded.push_back(Block::fromJson(b.toObject()));
+    }
+    for (Block &blk : loaded)
+        d.body.push_back(std::move(blk));
+    for (int i = 0; i < d.body.size(); ++i) {
+        if (d.body[i].id.isEmpty())
+            d.assignId(d.body[i]);
     }
     for (const auto &b : o.value(QStringLiteral("bookmarks")).toArray())
         d.bookmarks.push_back(Bookmark::fromJson(b.toObject()));
@@ -1393,7 +1431,7 @@ int Document::wordCount() const
 {
     int n = 0;
     for (const auto &b : body) {
-        const auto parts = b.plainText().split(QRegularExpression(QStringLiteral("\\s+")), Qt::SkipEmptyParts);
+        const auto parts = b.statText().split(QRegularExpression(QStringLiteral("\\s+")), Qt::SkipEmptyParts);
         n += parts.size();
     }
     return n;
@@ -1523,7 +1561,7 @@ int visibleWordCount(const Document &doc)
     for (const auto &b : doc.body) {
         if (!documentBlockVisibleForStat(doc, b, 1, 1))
             continue;
-        const auto parts = b.plainText().split(QRegularExpression(QStringLiteral("\\s+")), Qt::SkipEmptyParts);
+        const auto parts = b.statText().split(QRegularExpression(QStringLiteral("\\s+")), Qt::SkipEmptyParts);
         n += parts.size();
     }
     return n;
@@ -1540,7 +1578,7 @@ int documentStatCount(const Document &doc, const QString &kind, int page, int pa
         for (const auto &b : doc.body) {
             if (!documentBlockVisibleForStat(doc, b, page, pages))
                 continue;
-            n += b.plainText().size();
+            n += b.statText().size();
         }
         return n;
     }

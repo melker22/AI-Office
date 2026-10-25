@@ -4,6 +4,7 @@
 #include "mcp/Ipc.h"
 #include "mcp/ToolDispatch.h"
 
+#include <QCoreApplication>
 #include <QFile>
 #include <QFileInfo>
 #include <QJsonArray>
@@ -118,6 +119,9 @@ int playClassifySelfCheck()
         {"IPC timeout", true, PlayReplyKind::Transport},
         {"GUI not running", true, PlayReplyKind::Transport},
         {"Bad IPC response", false, PlayReplyKind::Transport},
+        {"IPC failure: timeout", true, PlayReplyKind::Transport},
+        {"IPC failure: partial frame", true, PlayReplyKind::Transport},
+        {"IPC failure: invalid response", false, PlayReplyKind::Transport},
         {"", false, PlayReplyKind::Transport},
         {"", true, PlayReplyKind::Tool},
     };
@@ -130,24 +134,45 @@ int playClassifySelfCheck()
     return 0;
 }
 
-QJsonObject parseArgsJson(const QString &s)
+bool parseArgsJson(const QString &s, QJsonObject *out, QString *error)
 {
-    if (s.isEmpty())
-        return {};
-    const auto d = QJsonDocument::fromJson(s.toUtf8());
-    return d.object();
+    const QString trimmed = s.trimmed();
+    if (trimmed.isEmpty()) {
+        *out = {};
+        return true;
+    }
+    QJsonParseError parseError;
+    const auto doc = QJsonDocument::fromJson(trimmed.toUtf8(), &parseError);
+    if (parseError.error != QJsonParseError::NoError || !doc.isObject()) {
+        if (error)
+            *error = QStringLiteral("invalid JSON arguments");
+        return false;
+    }
+    *out = doc.object();
+    return true;
 }
 
 QJsonObject dispatch(const QString &tool, const QJsonObject &args)
 {
-    QString err;
-    if (ipcAvailable() && qEnvironmentVariableIsEmpty("AIOFFICE_HEADLESS")) {
-        auto r = ipcCall(tool, args, &err);
-        if (err.isEmpty() || r.value(QStringLiteral("ok")).toBool())
-            return r;
+    if (!qEnvironmentVariableIsEmpty("AIOFFICE_HEADLESS")) {
+        Session session;
+        return session.call(tool, args);
     }
-    Session session;
-    return session.call(tool, args);
+    QString detail;
+    const IpcProbe probe = ipcProbe(&detail);
+    if (probe == IpcProbe::NoGui) {
+        Session session;
+        return session.call(tool, args);
+    }
+    if (probe == IpcProbe::Failed)
+        return toolResultErr(detail.isEmpty() ? QStringLiteral("IPC failure: connect failed") : detail);
+    QString err;
+    const QJsonObject r = ipcCall(tool, args, &err);
+    if (!err.isEmpty())
+        return r;
+    if (!r.contains(QStringLiteral("ok")))
+        return toolResultErr(QStringLiteral("IPC failure: invalid response"));
+    return r;
 }
 
 void usage()
@@ -158,7 +183,7 @@ Usage:
   aioffice                 Launch the GUI
   aioffice mcp             MCP server on stdio (Cursor / Claude Code / Grok Build)
   aioffice call TOOL JSON  Call a semantic tool (live GUI if open, else headless)
-  aioffice play FILE.json  Run a JSON array of {tool, args} (atomic batch; not StarBasic)
+  aioffice play FILE.json  Run steps in order and stop at the first failing expect (not StarBasic)
   aioffice tools           List tool names
   aioffice new [file]      Blank document (optional save path)
   aioffice get [file]      Print semantic JSON
@@ -179,6 +204,23 @@ int runCli(const QStringList &args)
 {
     if (qEnvironmentVariableIntValue("AIOFFICE_PLAY_CLASSIFY_CHECK") == 1)
         return playClassifySelfCheck();
+    // Test hooks. They do not change the GUI-IPC policy; they only let a
+    // checker print the socket path or run the real IpcServer in-process.
+    if (qEnvironmentVariableIntValue("AIOFFICE_PRINT_IPC_PATH") == 1) {
+        printf("%s\n", qPrintable(ipcSocketPath()));
+        return 0;
+    }
+    if (qEnvironmentVariableIntValue("AIOFFICE_IPC_SERVE") == 1) {
+        Session session;
+        IpcServer server(&session);
+        const bool up = server.start();
+        fprintf(stderr, "ipc serving %s %s\n", qPrintable(ipcSocketPath()), up ? "up" : "inactive");
+        fflush(stderr);
+        QCoreApplication *app = QCoreApplication::instance();
+        if (!app)
+            return 1;
+        return app->exec();
+    }
     if (args.size() <= 1 || args[1] == QLatin1String("-h") || args[1] == QLatin1String("--help")) {
         usage();
         return args.size() <= 1 ? 2 : 0;
@@ -195,14 +237,20 @@ int runCli(const QStringList &args)
             return 2;
         }
         QJsonObject a;
+        QString jsonErr;
+        bool parsed = true;
         if (args.size() >= 4)
-            a = parseArgsJson(args[3]);
+            parsed = parseArgsJson(args[3], &a, &jsonErr);
         else if (!isatty(fileno(stdin))) {
             QByteArray raw;
             char buf[4096];
             while (fgets(buf, sizeof(buf), stdin))
                 raw += buf;
-            a = QJsonDocument::fromJson(raw).object();
+            parsed = parseArgsJson(QString::fromUtf8(raw), &a, &jsonErr);
+        }
+        if (!parsed) {
+            printJson(toolResultErr(jsonErr));
+            return 1;
         }
         const auto r = dispatch(args[2], a);
         printJson(r);
@@ -228,7 +276,21 @@ int runCli(const QStringList &args)
             fprintf(stderr, "playbook needs a JSON array of {tool, args} or {calls:[...]}\n");
             return 2;
         }
-        const bool live = ipcAvailable() && qEnvironmentVariableIsEmpty("AIOFFICE_HEADLESS");
+        bool live = false;
+        if (qEnvironmentVariableIsEmpty("AIOFFICE_HEADLESS")) {
+            QString detail;
+            const IpcProbe probe = ipcProbe(&detail);
+            if (probe == IpcProbe::Failed) {
+                const QString why = detail.isEmpty() ? QStringLiteral("IPC failure: connect failed") : detail;
+                QJsonObject out;
+                out[QStringLiteral("ok")] = false;
+                out[QStringLiteral("error")] = QStringLiteral("playbook transport failure: %1").arg(why);
+                out[QStringLiteral("results")] = QJsonArray{};
+                printJson(out);
+                return 1;
+            }
+            live = probe == IpcProbe::Connected;
+        }
         Session session;
         QJsonArray results;
         for (const auto &v : calls) {
@@ -300,13 +362,31 @@ int runCli(const QStringList &args)
         QJsonObject a;
         if (args.size() >= 3)
             a[QStringLiteral("title")] = QFileInfo(args[2]).completeBaseName();
-        if (ipcAvailable()) {
-            auto r = ipcCall(QStringLiteral("document_new"), a);
-            if (args.size() >= 3 && r.value(QStringLiteral("ok")).toBool())
-                r = ipcCall(QStringLiteral("document_save"),
-                            QJsonObject{{QStringLiteral("path"), args[2]}});
-            printJson(r);
-            return r.value(QStringLiteral("ok")).toBool() ? 0 : 1;
+        if (qEnvironmentVariableIsEmpty("AIOFFICE_HEADLESS")) {
+            QString detail;
+            const IpcProbe probe = ipcProbe(&detail);
+            if (probe == IpcProbe::Failed) {
+                printJson(toolResultErr(detail.isEmpty() ? QStringLiteral("IPC failure: connect failed") : detail));
+                return 1;
+            }
+            if (probe == IpcProbe::Connected) {
+                QString err;
+                auto r = ipcCall(QStringLiteral("document_new"), a, &err);
+                if (!err.isEmpty()) {
+                    printJson(r);
+                    return 1;
+                }
+                if (args.size() >= 3 && r.value(QStringLiteral("ok")).toBool()) {
+                    r = ipcCall(QStringLiteral("document_save"),
+                                QJsonObject{{QStringLiteral("path"), args[2]}}, &err);
+                    if (!err.isEmpty()) {
+                        printJson(r);
+                        return 1;
+                    }
+                }
+                printJson(r);
+                return r.value(QStringLiteral("ok")).toBool() ? 0 : 1;
+            }
         }
         Session s;
         auto r = s.call(QStringLiteral("document_new"), a);

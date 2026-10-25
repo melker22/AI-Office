@@ -1,0 +1,5 @@
+[
+  {"tool": "document_new", "args": {"force": true}},
+  {"tool": "document_open", "args": {"path": "image-fifo.aio.json"}, "expect": {"ok": true}},
+  {"tool": "document_save", "args": {"path": "fifo-out.epub"}, "expect": {"ok": false, "error": "EPUB image is not a regular file: image.fifo"}}
+]

@@ -1,0 +1,4 @@
+[
+  {"tool": "document_new", "args": {"title": "Wave23 preview int", "force": true}},
+  {"tool": "page_preview", "args": {"page": 1, "zoom": 1}, "expect": {"ok": true, "page": 1, "pages": 1}}
+]

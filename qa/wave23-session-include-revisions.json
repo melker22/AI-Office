@@ -1,0 +1,27 @@
+[
+  {"tool": "document_new", "args": {"force": true}},
+  {"tool": "document_include", "args": {"path": "qa/audit/fixtures/include-source.aio.json"}, "expect": {"ok": true}},
+  {"tool": "document_get", "args": {}, "expect": {
+    "document.body.1.runs.0.text": "AC",
+    "document.revisions.0.id": "rev-del",
+    "document.revisions.0.kind": "delete",
+    "document.revisions.0.text": "B",
+    "document.revisions.0.block_id": "p2",
+    "document.bookmarks.0.id": "bm1",
+    "document.bookmarks.0.name": "marca",
+    "document.bookmarks.0.block_id": "p2"
+  }},
+  {"tool": "document_include", "args": {"path": "qa/audit/fixtures/include-source.aio.json"}, "expect": {"ok": true}},
+  {"tool": "document_get", "args": {}, "expect": {
+    "document.body.2.runs.0.text": "AC",
+    "document.revisions.0.id": "rev-del",
+    "document.revisions.1.id": "rev1",
+    "document.revisions.1.kind": "delete",
+    "document.revisions.1.text": "B",
+    "document.revisions.1.block_id": "p3",
+    "document.bookmarks.0.id": "bm1",
+    "document.bookmarks.1.id": "bm2",
+    "document.bookmarks.1.name": "marca",
+    "document.bookmarks.1.block_id": "p3"
+  }}
+]

@@ -1,0 +1,10 @@
+[
+  {"tool": "document_new", "args": {"force": true}},
+  {"tool": "insert_blocks", "args": {"blocks": [{"type": "table", "rows": 300, "cols": 64}]}, "expect": {"ok": false, "error": "table rows/cols out of range"}},
+  {"tool": "insert_table", "args": {"rows": 300, "cols": 64, "header": false}, "expect": {"ok": false, "error": "table rows/cols out of range"}},
+  {"tool": "insert_table", "args": {"rows": 201, "cols": 1, "header": false}, "expect": {"ok": false, "error": "table rows/cols out of range"}},
+  {"tool": "insert_table", "args": {"rows": 1, "cols": 65, "header": false}, "expect": {"ok": false, "error": "table rows/cols out of range"}},
+  {"tool": "insert_table", "args": {"rows": 2, "cols": 2, "header": false}, "expect": {"ok": true}},
+  {"tool": "nest_table", "args": {"id": "t1", "row": 0, "col": 0, "rows": 300, "cols": 64}, "expect": {"ok": false, "error": "table rows/cols out of range"}},
+  {"tool": "nest_table", "args": {"id": "t1", "row": 0, "col": 0, "rows": 2, "cols": 2}, "expect": {"ok": true}}
+]

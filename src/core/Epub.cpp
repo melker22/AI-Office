@@ -9,6 +9,7 @@
 #include <QBuffer>
 #include <QDateTime>
 #include <QFile>
+#include <QFileInfo>
 #include <QHash>
 #include <QImage>
 #include <QRegularExpression>
@@ -112,8 +113,13 @@ QString blockPlain(const Document &doc, const Block &b)
     return t;
 }
 
-QString xmlIdFor(const QString &id)
+QString xmlIdFor(const QString &id, QHash<QString, QString> *assigned)
 {
+    if (assigned) {
+        const auto it = assigned->constFind(id);
+        if (it != assigned->cend())
+            return it.value();
+    }
     QString o;
     for (const QChar c : id) {
         if (c.isLetterOrNumber() || c == QLatin1Char('-') || c == QLatin1Char('_') || c == QLatin1Char('.'))
@@ -123,7 +129,17 @@ QString xmlIdFor(const QString &id)
     }
     if (o.isEmpty() || !(o.at(0).isLetter() || o.at(0) == QLatin1Char('_')))
         o.prepend(QStringLiteral("id-"));
-    return o;
+    if (!assigned)
+        return o;
+    QSet<QString> taken;
+    for (auto it = assigned->cbegin(); it != assigned->cend(); ++it)
+        taken.insert(it.value());
+    QString unique = o;
+    int n = 2;
+    while (taken.contains(unique))
+        unique = o + QLatin1Char('-') + QString::number(n++);
+    assigned->insert(id, unique);
+    return unique;
 }
 
 QString cssFont(QString font)
@@ -309,6 +325,7 @@ struct WriteCtx {
     QVector<QString> *noteOrder = nullptr;
     QVector<Asset> *assets = nullptr;
     QString *error = nullptr;
+    QHash<QString, QString> *xmlIds = nullptr;
 };
 
 using Attrs = QVector<QPair<QString, QString>>;
@@ -385,12 +402,12 @@ void writeRuns(XhtmlWriter &x, WriteCtx &ctx, const Block &host, const QVector<T
                 QVector<NoteUse> &uses = (*ctx.noteUses)[r.noteId];
                 NoteUse use;
                 use.chapter = ctx.chapterIndex;
-                use.refId = QStringLiteral("nr-%1-%2").arg(xmlIdFor(r.noteId)).arg(uses.size() + 1);
+                use.refId = QStringLiteral("nr-%1-%2").arg(xmlIdFor(r.noteId, ctx.xmlIds)).arg(uses.size() + 1);
                 use.label = shown.isEmpty() ? QString::number(uses.size() + 1) : shown;
                 uses.push_back(use);
                 const QString href = owner == ctx.chapterIndex
-                    ? QStringLiteral("#") + xmlIdFor(r.noteId)
-                    : ctx.chapters->at(owner).href + QStringLiteral("#") + xmlIdFor(r.noteId);
+                    ? QStringLiteral("#") + xmlIdFor(r.noteId, ctx.xmlIds)
+                    : ctx.chapters->at(owner).href + QStringLiteral("#") + xmlIdFor(r.noteId, ctx.xmlIds);
                 const QString label = use.label;
                 x.start(QStringLiteral("a"),
                         {{QStringLiteral("id"), use.refId},
@@ -467,12 +484,12 @@ void writeRuns(XhtmlWriter &x, WriteCtx &ctx, const Block &host, const QVector<T
     }
 }
 
-Attrs blockAttrs(const Block &b, const QString &docLang, bool withId)
+Attrs blockAttrs(const Block &b, const WriteCtx &ctx, bool withId)
 {
     Attrs attrs;
     if (withId && !b.id.isEmpty())
-        attrs.push_back({QStringLiteral("id"), xmlIdFor(b.id)});
-    addLangDir(attrs, blockLang(b, docLang), b.dir == QLatin1String("rtl") || b.dir == QLatin1String("ltr") ? b.dir : QString());
+        attrs.push_back({QStringLiteral("id"), xmlIdFor(b.id, ctx.xmlIds)});
+    addLangDir(attrs, blockLang(b, ctx.docLang), b.dir == QLatin1String("rtl") || b.dir == QLatin1String("ltr") ? b.dir : QString());
     const QString cls = cssClassName(b.style);
     if (!cls.isEmpty())
         attrs.push_back({QStringLiteral("class"), cls});
@@ -558,18 +575,24 @@ bool loadImageBytes(const Block &b, QByteArray *out, QString *error)
             *error = QStringLiteral("EPUB image has no data: ") + b.id;
         return false;
     }
+    const QFileInfo fi(b.imagePath);
+    if (!fi.isFile()) {
+        if (error)
+            *error = QStringLiteral("EPUB image is not a regular file: ") + b.imagePath;
+        return false;
+    }
+    if (fi.size() > kMaxImageBytes) {
+        if (error)
+            *error = QStringLiteral("EPUB image exceeds 32MB: ") + b.id;
+        return false;
+    }
     QFile f(b.imagePath);
     if (!f.open(QIODevice::ReadOnly)) {
         if (error)
             *error = QStringLiteral("Cannot read image ") + b.imagePath;
         return false;
     }
-    if (f.size() > kMaxImageBytes) {
-        if (error)
-            *error = QStringLiteral("EPUB image exceeds 32MB: ") + b.id;
-        return false;
-    }
-    const QByteArray bytes = f.readAll();
+    const QByteArray bytes = f.read(kMaxImageBytes + 1);
     if (bytes.size() > kMaxImageBytes) {
         if (error)
             *error = QStringLiteral("EPUB image exceeds 32MB: ") + b.id;
@@ -593,7 +616,7 @@ bool imageNeedsRaster(const Block &b)
 bool addAsset(WriteCtx &ctx, const Block &b, const QByteArray &bytes, const QString &mime, const QString &ext, QString *hrefOut)
 {
     Asset a;
-    const QString base = xmlIdFor(b.id.isEmpty() ? QStringLiteral("img") : b.id);
+    const QString base = xmlIdFor(b.id.isEmpty() ? QStringLiteral("img") : b.id, ctx.xmlIds);
     QString href = QStringLiteral("images/") + base + QLatin1Char('.') + ext;
     QString mid = QStringLiteral("img-") + base;
     QSet<QString> hrefs;
@@ -640,7 +663,7 @@ bool writeFigure(XhtmlWriter &x, WriteCtx &ctx, const Block &b, bool raster)
     }
     QString href;
     addAsset(ctx, b, bytes, mime, ext, &href);
-    x.start(QStringLiteral("figure"), {{QStringLiteral("id"), xmlIdFor(b.id)}});
+    x.start(QStringLiteral("figure"), {{QStringLiteral("id"), xmlIdFor(b.id, ctx.xmlIds)}});
     x.nl();
     x.empty(QStringLiteral("img"), {{QStringLiteral("src"), href}, {QStringLiteral("alt"), altFor(b)}});
     x.nl();
@@ -674,7 +697,7 @@ void writeNested(XhtmlWriter &x, WriteCtx &ctx, const Block &host, const QVector
 
 void writeTable(XhtmlWriter &x, WriteCtx &ctx, const Block &b)
 {
-    x.start(QStringLiteral("table"), blockAttrs(b, ctx.docLang, true));
+    x.start(QStringLiteral("table"), blockAttrs(b, ctx, true));
     x.nl();
     const int rows = b.table.size();
     int cols = 0;
@@ -762,7 +785,7 @@ void writeList(XhtmlWriter &x, WriteCtx &ctx, const QVector<const Block *> &item
             continue;
         }
         any = true;
-        x.start(QStringLiteral("li"), blockAttrs(b, ctx.docLang, true));
+        x.start(QStringLiteral("li"), blockAttrs(b, ctx, true));
         if (b.listKind == QLatin1String("checkbox") || b.listKind == QLatin1String("task"))
             x.text(b.checked ? QStringLiteral("☑ ") : QStringLiteral("☐ "));
         writeRuns(x, ctx, b, b.runs);
@@ -779,7 +802,7 @@ void writeList(XhtmlWriter &x, WriteCtx &ctx, const QVector<const Block *> &item
 void writeTocBlock(XhtmlWriter &x, WriteCtx &ctx, const Block &b)
 {
     x.start(QStringLiteral("nav"),
-            {{QStringLiteral("id"), xmlIdFor(b.id)}, {QStringLiteral("epub:type"), QStringLiteral("toc")}});
+            {{QStringLiteral("id"), xmlIdFor(b.id, ctx.xmlIds)}, {QStringLiteral("epub:type"), QStringLiteral("toc")}});
     x.nl();
     x.start(QStringLiteral("ol"));
     x.nl();
@@ -807,7 +830,7 @@ bool writeBlock(XhtmlWriter &x, WriteCtx &ctx, const Block &b)
 {
     if (b.type == QLatin1String("heading")) {
         const QString tag = QStringLiteral("h%1").arg(headingLevel(b));
-        x.start(tag, blockAttrs(b, ctx.docLang, true));
+        x.start(tag, blockAttrs(b, ctx, true));
         writeRuns(x, ctx, b, b.runs);
         x.end(tag);
         x.nl();
@@ -821,19 +844,19 @@ bool writeBlock(XhtmlWriter &x, WriteCtx &ctx, const Block &b)
         if (!writeFigure(x, ctx, b, true))
             return false;
     } else if (b.type == QLatin1String("list-item")) {
-        x.start(QStringLiteral("p"), blockAttrs(b, ctx.docLang, true));
+        x.start(QStringLiteral("p"), blockAttrs(b, ctx, true));
         writeRuns(x, ctx, b, b.runs);
         x.end(QStringLiteral("p"));
         x.nl();
     } else if (b.type == QLatin1String("toc")) {
         writeTocBlock(x, ctx, b);
     } else if (b.type == QLatin1String("frame")) {
-        x.start(QStringLiteral("blockquote"), blockAttrs(b, ctx.docLang, true));
+        x.start(QStringLiteral("blockquote"), blockAttrs(b, ctx, true));
         writeRuns(x, ctx, b, b.runs);
         x.end(QStringLiteral("blockquote"));
         x.nl();
     } else if (b.type == QLatin1String("equation") || b.type == QLatin1String("form")) {
-        x.start(QStringLiteral("p"), blockAttrs(b, ctx.docLang, true));
+        x.start(QStringLiteral("p"), blockAttrs(b, ctx, true));
         if (b.type == QLatin1String("form") && b.formKind == QLatin1String("checkbox"))
             x.text(b.checked ? QStringLiteral("☑ ") : QStringLiteral("☐ "));
         writeRuns(x, ctx, b, b.runs);
@@ -842,7 +865,7 @@ bool writeBlock(XhtmlWriter &x, WriteCtx &ctx, const Block &b)
         x.end(QStringLiteral("p"));
         x.nl();
     } else if (b.type != QLatin1String("break") && !isNote(b)) {
-        x.start(QStringLiteral("p"), blockAttrs(b, ctx.docLang, true));
+        x.start(QStringLiteral("p"), blockAttrs(b, ctx, true));
         writeRuns(x, ctx, b, b.runs);
         x.end(QStringLiteral("p"));
         x.nl();
@@ -881,7 +904,7 @@ void writeNotes(XhtmlWriter &x, WriteCtx &ctx)
         if (!noteUsable(*ctx.doc, id, &note))
             continue;
         const bool endnote = note->type == QLatin1String("endnote");
-        Attrs attrs = {{QStringLiteral("id"), xmlIdFor(note->id)},
+        Attrs attrs = {{QStringLiteral("id"), xmlIdFor(note->id, ctx.xmlIds)},
                        {QStringLiteral("epub:type"), endnote ? QStringLiteral("endnote") : QStringLiteral("footnote")},
                        {QStringLiteral("role"), endnote ? QStringLiteral("doc-endnote") : QStringLiteral("doc-footnote")},
                        {QStringLiteral("class"), endnote ? QStringLiteral("endnote") : QStringLiteral("footnote")}};
@@ -1349,6 +1372,11 @@ bool saveEpub(const Document &doc, const QString &path, QString *error, QJsonObj
         chapters[i].manifestId = QStringLiteral("c%1").arg(i + 1);
     }
 
+    QHash<QString, QString> xmlIds;
+    for (const Block &b : doc.body) {
+        if (!b.id.isEmpty())
+            xmlIdFor(b.id, &xmlIds);
+    }
     QHash<QString, QString> blockHref;
     QHash<QString, int> blockChapter;
     for (int ci = 0; ci < chapters.size(); ++ci) {
@@ -1356,7 +1384,7 @@ bool saveEpub(const Document &doc, const QString &path, QString *error, QJsonObj
             const QString id = doc.body.at(idx).id;
             if (id.isEmpty())
                 continue;
-            blockHref.insert(id, chapters[ci].href + QStringLiteral("#") + xmlIdFor(id));
+            blockHref.insert(id, chapters[ci].href + QStringLiteral("#") + xmlIdFor(id, &xmlIds));
             blockChapter.insert(id, ci);
         }
     }
@@ -1396,6 +1424,7 @@ bool saveEpub(const Document &doc, const QString &path, QString *error, QJsonObj
         ctx.noteOrder = &noteOrder;
         ctx.assets = &assets;
         ctx.error = &err;
+        ctx.xmlIds = &xmlIds;
         QString xhtml;
         if (!writeChapter(doc, chapters[ci], ci, ctx, &xhtml, &err)) {
             if (error)
@@ -1452,17 +1481,8 @@ bool saveEpub(const Document &doc, const QString &path, QString *error, QJsonObj
             *error = QStringLiteral("EPUB zip failed");
         return false;
     }
-    QFile out(path);
-    if (!out.open(QIODevice::WriteOnly)) {
-        if (error)
-            *error = QStringLiteral("Cannot write ") + path;
+    if (!writeFileAtomic(path, zip, error))
         return false;
-    }
-    if (out.write(zip) != zip.size()) {
-        if (error)
-            *error = QStringLiteral("Cannot write ") + path;
-        return false;
-    }
     if (info) {
         info->insert(QStringLiteral("format"), QStringLiteral("epub"));
         info->insert(QStringLiteral("chapters"), chapters.size());

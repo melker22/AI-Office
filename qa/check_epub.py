@@ -11,6 +11,7 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import urllib.parse
 import zipfile
 from pathlib import Path
 from typing import Any
@@ -219,6 +220,129 @@ def png_size(data: bytes) -> tuple[int, int]:
     return int.from_bytes(data[16:20], "big"), int.from_bytes(data[20:24], "big")
 
 
+def _local_tag(tag: object) -> str:
+    if not isinstance(tag, str):
+        return ""
+    return tag.split("}")[-1] if "}" in tag else tag
+
+
+def _element_has_nested_list(root: ET.Element) -> bool:
+    """True when an ol or ul is a descendant of an li, including through a wrapper."""
+    for li in root.iter():
+        if _local_tag(li.tag) != "li":
+            continue
+        for desc in li.iter():
+            if desc is not li and _local_tag(desc.tag) in ("ol", "ul"):
+                return True
+    return False
+
+
+def html_has_nested_list(html: str) -> bool:
+    """True when one well-formed document nests ol/ul inside an li.
+
+    A parse error is not a nested list. Callers that have an EPUB must parse
+    each XHTML file; a concatenated bundle is not one document.
+    """
+    try:
+        root = ET.fromstring(html)
+    except ET.ParseError:
+        return False
+    return _element_has_nested_list(root)
+
+
+def _zip_name_key(name: str) -> str:
+    return name.replace("\\", "/").lstrip("/").lower()
+
+
+def _resolve_opf_href(opf_name: str, href: str) -> str:
+    """Href relative to the OPF, without a fragment or query."""
+    # Manifest hrefs are URLs: drop fragment and query, then percent-decode the path (EPUB 3.3).
+    href = urllib.parse.unquote(href.split("#", 1)[0].split("?", 1)[0].strip()).replace("\\", "/")
+    if not href:
+        return ""
+    if href.startswith("/"):
+        return href.lstrip("/").lower()
+    opf = opf_name.replace("\\", "/")
+    base = opf.rsplit("/", 1)[0] if "/" in opf else ""
+    parts = [p for p in base.split("/") if p] if base else []
+    for part in href.split("/"):
+        if part in ("", "."):
+            continue
+        if part == "..":
+            if parts:
+                parts.pop()
+            continue
+        parts.append(part)
+    return "/".join(parts).lower()
+
+
+def _opf_names(zf: zipfile.ZipFile) -> list[str]:
+    """OPF package documents: META-INF/container.xml rootfiles, else every *.opf entry."""
+    names = {_zip_name_key(n): n for n in zf.namelist()}
+    container = names.get("meta-inf/container.xml")
+    if container is not None:
+        try:
+            root = ET.fromstring(zf.read(container))
+        except ET.ParseError as exc:
+            raise ValueError(f"META-INF/container.xml is not well-formed ({exc})") from exc
+        found = [el.get("full-path") or "" for el in root.iter() if _local_tag(el.tag) == "rootfile"]
+        found = [names.get(_zip_name_key(p)) for p in found if p]
+        if not found or None in found:
+            raise ValueError("META-INF/container.xml names no OPF that exists in the package")
+        return found
+    opfs = [n for k, n in names.items() if k.endswith(".opf")]
+    if not opfs:
+        raise ValueError("no OPF package document")
+    return opfs
+
+
+def _nav_document_names(zf: zipfile.ZipFile) -> set[str]:
+    """Navigation documents = manifest items with properties="nav" (OPF metadata only, never a
+    filename guess: a chapter called canvas.xhtml is content). Raises ValueError when no OPF can be
+    read, so a nested-list requirement fails instead of silently counting the nav as content."""
+    nav: set[str] = set()
+    for name in _opf_names(zf):
+        try:
+            root = ET.fromstring(zf.read(name))
+        except ET.ParseError as exc:
+            raise ValueError(f"{name}: OPF is not well-formed ({exc})") from exc
+        for item in root.iter():
+            if _local_tag(item.tag) != "item":
+                continue
+            if "nav" not in (item.get("properties") or "").split():
+                continue
+            resolved = _resolve_opf_href(name, item.get("href") or "")
+            if resolved:
+                nav.add(resolved)
+    return nav
+
+
+def epub_has_nested_list(epub: Path) -> tuple[bool, str]:
+    """(found, error). A list nested in a list item in some content document (not navigation)."""
+    try:
+        zf = zipfile.ZipFile(epub)
+    except zipfile.BadZipFile as exc:
+        return False, f"not a ZIP package ({exc})"
+    with zf:
+        try:
+            nav_names = _nav_document_names(zf)
+        except ValueError as exc:
+            return False, str(exc)
+        for name in zf.namelist():
+            key = _zip_name_key(name)
+            if not key.endswith(".xhtml") and not key.endswith(".html"):
+                continue
+            if key in nav_names:
+                continue
+            try:
+                root = ET.fromstring(zf.read(name))
+            except ET.ParseError:
+                continue
+            if _element_has_nested_list(root):
+                return True, ""
+    return False, ""
+
+
 def check_structure(epub: Path, exp: dict[str, Any]) -> list[str]:
     errors: list[str] = []
     if exp.get("mimetype_stored_first", True) and not mimetype_stored_first(epub):
@@ -283,8 +407,12 @@ def check_structure(epub: Path, exp: dict[str, Any]) -> list[str]:
     if nested_list:
         if "<ol" not in bundle_lower and "<ul" not in bundle_lower:
             errors.append("missing list markup")
-        if nested_list == "required" and bundle_lower.count("<li") < 2:
-            errors.append("expected nested list with multiple items")
+        if nested_list == "required":
+            found, why = epub_has_nested_list(epub)
+            if why:
+                errors.append(f"cannot check nested_list: {why}")
+            elif not found:
+                errors.append("expected a list nested inside a list item")
 
     alt_text = exp.get("image_alt_contains")
     if isinstance(alt_text, str) and alt_text:
@@ -422,6 +550,54 @@ def write_footnote_token_epub(path: Path) -> None:
         zf.writestr("OEBPS/chapter.xhtml", chapter)
 
 
+def write_list_markup_epub(path: Path, chapter: str) -> None:
+    """Nav plus one chapter. Used to prove nested-list detection is per file."""
+    nav = """<?xml version="1.0" encoding="UTF-8"?>
+<html xmlns="http://www.w3.org/1999/xhtml">
+<body><nav><ol><li><a href="chapter.xhtml">Ch</a></li></ol></nav></body>
+</html>"""
+    chapter_xml = f"""<?xml version="1.0" encoding="UTF-8"?>
+<html xmlns="http://www.w3.org/1999/xhtml">
+<body>{chapter}</body>
+</html>"""
+    opf = """<?xml version="1.0" encoding="UTF-8"?>
+<package xmlns="http://www.idpf.org/2007/opf" version="3.0">
+  <manifest>
+    <item id="nav" href="nav.xhtml" media-type="application/xhtml+xml" properties="nav"/>
+    <item id="c1" href="chapter.xhtml" media-type="application/xhtml+xml"/>
+  </manifest>
+</package>"""
+    with zipfile.ZipFile(path, "w") as zf:
+        zf.writestr("OEBPS/nav.xhtml", nav)
+        zf.writestr("OEBPS/chapter.xhtml", chapter_xml)
+        zf.writestr("OEBPS/content.opf", opf)
+
+
+def write_nav_list_epub(path: Path, nav_name: str, nav_inner: str, chapter_inner: str,
+                        nav_href: str | None = None) -> None:
+    """One manifest nav document plus a chapter. nav_name may omit the word nav; nav_href is the
+    manifest href (default nav_name), e.g. percent-encoded."""
+    nav_xml = f"""<?xml version="1.0" encoding="UTF-8"?>
+<html xmlns="http://www.w3.org/1999/xhtml">
+<body>{nav_inner}</body>
+</html>"""
+    chapter_xml = f"""<?xml version="1.0" encoding="UTF-8"?>
+<html xmlns="http://www.w3.org/1999/xhtml">
+<body>{chapter_inner}</body>
+</html>"""
+    opf = f"""<?xml version="1.0" encoding="UTF-8"?>
+<package xmlns="http://www.idpf.org/2007/opf" version="3.0">
+  <manifest>
+    <item id="nav" href="{nav_href or nav_name}" media-type="application/xhtml+xml" properties="nav"/>
+    <item id="c1" href="chapter.xhtml" media-type="application/xhtml+xml"/>
+  </manifest>
+</package>"""
+    with zipfile.ZipFile(path, "w") as zf:
+        zf.writestr(f"OEBPS/{nav_name}", nav_xml)
+        zf.writestr("OEBPS/chapter.xhtml", chapter_xml)
+        zf.writestr("OEBPS/content.opf", opf)
+
+
 def self_test() -> int:
     ok = True
 
@@ -498,6 +674,94 @@ def self_test() -> int:
         ok = False
     else:
         print("ok   epubcheck absence detection")
+
+    flat = '<ul xmlns="http://www.w3.org/1999/xhtml"><li>A</li><li>B</li></ul>'
+    nested = (
+        '<ul xmlns="http://www.w3.org/1999/xhtml"><li>A<ul><li>B</li></ul></li></ul>'
+    )
+    if html_has_nested_list(flat):
+        print("FAIL self-test nested_list flat case should fail")
+        ok = False
+    else:
+        print("ok   nested_list flat case rejected")
+    if not html_has_nested_list(nested):
+        print("FAIL self-test nested_list nested case should pass")
+        ok = False
+    else:
+        print("ok   nested_list nested case accepted")
+
+    with tempfile.TemporaryDirectory(prefix="aioffice-epub-lists-") as tmp:
+        list_exp = {"nested_list": "required", "nav": False, "mimetype_stored_first": False}
+        flat_epub = Path(tmp) / "flat.epub"
+        write_list_markup_epub(flat_epub, "<ul><li>A</li><li>B</li></ul>")
+        flat_errs = check_structure(flat_epub, list_exp)
+        if "expected a list nested inside a list item" not in flat_errs:
+            print("FAIL self-test flat EPUB with nested_list required should fail:", flat_errs)
+            ok = False
+        else:
+            print("ok   flat EPUB nested_list required rejected")
+        nested_epub = Path(tmp) / "nested.epub"
+        write_list_markup_epub(nested_epub, "<ul><li>A<ul><li>B</li></ul></li></ul>")
+        nested_errs = check_structure(nested_epub, list_exp)
+        nested_bad = [e for e in nested_errs if "nested" in e or "list markup" in e]
+        if nested_bad:
+            print("FAIL self-test nested EPUB should pass:", nested_errs)
+            ok = False
+        else:
+            print("ok   nested EPUB nested_list required accepted")
+
+        nested_nav = "<ol><li>Ch<ul><li>Sub</li></ul></li></ol>"
+        flat_chapter = "<ul><li>A</li><li>B</li></ul>"
+        nav_epub = Path(tmp) / "nav-nested.epub"
+        write_nav_list_epub(nav_epub, "nav.xhtml", nested_nav, flat_chapter)
+        nav_errs = check_structure(nav_epub, list_exp)
+        if "expected a list nested inside a list item" not in nav_errs:
+            print("FAIL self-test nested TOC with flat chapters should fail:", nav_errs)
+            ok = False
+        else:
+            print("ok   nested TOC with flat chapters rejected")
+        toc_epub = Path(tmp) / "toc-nested.epub"
+        write_nav_list_epub(toc_epub, "toc.xhtml", nested_nav, flat_chapter)
+        toc_errs = check_structure(toc_epub, list_exp)
+        if "expected a list nested inside a list item" not in toc_errs:
+            print("FAIL self-test properties=nav TOC with flat chapters should fail:", toc_errs)
+            ok = False
+        else:
+            print("ok   properties=nav TOC with flat chapters rejected")
+        # A content document whose name contains "nav" (canvas.xhtml) is content, not navigation.
+        canvas_epub = Path(tmp) / "canvas.epub"
+        write_nav_list_epub(canvas_epub, "toc.xhtml", "<ol><li>Ch</li></ol>", flat_chapter)
+        with zipfile.ZipFile(canvas_epub, "a") as zf:
+            zf.writestr("OEBPS/canvas.xhtml", '<?xml version="1.0" encoding="UTF-8"?>\n'
+                        '<html xmlns="http://www.w3.org/1999/xhtml"><body>'
+                        "<ul><li>A<ul><li>B</li></ul></li></ul></body></html>")
+        canvas_errs = check_structure(canvas_epub, list_exp)
+        if any("nested" in e for e in canvas_errs):
+            print("FAIL self-test a nested list in canvas.xhtml should count as content:", canvas_errs)
+            ok = False
+        else:
+            print("ok   nested list in a content file named canvas.xhtml accepted")
+        # An OPF that cannot be parsed fails the requirement with a clear error.
+        broken_epub = Path(tmp) / "broken-opf.epub"
+        write_list_markup_epub(broken_epub, "<ul><li>A<ul><li>B</li></ul></li></ul>")
+        with zipfile.ZipFile(broken_epub, "a") as zf:
+            zf.writestr("META-INF/container.xml", "<container><rootfiles><rootfile full-path=\"OEBPS/bad.opf\"/>"
+                        "</rootfiles></container>")
+            zf.writestr("OEBPS/bad.opf", "<package><manifest><item")
+        broken_errs = check_structure(broken_epub, list_exp)
+        if not any(e.startswith("cannot check nested_list:") for e in broken_errs):
+            print("FAIL self-test an unparseable OPF should fail nested_list with a clear error:", broken_errs)
+            ok = False
+        else:
+            print("ok   unparseable OPF fails nested_list with a clear error")
+        enc_epub = Path(tmp) / "toc-encoded.epub"
+        write_nav_list_epub(enc_epub, "toc file.xhtml", nested_nav, flat_chapter, nav_href="toc%20file.xhtml")
+        enc_errs = check_structure(enc_epub, list_exp)
+        if "expected a list nested inside a list item" not in enc_errs:
+            print("FAIL self-test percent-encoded nav href with flat chapters should fail:", enc_errs)
+            ok = False
+        else:
+            print("ok   percent-encoded nav href with flat chapters rejected")
 
     mcp = (REPO / "docs" / "mcp-tools.md").read_text(encoding="utf-8")
     open_section = mcp.split("### `document_open`", 1)[1].split("### `document_save`", 1)[0]
