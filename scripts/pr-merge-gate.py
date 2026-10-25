@@ -189,6 +189,10 @@ _BLOCKING_BODY_KINDS = ("outside-diff", "duplicate", "body-critical", "body-majo
 _ACK_RE = re.compile(r"^\s*cr-ack\s+([0-9a-f]{16,})\b[ \t]+(\S.*)$", re.M)
 
 
+_PROMPT_HEADING_RE = re.compile(
+    r"^[ \t]*(?:<details>[ \t]*)?<summary>(?:(?!</summary>).)*Prompt for all review comments(?:(?!</summary>).)*</summary>", re.M)
+
+
 def _is_heading(body: str, m: re.Match) -> bool:
     """A section name only counts as a heading in heading position: `**…name (N)**` or
     `<summary>…name: N</summary>` starting its line. The same words quoted inside a finding's text
@@ -207,9 +211,10 @@ def body_findings(review: dict, kinds: tuple = _BLOCKING_BODY_KINDS) -> list[dic
     body = review.get("body") or ""
     for _ in range(3):  # nested "> " quote prefixes, the first line included
         body = re.sub(r"^[ \t]*>[ \t]?", "", body, flags=re.M)
-    stop = body.find("Prompt for all review comments")
-    if stop < 0:
-        stop = len(body)
+    # The prompt section starts at its <summary> heading line; the same words quoted inside a finding
+    # must not end the scan early (every later finding would be dropped).
+    pm = _PROMPT_HEADING_RE.search(body)
+    stop = pm.start() if pm else len(body)
     heads = [(m.start(), _SECTION_KIND[m.group(1)]) for m in _SECTION_RE.finditer(body) if _is_heading(body, m)]
     out: list[dict] = []
     prev = 0
@@ -553,6 +558,9 @@ def self_test() -> int:
     check("a bot cannot acknowledge", res[0] == 1, "\n".join(res[1]))
 
     quoted = dict(new_fmt, body=new_fmt["body"].replace("> body\n", "> It cites Nitpick comments (1) and Minor comments: 3 in its text.\n"))
+    phrase = dict(new_fmt, body=new_fmt["body"].replace("> body\n", "> See the Prompt for all review comments section.\n"))
+    check("the prompt-section phrase quoted inside a finding does not end the scan",
+          [f["id"][:6] for f in body_findings(phrase)] == ["012345"], str(body_findings(phrase)))
     check("section names quoted inside a finding do not change its section",
           [(f["id"][:6], f["kind"]) for f in body_findings(quoted)] == [("012345", "outside-diff")], str(body_findings(quoted)))
 
