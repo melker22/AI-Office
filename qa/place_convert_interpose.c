@@ -9,6 +9,14 @@
 #include <sys/file.h>
 #include <unistd.h>
 
+/* The interposer must only act inside aioffice-cli. Children (the fake soffice, /usr/bin/env) must not
+ * inherit it: on CI their glibc differs from the one this library was built against and the loader
+ * refuses it (GLIBC_ABI_DT_X86_64_PLT), so they would never run. */
+__attribute__((constructor)) static void aio_drop_preload_for_children(void)
+{
+    unsetenv("LD_PRELOAD");
+}
+
 /* Forces placeConverted's publish onto AIOFFICE_PLACE_FAIL_DEST to fail, and
  * the first create of export.pdf to fail so native PDF falls through to
  * LibreOffice. A real fsync/rename of any other path is unchanged. Root still

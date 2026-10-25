@@ -42,7 +42,8 @@ while i < len(args):
     i += 1
 log = os.environ.get("AIOFFICE_FAKE_SOFFICE_LOG")
 if log:
-    Path(log).write_text(json.dumps({"outdir": outdir, "argv": args, "infile": infile}))
+    Path(log).write_text(json.dumps({"outdir": outdir, "argv": args, "infile": infile,
+                                     "ld_preload": os.environ.get("LD_PRELOAD", "")}))
 ext = os.environ.get("AIOFFICE_FAKE_SOFFICE_EXT", "doc")
 if outdir and infile:
     dest = Path(outdir) / (Path(infile).stem + "." + ext)
@@ -183,6 +184,8 @@ def _publish_failure_keeps_existing(cli: str, runtime: Path, fake: Path) -> None
         fail(f"fake soffice log is not JSON: {exc}")
     if not recorded.get("argv"):
         fail(f"fake soffice log has no argv: {recorded!r}")
+    if recorded.get("ld_preload"):
+        fail(f"the interposer leaked into soffice via LD_PRELOAD={recorded['ld_preload']!r}")
     if not _publish_attempt_on_dest(trace, dest):
         fail(f"interposer did not record a publish attempt on {dest}; log={trace!r}")
     if not dest.exists():

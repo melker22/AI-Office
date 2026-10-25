@@ -145,7 +145,9 @@ Formato: `L<n> — regra` · onde falhou (evidência) · ocorrências.
   arquivo e "sem acesso" não bloqueiam root (imagem `nixos/nix` da CircleCI). Provoque a falha por um
   meio que vale para qualquer usuário — `/dev/full`, FIFO, nome acima de `NAME_MAX`, entrada malformada —
   e nunca faça o teste "recusar root" (vira CI vermelha, não proteção). · PR #13: `wave23_io_hostile`
-  passava local e falhava na CI com "refusing to run as root". · 1
+  passava local e falhava na CI com "refusing to run as root". Idem para a glibc: um `LD_PRELOAD` de
+  teste herdado por processos filhos quebrou na CI (`GLIBC_ABI_DT_X86_64_PLT`), onde `/usr/bin/env`
+  usa outra glibc — o interposer remove o `LD_PRELOAD` ao carregar e o teste confere que não vazou. · 2
 
 ## Processo (Fleets)
 
