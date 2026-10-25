@@ -1,13 +1,17 @@
 #!/usr/bin/env python3
 """Collect every CodeRabbit finding from AI Office PRs: inline comments + review-body sections
 (outside-diff, duplicate, nitpick), robust to both old (<em>) and new (<strong>) body formats."""
-import json, re, sys, urllib.request
+import importlib.util, json, re, sys, urllib.request
+from pathlib import Path
+_spec = importlib.util.spec_from_file_location("pr_merge_gate", Path(__file__).with_name("pr-merge-gate.py"))
+_gate = importlib.util.module_from_spec(_spec); _spec.loader.exec_module(_gate)
+_ALL_BODY_KINDS = ("outside-diff", "duplicate", "nitpick", "body-critical", "body-major", "body-minor", "body-trivial")
 API = "https://api.github.com/repos/melker22/AI-Office"
 def get(u):
+    """Every page of a list endpoint (or one object), through the merge gate's authenticated get()."""
     out=[]; page=1
     while True:
-        req=urllib.request.Request(f"{u}{'&' if '?' in u else '?'}per_page=100&page={page}", headers={"Accept":"application/vnd.github+json"})
-        with urllib.request.urlopen(req, timeout=30) as r: d=json.load(r)
+        d=_gate.get(f"{u}{'&' if '?' in u else '?'}per_page=100&page={page}")
         if not isinstance(d,list): return d
         out+=d
         if len(d)<100: return out
@@ -31,38 +35,15 @@ for n in [int(x) for x in sys.argv[1:]]:
         b=clean(c["body"])
         findings.append(dict(pr=n, kind="inline", severity=sev(c["body"]), path=c["path"], line=c.get("line") or c.get("original_line"),
             title=title(b), url=c["html_url"], created=c["created_at"], addressed=("Addressed in" in c["body"] or "✅" in c["body"][:400]), body=b[:3500]))
+    # Review-body findings: same parser as the merge gate (both body formats, icons in the severity tag,
+    # grouped "<Severity> comments: N" sections). `cr_id` is the CodeRabbit marker id used by `cr-ack`.
     for r in get(f"{API}/pulls/{n}/reviews"):
         if not r["user"]["login"].startswith("coderabbit"): continue
-        body=r.get("body") or ""
-        for _ in range(3): body=re.sub(r'\n[ \t]*>[ \t]?', '\n', body)
-        # positions of section headers
-        heads=[(m.start(), {'Outside diff range comments':'outside-diff','Duplicate comments':'duplicate','Nitpick comments':'nitpick','Additional comments':'additional','Critical comments':'body-critical','Major comments':'body-major','Minor comments':'body-minor','Trivial comments':'body-trivial'}[m.group(1)])
-               for m in re.finditer(r'(Outside diff range comments|Duplicate comments|Nitpick comments|Additional comments|Critical comments|Major comments|Minor comments|Trivial comments)\s*(?:\(\d+\)|:\s*\d+)', body)]
-        if not heads: continue
-        stop=body.find('Prompt for all review comments'); stop = stop if stop>0 else len(body)
-        prev=0
-        for m in re.finditer(r'<!--\s*cr-comment:v1:[0-9a-f]+\s*-->', body):
-            seg=body[prev:m.start()]; prev=m.end()
-            if m.start()>stop: break
-            kinds=[k for p,k in heads if p<=m.start()]
-            if not kinds or kinds[-1]=='additional': continue
-            kind=kinds[-1]
-            # location: new/old summary line or nitpick "`lines`:" under "<summary>path (N)</summary>"
-            loc=None
-            mm=list(re.finditer(r'<code>([^<]+:\d[\d-]*)</code>\s*</summary>|<code>([^<]+:\d[\d-]*)</code>', seg))
-            full=re.findall(r'`([\w./-]+/[\w.-]+:\d[\d-]*)`', seg)
-            if full: loc=full[-1]
-            elif mm: loc=(mm[-1].group(1) or mm[-1].group(2))
-            else:
-                fp=list(re.finditer(r'<summary>([^<()]+?)\s*(?:\(\d+\)|:\s*\d+)</summary>', body[:m.start()]))
-                ln=list(re.finditer(r'`(\d+(?:-\d+)?)`:', seg))
-                if fp: loc=fp[-1].group(1).strip()+(":"+ln[-1].group(1) if ln else "")
-            # keep only the last finding inside seg
-            starts=[x.start() for x in re.finditer(r'<details>\s*<summary>(?:<em>|<strong>)?\s*(?:🔴|🟠|🟡|🔵|🧹)?\s*'+SEV, seg)]
-            nps=[x.start() for x in re.finditer(r'`\d+(?:-\d+)?`:', seg)]
-            cut=max(starts+nps) if (starts or nps) else 0
-            fb=clean(seg[cut:])
-            path=(loc or "?").rsplit(':',1)[0]; lines=(loc or "").rsplit(':',1)[-1] if loc and ':' in loc else None
-            findings.append(dict(pr=n, kind=kind, severity=sev(seg[cut:]), path=path, line=lines, title=title(fb),
-                url=r["html_url"], created=r["submitted_at"], addressed=False, body=fb[:3500]))
+        for f in _gate.body_findings(r, kinds=_ALL_BODY_KINDS):
+            loc=f["loc"] if f["loc"]!="?" else ""
+            path, _, lines = loc.rpartition(":") if ":" in loc else (loc or "?", "", "")
+            severity = f["kind"][5:].capitalize() if f["kind"].startswith("body-") else sev(f["text"])
+            findings.append(dict(pr=n, kind=f["kind"], severity=severity, path=path or "?", line=lines or None,
+                title=f["title"], cr_id=f["id"], url=r["html_url"], created=r["submitted_at"], addressed=False,
+                body=clean(f["text"])[:3500]))
 json.dump(findings, sys.stdout, ensure_ascii=False, indent=1)

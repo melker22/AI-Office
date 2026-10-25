@@ -187,7 +187,7 @@ _BLOCKING_BODY_KINDS = ("outside-diff", "duplicate", "body-critical", "body-majo
 _ACK_RE = re.compile(r"^\s*cr-ack\s+([0-9a-f]{16,})\b[ \t]+(\S.*)$", re.M)
 
 
-def body_findings(review: dict) -> list[dict]:
+def body_findings(review: dict, kinds: tuple = _BLOCKING_BODY_KINDS) -> list[dict]:
     """Outside-diff and duplicate findings in one CodeRabbit review body (old <em> and new <strong>
     formats). Each ends with a <!-- cr-comment:v1:HEX --> marker, which is its id."""
     body = review.get("body") or ""
@@ -203,22 +203,23 @@ def body_findings(review: dict) -> list[dict]:
         seg, prev = body[prev:m.start()], m.end()
         if m.start() > stop:
             break
-        kinds = [k for pos, k in heads if pos <= m.start()]
-        if not kinds or kinds[-1] not in _BLOCKING_BODY_KINDS:
+        section_kinds = [k for pos, k in heads if pos <= m.start()]
+        if not section_kinds or section_kinds[-1] not in kinds:
             continue
         # the severity tag may wrap an icon: <strong><picture>…</picture> Major</strong> · title · <code>loc</code>
         t = re.findall(r"<(strong|em)>(?:(?!</\1>).)*</\1>\s*·\s*(.+?)\s*·\s*<code>([^<]+)</code>", seg, re.S)
         t = [(title_, loc_) for _tag, title_, loc_ in t]
+        full = re.findall(r"`([\w./-]+/[\w.-]+:\d[\d-]*)`", seg)  # repo-relative path, when given
         if t:
-            title, loc = re.sub(r"<[^>]+>", "", t[-1][0]).strip(), t[-1][1]
+            title, loc = re.sub(r"<[^>]+>", "", t[-1][0]).strip(), (full[-1] if full else t[-1][1])
         else:  # grouped by file: <summary>path: N</summary> ... `lines`: **category** | ... **Title**
-            files = re.findall(r"<summary>([^<:]+?):\s*\d+</summary>", body[:m.start()])
+            files = re.findall(r"<summary>([^<:()]+?)(?::\s*\d+|\s*\(\d+\))</summary>", body[:m.start()])
             ranges = re.findall(r"`(\d+(?:-\d+)?)`:", seg)
             bolds = [b for b in re.findall(r"^\*\*(.{8,240}?)\*\*[ \t]*$", seg, re.M)
                      if not re.search(r"Critical|Major|Minor|Trivial|Quick win|Heavy lift|<picture>", b)]
             title = bolds[-1] if bolds else "?"
             loc = (files[-1].strip() if files else "?") + (":" + ranges[-1] if ranges else "")
-        out.append({"id": m.group(1), "kind": kinds[-1], "title": title, "loc": loc,
+        out.append({"id": m.group(1), "kind": section_kinds[-1], "title": title, "loc": loc, "text": seg,
                     "commit": (review.get("commit_id") or "")[:7], "url": review.get("html_url", "")})
     return out
 
