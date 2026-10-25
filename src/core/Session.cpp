@@ -112,7 +112,7 @@ void Session::pushUndo()
 {
     if (undoSuppress_ > 0)
         return;
-    undo_.push_back(doc_);
+    undo_.push_back(HistoryFrame{doc_, path_, dirty_});
     if (undo_.size() > 80)
         undo_.removeFirst();
     redo_.clear();
@@ -121,6 +121,11 @@ void Session::pushUndo()
 void Session::markChanged()
 {
     dirty_ = true;
+    notifyChanged();
+}
+
+void Session::notifyChanged()
+{
     if (onChanged_)
         onChanged_();
 }
@@ -241,6 +246,218 @@ void dropInvalidImportedHideIf(Document &doc)
         if (!hideIfExprError(b.hideIf).isEmpty())
             b.hideIf.clear();
     }
+}
+
+// Same bounds as validateTableShorthand. Checked before any grid is built.
+QString tableCapError(int rows, int cols)
+{
+    if (rows < 1 || cols < 1 || rows > 200 || cols > 64)
+        return QStringLiteral("table rows/cols out of range");
+    return {};
+}
+
+int maxPrefixedNumber(const QString &prefix, const QStringList &ids)
+{
+    int maxN = 0;
+    for (const QString &id : ids) {
+        if (!id.startsWith(prefix) || id.size() <= prefix.size())
+            continue;
+        const QString rest = id.mid(prefix.size());
+        bool digits = true;
+        for (const QChar c : rest) {
+            if (!c.isDigit()) {
+                digits = false;
+                break;
+            }
+        }
+        if (!digits)
+            continue;
+        bool ok = false;
+        const int n = rest.toInt(&ok);
+        if (ok && n > maxN)
+            maxN = n;
+    }
+    return maxN;
+}
+
+QString nextPrefixedId(const QString &prefix, const QStringList &ids)
+{
+    return prefix + QString::number(maxPrefixedNumber(prefix, ids) + 1);
+}
+
+QStringList collectRevisionIds(const QVector<Revision> &revs)
+{
+    QStringList ids;
+    ids.reserve(revs.size());
+    for (const Revision &rv : revs)
+        ids.append(rv.id);
+    return ids;
+}
+
+QString nextRevisionId(const QVector<Revision> &revs)
+{
+    return nextPrefixedId(QStringLiteral("rev"), collectRevisionIds(revs));
+}
+
+QStringList collectBookmarkIds(const QVector<Bookmark> &marks)
+{
+    QStringList ids;
+    ids.reserve(marks.size());
+    for (const Bookmark &bm : marks)
+        ids.append(bm.id);
+    return ids;
+}
+
+bool toolForbiddenInBatch(const QString &tool)
+{
+    return tool == QLatin1String("batch") || tool == QLatin1String("undo") || tool == QLatin1String("redo")
+        || tool == QLatin1String("checkpoint") || tool == QLatin1String("restore")
+        || tool == QLatin1String("restore_checkpoint") || tool == QLatin1String("document_save")
+        || tool == QLatin1String("document_open") || tool == QLatin1String("document_new")
+        || tool == QLatin1String("set_read_only") || tool == QLatin1String("set_readonly")
+        || tool == QLatin1String("document_export_pdf") || tool == QLatin1String("export_markdown")
+        || tool == QLatin1String("document_export_markdown") || tool == QLatin1String("export_text")
+        || tool == QLatin1String("document_export_text") || tool == QLatin1String("export_txt")
+        || tool == QLatin1String("export_html") || tool == QLatin1String("document_export_html");
+}
+
+void rebaseRevisionsOnJoin(Document &doc, const QString &absorbedId, const QString &survivorId, int joinOff)
+{
+    if (absorbedId.isEmpty() || survivorId.isEmpty() || absorbedId == survivorId)
+        return;
+    for (Revision &rv : doc.revisions) {
+        if (rv.blockId != absorbedId)
+            continue;
+        rv.blockId = survivorId;
+        rv.start += joinOff;
+        rv.end += joinOff;
+    }
+}
+
+// A revision that starts at the cut moves onto the new block. A range that
+// crosses the cut becomes two revisions; the right-hand id is allocated after
+// the walk so the vector is not grown while it is being iterated.
+void rebaseRevisionsOnSplit(Document &doc, const QString &oldId, const QString &newId, int cut)
+{
+    if (oldId.isEmpty() || newId.isEmpty() || cut < 0)
+        return;
+    QVector<Revision> extra;
+    for (Revision &rv : doc.revisions) {
+        if (rv.blockId != oldId)
+            continue;
+        if (rv.start >= cut) {
+            rv.blockId = newId;
+            rv.start -= cut;
+            rv.end -= cut;
+            continue;
+        }
+        if (rv.start == rv.end || rv.end <= cut)
+            continue;
+        Revision right = rv;
+        const int oldEnd = rv.end;
+        const int span = oldEnd - rv.start;
+        rv.end = cut;
+        right.blockId = newId;
+        right.start = 0;
+        right.end = oldEnd - cut;
+        if (rv.text.size() == span) {
+            right.text = rv.text.mid(cut - rv.start);
+            rv.text = rv.text.left(cut - rv.start);
+        }
+        right.priorRuns.clear();
+        right.deletedRuns.clear();
+        right.id.clear();
+        extra.push_back(right);
+    }
+    for (Revision &rv : extra) {
+        rv.id = nextRevisionId(doc.revisions);
+        doc.revisions.push_back(rv);
+    }
+}
+
+// Qt expands \n and \& only for QString::replace(QRegularExpression). The one-shot
+// replace(start, len, repl) used when `all` is false keeps `repl` literal.
+QString expandRegexReplacement(const QString &repl, const QRegularExpressionMatch &match)
+{
+    QString out;
+    out.reserve(repl.size());
+    for (int i = 0; i < repl.size(); ++i) {
+        if (repl.at(i) != QLatin1Char('\\') || i + 1 >= repl.size()) {
+            out += repl.at(i);
+            continue;
+        }
+        const QChar n = repl.at(++i);
+        if (n == QLatin1Char('\\'))
+            out += n;
+        else if (n == QLatin1Char('&') || n == QLatin1Char('0'))
+            out += match.captured(0);
+        else if (n.isDigit()) {
+            const int group = n.digitValue();
+            if (group >= 0 && group <= match.lastCapturedIndex())
+                out += match.captured(group);
+        } else {
+            out += n;
+        }
+    }
+    return out;
+}
+
+struct ReplaceHit {
+    QString blockId;
+    int start = 0;
+    int len = 0;
+    int newLen = 0;
+};
+
+struct RunPlan {
+    QVector<TextRun> *runs = nullptr;
+    int index = 0;
+};
+
+// Original coordinates. A point inside a match, or a range that would be cut in
+// half, rejects the whole replace. A range that contains the match only grows
+// or shrinks its end.
+bool revisionAcceptsReplacement(const Revision &rv, const QVector<ReplaceHit> &hits, int *newStart, int *newEnd)
+{
+    int dStart = 0;
+    int dEnd = 0;
+    for (const ReplaceHit &h : hits) {
+        if (h.blockId.isEmpty() || h.blockId != rv.blockId)
+            continue;
+        const int m0 = h.start;
+        const int m1 = h.start + h.len;
+        const int delta = h.newLen - h.len;
+        if (rv.start == rv.end) {
+            if (rv.start > m0 && rv.start < m1)
+                return false;
+            if (rv.start >= m1) {
+                dStart += delta;
+                dEnd += delta;
+            }
+            continue;
+        }
+        if (rv.end <= m0)
+            continue;
+        if (rv.start >= m1) {
+            dStart += delta;
+            dEnd += delta;
+            continue;
+        }
+        if (rv.start <= m0 && rv.end >= m1) {
+            dEnd += delta;
+            continue;
+        }
+        return false;
+    }
+    const int ns = rv.start + dStart;
+    const int ne = rv.end + dEnd;
+    if (ne < ns)
+        return false;
+    if (newStart)
+        *newStart = ns;
+    if (newEnd)
+        *newEnd = ne;
+    return true;
 }
 
 } // namespace
@@ -455,11 +672,17 @@ QJsonObject Session::openDocument(const QJsonObject &args)
     if (path.isEmpty())
         return fail(QStringLiteral("path is required"));
     QString err;
-    Document previous = doc_;
+    const Document previous = doc_;
+    const QString previousPath = path_;
+    const bool previousDirty = dirty_;
     if (!loadFrom(path, &err))
         return fail(err);
-    pushUndo();
-    undo_.back() = previous;
+    if (undoSuppress_ == 0) {
+        undo_.push_back(HistoryFrame{previous, previousPath, previousDirty});
+        if (undo_.size() > 80)
+            undo_.removeFirst();
+        redo_.clear();
+    }
     path_ = path;
     dirty_ = false;
     markChanged();
@@ -489,22 +712,46 @@ QJsonObject Session::saveDocument(const QJsonObject &args)
         }
     }
     // Republish stat after an edit. A clean save leaves an imported cache alone.
+    // An export refreshes a copy that saveTo reads, then the live document
+    // (including a title edit above) is put back, even when the write fails.
+    const bool working = isWorkingDocumentPath(path);
+    Document liveDoc;
+    QString livePath;
+    bool liveDirty = false;
+    Selection liveSel;
+    if (!working) {
+        liveDoc = doc_;
+        livePath = path_;
+        liveDirty = dirty_;
+        liveSel = sel_;
+    }
     refreshIfFields(doc_, dirty_);
     QString err;
     const bool embedJson = !args.contains(QStringLiteral("embed_json"))
         || args.value(QStringLiteral("embed_json")).toBool();
     QJsonObject exported;
     QStringList warnings;
-    if (!saveTo(path, &err, embedJson, &exported, &warnings))
+    const auto restoreLive = [&]() {
+        doc_ = liveDoc;
+        path_ = livePath;
+        dirty_ = liveDirty;
+        sel_ = liveSel;
+    };
+    if (!saveTo(path, &err, embedJson, &exported, &warnings)) {
+        if (!working)
+            restoreLive();
         return fail(err);
+    }
     // Exports (.epub, .pdf, .md, .markdown, .txt, .html, .htm, .rtf, .doc) write
     // the file and leave the editable document's path and dirty flag alone.
-    if (isWorkingDocumentPath(path)) {
+    if (working) {
         path_ = path;
         dirty_ = false;
         markChanged();
         dirty_ = false;
         captureBaseline();
+    } else {
+        restoreLive();
     }
     QJsonObject r = ok();
     for (auto it = exported.begin(); it != exported.end(); ++it)
@@ -765,7 +1012,7 @@ QJsonObject Session::applyCharacterFormat(const QJsonObject &args)
         const QString author = doc_.author.isEmpty() ? QStringLiteral("IA") : doc_.author;
         for (const auto &pend : pending) {
             Revision rev;
-            rev.id = QStringLiteral("rev%1").arg(doc_.revisions.size() + 1);
+            rev.id = nextRevisionId(doc_.revisions);
             rev.author = author;
             rev.kind = QStringLiteral("format");
             rev.blockId = pend.blockId;
@@ -1044,13 +1291,16 @@ QJsonObject Session::setPageLayout(const QJsonObject &args)
 
 QJsonObject Session::insertTable(const QJsonObject &args)
 {
-    const int cols = qMax(1, args.value(QStringLiteral("cols")).toInt(3));
+    int cols = args.contains(QStringLiteral("cols")) ? args.value(QStringLiteral("cols")).toInt() : 3;
+    int rows = args.contains(QStringLiteral("rows")) ? args.value(QStringLiteral("rows")).toInt() : 3;
+    const QString cap = tableCapError(rows, cols);
+    if (!cap.isEmpty())
+        return fail(cap);
     const bool header = args.value(QStringLiteral("header")).toBool(true);
-    int rows = qMax(1, args.value(QStringLiteral("rows")).toInt(3));
-    const auto heads = args.value(QStringLiteral("header_texts")).toArray();
-    const auto cells = args.value(QStringLiteral("cells")).toArray();
     if (header && rows < 2)
         rows = 2;
+    const auto heads = args.value(QStringLiteral("header_texts")).toArray();
+    const auto cells = args.value(QStringLiteral("cells")).toArray();
     Block b;
     b.type = QStringLiteral("table");
     b.headerRow = header;
@@ -1186,69 +1436,125 @@ QJsonObject Session::findReplace(const QJsonObject &args)
         if (!re.isValid())
             return fail(QStringLiteral("invalid regex"));
     }
-    pushUndo();
-    int count = 0;
     const QJsonObject fmt = args.value(QStringLiteral("format")).toObject();
-    auto replaceRuns = [&](QVector<TextRun> &runs) {
-        for (auto &r : runs) {
-            bool hit = false;
-            if (useRe) {
-                if (!re.match(r.text).hasMatch())
-                    continue;
-                if (all) {
-                    const int n = r.text.count(re);
-                    r.text.replace(re, repl);
-                    count += n;
-                    hit = n > 0;
-                } else {
-                    const auto m = re.match(r.text);
-                    if (!m.hasMatch())
-                        continue;
-                    r.text.replace(m.capturedStart(), m.capturedLength(), repl);
+    const bool pushed = undoSuppress_ == 0;
+    pushUndo();
+
+    QVector<ReplaceHit> hits;
+    QVector<RunPlan> plans;
+    int count = 0;
+    bool stop = false;
+    auto planRuns = [&](QVector<TextRun> &runs, const QString &blockId, bool shiftRevisions) {
+        int prefix = 0;
+        for (int i = 0; i < runs.size(); ++i) {
+            const QString &text = runs.at(i).text;
+            bool runHit = false;
+            if (!useRe) {
+                int from = 0;
+                while (from <= text.size()) {
+                    const int at = text.indexOf(find, from);
+                    if (at < 0)
+                        break;
+                    ReplaceHit h;
+                    h.blockId = shiftRevisions ? blockId : QString();
+                    h.start = (shiftRevisions ? prefix : 0) + at;
+                    h.len = find.size();
+                    h.newLen = repl.size();
+                    hits.push_back(h);
                     ++count;
-                    hit = true;
-                    if (!fmt.isEmpty())
-                        applyFormatToRun(r, fmt);
-                    return true;
+                    runHit = true;
+                    if (!all)
+                        break;
+                    from = at + qMax(1, find.size());
                 }
             } else {
-                if (!r.text.contains(find))
-                    continue;
-                if (all) {
-                    count += r.text.count(find);
-                    r.text.replace(find, repl);
-                    hit = true;
-                } else {
-                    r.text.replace(r.text.indexOf(find), find.size(), repl);
+                auto it = re.globalMatch(text);
+                while (it.hasNext()) {
+                    const QRegularExpressionMatch m = it.next();
+                    ReplaceHit h;
+                    h.blockId = shiftRevisions ? blockId : QString();
+                    h.start = (shiftRevisions ? prefix : 0) + m.capturedStart();
+                    h.len = m.capturedLength();
+                    h.newLen = all ? expandRegexReplacement(repl, m).size() : repl.size();
+                    hits.push_back(h);
                     ++count;
-                    hit = true;
-                    if (!fmt.isEmpty())
-                        applyFormatToRun(r, fmt);
-                    return true;
+                    runHit = true;
+                    if (!all)
+                        break;
                 }
             }
-            if (hit && !fmt.isEmpty())
-                applyFormatToRun(r, fmt);
+            if (runHit)
+                plans.push_back(RunPlan{&runs, i});
+            if (runHit && !all) {
+                stop = true;
+                return;
+            }
+            prefix += text.size();
         }
-        return false;
     };
     for (auto &b : doc_.body) {
-        if (replaceRuns(b.runs) && !all)
-            break;
-        if (!all && count > 0)
+        planRuns(b.runs, b.id, b.type != QLatin1String("table"));
+        if (stop)
             break;
         for (auto &row : b.table) {
             for (auto &cell : row) {
-                if (replaceRuns(cell.runs) && !all)
-                    goto done;
+                planRuns(cell.runs, b.id, false);
+                if (stop)
+                    break;
             }
+            if (stop)
+                break;
         }
+        if (stop)
+            break;
     }
-done:
-    if (count == 0)
-        undo_.removeLast();
-    else
-        markChanged();
+    if (count == 0) {
+        if (pushed && !undo_.isEmpty())
+            undo_.removeLast();
+        auto r = ok();
+        r[QStringLiteral("count")] = 0;
+        return r;
+    }
+    QVector<int> newStarts(doc_.revisions.size());
+    QVector<int> newEnds(doc_.revisions.size());
+    for (int i = 0; i < doc_.revisions.size(); ++i) {
+        int ns = doc_.revisions.at(i).start;
+        int ne = doc_.revisions.at(i).end;
+        if (!revisionAcceptsReplacement(doc_.revisions.at(i), hits, &ns, &ne)) {
+            if (pushed && !undo_.isEmpty()) {
+                const HistoryFrame frame = undo_.constLast();
+                doc_ = frame.doc;
+                path_ = frame.path;
+                dirty_ = frame.dirty;
+                undo_.removeLast();
+            }
+            return fail(QStringLiteral("replacement would split a revision"));
+        }
+        newStarts[i] = ns;
+        newEnds[i] = ne;
+    }
+    for (const RunPlan &plan : plans) {
+        TextRun &run = (*plan.runs)[plan.index];
+        if (!useRe) {
+            if (all)
+                run.text.replace(find, repl);
+            else
+                run.text.replace(run.text.indexOf(find), find.size(), repl);
+        } else if (all) {
+            run.text.replace(re, repl);
+        } else {
+            const auto m = re.match(run.text);
+            if (m.hasMatch())
+                run.text.replace(m.capturedStart(), m.capturedLength(), repl);
+        }
+        if (!fmt.isEmpty())
+            applyFormatToRun(run, fmt);
+    }
+    for (int i = 0; i < doc_.revisions.size(); ++i) {
+        doc_.revisions[i].start = newStarts.at(i);
+        doc_.revisions[i].end = newEnds.at(i);
+    }
+    markChanged();
     auto r = ok();
     r[QStringLiteral("count")] = count;
     return r;
@@ -1258,10 +1564,12 @@ QJsonObject Session::undo(const QJsonObject &)
 {
     if (undo_.isEmpty())
         return fail(QStringLiteral("nothing to undo"));
-    redo_.push_back(doc_);
-    doc_ = undo_.takeLast();
-    dirty_ = true;
-    markChanged();
+    redo_.push_back(HistoryFrame{doc_, path_, dirty_});
+    const HistoryFrame frame = undo_.takeLast();
+    doc_ = frame.doc;
+    path_ = frame.path;
+    dirty_ = frame.dirty;
+    notifyChanged();
     return ok();
 }
 
@@ -1269,10 +1577,12 @@ QJsonObject Session::redo(const QJsonObject &)
 {
     if (redo_.isEmpty())
         return fail(QStringLiteral("nothing to redo"));
-    undo_.push_back(doc_);
-    doc_ = redo_.takeLast();
-    dirty_ = true;
-    markChanged();
+    undo_.push_back(HistoryFrame{doc_, path_, dirty_});
+    const HistoryFrame frame = redo_.takeLast();
+    doc_ = frame.doc;
+    path_ = frame.path;
+    dirty_ = frame.dirty;
+    notifyChanged();
     return ok();
 }
 
@@ -1731,10 +2041,9 @@ QJsonObject Session::setSelectionTool(const QJsonObject &args)
     sel_ = Selection::fromJson(args);
     if (sel_.focusId.isEmpty())
         sel_.focusId = sel_.anchorId;
+    notifyChanged();
     auto r = ok();
     r[QStringLiteral("selection")] = sel_.toJson();
-    markChanged();
-    dirty_ = dirty_;
     return r;
 }
 
@@ -1768,7 +2077,7 @@ QJsonObject Session::insertAtCaret(const QJsonObject &args)
                 replaced += r.text;
             replaced = replaced.mid(startOff, endOff - startOff);
             Revision del;
-            del.id = QStringLiteral("rev%1").arg(doc_.revisions.size() + 1);
+            del.id = nextRevisionId(doc_.revisions);
             del.author = doc_.author.isEmpty() ? QStringLiteral("IA") : doc_.author;
             del.kind = QStringLiteral("delete");
             del.blockId = id;
@@ -1781,7 +2090,7 @@ QJsonObject Session::insertAtCaret(const QJsonObject &args)
         }
         if (!text.isEmpty()) {
             Revision ins;
-            ins.id = QStringLiteral("rev%1").arg(doc_.revisions.size() + 1);
+            ins.id = nextRevisionId(doc_.revisions);
             ins.author = doc_.author.isEmpty() ? QStringLiteral("IA") : doc_.author;
             ins.kind = QStringLiteral("insert");
             ins.blockId = id;
@@ -1815,9 +2124,7 @@ bool Session::insertTextAt(const QString &id, int offset, const QString &text, i
     if (doc_.trackChanges) {
         shiftRevisionOffsets(id, offset, text.size());
         Revision rev;
-        rev.id = QStringLiteral("rev") + QString::number(doc_.nextCounter(QStringLiteral("rev")));
-        // nextCounter only scans body ids; use revisions size
-        rev.id = QStringLiteral("rev%1").arg(doc_.revisions.size() + 1);
+        rev.id = nextRevisionId(doc_.revisions);
         rev.author = doc_.author.isEmpty() ? QStringLiteral("IA") : doc_.author;
         rev.kind = QStringLiteral("insert");
         rev.blockId = id;
@@ -1862,7 +2169,7 @@ bool Session::deleteBackward(const QString &id, int offset, int row, int col)
             }
             shiftRevisionOffsets(id, offset, -1);
             Revision rev;
-            rev.id = QStringLiteral("rev%1").arg(doc_.revisions.size() + 1);
+            rev.id = nextRevisionId(doc_.revisions);
             rev.author = doc_.author.isEmpty() ? QStringLiteral("IA") : doc_.author;
             rev.kind = QStringLiteral("delete");
             rev.blockId = id;
@@ -1887,6 +2194,7 @@ bool Session::deleteBackward(const QString &id, int offset, int row, int col)
         || cur.type == QLatin1String("image") || cur.type == QLatin1String("break"))
         return false;
     const int joinOff = prev.plainText().size();
+    rebaseRevisionsOnJoin(doc_, cur.id, prev.id, joinOff);
     for (const auto &r : cur.runs)
         prev.runs.push_back(r);
     doc_.body.removeAt(idx);
@@ -1931,6 +2239,7 @@ bool Session::splitBlock(const QString &id, int offset)
     if (rest.runs.isEmpty())
         rest.runs.push_back(TextRun{});
     doc_.assignId(rest);
+    rebaseRevisionsOnSplit(doc_, b.id, rest.id, off);
     doc_.body.insert(idx + 1, rest);
     sel_.anchorId = sel_.focusId = rest.id;
     sel_.anchorOff = sel_.focusOff = 0;
@@ -2604,7 +2913,7 @@ QJsonObject Session::bookmarkAdd(const QJsonObject &args)
         return fail(QStringLiteral("block not found"));
     pushUndo();
     Bookmark bm;
-    bm.id = QStringLiteral("bm%1").arg(doc_.bookmarks.size() + 1);
+    bm.id = nextPrefixedId(QStringLiteral("bm"), collectBookmarkIds(doc_.bookmarks));
     bm.name = name;
     bm.blockId = blockId;
     bm.offset = args.value(QStringLiteral("offset")).toInt(sel_.focusOff);
@@ -3315,8 +3624,11 @@ QJsonObject Session::nestTable(const QJsonObject &args)
     const int col = args.value(QStringLiteral("col")).toInt();
     if (row < 0 || row >= b->table.size() || col < 0 || col >= b->table[row].size())
         return fail(QStringLiteral("cell out of range"));
-    const int rows = qMax(1, args.value(QStringLiteral("rows")).toInt(2));
-    const int cols = qMax(1, args.value(QStringLiteral("cols")).toInt(2));
+    const int rows = args.contains(QStringLiteral("rows")) ? args.value(QStringLiteral("rows")).toInt() : 2;
+    const int cols = args.contains(QStringLiteral("cols")) ? args.value(QStringLiteral("cols")).toInt() : 2;
+    const QString cap = tableCapError(rows, cols);
+    if (!cap.isEmpty())
+        return fail(cap);
     pushUndo();
     auto &cell = b->table[row][col];
     cell.nested.clear();
@@ -3696,6 +4008,7 @@ QJsonObject Session::joinBlocks(const QJsonObject &args)
         return fail(QStringLiteral("cannot join this block"));
     }
     const int joinOff = prev.plainText().size();
+    rebaseRevisionsOnJoin(doc_, cur.id, prev.id, joinOff);
     for (const auto &r : cur.runs)
         prev.runs.push_back(r);
     const QString keep = prev.id;
@@ -5142,6 +5455,26 @@ QJsonObject Session::documentInclude(const QJsonObject &args)
         doc_.body.insert(at++, b);
         ids.append(b.id);
     }
+    QStringList usedRev = collectRevisionIds(doc_.revisions);
+    for (const Revision &src : other.revisions) {
+        Revision rv = src;
+        if (idMap.contains(rv.blockId))
+            rv.blockId = idMap.value(rv.blockId);
+        if (rv.id.isEmpty() || usedRev.contains(rv.id))
+            rv.id = nextPrefixedId(QStringLiteral("rev"), usedRev);
+        usedRev.append(rv.id);
+        doc_.revisions.push_back(rv);
+    }
+    QStringList usedBm = collectBookmarkIds(doc_.bookmarks);
+    for (const Bookmark &src : other.bookmarks) {
+        Bookmark bm = src;
+        if (idMap.contains(bm.blockId))
+            bm.blockId = idMap.value(bm.blockId);
+        if (bm.id.isEmpty() || usedBm.contains(bm.id))
+            bm.id = nextPrefixedId(QStringLiteral("bm"), usedBm);
+        usedBm.append(bm.id);
+        doc_.bookmarks.push_back(bm);
+    }
     markChanged();
     auto r = ok();
     r[QStringLiteral("ids")] = ids;
@@ -5271,6 +5604,11 @@ QJsonObject Session::batch(const QJsonObject &args)
     const QJsonArray calls = args.value(QStringLiteral("calls")).toArray();
     if (calls.isEmpty())
         return fail(QStringLiteral("calls is required"));
+    for (const auto &v : calls) {
+        const QString t = v.toObject().value(QStringLiteral("tool")).toString();
+        if (toolForbiddenInBatch(t))
+            return fail(t + QStringLiteral(" is not allowed inside batch"));
+    }
     const Document snap = doc_;
     const QString snapPath = path_;
     const bool snapDirty = dirty_;
@@ -5288,10 +5626,9 @@ QJsonObject Session::batch(const QJsonObject &args)
             err = QStringLiteral("each call needs tool");
             break;
         }
-        if (t == QLatin1String("batch") || t == QLatin1String("undo") || t == QLatin1String("redo")
-            || t == QLatin1String("checkpoint") || t == QLatin1String("restore")) {
+        if (toolForbiddenInBatch(t)) {
             failed = true;
-            err = QStringLiteral("tool not allowed inside batch: ") + t;
+            err = t + QStringLiteral(" is not allowed inside batch");
             break;
         }
         const QJsonObject a = c.value(QStringLiteral("args")).toObject();
@@ -5343,7 +5680,7 @@ QJsonObject Session::restoreCheckpoint(const QJsonObject &)
     path_ = checkpointPath_;
     dirty_ = checkpointDirty_;
     sel_ = checkpointSel_;
-    markChanged();
+    notifyChanged();
     return ok();
 }
 

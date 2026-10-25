@@ -177,8 +177,14 @@ public:
     void commitSplit();
 
 private:
+    struct HistoryFrame {
+        Document doc;
+        QString path;
+        bool dirty = false;
+    };
     void pushUndo();
     void markChanged();
+    void notifyChanged();
     void captureBaseline();
     void stripLeadingEmptyParagraph();
     void selectInserted(const QString &id);
@@ -208,8 +214,8 @@ private:
     QString checkpointPath_;
     bool checkpointDirty_ = false;
     Selection checkpointSel_;
-    QVector<Document> undo_;
-    QVector<Document> redo_;
+    QVector<HistoryFrame> undo_;
+    QVector<HistoryFrame> redo_;
     Selection sel_;
     ChangeCallback onChanged_;
     QString lastTool_;

@@ -100,7 +100,7 @@ Opens ODT, DOCX, DOC (DOC needs LibreOffice), AIO JSON, or RTF (native reader).
 ### `document_save`
 
 Args: `{ "path"?: string, "title"?: string }`  
-Saves to `path` or the last opened/saved path. Format from extension. Native session JSON (`.aio.json`, `.json`, `.aio`), `.odt`, and `.docx` become the working file (path updated, dirty cleared). `.epub`, `.pdf`, `.md`, `.txt`, `.html`, `.rtf`, and `.doc` are exports: the file is written and the working path stays unchanged. The dirty flag stays unchanged unless `title` is a new value. `.doc` is export-only and is written by LibreOffice as Word 97 (`doc:MS Word 97`); it does not become the working file. `title`, when set to a new value, updates the session title before the write; on an export path the document stays dirty until a later native JSON (`.aio.json`, `.json`, `.aio`), `.odt`, or `.docx` save. RTF export warnings are returned in `warnings`. **RTF** (`.rtf`) is written natively
+Saves to `path` or the last opened/saved path. Format from extension. Native session JSON (`.aio.json`, `.json`, `.aio`), `.odt`, and `.docx` become the working file (the working path is updated, dirty cleared) and refresh fields on the live document. `.epub`, `.pdf`, `.md`, `.txt`, `.html`, `.rtf`, and `.doc` are exports: fields are refreshed on a copy used only for the write, then the live document is restored, so path, dirty, and cached field text stay unchanged (unless `title` is a new value, which still dirties the session). The dirty flag stays unchanged unless `title` is a new value. `.doc` is export-only and is written by LibreOffice as Word 97 (`doc:MS Word 97`); it does not become the working file. `title`, when set to a new value, updates the session title before the write; on an export path the document stays dirty until a later native JSON (`.aio.json`, `.json`, `.aio`), `.odt`, or `.docx` save. RTF export warnings are returned in `warnings`. **RTF** (`.rtf`) is written natively
 (`RtfWriter`: `\fonttbl`, `\colortbl`, `\stylesheet`, paragraph/character formatting, `\listtable`, tables with
 `\trhdr`, `\page`, `\footnote`, `\pict\pngblip`, `\field`, `\bkmkstart`, `\u`/`\uc`, `\rtlpar`, `\lang`). Tracked
 revisions, block comments, and shapes/forms are flattened to plain text (full fidelity stays in `.aio.json`/ODT/DOCX).
@@ -115,7 +115,7 @@ Native `QPdfWriter` (no LibreOffice). Every export embeds document XMP (`dc:titl
 ### `document_get`
 
 Args: `{}`  
-Returns `{ "ok", "document": { ...full JSON... }, "words" }`. `words` is the same visible count as `document_stats.words` (a block hidden by `hide_if` or `section_hidden` is omitted).
+Returns `{ "ok", "document": { ...full JSON... }, "words" }`. `words` is the same visible count as `document_stats.words` (a block hidden by `hide_if` or `section_hidden` is omitted). Before the JSON is built, `if`, `seq`, and xref `category_number` are refreshed to one fixed point using the real layout page total (`page` in the field text stays 1). On a word-count cycle the lexicographic minimum is kept, so two `document_get` calls with no edit return the same text. `stat` is rewritten only when the document is dirty; a clean read leaves an imported stat cache alone. `document_stats` lays out the cached text and does not refresh fields.
 
 ### `document_get_outline`
 
@@ -180,7 +180,7 @@ Args: `{ "size"?: "A4"|…, "orientation"?: "portrait"|"landscape", "margins_mm"
 
 Args: `{ "after_id": "end", "rows": 4, "cols": 3, "header": true, "header_texts"?: ["A","B"], "cells"?: ["..."], "col_widths_mm"?: [40, 40, 40] }`
 
-If `header` is true, `header_texts` fill **row 0**. `cells` fill from **row 1**. Row 0 is painted as a header band.
+If `header` is true, `header_texts` fill **row 0**. `cells` fill from **row 1**. Row 0 is painted as a header band. `rows` must be 1..200 and `cols` 1..64 (omitted values stay 3). Anything else fails with `{ok:false, error:"table rows/cols out of range"}` before the grid is built. When `header` is true and `rows` is 1, the row count becomes 2 after that check. `nest_table` uses the same cap (omitted `rows`/`cols` stay 2).
 
 ### `insert_image`
 
@@ -203,7 +203,7 @@ Insert `\n` or `\t` at the caret (`id`/`offset` optional). Does not split the bl
 ### `find_replace`
 
 Args: `{ "find": string, "replace": string, "all"?: false, "regex"?: false }`  
-`all` defaults to **false** (first match). `regex` uses `QRegularExpression`. Returns `{ "ok", "count" }`.
+`all` defaults to **false** (first match). `regex` uses `QRegularExpression`. Returns `{ "ok", "count" }`. Tracked revisions on body text move with each replacement. A replacement that would cut a revision in half fails the whole call with `{ok:false, error:"replacement would split a revision"}` and leaves the document unchanged. Table-cell matches do not move revisions.
 
 ### `search`
 
@@ -223,7 +223,7 @@ Returns `{ ids: [...] }` and selects the first match.
 ### `split_block`
 
 Args: `{ "id"?: string, "offset"?: int }`  
-Splits at the caret if `id` is omitted. The new block takes `create_style.next` when set.
+Splits at the caret if `id` is omitted. The new block takes `create_style.next` when set. Revisions at or after the cut move onto the new block (offsets rebased by the cut). A range that crosses the cut is split into two revisions. `join_blocks` and a backspace that joins blocks rebase the absorbed block's revisions onto the survivor.
 
 ### `insert_labels`
 
@@ -236,7 +236,7 @@ Table surgery on a table `id` (the selected table in the GUI). `set_cell`: `{id,
 
 ### `selection_get` / `set_selection` / `insert_at_caret`
 
-Shared caret: `{anchor_id, anchor_off, focus_id, focus_off, row?, col?}`. `insert_at_caret` types at the caret. If the selection is a range (offsets differ on the same block), the range is **replaced**.
+Shared caret: `{anchor_id, anchor_off, focus_id, focus_off, row?, col?}`. `set_selection` does not mark the document dirty; `dirty` in the result is the flag already stored. `insert_at_caret` types at the caret. If the selection is a range (offsets differ on the same block), the range is **replaced**.
 
 ### `move_blocks` / `duplicate_blocks`
 
@@ -308,7 +308,7 @@ Hiperlink na seleção (`url`). Marcador nomeado no bloco (`name`, `id` opcional
 ### `insert_field`
 
 Args: `{ "kind": "page_number"|"page_count"|"date"|"title"|"author"|"xref"|"filename"|"word_count"|"custom"|"merge"|"if"|"doc_info"|"stat"|"sender"|"seq"|"input_list", "arg"?: string|object, "xref_kind"?: string }`  
-Insere no caret. `xref`/`custom`/`merge` usam `arg`. Campo `merge` mostra `«arg»` até `mail_merge`. `date` usa `arg` como formato Qt (`dd/MM/yyyy` por omissão; `yyyy-MM-dd hh:mm` para data/hora). `if` takes `arg` as `{ "cond": string, "then": string, "else": string }` (object or JSON string). `cond` is an expression; the field shows `then` or `else`. A syntax error shows `#ERR` and `validate` reports `invalid_expression`.
+Insere no caret. `xref`/`custom`/`merge` usam `arg`. Campo `merge` mostra `«arg»` até `mail_merge`. `date` usa `arg` como formato Qt (`dd/MM/yyyy` por omissão; `yyyy-MM-dd hh:mm` para data/hora). `if` takes `arg` as `{ "cond": string, "then": string, "else": string }` (object or JSON string). `cond` is an expression; the field shows `then` or `else`. `document_get` and a working-document save re-evaluate it with the real page total (`pages`) and `page` 1. A syntax error shows `#ERR` and `validate` reports `invalid_expression`.
 
 ### `field_evaluate`
 
@@ -363,7 +363,7 @@ Insere um Heading 1 e um parágrafo por termo com números de página (`concorda
 
 - `image_library_add` `{path}` / `image_library_list` / `image_library_insert` `{index|path, after_id?}`
 - `insert_bibliography` `{style: apa|abnt, title?, after_id?}` — lista APA/ABNT-lite a partir de `bibliography_set` (não é CSL)
-- `document_include` `{path, after_id?}` — insere outro `.aio.json` com IDs novos
+- `document_include` `{path, after_id?}` — insere outro `.aio.json` com IDs de bloco novos. Revisões e marcadores são copiados; `block_id` segue o mapa. Um id que não colide é mantido (mesmo não numérico). Colisão ou id vazio aloca `revN` / `bmN` pelo maior número já usado + 1.
 - `find_replace` extra: `format` aplicado aos runs substituídos
 - `toc_update` cria estilos nomeados `TOC 1`…`TOC 6` e aplica `char_style` por nível
 - `track_changes` + `apply_character_format` grava `Revision.payload` (JSON do formato)
@@ -440,7 +440,8 @@ Alt, caption, wrap, âncora, `width_mm`, `rotate` (graus), `opacity` (0–1) no 
 
 ### `undo` / `redo`
 
-Args: `{}`
+Args: `{}`  
+Each frame is the document, its path, and the dirty flag. Undo and redo restore all three. They do not force dirty.
 
 ### `page_preview`
 
@@ -476,12 +477,12 @@ Returns `{ ok, valid, errors: [{code,id?,message}], blocks }`. Checks unique ids
 ### `batch`
 
 Args: `{ "calls": [ { "tool": "apply_style", "args": { ... } }, ... ] }`  
-Runs every call in order. First `{ok:false}` **rolls back** the whole batch (no nested `batch`/`undo`/`checkpoint`). One undo frame on success.
+Runs every call in order. First `{ok:false}` **rolls back** the whole batch. Before any step, `document_save`, `document_open`, `document_new`, `set_read_only` / `set_readonly`, export tools (`document_export_pdf`, `export_markdown`, `export_text`, `export_html`, and their `document_export_*` / `export_txt` aliases), and `batch` / `undo` / `redo` / `checkpoint` / `restore` / `restore_checkpoint` are rejected with `{ok:false, error:"<tool> is not allowed inside batch"}`. One undo frame on success.
 
 ### `checkpoint` / `restore`
 
 Args: `{}`  
-Snapshot / restore the session. Distinct from caret `undo`. `restore` fails with `{ok:false,error:"no checkpoint"}`.
+Snapshot / restore the session (document, path, dirty flag, and selection). Distinct from caret `undo`. `restore` does not force dirty. `restore` fails with `{ok:false,error:"no checkpoint"}`.
 
 ### `insert_markdown`
 

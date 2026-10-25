@@ -1,0 +1,28 @@
+[
+  {"tool": "document_new", "args": {"force": true, "title": "Export copy"}},
+  {"tool": "insert_at_caret", "args": {"id": "p1", "offset": 0, "text": "Hello"}},
+  {"tool": "insert_field", "args": {"id": "p1", "offset": 5, "kind": "stat", "arg": "paragraphs"}},
+  {"tool": "insert_blocks", "args": {"blocks": [{"type": "paragraph", "runs": [{"text": "World"}]}]}},
+  {"tool": "search", "args": {"find": "1"}, "expect": {"ok": true, "hits.0.id": "p1", "dirty": true}},
+  {"tool": "set_read_only", "args": {"on": true}, "expect": {"ok": true, "read_only": true}},
+  {"tool": "document_save", "args": {"path": "/tmp/wave23-session-export.txt"}, "expect": {"ok": true, "dirty": true, "path": ""}},
+  {"tool": "search", "args": {"find": "1"}, "expect": {"ok": true, "dirty": true, "path": "", "hits.0.id": "p1"}},
+
+  {"tool": "document_new", "args": {"force": true, "title": "Export rw"}},
+  {"tool": "insert_at_caret", "args": {"id": "p1", "offset": 0, "text": "Hello"}},
+  {"tool": "insert_field", "args": {"id": "p1", "offset": 5, "kind": "stat", "arg": "paragraphs"}},
+  {"tool": "insert_blocks", "args": {"blocks": [{"type": "paragraph", "runs": [{"text": "World"}]}]}},
+  {"tool": "document_save", "args": {"path": "/tmp/wave23-session-export-rw.txt"}, "expect": {"ok": true, "dirty": true, "path": ""}},
+  {"tool": "search", "args": {"find": "1"}, "expect": {"ok": true, "hits.0.id": "p1", "dirty": true, "path": ""}},
+
+  {"tool": "document_new", "args": {"force": true, "title": "Working save"}},
+  {"tool": "insert_at_caret", "args": {"id": "p1", "offset": 0, "text": "Hello"}},
+  {"tool": "insert_field", "args": {"id": "p1", "offset": 5, "kind": "stat", "arg": "paragraphs"}},
+  {"tool": "insert_blocks", "args": {"blocks": [{"type": "paragraph", "runs": [{"text": "World"}]}]}},
+  {"tool": "document_save", "args": {"path": "/tmp/wave23-session-work.aio.json"}, "expect": {"ok": true, "dirty": false}},
+  {"tool": "document_get", "args": {}, "expect": {
+    "dirty": false,
+    "path": "/tmp/wave23-session-work.aio.json",
+    "document.body.0.runs.1.text": "2"
+  }}
+]

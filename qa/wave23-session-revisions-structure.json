@@ -1,0 +1,100 @@
+[
+  {"tool": "document_new", "args": {"force": true}},
+  {"tool": "track_changes", "args": {"on": true}},
+  {"tool": "insert_at_caret", "args": {"id": "p1", "offset": 0, "text": "HE"}},
+  {"tool": "insert_at_caret", "args": {"id": "p1", "offset": 2, "text": "LLO"}},
+  {"tool": "split_block", "args": {"id": "p1", "offset": 2}, "expect": {"ok": true, "id": "p2"}},
+  {"tool": "revision_list", "args": {}, "expect": {
+    "revisions.0.id": "rev1",
+    "revisions.0.block_id": "p1",
+    "revisions.0.start": 0,
+    "revisions.0.end": 2,
+    "revisions.0.text": "HE",
+    "revisions.1.id": "rev2",
+    "revisions.1.block_id": "p2",
+    "revisions.1.start": 0,
+    "revisions.1.end": 3,
+    "revisions.1.text": "LLO"
+  }},
+  {"tool": "document_get", "args": {}, "expect": {
+    "document.body.0.runs.0.text": "HE",
+    "document.body.1.runs.0.text": "LLO"
+  }},
+  {"tool": "revision_reject", "args": {"id": "rev2"}, "expect": {"ok": true}},
+  {"tool": "document_get", "args": {}, "expect": {
+    "document.body.0.runs.0.text": "HE",
+    "document.body.1.runs.0.text": ""
+  }},
+
+  {"tool": "document_new", "args": {"force": true}},
+  {"tool": "track_changes", "args": {"on": true}},
+  {"tool": "insert_at_caret", "args": {"id": "p1", "offset": 0, "text": "AA"}},
+  {"tool": "insert_blocks", "args": {"after_id": "p1", "blocks": [{"id": "p2", "type": "paragraph", "runs": [{"text": ""}]}]}},
+  {"tool": "insert_at_caret", "args": {"id": "p2", "offset": 0, "text": "BB"}},
+  {"tool": "join_blocks", "args": {"id": "p2"}, "expect": {"ok": true, "id": "p1"}},
+  {"tool": "revision_list", "args": {}, "expect": {
+    "revisions.0.block_id": "p1",
+    "revisions.0.start": 0,
+    "revisions.0.end": 2,
+    "revisions.0.text": "AA",
+    "revisions.1.block_id": "p1",
+    "revisions.1.start": 2,
+    "revisions.1.end": 4,
+    "revisions.1.text": "BB"
+  }},
+  {"tool": "document_get", "args": {}, "expect": {
+    "document.body.0.runs.0.text": "AA",
+    "document.body.0.runs.1.text": "BB"
+  }},
+
+  {"tool": "document_new", "args": {"force": true}},
+  {"tool": "track_changes", "args": {"on": true}},
+  {"tool": "insert_at_caret", "args": {"id": "p1", "offset": 0, "text": "AA"}},
+  {"tool": "insert_blocks", "args": {"after_id": "p1", "blocks": [{"id": "p2", "type": "paragraph", "runs": [{"text": ""}]}]}},
+  {"tool": "insert_at_caret", "args": {"id": "p2", "offset": 0, "text": "BB"}},
+  {"tool": "set_selection", "args": {"anchor_id": "p2", "anchor_off": 0, "focus_id": "p2", "focus_off": 0}},
+  {"tool": "backspace", "args": {}, "expect": {"ok": true}},
+  {"tool": "revision_list", "args": {}, "expect": {
+    "revisions.0.block_id": "p1",
+    "revisions.0.text": "AA",
+    "revisions.1.block_id": "p1",
+    "revisions.1.start": 2,
+    "revisions.1.end": 4,
+    "revisions.1.text": "BB"
+  }},
+  {"tool": "document_get", "args": {}, "expect": {
+    "document.body.0.runs.0.text": "AA",
+    "document.body.0.runs.1.text": "BB"
+  }},
+
+  {"tool": "document_new", "args": {"force": true}},
+  {"tool": "track_changes", "args": {"on": true}},
+  {"tool": "insert_at_caret", "args": {"id": "p1", "offset": 0, "text": "HELLO "}},
+  {"tool": "insert_at_caret", "args": {"id": "p1", "offset": 6, "text": "WORLD"}},
+  {"tool": "find_replace", "args": {"find": "HELLO", "replace": "HI"}, "expect": {"ok": true, "count": 1}},
+  {"tool": "revision_list", "args": {}, "expect": {
+    "revisions.0.block_id": "p1",
+    "revisions.0.start": 0,
+    "revisions.0.end": 3,
+    "revisions.0.text": "HELLO ",
+    "revisions.1.block_id": "p1",
+    "revisions.1.start": 3,
+    "revisions.1.end": 8,
+    "revisions.1.text": "WORLD"
+  }},
+  {"tool": "document_get", "args": {}, "expect": {
+    "document.body.0.runs.0.text": "HI ",
+    "document.body.0.runs.1.text": "WORLD"
+  }},
+
+  {"tool": "document_open", "args": {"path": "qa/fixtures/wave23-revision-cut.aio.json"}, "expect": {"ok": true}},
+  {"tool": "find_replace", "args": {"find": "DE", "replace": "X"}, "expect": {"ok": false, "error": "replacement would split a revision"}},
+  {"tool": "document_get", "args": {}, "expect": {
+    "document.body.0.runs.0.text": "ABCDEF",
+    "document.revisions.0.id": "rev1",
+    "document.revisions.0.start": 0,
+    "document.revisions.0.end": 4,
+    "document.revisions.0.text": "ABCD",
+    "dirty": false
+  }}
+]

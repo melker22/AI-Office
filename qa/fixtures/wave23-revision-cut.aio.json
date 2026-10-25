@@ -1,0 +1,6 @@
+{
+  "schema": 1,
+  "meta": {"title": "Revision cut", "author": "Ada", "track_changes": true},
+  "body": [{"id": "p1", "type": "paragraph", "style": "Normal", "runs": [{"text": "ABCDEF"}]}],
+  "revisions": [{"id": "rev1", "author": "Ada", "kind": "insert", "block_id": "p1", "start": 0, "end": 4, "text": "ABCD", "timestamp": 1700000000000}]
+}
