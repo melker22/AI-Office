@@ -590,6 +590,42 @@ static bool isStructureField(const TextRun &r)
     return r.field == QLatin1String("xref") && r.xrefKind == QLatin1String("category_number");
 }
 
+static bool runNeedsFieldRefresh(const TextRun &r)
+{
+    return r.field == QLatin1String("if") || r.field == QLatin1String("seq")
+        || r.field == QLatin1String("xref") || r.field == QLatin1String("stat");
+}
+
+static bool runsNeedFieldRefresh(const QVector<TextRun> &runs)
+{
+    for (const TextRun &r : runs) {
+        if (runNeedsFieldRefresh(r))
+            return true;
+    }
+    return false;
+}
+
+static bool documentHasRefreshField(const Document &doc)
+{
+    for (const Block &b : doc.body) {
+        if (runsNeedFieldRefresh(b.runs) || runsNeedFieldRefresh(b.captionRuns))
+            return true;
+        for (const auto &row : b.table) {
+            for (const auto &cell : row) {
+                if (runsNeedFieldRefresh(cell.runs))
+                    return true;
+                for (const auto &nrow : cell.nested) {
+                    for (const auto &nc : nrow) {
+                        if (runsNeedFieldRefresh(nc.runs))
+                            return true;
+                    }
+                }
+            }
+        }
+    }
+    return false;
+}
+
 static int layoutPageCount(const Document &doc)
 {
     ++gRefreshLayoutPasses;
@@ -706,6 +742,8 @@ static void settleStructureFields(Document &doc, int pages)
 
 void refreshIfFields(Document &doc, bool includeStats)
 {
+    if (!includeStats && !documentHasRefreshField(doc))
+        return;
     const int seededPages = layoutPageCount(doc);
     settleStructureFields(doc, seededPages);
     int pages = layoutPageCount(doc);
@@ -717,15 +755,10 @@ void refreshIfFields(Document &doc, bool includeStats)
         return;
     // chars/words include the stat field's own cached digits. One pass can change
     // that length and therefore the next total; repeat until the numbers settle.
-    // A stat that changes the text is laid out once and not written back.
-    bool statChanged = false;
     for (int pass = 0; pass < 6; ++pass) {
         if (!rewriteFieldRuns(doc, true, pages))
             break;
-        statChanged = true;
     }
-    if (statChanged)
-        layoutPageCount(doc);
 }
 
 } // namespace aioffice

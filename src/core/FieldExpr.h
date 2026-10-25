@@ -65,16 +65,17 @@ QString hideIfExprError(const QString &expr);
 QString evalIfField(const Document &doc, const QString &fieldArg, int page, int pages, bool *exprOk = nullptr,
                     QString *exprError = nullptr);
 
-// One fixed point for field text. Order: structure fields and `if` (seeded with the
-// real layout page total, settled so a word-count cycle keeps the lexicographic
-// minimum and a later call returns the same text), then layout, and if that page
-// total changed one more structure pass and one layout that is not fed back.
-// `stat` is rewritten only when includeStats is true, using that final page total.
-// Callers pass true after an edit (dirty get/save, hide, or vars) and false on a
-// clean read, so an imported stat cache survives document_get. A chars/words recount
-// includes the field's own cached digits, so the stat pass repeats until those
-// stored numbers settle; if a stat changed the text, layout runs once more and
-// fields are not rewritten again. `page` in cached field text stays 1.
+// One fixed point for field text. Returns immediately when includeStats is false
+// and the document has no if, seq, xref, or stat field, so a clean read does not
+// lay out. Otherwise: structure fields and `if` (seeded with the real layout page
+// total, settled so a word-count cycle keeps the lexicographic minimum and a later
+// call returns the same text), then layout, and if that page total changed one
+// more structure pass and one layout that is not fed back. `stat` is rewritten
+// only when includeStats is true, using that final page total. Callers pass true
+// after an edit (dirty get/save, hide, or vars) and false on a clean read, so an
+// imported stat cache survives document_get. A chars/words recount includes the
+// field's own cached digits, so the stat pass repeats until those stored numbers
+// settle. `page` in cached field text stays 1.
 void refreshIfFields(Document &doc, bool includeStats = false);
 
 // Test hook. layoutPageCount inside refreshIfFields increments the counter.
