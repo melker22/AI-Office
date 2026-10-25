@@ -1,0 +1,13 @@
+[
+  {"tool": "document_open", "args": {"path": "qa/fixtures/wave24-docx-caption.docx"}, "expect": {"ok": true}},
+  {"tool": "document_get", "args": {}, "expect": {
+    "document.body.0.type": "table",
+    "document.body.0.caption_runs.0.text": "Table ",
+    "document.body.0.caption_runs.1.field": "seq",
+    "document.body.0.caption_runs.1.field_arg": "{\"format\":\"arabic\",\"name\":\"Table\"}",
+    "document.body.0.caption_runs.2.text": " Sales",
+    "document.body.1.type": "image",
+    "document.body.1.caption_runs.0.text": "Figure view"
+  }},
+  {"tool": "page_preview", "args": {"page": 1}, "expect": {"ids": ["t1", "img1"]}}
+]

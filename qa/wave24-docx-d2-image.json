@@ -1,0 +1,16 @@
+[
+  {"tool": "document_open", "args": {"path": "qa/fixtures/wave24-docx-image.docx"}, "expect": {"ok": true}},
+  {"tool": "document_get", "args": {}, "expect": {
+    "document.body.0.id": "p1",
+    "document.body.0.type": "paragraph",
+    "document.body.0.style": "Quote",
+    "document.body.0.runs.0.text": "Before",
+    "document.body.1.id": "img1",
+    "document.body.1.type": "image",
+    "document.body.2.id": "p2",
+    "document.body.2.type": "paragraph",
+    "document.body.2.style": "Quote",
+    "document.body.2.runs.0.text": "After"
+  }},
+  {"tool": "page_preview", "args": {"page": 1}, "expect": {"ids": ["p1", "img1", "p2"]}}
+]

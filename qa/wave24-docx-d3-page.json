@@ -1,0 +1,85 @@
+[
+  {"tool": "document_open", "args": {"path": "qa/fixtures/wave24-docx-page-a4.docx"}, "expect": {"ok": true}},
+  {"tool": "document_get", "args": {}, "expect": {
+    "document.meta.page.size": "A4",
+    "document.meta.page.orientation": "portrait",
+    "document.meta.page.width_mm": {"$gte": 209},
+    "document.meta.page.height_mm": {"$gte": 296}
+  }},
+  {"tool": "document_get", "args": {}, "expect": {
+    "document.meta.page.width_mm": {"$lt": 212},
+    "document.meta.page.height_mm": {"$lt": 299}
+  }},
+
+  {"tool": "document_open", "args": {"path": "qa/fixtures/wave24-docx-page-letter.docx"}, "expect": {"ok": true}},
+  {"tool": "document_get", "args": {}, "expect": {
+    "document.meta.page.size": "Letter",
+    "document.meta.page.orientation": "portrait",
+    "document.meta.page.width_mm": {"$gte": 215},
+    "document.meta.page.height_mm": {"$gte": 278}
+  }},
+  {"tool": "document_get", "args": {}, "expect": {
+    "document.meta.page.width_mm": {"$lt": 217},
+    "document.meta.page.height_mm": {"$lt": 281}
+  }},
+
+  {"tool": "document_open", "args": {"path": "qa/fixtures/wave24-docx-page-legal.docx"}, "expect": {"ok": true}},
+  {"tool": "document_get", "args": {}, "expect": {
+    "document.meta.page.size": "Legal",
+    "document.meta.page.orientation": "portrait",
+    "document.meta.page.width_mm": {"$gte": 215},
+    "document.meta.page.height_mm": {"$gte": 354}
+  }},
+  {"tool": "document_get", "args": {}, "expect": {
+    "document.meta.page.width_mm": {"$lt": 217},
+    "document.meta.page.height_mm": {"$lt": 357}
+  }},
+
+  {"tool": "document_open", "args": {"path": "qa/fixtures/wave24-docx-page-a3.docx"}, "expect": {"ok": true}},
+  {"tool": "document_get", "args": {}, "expect": {
+    "document.meta.page.size": "A3",
+    "document.meta.page.orientation": "portrait",
+    "document.meta.page.width_mm": {"$gte": 296},
+    "document.meta.page.height_mm": {"$gte": 419}
+  }},
+  {"tool": "document_get", "args": {}, "expect": {
+    "document.meta.page.width_mm": {"$lt": 299},
+    "document.meta.page.height_mm": {"$lt": 422}
+  }},
+
+  {"tool": "document_open", "args": {"path": "qa/fixtures/wave24-docx-page-a5.docx"}, "expect": {"ok": true}},
+  {"tool": "document_get", "args": {}, "expect": {
+    "document.meta.page.size": "A5",
+    "document.meta.page.orientation": "portrait",
+    "document.meta.page.width_mm": {"$gte": 147},
+    "document.meta.page.height_mm": {"$gte": 209}
+  }},
+  {"tool": "document_get", "args": {}, "expect": {
+    "document.meta.page.width_mm": {"$lt": 150},
+    "document.meta.page.height_mm": {"$lt": 212}
+  }},
+
+  {"tool": "document_open", "args": {"path": "qa/fixtures/wave24-docx-page-custom.docx"}, "expect": {"ok": true}},
+  {"tool": "document_get", "args": {}, "expect": {
+    "document.meta.page.size": "custom",
+    "document.meta.page.orientation": "portrait",
+    "document.meta.page.width_mm": {"$gte": 175},
+    "document.meta.page.height_mm": {"$gte": 253}
+  }},
+  {"tool": "document_get", "args": {}, "expect": {
+    "document.meta.page.width_mm": {"$lt": 178},
+    "document.meta.page.height_mm": {"$lt": 256}
+  }},
+
+  {"tool": "document_open", "args": {"path": "qa/fixtures/wave24-docx-page-land.docx"}, "expect": {"ok": true}},
+  {"tool": "document_get", "args": {}, "expect": {
+    "document.meta.page.size": "A4",
+    "document.meta.page.orientation": "landscape",
+    "document.meta.page.width_mm": {"$gte": 296},
+    "document.meta.page.height_mm": {"$gte": 209}
+  }},
+  {"tool": "document_get", "args": {}, "expect": {
+    "document.meta.page.width_mm": {"$lt": 299},
+    "document.meta.page.height_mm": {"$lt": 212}
+  }}
+]

@@ -1,0 +1,23 @@
+[
+  {"tool": "document_open", "args": {"path": "qa/fixtures/wave24-docx-lists.docx"}, "expect": {"ok": true}},
+  {"tool": "document_get", "args": {}, "expect": {
+    "document.body.0.type": "list-item",
+    "document.body.0.list_kind": "lowerRoman",
+    "document.body.0.level": 1,
+    "document.body.0.runs.0.text": "Roman",
+    "document.body.1.list_kind": "upperRoman",
+    "document.body.1.level": 1,
+    "document.body.2.list_kind": "lowerLetter",
+    "document.body.3.list_kind": "upperLetter",
+    "document.body.4.list_kind": "decimal",
+    "document.body.4.level": 1,
+    "document.body.5.type": "list-item",
+    "document.body.5.list_kind": "bullet",
+    "document.body.5.level": 2,
+    "document.body.5.runs.0.text": "Bullet",
+    "document.body.6.type": "paragraph",
+    "document.body.6.id": "p1",
+    "document.body.6.runs.0.text": "Plain"
+  }},
+  {"tool": "page_preview", "args": {"page": 1}, "expect": {"ids": ["l1", "l2", "l3", "l4", "l5", "l6", "p1"]}}
+]
