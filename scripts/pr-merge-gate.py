@@ -298,9 +298,15 @@ def evaluate(pr_number: int, pr: dict, statuses: list, comments: list, reviews: 
         r for r in reviews
         if r["user"]["login"].startswith("coderabbit") and r.get("commit_id") == head
     ]
+    cr_desc = next((x.get("description") or "" for x in statuses if x.get("context") == "CodeRabbit"), "")
     if not on_head and not pending:
-        pending = True
-        lines.append("PENDING no CodeRabbit review on the head commit yet")
+        # With nothing to say, CodeRabbit finishes an incremental review without posting a review object:
+        # its status is success / "Review completed". "Review paused" (or anything else) is still pending.
+        if st.get("CodeRabbit") == "success" and cr_desc.startswith("Review completed"):
+            lines.append("note: CodeRabbit completed the head review with no new review (nothing to report)")
+        else:
+            pending = True
+            lines.append(f"PENDING no CodeRabbit review on the head commit yet (status: {cr_desc or 'none'})")
     for r in on_head:
         body = r.get("body") or ""
         actionable = count(r"Actionable comments posted:\s*(\d+)", body)
@@ -446,6 +452,14 @@ def self_test() -> int:
                                "2026-10-21T20:00:00Z", since, refetch)
         return code, "\n".join(lines), calls["n"]
 
+    completed = [{"context": "ci/circleci: build-and-test", "state": "success"},
+                 {"context": "CodeRabbit", "state": "success", "description": "Review completed"}]
+    paused = [{"context": "ci/circleci: build-and-test", "state": "success"},
+              {"context": "CodeRabbit", "state": "success", "description": "Review paused"}]
+    code, text, n = run(pr(), completed, reviews=[])
+    check("'Review completed' with no review on the head is clean", code == 0 and "CLEAN" in text, text)
+    code, text, n = run(pr(), paused, reviews=[])
+    check("'Review paused' with no review on the head is pending", code == 2 and "Review paused" in text, text)
     code, text, n = run(pr(), success)
     check("clean head stays clean after the same reread", code == 0 and "CLEAN" in text and n == 1, text)
 
