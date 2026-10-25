@@ -11,6 +11,7 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import urllib.parse
 import zipfile
 from pathlib import Path
 from typing import Any
@@ -255,7 +256,8 @@ def _zip_name_key(name: str) -> str:
 
 def _resolve_opf_href(opf_name: str, href: str) -> str:
     """Href relative to the OPF, without a fragment or query."""
-    href = href.split("#", 1)[0].split("?", 1)[0].strip().replace("\\", "/")
+    # Manifest hrefs are URLs: drop fragment and query, then percent-decode the path (EPUB 3.3).
+    href = urllib.parse.unquote(href.split("#", 1)[0].split("?", 1)[0].strip()).replace("\\", "/")
     if not href:
         return ""
     if href.startswith("/"):
@@ -538,8 +540,10 @@ def write_list_markup_epub(path: Path, chapter: str) -> None:
         zf.writestr("OEBPS/chapter.xhtml", chapter_xml)
 
 
-def write_nav_list_epub(path: Path, nav_name: str, nav_inner: str, chapter_inner: str) -> None:
-    """One manifest nav document plus a chapter. nav_name may omit the word nav."""
+def write_nav_list_epub(path: Path, nav_name: str, nav_inner: str, chapter_inner: str,
+                        nav_href: str | None = None) -> None:
+    """One manifest nav document plus a chapter. nav_name may omit the word nav; nav_href is the
+    manifest href (default nav_name), e.g. percent-encoded."""
     nav_xml = f"""<?xml version="1.0" encoding="UTF-8"?>
 <html xmlns="http://www.w3.org/1999/xhtml">
 <body>{nav_inner}</body>
@@ -551,7 +555,7 @@ def write_nav_list_epub(path: Path, nav_name: str, nav_inner: str, chapter_inner
     opf = f"""<?xml version="1.0" encoding="UTF-8"?>
 <package xmlns="http://www.idpf.org/2007/opf" version="3.0">
   <manifest>
-    <item id="nav" href="{nav_name}" media-type="application/xhtml+xml" properties="nav"/>
+    <item id="nav" href="{nav_href or nav_name}" media-type="application/xhtml+xml" properties="nav"/>
     <item id="c1" href="chapter.xhtml" media-type="application/xhtml+xml"/>
   </manifest>
 </package>"""
@@ -691,6 +695,14 @@ def self_test() -> int:
             ok = False
         else:
             print("ok   properties=nav TOC with flat chapters rejected")
+        enc_epub = Path(tmp) / "toc-encoded.epub"
+        write_nav_list_epub(enc_epub, "toc file.xhtml", nested_nav, flat_chapter, nav_href="toc%20file.xhtml")
+        enc_errs = check_structure(enc_epub, list_exp)
+        if "expected a list nested inside a list item" not in enc_errs:
+            print("FAIL self-test percent-encoded nav href with flat chapters should fail:", enc_errs)
+            ok = False
+        else:
+            print("ok   percent-encoded nav href with flat chapters rejected")
 
     mcp = (REPO / "docs" / "mcp-tools.md").read_text(encoding="utf-8")
     open_section = mcp.split("### `document_open`", 1)[1].split("### `document_save`", 1)[0]
