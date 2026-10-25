@@ -5489,6 +5489,29 @@ static void remapRunIds(QVector<TextRun> &runs, const QMap<QString, QString> &id
     }
 }
 
+static void remapXrefBookmarkIds(QVector<TextRun> &runs, const QMap<QString, QString> &bmMap)
+{
+    for (auto &run : runs) {
+        if (run.field == QLatin1String("xref") && bmMap.contains(run.fieldArg))
+            run.fieldArg = bmMap.value(run.fieldArg);
+    }
+}
+
+static void remapBlockXrefBookmarks(Block &b, const QMap<QString, QString> &bmMap)
+{
+    remapXrefBookmarkIds(b.runs, bmMap);
+    remapXrefBookmarkIds(b.captionRuns, bmMap);
+    for (auto &row : b.table) {
+        for (auto &cell : row) {
+            remapXrefBookmarkIds(cell.runs, bmMap);
+            for (auto &nrow : cell.nested) {
+                for (auto &nc : nrow)
+                    remapXrefBookmarkIds(nc.runs, bmMap);
+            }
+        }
+    }
+}
+
 QJsonObject Session::documentInclude(const QJsonObject &args)
 {
     const QString path = args.value(QStringLiteral("path")).toString();
@@ -5537,6 +5560,23 @@ QJsonObject Session::documentInclude(const QJsonObject &args)
                 t = idMap.value(t);
         }
     }
+    QMap<QString, QString> bmMap;
+    QStringList usedBm = collectBookmarkIds(doc_.bookmarks);
+    QVector<Bookmark> renamedBms;
+    for (const Bookmark &src : other.bookmarks) {
+        Bookmark bm = src;
+        const QString oldId = bm.id;
+        if (idMap.contains(bm.blockId))
+            bm.blockId = idMap.value(bm.blockId);
+        if (bm.id.isEmpty() || usedBm.contains(bm.id))
+            bm.id = nextPrefixedId(QStringLiteral("bm"), usedBm);
+        if (!oldId.isEmpty() && oldId != bm.id)
+            bmMap.insert(oldId, bm.id);
+        usedBm.append(bm.id);
+        renamedBms.push_back(bm);
+    }
+    for (auto &b : incoming)
+        remapBlockXrefBookmarks(b, bmMap);
     QJsonArray ids;
     for (auto &b : incoming) {
         doc_.body.insert(at++, b);
@@ -5552,16 +5592,8 @@ QJsonObject Session::documentInclude(const QJsonObject &args)
         usedRev.append(rv.id);
         doc_.revisions.push_back(rv);
     }
-    QStringList usedBm = collectBookmarkIds(doc_.bookmarks);
-    for (const Bookmark &src : other.bookmarks) {
-        Bookmark bm = src;
-        if (idMap.contains(bm.blockId))
-            bm.blockId = idMap.value(bm.blockId);
-        if (bm.id.isEmpty() || usedBm.contains(bm.id))
-            bm.id = nextPrefixedId(QStringLiteral("bm"), usedBm);
-        usedBm.append(bm.id);
+    for (const Bookmark &bm : renamedBms)
         doc_.bookmarks.push_back(bm);
-    }
     markChanged();
     auto r = ok();
     r[QStringLiteral("ids")] = ids;
