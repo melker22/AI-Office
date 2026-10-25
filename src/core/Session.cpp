@@ -387,8 +387,10 @@ void rebaseRevisionsOnSplit(Document &doc, const QString &oldId, const QString &
     }
 }
 
-// Qt expands \n and \& only for QString::replace(QRegularExpression). The one-shot
-// replace(start, len, repl) used when `all` is false keeps `repl` literal.
+// Planning and application both use this helper when `all` is set. Qt's
+// QString::replace(QRegularExpression) only substitutes \1..\9 for a group that
+// exists and leaves \0, \&, and \\ literal, so the live text would diverge from
+// the lengths stored on revisions. A one-shot replace keeps `repl` literal.
 QString expandRegexReplacement(const QString &repl, const QRegularExpressionMatch &match)
 {
     QString out;
@@ -1608,7 +1610,23 @@ QJsonObject Session::findReplace(const QJsonObject &args)
             else
                 run.text.replace(run.text.indexOf(find), find.size(), repl);
         } else if (all) {
-            run.text.replace(re, repl);
+            QString built;
+            built.reserve(run.text.size());
+            int cursor = 0;
+            auto it = re.globalMatch(run.text);
+            while (it.hasNext()) {
+                const QRegularExpressionMatch m = it.next();
+                const int at = m.capturedStart();
+                if (at < cursor)
+                    continue;
+                if (at > cursor)
+                    built += run.text.mid(cursor, at - cursor);
+                built += expandRegexReplacement(repl, m);
+                cursor = m.capturedEnd();
+            }
+            if (cursor < run.text.size())
+                built += run.text.mid(cursor);
+            run.text = built;
         } else {
             const auto m = re.match(run.text);
             if (m.hasMatch())
