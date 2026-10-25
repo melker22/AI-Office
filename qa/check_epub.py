@@ -249,15 +249,67 @@ def html_has_nested_list(html: str) -> bool:
     return _element_has_nested_list(root)
 
 
+def _zip_name_key(name: str) -> str:
+    return name.replace("\\", "/").lstrip("/").lower()
+
+
+def _resolve_opf_href(opf_name: str, href: str) -> str:
+    """Href relative to the OPF, without a fragment or query."""
+    href = href.split("#", 1)[0].split("?", 1)[0].strip().replace("\\", "/")
+    if not href:
+        return ""
+    if href.startswith("/"):
+        return href.lstrip("/").lower()
+    opf = opf_name.replace("\\", "/")
+    base = opf.rsplit("/", 1)[0] if "/" in opf else ""
+    parts = [p for p in base.split("/") if p] if base else []
+    for part in href.split("/"):
+        if part in ("", "."):
+            continue
+        if part == "..":
+            if parts:
+                parts.pop()
+            continue
+        parts.append(part)
+    return "/".join(parts).lower()
+
+
+def _nav_document_names(zf: zipfile.ZipFile) -> set[str]:
+    """Navigation documents: a name containing 'nav', or manifest properties=nav."""
+    nav: set[str] = set()
+    for name in zf.namelist():
+        key = _zip_name_key(name)
+        if (key.endswith(".xhtml") or key.endswith(".html")) and "nav" in key:
+            nav.add(key)
+        if not key.endswith(".opf"):
+            continue
+        try:
+            root = ET.fromstring(zf.read(name))
+        except ET.ParseError:
+            continue
+        for item in root.iter():
+            if _local_tag(item.tag) != "item":
+                continue
+            if "nav" not in (item.get("properties") or "").split():
+                continue
+            resolved = _resolve_opf_href(name, item.get("href") or "")
+            if resolved:
+                nav.add(resolved)
+    return nav
+
+
 def epub_has_nested_list(epub: Path) -> bool:
     try:
         zf = zipfile.ZipFile(epub)
     except zipfile.BadZipFile:
         return False
     with zf:
+        nav_names = _nav_document_names(zf)
         for name in zf.namelist():
-            lower = name.lower()
-            if not lower.endswith(".xhtml") and not lower.endswith(".html"):
+            key = _zip_name_key(name)
+            if not key.endswith(".xhtml") and not key.endswith(".html"):
+                continue
+            if "nav" in key or key in nav_names:
                 continue
             try:
                 root = ET.fromstring(zf.read(name))
