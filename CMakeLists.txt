@@ -392,6 +392,41 @@ foreach(_w24pb IN LISTS _wave24_playbooks)
     )
 endforeach()
 
+# Per-decision functional playbooks (D1-D16): plain `aioffice_cli play` scripts with
+# inline `expect`, one file per decision, asserting the real tool-visible behaviour
+# (document_get/page_preview/round trip through document_save+document_open) rather
+# than the check_wave24.py body/export judge above. Each exercises a fixture built by
+# qa/fixtures/make_wave24_docx.py or qa/fixtures/gen_wave24_odt.py and fails without
+# its decision's fix. D17 (QR) is covered separately by wave24_qr/wave24_qr_decode.
+set(_wave24_decision_playbooks
+    wave24-docx-d1-runs.json
+    wave24-docx-d2-image.json
+    wave24-docx-d3-page.json
+    wave24-docx-d4-tables.json
+    wave24-docx-d5-caption.json
+    wave24-docx-d6-core.json
+    wave24-docx-d7-del-field.json
+    wave24-docx-d8-lists.json
+    wave24-docx-d10-revisions.json
+    wave24-odt-d3-page.json
+    wave24-odt-d4-table.json
+    wave24-odt-d9-escape.json
+    wave24-odt-d12-notes.json
+    wave24-odt-d13-font.json
+    wave24-odt-d14-lists.json
+    wave24-odt-d15-figures.json
+    wave24-odt-d16-bookmarks.json
+)
+foreach(_w24d IN LISTS _wave24_decision_playbooks)
+    get_filename_component(_w24d_stem "${_w24d}" NAME_WE)
+    add_test(NAME "wave24_decision_${_w24d_stem}" COMMAND aioffice_cli play "${CMAKE_SOURCE_DIR}/qa/${_w24d}")
+    set_tests_properties("wave24_decision_${_w24d_stem}" PROPERTIES
+        LABELS "wave24"
+        TIMEOUT 180
+        WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}"
+    )
+endforeach()
+
 file(GLOB _aio_pdf_playbooks CONFIGURE_DEPENDS "${CMAKE_SOURCE_DIR}/qa/wave19-pdf-*.json")
 foreach(_pdf_pb IN LISTS _aio_pdf_playbooks)
     get_filename_component(_pdf_name "${_pdf_pb}" NAME)

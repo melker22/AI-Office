@@ -989,11 +989,16 @@ bool appendOuterTable(QString &bodyXml, SpanCounter &sc, const QVector<QVector<T
             const TableCell &cell = table[r][c];
             const int cs = qMax(1, cell.colSpan);
             const int rs = qMax(1, cell.rowSpan);
+            const bool merged = cs > 1 || rs > 1;
             QString attrs;
-            if (cs > 1)
+            // D4/A-odf-6: a merged cell's footprint is written as a pair (both
+            // dimensions), the way LibreOffice itself writes it, even when one
+            // dimension is 1 — so the attribute that spells out "not spanned on
+            // this axis" round-trips instead of being silently dropped.
+            if (merged) {
                 attrs += QStringLiteral(" table:number-columns-spanned=\"%1\"").arg(cs);
-            if (rs > 1)
                 attrs += QStringLiteral(" table:number-rows-spanned=\"%1\"").arg(rs);
+            }
             bodyXml += QStringLiteral("<table:table-cell%1>").arg(attrs);
             if (cellHasText(cell.runs) || cell.nested.isEmpty()) {
                 bodyXml += QLatin1String("<text:p text:style-name=\"Standard\">");
@@ -2113,6 +2118,32 @@ bool loadOdt(const QByteArray &zipData, Document &doc, QString *error)
                             plain += rr.text;
                         plain += spanRun.text;
                         rv.text = plain.mid(rv.start, qMax(0, rv.end - rv.start));
+                    } else if (rv.kind == QLatin1String("format")) {
+                        // D10/A-odf-1: ODF's text:format-change carries no previous
+                        // attribute values (unlike DOCX's w:rPrChange), so the payload
+                        // we can rebuild from the native mark alone is "what the run
+                        // covering [start,end) looks like now", truthy flags only.
+                        QJsonObject payload;
+                        int pos = 0;
+                        auto consider = [&](const TextRun &r) {
+                            const int len = r.text.size();
+                            const bool overlaps = pos < rv.end && (pos + len) > rv.start;
+                            if (overlaps) {
+                                if (r.bold)
+                                    payload[QStringLiteral("bold")] = true;
+                                if (r.italic)
+                                    payload[QStringLiteral("italic")] = true;
+                                if (r.underline)
+                                    payload[QStringLiteral("underline")] = true;
+                                if (r.strike)
+                                    payload[QStringLiteral("strike")] = true;
+                            }
+                            pos += len;
+                        };
+                        for (const auto &rr : runs)
+                            consider(rr);
+                        consider(spanRun);
+                        rv.payload = QString::fromUtf8(QJsonDocument(payload).toJson(QJsonDocument::Compact));
                     }
                     doc.revisions.push_back(rv);
                     pendingRevisionIdx.push_back(doc.revisions.size() - 1);

@@ -869,18 +869,35 @@ QString emitDel(const Revision *rv, const Document &doc, DocxOut &o, bool vanish
         .arg(xmlEscape(rv->author), revDate(rv), inner);
 }
 
-QString rPrChangeXml(const Revision *fmt, int absOff, int len, DocxOut &o)
+QString rPrChangeXml(const Revision *fmt, int absOff, int len, const TextRun &cur, DocxOut &o)
 {
     QString prior;
+    QString offMarkers;
     if (!fmt->priorRuns.isEmpty()) {
         const auto slices = splitRuns(fmt->priorRuns, absOff - fmt->start, absOff - fmt->start + len);
-        if (!slices.isEmpty())
-            prior = runRPr(slices.front());
+        if (!slices.isEmpty()) {
+            const TextRun &p = slices.front();
+            prior = runRPr(p);
+            // D1/D10: runRPr(cur) only ever omits an off attribute, same as "never set" — so a
+            // native-only reimport (no JSON sidecar) cannot tell a run that lost its bold/italic/
+            // underline/strike apart from one that never had it. Spell the explicit w:val="0"
+            // form (D1's own "turned off" marker) whenever the prior <w:rPr> had the attribute on
+            // and the live run no longer does, so the import side can rebuild the same payload.
+            if (p.bold && !cur.bold)
+                offMarkers += QLatin1String("<w:b w:val=\"0\"/>");
+            if (p.italic && !cur.italic)
+                offMarkers += QLatin1String("<w:i w:val=\"0\"/>");
+            if (p.underline && !cur.underline)
+                offMarkers += QLatin1String("<w:u w:val=\"none\"/>");
+            if (p.strike && !cur.strike)
+                offMarkers += QLatin1String("<w:strike w:val=\"0\"/>");
+        }
     }
     const int wid = o.wId(QStringLiteral("%1#%2").arg(fmt->id).arg(absOff));
-    return QStringLiteral("<w:rPrChange w:id=\"%1\" w:author=\"%2\" w:date=\"%3\"><w:rPr>%4</w:rPr></w:rPrChange>")
-        .arg(wid)
-        .arg(xmlEscape(fmt->author), revDate(fmt), prior);
+    return offMarkers
+        + QStringLiteral("<w:rPrChange w:id=\"%1\" w:author=\"%2\" w:date=\"%3\"><w:rPr>%4</w:rPr></w:rPrChange>")
+              .arg(wid)
+              .arg(xmlEscape(fmt->author), revDate(fmt), prior);
 }
 
 QString revisedRunsToWml(const QString &blockId, const QVector<TextRun> &runs, const Document &doc, DocxOut &o,
@@ -968,7 +985,7 @@ QString revisedRunsToWml(const QString &blockId, const QVector<TextRun> &runs, c
         }
         int abs = p.from;
         for (const auto &r : splitRuns(runs, p.from, p.to)) {
-            const QString extra = rPrChangeXml(fmt, abs, r.text.size(), o);
+            const QString extra = rPrChangeXml(fmt, abs, r.text.size(), r, o);
             xml += runsToWml(QVector<TextRun>{r}, doc, o, extra, false, vanish);
             abs += r.text.size();
         }
@@ -1078,8 +1095,14 @@ QString tableWml(const QVector<QVector<TableCell>> &table, const QVector<double>
 {
     int cols = 0;
     const int rows = table.size();
-    for (const auto &row : table)
-        cols = qMax(cols, row.size());
+    // Covered cells (absorbed by a preceding colSpan) have no stored entry, so the
+    // grid width is the sum of each row's colSpan, not the raw stored-cell count.
+    for (const auto &row : table) {
+        int rowCols = 0;
+        for (const auto &cell : row)
+            rowCols += qMax(1, cell.colSpan);
+        cols = qMax(cols, rowCols);
+    }
     struct Mark {
         bool covered = false;
         bool vContinue = false;
@@ -1089,7 +1112,11 @@ QString tableWml(const QVector<QVector<TableCell>> &table, const QVector<double>
     for (int r = 0; r < rows; ++r)
         mark[r].resize(cols);
     auto colSpanOf = [&](int r, int c) {
-        return qBound(1, table[r][c].colSpan, qMax(1, table[r].size() - c));
+        // Bound by the remaining grid columns, not the remaining *stored* cells in
+        // this row: a colSpan>1 anchor has no stored entry for the columns it
+        // covers, so "table[r].size() - c" undercounts as soon as any earlier cell
+        // in the row spans more than one column.
+        return qBound(1, table[r][c].colSpan, qMax(1, cols - c));
     };
     auto rowSpanOf = [&](int r, int c) {
         return qBound(1, table[r][c].rowSpan, qMax(1, rows - r));
@@ -1849,6 +1876,7 @@ bool loadDocx(const QByteArray &zipData, Document &doc, QString *error)
     };
     QVector<TblLevel> tables;
     QString blipRid;
+    bool inDrawing = false;
     bool imageBrokeParagraph = false;
     bool skipEmptyP = false;
     bool inPPr = false;
@@ -1884,6 +1912,15 @@ bool loadDocx(const QByteArray &zipData, Document &doc, QString *error)
     bool inRPrChange = false;
     bool runHasFmtChange = false;
     bool sawPriorRPr = false;
+    // D1/D10: an explicit w:val="0"/"false"/"off" (or "none" for w:u) on the CURRENT run is a
+    // real signal that the attribute was turned off on purpose, distinct from the tag being
+    // absent entirely (which only means "not set" and carries no change information). Only the
+    // explicit form lets a native-only reimport (no JSON sidecar) rebuild a format revision's
+    // "turned off" payload without confusing it with a run that was never bold/italic/etc.
+    bool explicitBoldOff = false;
+    bool explicitItalicOff = false;
+    bool explicitUnderlineOff = false;
+    bool explicitStrikeOff = false;
     QString fmtAuthor;
     qint64 fmtDate = 0;
     TextRun delRun;
@@ -2147,6 +2184,10 @@ bool loadDocx(const QByteArray &zipData, Document &doc, QString *error)
                     runHasFmtChange = false;
                     sawPriorRPr = false;
                     priorRun = TextRun{};
+                    explicitBoldOff = false;
+                    explicitItalicOff = false;
+                    explicitUnderlineOff = false;
+                    explicitStrikeOff = false;
                 }
             } else if (n == QLatin1String("rPrChange") && inR && !inDel) {
                 inRPrChange = true;
@@ -2174,15 +2215,27 @@ bool loadDocx(const QByteArray &zipData, Document &doc, QString *error)
                        || n == QLatin1String("highlight") || n == QLatin1String("sz")
                        || n == QLatin1String("color") || n == QLatin1String("rFonts")) {
                 if (TextRun *dst = fmtTarget()) {
-                    if (n == QLatin1String("b"))
+                    // D1/D10: only the CURRENT run (not the prior <w:rPr> inside rPrChange, not a
+                    // deleted run) can carry the explicit "turned off" signal; dst == &run is that
+                    // case exactly (fmtTarget() returns &priorRun in rPrChange, &delRun in w:del).
+                    const bool curRun = (dst == &run);
+                    if (n == QLatin1String("b")) {
                         dst->bold = onOffIsOn(xml.attributes(), false);
-                    else if (n == QLatin1String("i"))
+                        if (curRun && !dst->bold)
+                            explicitBoldOff = true;
+                    } else if (n == QLatin1String("i")) {
                         dst->italic = onOffIsOn(xml.attributes(), false);
-                    else if (n == QLatin1String("u"))
+                        if (curRun && !dst->italic)
+                            explicitItalicOff = true;
+                    } else if (n == QLatin1String("u")) {
                         dst->underline = onOffIsOn(xml.attributes(), true);
-                    else if (n == QLatin1String("strike"))
+                        if (curRun && !dst->underline)
+                            explicitUnderlineOff = true;
+                    } else if (n == QLatin1String("strike")) {
                         dst->strike = onOffIsOn(xml.attributes(), false);
-                    else if (n == QLatin1String("vertAlign")) {
+                        if (curRun && !dst->strike)
+                            explicitStrikeOff = true;
+                    } else if (n == QLatin1String("vertAlign")) {
                         const auto v = xml.attributes().value(QStringLiteral("w:val")).toString();
                         dst->superscript = (v == QLatin1String("superscript"));
                         dst->subscript = (v == QLatin1String("subscript"));
@@ -2341,6 +2394,8 @@ bool loadDocx(const QByteArray &zipData, Document &doc, QString *error)
                 doc.body.push_back(nb);
             } else if (n == QLatin1String("blip")) {
                 blipRid = xml.attributes().value(QStringLiteral("r:embed")).toString();
+            } else if (n == QLatin1String("drawing")) {
+                inDrawing = true;
             } else if (n == QLatin1String("br")) {
                 const auto ty = xml.attributes().value(QStringLiteral("w:type")).toString();
                 if (ty == QLatin1String("page") || ty == QLatin1String("column")) {
@@ -2391,14 +2446,30 @@ bool loadDocx(const QByteArray &zipData, Document &doc, QString *error)
                         rv.start = before;
                         rv.end = curLen();
                         QJsonObject payload;
+                        // D1/D10: truthy flags record "turned on". An attribute that is off only
+                        // because its tag is simply absent carries no change information and stays
+                        // out of the payload. An attribute that is off because the current run
+                        // spells the explicit w:val="0"/"false"/"off"/"none" form (set above, only
+                        // for the live run) was deliberately turned off, so that transition is
+                        // recorded too — this is how our own export (rPrChangeXml) marks a run
+                        // that used to be bold/italic/underlined/struck and no longer is, so a
+                        // native-only reimport (no JSON sidecar) rebuilds the same payload.
                         if (run.bold)
                             payload[QStringLiteral("bold")] = true;
+                        else if (explicitBoldOff)
+                            payload[QStringLiteral("bold")] = false;
                         if (run.italic)
                             payload[QStringLiteral("italic")] = true;
+                        else if (explicitItalicOff)
+                            payload[QStringLiteral("italic")] = false;
                         if (run.underline)
                             payload[QStringLiteral("underline")] = true;
+                        else if (explicitUnderlineOff)
+                            payload[QStringLiteral("underline")] = false;
                         if (run.strike)
                             payload[QStringLiteral("strike")] = true;
+                        else if (explicitStrikeOff)
+                            payload[QStringLiteral("strike")] = false;
                         rv.payload = QString::fromUtf8(QJsonDocument(payload).toJson(QJsonDocument::Compact));
                         if (sawPriorRPr) {
                             priorRun.text = run.text;
@@ -2442,7 +2513,8 @@ bool loadDocx(const QByteArray &zipData, Document &doc, QString *error)
                 inDel = false;
                 delAcc.clear();
                 curRevStartOff = -1;
-            } else if (n == QLatin1String("drawing") && !blipRid.isEmpty()) {
+            } else if (n == QLatin1String("drawing") && inDrawing) {
+                inDrawing = false;
                 if (inP) {
                     const QString keepStyle = pStyle;
                     const QString keepAlign = align;
@@ -2468,13 +2540,15 @@ bool loadDocx(const QByteArray &zipData, Document &doc, QString *error)
                     inP = true;
                     imageBrokeParagraph = true;
                 }
-                QString target = rels.value(blipRid);
-                if (target.startsWith(QLatin1String("media/")))
-                    target = QStringLiteral("word/") + target;
                 Block img;
                 img.type = QStringLiteral("image");
-                img.imagePath = target;
-                img.imageBytes = Zip::file(entries, target);
+                if (!blipRid.isEmpty()) {
+                    QString target = rels.value(blipRid);
+                    if (target.startsWith(QLatin1String("media/")))
+                        target = QStringLiteral("word/") + target;
+                    img.imagePath = target;
+                    img.imageBytes = Zip::file(entries, target);
+                }
                 doc.assignId(img);
                 doc.body.push_back(img);
                 blipRid.clear();
