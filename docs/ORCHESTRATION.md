@@ -155,6 +155,24 @@ para todos os nós movidos — eles voltam ao YAML (Claude).
 
 ## Limites de uso
 
+**Guardião de uso (automático).** `scripts/usage-guard.py` roda como daemon. Uma cópia instalada fica em `~/.local/share/aio-usage-guard/`, e o hook `app.ready` (`usage-guard-daemon`) a inicia junto com o Cockpit; o `flock` garante uma única instância. O que ele faz:
+
+- Avisa uma vez quando a janela de 5 h ou a semanal do Claude, ou a cota mensal da Cursor, passa de 90%.
+- O hook `task.waiting` com `waitingReason=usage_limit` (`usage-guard-record`) anota cada task parada por limite, junto com o horário de reset.
+- Depois do reset, retoma o que parou por limite, inclusive o orquestrador: uma Fleet com `cockpit fleet resume`, e uma task com uma mensagem de "continue de onde parou".
+- A cada 5 minutos procura Runs pausadas por limite que nenhum hook anotou.
+- Nunca retoma uma Run pausada à mão nem uma task que espera por outro motivo.
+
+Comandos:
+
+- `python3 scripts/usage-guard.py status`: estado do daemon e o que está pendente.
+- `… once --dry-run`: mostra o que faria, sem agir.
+- `… --self-test`: autoteste.
+- Log: `~/.local/state/aio-usage-guard/guard.log`.
+
+Ao mudar o script no repositório, copie-o de novo para `~/.local/share/aio-usage-guard/`.
+
+
 Ver `cockpit usage --all`. Quando um provedor esgota, **não edite o YAML** — sobrescreva na hora:
 
 ```bash
