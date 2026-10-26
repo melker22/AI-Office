@@ -44,6 +44,7 @@ from pathlib import Path
 RESUME_GRACE = timedelta(seconds=90)      # wait a little past the advertised reset
 UNKNOWN_RESET_RETRY = timedelta(minutes=15)
 SCAN_EVERY = timedelta(minutes=5)
+RECENT_DONE = timedelta(minutes=10)       # a stop with unknown reset this soon after a resume = same stop
 CONTINUE_TEXT = ("O limite de uso renovou (usage-guard). Continue exatamente de onde parou: "
                  "retome a última etapa interrompida sem refazer o que já foi concluído.")
 USAGE_RE = re.compile(r"usage limit reached until ([0-9T:.+\-Z]+)", re.I)
@@ -92,10 +93,13 @@ def locked_state():
         state.setdefault("markers", [])   # {key, kind, id, run, name, agent, reset_at, created, done}
         state.setdefault("warned", [])    # window keys already announced
         state.setdefault("last_scan", None)
-        yield state
-        tmp = path.with_suffix(".tmp")
-        tmp.write_text(json.dumps(state, ensure_ascii=False, indent=1), encoding="utf-8")
-        os.replace(tmp, path)
+        try:
+            yield state
+        finally:
+            # Persist even when the body raised: a marker finished before the error must stay done.
+            tmp = path.with_suffix(".tmp")
+            tmp.write_text(json.dumps(state, ensure_ascii=False, indent=1), encoding="utf-8")
+            os.replace(tmp, path)
 
 
 def log(msg: str) -> None:
@@ -169,8 +173,18 @@ def marker_key(kind: str, ident: str, reset_at: str | None) -> str:
 def add_marker(state: dict, kind: str, ident: str, name: str, agent: str, reset_at: datetime | None,
                run: str | None = None) -> bool:
     key = marker_key(kind, ident, iso(reset_at))
-    if any(m["key"] == key for m in state["markers"]):
-        return False
+    now = now_utc()
+    for m in state["markers"]:
+        if m["key"] != key:
+            continue
+        if m["done"] is None:
+            return False                      # already waiting to be resumed
+        if reset_at is not None:
+            return False                      # this exact limit was already resumed
+        # Unknown reset time: the same key returns when the item stops again after a resume. Only a
+        # stop right after the resume (the Run may still report "paused") counts as the same one.
+        if now - (parse_time(m["done"]) or now) < RECENT_DONE:
+            return False
     state["markers"].append({"key": key, "kind": kind, "id": ident, "run": run, "name": name,
                              "agent": agent, "reset_at": iso(reset_at), "created": iso(now_utc()),
                              "done": None})
@@ -238,12 +252,14 @@ def usage_interrupted_nodes(run: dict) -> list[tuple[str, datetime | None]]:
 
 def scan_paused_fleets(state: dict) -> None:
     """Fallback: Runs paused by a usage limit that no hook recorded (e.g. before the guard ran)."""
-    data = cockpit("fleet", "list", "--runs") or {}
-    for r in data.get("runs") or []:
-        if r.get("status") != "paused" or not r.get("interruptedNodeCount"):
+    data = cockpit("fleet", "list", "--runs")
+    runs = data.get("runs") if isinstance(data, dict) else None
+    for r in runs if isinstance(runs, list) else []:
+        if not isinstance(r, dict) or r.get("status") != "paused" or not r.get("interruptedNodeCount"):
             continue
-        st = cockpit("fleet", "status", r["runId"]) or {}
-        nodes = usage_interrupted_nodes(st.get("run") or {})
+        st = cockpit("fleet", "status", r["runId"])
+        run = st.get("run") if isinstance(st, dict) else None
+        nodes = usage_interrupted_nodes(run) if isinstance(run, dict) else []
         if nodes:
             reset = max((t for _, t in nodes if t), default=None)
             if add_marker(state, "fleet", r["runId"], r.get("fleetName") or "", "", reset, run=r["runId"]):
@@ -262,9 +278,9 @@ def handle_marker(marker: dict, act: Actions) -> bool:
     """Resume one stopped item. True = finished with this marker (resumed or nothing left to do)."""
     if marker["kind"] == "fleet":
         st = cockpit("fleet", "status", marker["run"])
-        if st is None:
+        run = st.get("run") if isinstance(st, dict) else None
+        if not isinstance(run, dict):
             return False
-        run = st.get("run") or {}
         status = run.get("status")
         if status != "paused":
             log(f"fleet {marker['run']} is {status}; nothing to resume")
@@ -277,9 +293,9 @@ def handle_marker(marker: dict, act: Actions) -> bool:
             return True
         return False
     t = cockpit("task", "get", marker["id"])
-    if t is None:
+    task = t.get("task", t) if isinstance(t, dict) else None
+    if not isinstance(task, dict):
         return False
-    task = t.get("task", t)
     if task.get("status") != "waiting_confirmation" or task.get("waitingReason") != "usage_limit":
         log(f"task {marker['id']} is {task.get('status')}/{task.get('waitingReason')}; nothing to resume")
         return True
@@ -299,8 +315,13 @@ def cycle(threshold: float, act: Actions, force_scan: bool = False) -> None:
             scan_paused_fleets(state)
             state["last_scan"] = iso(now)
         for m in state["markers"]:
-            if m["done"] is None and due(m, now) and handle_marker(m, act):
-                m["done"] = iso(now)
+            if m["done"] is not None or not due(m, now):
+                continue
+            try:
+                if handle_marker(m, act):
+                    m["done"] = iso(now)
+            except Exception as exc:  # noqa: BLE001 - one bad marker must not block the others
+                log(f"marker {m.get('key')} failed: {exc!r}")
         # keep 7 days of finished markers for `status`
         cutoff = now - timedelta(days=7)
         state["markers"] = [m for m in state["markers"]
@@ -358,7 +379,7 @@ def ok(data): print(json.dumps({"ok": True, "data": data})); sys.exit(0)
 if args[:2] == ["usage", "--all"]: ok(scen["usage"])
 if args[:3] == ["fleet", "list", "--runs"]: ok({"fleets": [], "runs": scen.get("runs", [])})
 if args[:2] == ["fleet", "status"]: ok({"run": scen["fleets"][args[2]]})
-if args[:2] == ["task", "get"]: ok({"task": scen["tasks"][args[2]]})
+if args[:2] == ["task", "get"]: ok(scen["tasks"][args[2]] if scen.get("raw_task") else {"task": scen["tasks"][args[2]]})
 if args[:1] in (["display"], ["task"], ["fleet"]): ok({})
 print(json.dumps({"ok": False, "error": "unexpected " + " ".join(args)})); sys.exit(1)
 '''
@@ -463,7 +484,49 @@ def self_test() -> int:
             run_main("once")
             check("manual pause is never resumed", not [c for c in called() if c[:2] == ["fleet", "resume"]])
 
-            # 6. --dry-run reports without acting.
+            # 6. Unknown reset: a task that stops again after a resume is recorded and resumed again.
+            os.environ["AIO_GUARD_NOW"] = "2026-10-26T14:00:00+00:00"
+            unk = {"task": {"id": "t3", "name": "sem reset", "agentType": "claude", "waitingReason": "usage_limit"}}
+            run_main("record", stdin=json.dumps(unk))
+            os.environ["AIO_GUARD_NOW"] = "2026-10-26T14:16:00+00:00"
+            scenario(tasks={"t3": {"status": "waiting_confirmation", "waitingReason": "usage_limit"}})
+            run_main("once")
+            first = [c for c in called() if c[:2] == ["task", "send"]]
+            os.environ["AIO_GUARD_NOW"] = "2026-10-26T14:40:00+00:00"
+            run_main("record", stdin=json.dumps(unk))
+            os.environ["AIO_GUARD_NOW"] = "2026-10-26T14:56:00+00:00"
+            scenario(tasks={"t3": {"status": "waiting_confirmation", "waitingReason": "usage_limit"}})
+            run_main("once")
+            second = [c for c in called() if c[:2] == ["task", "send"]]
+            check("unknown-reset stop after a resume is resumed again", len(first) == 1 and len(second) == 1,
+                  f"{first} {second}")
+
+            # 7. One malformed answer neither blocks later markers nor loses an earlier success.
+            with locked_state() as st:
+                add_marker(st, "task", "bad", "bad", "claude", parse_time("2026-10-26T14:00:00Z"))
+                add_marker(st, "task", "good", "good", "claude", parse_time("2026-10-26T14:00:00Z"))
+            scenario(raw_task=True, tasks={"bad": ["not", "a", "mapping"],
+                                           "good": {"task": {"status": "waiting_confirmation",
+                                                             "waitingReason": "usage_limit"}}})
+            run_main("once")
+            sends = [c for c in called() if c[:2] == ["task", "send"]]
+            with locked_state() as st:
+                good_done = [m["done"] for m in st["markers"] if m["id"] == "good"]
+            check("malformed data for one marker does not block the next",
+                  sends == [["task", "send", "good", "--text", CONTINUE_TEXT]] and good_done and good_done[0],
+                  f"{sends} {good_done}")
+
+            # 8. State is persisted even when the body of locked_state raises.
+            try:
+                with locked_state() as st:
+                    st["probe"] = "kept"
+                    raise RuntimeError("boom")
+            except RuntimeError:
+                pass
+            with locked_state() as st:
+                check("state persisted when the cycle body raises", st.get("probe") == "kept", str(st.get("probe")))
+
+            # 9. --dry-run reports without acting.
             with locked_state() as st:
                 add_marker(st, "task", "t2", "x", "claude", parse_time("2026-10-26T13:00:00Z"))
             scenario(tasks={"t2": {"status": "waiting_confirmation", "waitingReason": "usage_limit"}})
