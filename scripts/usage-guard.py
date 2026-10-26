@@ -252,6 +252,14 @@ def usage_interrupted_nodes(run: dict) -> list[tuple[str, datetime | None]]:
     return found
 
 
+def other_interrupted_nodes(run: dict) -> list[str]:
+    """Interrupted nodes WITHOUT a usage-limit signal (e.g. stopped by the user with Steer/cancel).
+    `fleet resume` reruns every interrupted node, so such a Run is left for a human."""
+    usage = {nid for nid, _ in usage_interrupted_nodes(run)}
+    return [n.get("id") or "?" for n in run.get("nodes") or []
+            if n.get("status") == "interrupted" and (n.get("id") or "?") not in usage]
+
+
 def scan_paused_fleets(state: dict) -> None:
     """Fallback: Runs paused by a usage limit that no hook recorded (e.g. before the guard ran)."""
     data = cockpit("fleet", "list", "--runs")
@@ -265,7 +273,7 @@ def scan_paused_fleets(state: dict) -> None:
         st = cockpit("fleet", "status", r["runId"])
         run = st.get("run") if isinstance(st, dict) else None
         nodes = usage_interrupted_nodes(run) if isinstance(run, dict) else []
-        if nodes:
+        if nodes and not other_interrupted_nodes(run):
             reset = max((t for _, t in nodes if t), default=None)
             if add_marker(state, "fleet", r["runId"], r.get("fleetName") or "", "", reset, run=r["runId"]):
                 log(f"scan: fleet {r['runId']} paused by a usage limit until {iso(reset) or 'unknown'}")
@@ -292,6 +300,12 @@ def handle_marker(marker: dict, act: Actions) -> bool:
             return True
         if not usage_interrupted_nodes(run):
             log(f"fleet {marker['run']} is paused, but not by a usage limit: left alone")
+            return True
+        others = other_interrupted_nodes(run)
+        if others:
+            log(f"fleet {marker['run']} also has nodes interrupted for another reason {others}: left for a human")
+            act.notify(f"O limite renovou, mas a Fleet {marker['name'] or marker['run']} tem nós parados por outro "
+                       f"motivo ({', '.join(others)}). Não retomei; revise e use `cockpit fleet resume`.")
             return True
         if act.resume_fleet(marker["run"]):
             act.notify(f"Limite renovou: retomei a Fleet {marker['name'] or marker['run']} de onde parou.")
@@ -549,7 +563,23 @@ def self_test() -> int:
             check("failureReason=usage_limit is resumed; an entry without runId is skipped",
                   resumes == [["fleet", "resume", "f3"]], str(resumes))
 
-            # 10. --dry-run reports without acting.
+            # 10. A Run with another interrupted node (user Steer/cancel) is never auto-resumed.
+            os.environ["AIO_GUARD_NOW"] = "2026-10-27T12:00:00+00:00"
+            with locked_state() as st:
+                st["last_scan"] = None
+                add_marker(st, "fleet", "f4", "mixed", "", parse_time("2026-10-27T11:00:00Z"), run="f4")
+            run_mixed = {"status": "paused", "nodes": [
+                {"id": "a", "status": "interrupted", "failureReason": "usage_limit"},
+                {"id": "b", "status": "interrupted", "error": "turn canceled by user"}]}
+            scenario(runs=[{"runId": "f4", "fleetName": "mixed", "status": "paused", "interruptedNodeCount": 2}],
+                     fleets={"f4": run_mixed})
+            run_main("once")
+            resumes = [c for c in called() if c[:2] == ["fleet", "resume"]]
+            notes = [c for c in called() if c[0] == "display" and "outro motivo" in " ".join(c)]
+            check("Run with a user-interrupted node is left alone and reported", not resumes and len(notes) == 1,
+                  f"{resumes} {notes}")
+
+            # 11. --dry-run reports without acting.
             with locked_state() as st:
                 add_marker(st, "task", "t2", "x", "claude", parse_time("2026-10-26T13:00:00Z"))
             scenario(tasks={"t2": {"status": "waiting_confirmation", "waitingReason": "usage_limit"}})

@@ -161,7 +161,7 @@ para todos os nós movidos — eles voltam ao YAML (Claude).
 - O hook `task.waiting` com `waitingReason=usage_limit` (`usage-guard-record`) anota cada task parada por limite, junto com o horário de reset.
 - Depois do reset, retoma o que parou por limite, inclusive o orquestrador: uma Fleet com `cockpit fleet resume`, e uma task com uma mensagem de "continue de onde parou".
 - A cada 5 minutos procura Runs pausadas por limite que nenhum hook anotou.
-- Nunca retoma uma Run pausada à mão nem uma task que espera por outro motivo.
+- Nunca retoma uma Run pausada à mão nem uma task que espera por outro motivo. Uma Run com qualquer nó interrompido por outro motivo (Steer, cancelamento) também não é retomada, porque `fleet resume` religa todos os nós interrompidos; o guardião avisa e deixa a decisão para você.
 
 Comandos:
 
