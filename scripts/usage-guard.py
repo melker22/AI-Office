@@ -245,8 +245,10 @@ def usage_interrupted_nodes(run: dict) -> list[tuple[str, datetime | None]]:
             continue
         err = n.get("error") or ""
         m = USAGE_RE.search(err)
-        if m or "usage limit" in err.lower():
-            found.append((n.get("id") or "?", parse_time(m.group(1)) if m else None))
+        # Cockpit's structured reason first; the error text is a fallback for older records.
+        if n.get("failureReason") == "usage_limit" or m or "usage limit" in err.lower():
+            reset = parse_time(m.group(1)) if m else parse_time(n.get("usageLimitResetAt"))
+            found.append((n.get("id") or "?", reset))
     return found
 
 
@@ -256,6 +258,9 @@ def scan_paused_fleets(state: dict) -> None:
     runs = data.get("runs") if isinstance(data, dict) else None
     for r in runs if isinstance(runs, list) else []:
         if not isinstance(r, dict) or r.get("status") != "paused" or not r.get("interruptedNodeCount"):
+            continue
+        if not r.get("runId"):
+            log(f"scan: skipped a paused Run entry without runId: {str(r)[:120]}")
             continue
         st = cockpit("fleet", "status", r["runId"])
         run = st.get("run") if isinstance(st, dict) else None
@@ -312,7 +317,10 @@ def cycle(threshold: float, act: Actions, force_scan: bool = False) -> None:
         warn_thresholds(state, usage, threshold, act)
         last = parse_time(state.get("last_scan"))
         if force_scan or last is None or now - last >= SCAN_EVERY:
-            scan_paused_fleets(state)
+            try:
+                scan_paused_fleets(state)
+            except Exception as exc:  # noqa: BLE001 - a bad scan must not block recorded resumes
+                log(f"scan failed: {exc!r}")
             state["last_scan"] = iso(now)
         for m in state["markers"]:
             if m["done"] is not None or not due(m, now):
@@ -526,7 +534,22 @@ def self_test() -> int:
             with locked_state() as st:
                 check("state persisted when the cycle body raises", st.get("probe") == "kept", str(st.get("probe")))
 
-            # 9. --dry-run reports without acting.
+            # 9. Structured failureReason is recognized; a list entry without runId does not break the scan.
+            os.environ["AIO_GUARD_NOW"] = "2026-10-27T10:00:00+00:00"
+            with locked_state() as st:
+                st["last_scan"] = None
+            run_struct = {"status": "paused", "nodes": [{"id": "n1", "status": "interrupted",
+                                                         "failureReason": "usage_limit", "error": "stopped",
+                                                         "usageLimitResetAt": "2026-10-27T09:00:00Z"}]}
+            scenario(runs=[{"status": "paused", "interruptedNodeCount": 1},
+                           {"runId": "f3", "fleetName": "struct", "status": "paused", "interruptedNodeCount": 1}],
+                     fleets={"f3": run_struct})
+            run_main("once")
+            resumes = [c for c in called() if c[:2] == ["fleet", "resume"]]
+            check("failureReason=usage_limit is resumed; an entry without runId is skipped",
+                  resumes == [["fleet", "resume", "f3"]], str(resumes))
+
+            # 10. --dry-run reports without acting.
             with locked_state() as st:
                 add_marker(st, "task", "t2", "x", "claude", parse_time("2026-10-26T13:00:00Z"))
             scenario(tasks={"t2": {"status": "waiting_confirmation", "waitingReason": "usage_limit"}})
