@@ -10,5 +10,6 @@ if command -v systemctl >/dev/null 2>&1 && systemctl --user cat aio-usage-guard.
   echo "usage-guard: systemctl --user start failed; starting a detached daemon instead" >&2
 fi
 mkdir -p "$HOME/.local/state/aio-usage-guard"
-setsid nohup python3 "$D/usage-guard.py" daemon >>"$HOME/.local/state/aio-usage-guard/daemon.out" 2>&1 < /dev/null &
+py="$D/run-python"; [ -x "$py" ] || py="$(command -v python3)"
+setsid nohup "$py" "$D/usage-guard.py" daemon >>"$HOME/.local/state/aio-usage-guard/daemon.out" 2>&1 < /dev/null &
 exit 0

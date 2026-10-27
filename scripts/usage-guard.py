@@ -217,17 +217,18 @@ def record_event(event: dict) -> str:
     return msg
 
 
-def ingest_inbox(state: dict) -> None:
-    """Move the hook's queued stops into markers (called with the state lock held)."""
+def ingest_inbox(state: dict) -> int:
+    """Turn the hook's queued stops into markers (called with the state lock held). Returns how many bytes
+    of inbox.jsonl were read; ack_inbox() drops them only after state.json was written, so a crash in
+    between replays them (markers are deduplicated, so a replay is harmless)."""
     d = state_dir()
     with open(d / "inbox.lock", "a+") as lock:
         fcntl.flock(lock, fcntl.LOCK_EX)
-        path = d / "inbox.jsonl"
         try:
-            lines = path.read_text(encoding="utf-8").splitlines()
+            raw = (d / "inbox.jsonl").read_bytes()
         except FileNotFoundError:
-            return
-        path.write_text("", encoding="utf-8")
+            return 0
+    lines = raw.decode("utf-8", errors="replace").splitlines()
     for line in lines:
         try:
             e = json.loads(line)
@@ -235,6 +236,11 @@ def ingest_inbox(state: dict) -> None:
             log(f"inbox: dropped a malformed line {line[:80]!r}")
             continue
         reset_at = parse_time(e.get("reset_at"))
+        if e.get("is_fleet") and not e.get("run"):
+            # A Fleet node without its Run id: resuming the node task would bypass the Run. The scan
+            # finds the paused Run and resumes it properly.
+            log(f"inbox: Fleet task {e.get('id')} without a Run id; left to the Fleet scan")
+            continue
         if e.get("is_fleet") and e.get("run"):
             added = add_marker(state, "fleet", e["run"], e.get("name") or "", e.get("agent") or "", reset_at,
                                run=e["run"], seen=parse_time(e.get("seen")))
@@ -244,6 +250,24 @@ def ingest_inbox(state: dict) -> None:
         if added:
             log(f"recorded {'fleet ' + e['run'] if e.get('is_fleet') else 'task ' + str(e.get('id'))} "
                 f"until {iso(reset_at) or 'unknown'}")
+    return len(raw)
+
+
+def ack_inbox(consumed: int) -> None:
+    """Drop the first `consumed` bytes of the inbox (already persisted as markers); keep later lines."""
+    if consumed <= 0:
+        return
+    d = state_dir()
+    with open(d / "inbox.lock", "a+") as lock:
+        fcntl.flock(lock, fcntl.LOCK_EX)
+        path = d / "inbox.jsonl"
+        try:
+            raw = path.read_bytes()
+        except FileNotFoundError:
+            return
+        tmp = path.with_suffix(".tmp")
+        tmp.write_bytes(raw[consumed:])
+        os.replace(tmp, path)
 
 
 # ------------------------------------------------------------------------------------- the cycle
@@ -384,9 +408,10 @@ def handle_marker(marker: dict, act: Actions) -> bool:
 def cycle(threshold: float, act: Actions, force_scan: bool = False) -> None:
     now = now_utc()
     usage = cockpit("usage", "--all")
+    consumed = 0
     with locked_state(persist=not act.dry_run) as state:
         if not act.dry_run:
-            ingest_inbox(state)
+            consumed = ingest_inbox(state)
         warn_thresholds(state, usage, threshold, act)
         last = parse_time(state.get("last_scan"))
         if force_scan or last is None or now - last >= SCAN_EVERY:
@@ -407,6 +432,8 @@ def cycle(threshold: float, act: Actions, force_scan: bool = False) -> None:
         cutoff = now - timedelta(days=7)
         state["markers"] = [m for m in state["markers"]
                             if m["done"] is None or (parse_time(m["done"]) or now) >= cutoff]
+    # state.json is on disk now (locked_state persisted it on exit): acknowledge the ingested inbox.
+    ack_inbox(consumed)
 
 
 def daemon(interval: float, threshold: float) -> int:
@@ -753,7 +780,43 @@ def self_test() -> int:
             check("failed manual notice leaves the marker pending", m9 and m9[0]["done"] is None
                   and m9[0].get("outcome") is None, str(m9))
 
-            # 18. --dry-run reports without acting.
+            # 18. The inbox survives a failed state write: nothing is lost before the markers are durable.
+            run_main("record", stdin=json.dumps({"task": {"id": "t11", "waitingReason": "usage_limit",
+                                                          "usageLimitResetAt": "2026-10-30T10:00:00Z"}}))
+            real_replace = os.replace
+
+            def failing_replace(src, dst):
+                if str(dst).endswith("state.json"):
+                    raise OSError("disk full")
+                return real_replace(src, dst)
+            os.replace = failing_replace
+            try:
+                try:
+                    run_main("once")
+                except OSError:
+                    pass
+            finally:
+                os.replace = real_replace
+            inbox_text = (Path(os.environ["AIO_GUARD_STATE"]) / "inbox.jsonl").read_text(encoding="utf-8")
+            check("inbox kept when state.json could not be written", '"t11"' in inbox_text, inbox_text)
+            scenario(tasks={"t11": {"status": "waiting_confirmation", "waitingReason": "usage_limit"}})
+            run_main("once")
+            with locked_state() as st:
+                has = [m for m in st["markers"] if m["id"] == "t11"]
+            inbox_after = (Path(os.environ["AIO_GUARD_STATE"]) / "inbox.jsonl").read_text(encoding="utf-8")
+            check("inbox acknowledged after a successful write", has and '"t11"' not in inbox_after,
+                  f"{has} {inbox_after!r}")
+
+            # 19. A Fleet task without a Run id is left to the scan, not continued as a task.
+            run_main("record", stdin=json.dumps({"task": {"id": "node1", "isFleet": True, "waitingReason": "usage_limit",
+                                                          "usageLimitResetAt": "2026-10-29T09:00:00Z"}}))
+            scenario(tasks={"node1": {"status": "waiting_confirmation", "waitingReason": "usage_limit"}})
+            run_main("once")
+            with locked_state() as st:
+                node_markers = [m for m in st["markers"] if m["id"] == "node1"]
+            check("Fleet task without Run id creates no task marker", not node_markers, str(node_markers))
+
+            # 20. --dry-run reports without acting.
             with locked_state() as st:
                 add_marker(st, "task", "t2", "x", "claude", parse_time("2026-10-26T13:00:00Z"))
             scenario(tasks={"t2": {"status": "waiting_confirmation", "waitingReason": "usage_limit"}})

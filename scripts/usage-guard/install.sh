@@ -21,6 +21,8 @@ for cand in "/etc/profiles/per-user/$USER/bin/python3" "$HOME/.nix-profile/bin/p
   [ -n "$cand" ] && [ -x "$cand" ] && { python="$cand"; break; }
 done
 [ -n "$python" ] || { echo "install: python3 not found" >&2; exit 1; }
+# Every installed command (hooks, detached fallback, service) runs this exact interpreter.
+ln -sfn "$python" "$D/run-python"
 # PATH for the service: python3, node (the Cockpit CLI runs on it), the CLI, bash/env (the CLI's shebang),
 # the NixOS system profile when present, then the usual dirs.
 svc_path=""
@@ -52,13 +54,22 @@ if [ "$service_ok" = 0 ]; then
   "$D/start-daemon.sh"
 fi
 
-hooks="$("$C" hooks list)"
-if ! grep -q '"usage-guard-record"' <<<"$hooks"; then
+record_cmd='"$HOME/.local/share/aio-usage-guard/run-python" "$HOME/.local/share/aio-usage-guard/usage-guard.py" record'
+daemon_cmd='"$HOME/.local/share/aio-usage-guard/start-daemon.sh"'
+hook_id() {  # id of the hook with this name, or empty
+  "$C" hooks list | "$python" -c 'import json,sys; n=sys.argv[1]; print(next((h["id"] for h in json.load(sys.stdin)["data"]["hooks"] if h.get("name")==n), ""))' "$1"
+}
+id="$(hook_id usage-guard-record)"
+if [ -n "$id" ]; then
+  "$C" hooks update "$id" --run "$record_cmd" >/dev/null
+else
   "$C" hooks add --name usage-guard-record --event task.waiting --waiting-reason usage_limit --timeout 30 \
-    --run 'python3 "$HOME/.local/share/aio-usage-guard/usage-guard.py" record' >/dev/null
+    --run "$record_cmd" >/dev/null
 fi
-if ! grep -q '"usage-guard-daemon"' <<<"$hooks"; then
-  "$C" hooks add --name usage-guard-daemon --event app.ready --timeout 20 \
-    --run '"$HOME/.local/share/aio-usage-guard/start-daemon.sh"' >/dev/null
+id="$(hook_id usage-guard-daemon)"
+if [ -n "$id" ]; then
+  "$C" hooks update "$id" --run "$daemon_cmd" >/dev/null
+else
+  "$C" hooks add --name usage-guard-daemon --event app.ready --timeout 20 --run "$daemon_cmd" >/dev/null
 fi
-python3 "$D/usage-guard.py" status
+"$python" "$D/usage-guard.py" status
