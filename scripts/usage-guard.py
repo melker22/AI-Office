@@ -174,7 +174,7 @@ def marker_key(kind: str, ident: str, reset_at: str | None) -> str:
 
 
 def add_marker(state: dict, kind: str, ident: str, name: str, agent: str, reset_at: datetime | None,
-               run: str | None = None) -> bool:
+               run: str | None = None, seen: datetime | None = None) -> bool:
     key = marker_key(kind, ident, iso(reset_at))
     now = now_utc()
     for m in state["markers"]:
@@ -189,28 +189,61 @@ def add_marker(state: dict, kind: str, ident: str, name: str, agent: str, reset_
         if now - (parse_time(m["done"]) or now) < RECENT_DONE:
             return False
     state["markers"].append({"key": key, "kind": kind, "id": ident, "run": run, "name": name,
-                             "agent": agent, "reset_at": iso(reset_at), "created": iso(now_utc()),
+                             "agent": agent, "reset_at": iso(reset_at), "created": iso(seen or now_utc()),
                              "done": None})
     return True
 
 
 def record_event(event: dict) -> str:
-    """Hook entry: a task entered waiting_confirmation. Only usage-limit waits are recorded."""
+    """Hook entry: a task entered waiting_confirmation. Only usage-limit waits are recorded.
+
+    The hook never takes the state lock (the daemon may hold it for minutes of Cockpit calls and the
+    hook has a short timeout): it appends one line to inbox.jsonl under its own short lock, and the
+    daemon ingests the inbox at the start of each cycle."""
     task = event.get("task") or {}
     if task.get("waitingReason") != "usage_limit":
         return "ignored (not a usage limit)"
-    reset_at = parse_time(task.get("usageLimitResetAt"))
-    with locked_state() as state:
-        if task.get("isFleet") and task.get("fleetRunId"):
-            added = add_marker(state, "fleet", task["fleetRunId"], task.get("name") or "",
-                               task.get("agentType") or "", reset_at, run=task["fleetRunId"])
-        else:
-            added = add_marker(state, "task", task.get("id") or "", task.get("name") or "",
-                               task.get("agentType") or "", reset_at)
-    what = f"{'fleet ' + task.get('fleetRunId', '') if task.get('isFleet') else 'task ' + str(task.get('id'))}"
-    msg = f"recorded {what} until {iso(reset_at) or 'unknown'}" if added else f"already recorded {what}"
+    entry = {"id": task.get("id") or "", "name": task.get("name") or "", "agent": task.get("agentType") or "",
+             "is_fleet": bool(task.get("isFleet")), "run": task.get("fleetRunId") or "",
+             "reset_at": task.get("usageLimitResetAt"), "seen": iso(now_utc())}
+    d = state_dir()
+    with open(d / "inbox.lock", "a+") as lock:
+        fcntl.flock(lock, fcntl.LOCK_EX)
+        with open(d / "inbox.jsonl", "a", encoding="utf-8") as f:
+            f.write(json.dumps(entry, ensure_ascii=False) + "\n")
+    what = f"fleet {entry['run']}" if entry["is_fleet"] and entry["run"] else f"task {entry['id']}"
+    msg = f"queued {what} until {entry['reset_at'] or 'unknown'}"
     log(msg)
     return msg
+
+
+def ingest_inbox(state: dict) -> None:
+    """Move the hook's queued stops into markers (called with the state lock held)."""
+    d = state_dir()
+    with open(d / "inbox.lock", "a+") as lock:
+        fcntl.flock(lock, fcntl.LOCK_EX)
+        path = d / "inbox.jsonl"
+        try:
+            lines = path.read_text(encoding="utf-8").splitlines()
+        except FileNotFoundError:
+            return
+        path.write_text("", encoding="utf-8")
+    for line in lines:
+        try:
+            e = json.loads(line)
+        except json.JSONDecodeError:
+            log(f"inbox: dropped a malformed line {line[:80]!r}")
+            continue
+        reset_at = parse_time(e.get("reset_at"))
+        if e.get("is_fleet") and e.get("run"):
+            added = add_marker(state, "fleet", e["run"], e.get("name") or "", e.get("agent") or "", reset_at,
+                               run=e["run"], seen=parse_time(e.get("seen")))
+        else:
+            added = add_marker(state, "task", e.get("id") or "", e.get("name") or "", e.get("agent") or "", reset_at,
+                               seen=parse_time(e.get("seen")))
+        if added:
+            log(f"recorded {'fleet ' + e['run'] if e.get('is_fleet') else 'task ' + str(e.get('id'))} "
+                f"until {iso(reset_at) or 'unknown'}")
 
 
 # ------------------------------------------------------------------------------------- the cycle
@@ -324,11 +357,12 @@ def handle_marker(marker: dict, act: Actions) -> bool:
             return False   # every interrupted node must be past its own reset
         others = other_interrupted_nodes(run)
         if others:
+            log(f"fleet {marker['run']} also has nodes interrupted for another reason {others}: left for a human")
+            if not act.notify(f"O limite renovou, mas a Fleet {marker['name'] or marker['run']} tem nós parados por "
+                              f"outro motivo ({', '.join(others)}). Não retomei; revise e use `cockpit fleet resume`."):
+                return False   # retry the notice next cycle; do not mark the Run as reported
             marker["outcome"] = "manual"
             marker["sig"] = interruption_signature(run)
-            log(f"fleet {marker['run']} also has nodes interrupted for another reason {others}: left for a human")
-            act.notify(f"O limite renovou, mas a Fleet {marker['name'] or marker['run']} tem nós parados por outro "
-                       f"motivo ({', '.join(others)}). Não retomei; revise e use `cockpit fleet resume`.")
             return True
         if act.resume_fleet(marker["run"]):
             act.notify(f"Limite renovou: retomei a Fleet {marker['name'] or marker['run']} de onde parou.")
@@ -351,6 +385,8 @@ def cycle(threshold: float, act: Actions, force_scan: bool = False) -> None:
     now = now_utc()
     usage = cockpit("usage", "--all")
     with locked_state(persist=not act.dry_run) as state:
+        if not act.dry_run:
+            ingest_inbox(state)
         warn_thresholds(state, usage, threshold, act)
         last = parse_time(state.get("last_scan"))
         if force_scan or last is None or now - last >= SCAN_EVERY:
@@ -425,6 +461,8 @@ if args[:2] == ["usage", "--all"]: ok(scen["usage"])
 if args[:3] == ["fleet", "list", "--runs"]: ok({"fleets": [], "runs": scen.get("runs", [])})
 if args[:2] == ["fleet", "status"]: ok({"run": scen["fleets"][args[2]]})
 if args[:2] == ["task", "get"]: ok(scen["tasks"][args[2]] if scen.get("raw_task") else {"task": scen["tasks"][args[2]]})
+if args[:1] == ["display"] and scen.get("display_fails"):
+    print(json.dumps({"ok": False, "error": "display failed"})); sys.exit(1)
 if args[:1] in (["display"], ["task"], ["fleet"]): ok({})
 print(json.dumps({"ok": False, "error": "unexpected " + " ".join(args)})); sys.exit(1)
 '''
@@ -485,6 +523,10 @@ def self_test() -> int:
             ev = {"task": {"id": "t1", "name": "orquestrador", "agentType": "claude",
                            "waitingReason": "usage_limit", "usageLimitResetAt": "2026-10-26T13:00:00Z"}}
             run_main("record", stdin=json.dumps(ev))
+            inbox = (Path(os.environ["AIO_GUARD_STATE"]) / "inbox.jsonl").read_text(encoding="utf-8")
+            check("record queues the stop without the state lock", '"t1"' in inbox, inbox)
+            scenario(tasks={"t1": {"status": "waiting_confirmation", "waitingReason": "usage_limit"}})
+            run_main("once")
             with locked_state() as st:
                 keys = [m["key"] for m in st["markers"]]
             check("usage-limit wait is recorded through main", any(k.startswith("task:t1:") for k in keys), str(keys))
@@ -679,7 +721,39 @@ def self_test() -> int:
                 after = json.dumps(st, sort_keys=True)
             check("dry-run persists nothing (marker stays pending)", before == after)
 
-            # 16. --dry-run reports without acting.
+            # 16. record does not block while the daemon holds the state lock.
+            import threading
+            ready, release = threading.Event(), threading.Event()
+
+            def hold():
+                with locked_state():
+                    ready.set()
+                    release.wait(10)
+            th = threading.Thread(target=hold)
+            th.start()
+            ready.wait(5)
+            t0 = time.monotonic()
+            run_main("record", stdin=json.dumps({"task": {"id": "t10", "waitingReason": "usage_limit"}}))
+            elapsed = time.monotonic() - t0
+            release.set()
+            th.join()
+            check("record returns while the state lock is held", elapsed < 2, f"{elapsed:.2f}s")
+
+            # 17. A failed manual-review notice is retried, not marked as reported.
+            os.environ["AIO_GUARD_NOW"] = "2026-10-29T10:00:00+00:00"
+            with locked_state() as st:
+                add_marker(st, "fleet", "f9", "mixn", "", parse_time("2026-10-29T09:00:00Z"), run="f9")
+            run_mixn = {"status": "paused", "nodes": [
+                {"id": "a", "status": "interrupted", "failureReason": "usage_limit"},
+                {"id": "b", "status": "interrupted", "error": "turn canceled by user"}]}
+            scenario(runs=[], fleets={"f9": run_mixn}, display_fails=True)
+            run_main("once")
+            with locked_state() as st:
+                m9 = [m for m in st["markers"] if m["id"] == "f9"]
+            check("failed manual notice leaves the marker pending", m9 and m9[0]["done"] is None
+                  and m9[0].get("outcome") is None, str(m9))
+
+            # 18. --dry-run reports without acting.
             with locked_state() as st:
                 add_marker(st, "task", "t2", "x", "claude", parse_time("2026-10-26T13:00:00Z"))
             scenario(tasks={"t2": {"status": "waiting_confirmation", "waitingReason": "usage_limit"}})
