@@ -1,0 +1,13 @@
+[Unit]
+Description=AI Office usage-guard: waits out provider usage limits and resumes stopped Cockpit work
+After=default.target
+
+[Service]
+Type=simple
+Environment=PATH=/etc/profiles/per-user/%u/bin:%h/.nix-profile/bin:/run/current-system/sw/bin:/usr/bin:/bin
+ExecStart=/etc/profiles/per-user/%u/bin/python3 %h/.local/share/aio-usage-guard/usage-guard.py daemon
+Restart=always
+RestartSec=30
+
+[Install]
+WantedBy=default.target
