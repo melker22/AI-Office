@@ -1093,53 +1093,45 @@ QString nestedTableWml(const QVector<QVector<NestedCell>> &nested, const Documen
 QString tableWml(const QVector<QVector<TableCell>> &table, const QVector<double> &widthsMm,
                  const Document &doc, DocxOut &o, bool van)
 {
-    int cols = 0;
     const int rows = table.size();
-    // Covered cells (absorbed by a preceding colSpan) have no stored entry, so the
-    // grid width is the sum of each row's colSpan, not the raw stored-cell count.
+    // `Block::table` reaches this exporter in two different shapes depending on where
+    // it came from: `loadDocx` (a real Word document re-exported) never stores a cell
+    // for a position covered by an earlier colSpan or an earlier row's rowSpan, so a
+    // row's stored-cell count can be *less* than the grid width. `insert_table` /
+    // `merge_cells` / `loadOdt`, by contrast, always keep one TableCell per grid
+    // column — merging just sets colSpan/rowSpan on the anchor and leaves the covered
+    // cells (often with their own leftover text) sitting in the row unused — so a row's
+    // stored-cell count always *equals* the grid width. A row with more than one stored
+    // cell where one of them has colSpan>1 is ambiguous (it reads identically either
+    // way: a dense row with a trailing, now-redundant covered placeholder, or a sparse
+    // row whose extra stored cells are real distinct columns), so it never votes on the
+    // column count. A "reliable" row — either no colSpan>1 anywhere, so every stored
+    // cell is unambiguously one real column, or exactly one stored cell, so there is no
+    // room for a trailing placeholder to inflate its own colSpan — always votes with
+    // the sum of its own colSpans (that sum is its size() when there is no span at
+    // all). With no reliable row at all (every row is ambiguous), fall back to the
+    // widest row's raw stored size, matching the dense convention every producer but
+    // loadDocx uses.
+    int colsRef = 0;
+    int colsAnyRow = 0;
     for (const auto &row : table) {
-        int rowCols = 0;
-        for (const auto &cell : row)
-            rowCols += qMax(1, cell.colSpan);
-        cols = qMax(cols, rowCols);
-    }
-    struct Mark {
-        bool covered = false;
-        bool vContinue = false;
-        int span = 1;
-    };
-    QVector<QVector<Mark>> mark(rows);
-    for (int r = 0; r < rows; ++r)
-        mark[r].resize(cols);
-    auto colSpanOf = [&](int r, int c) {
-        // Bound by the remaining grid columns, not the remaining *stored* cells in
-        // this row: a colSpan>1 anchor has no stored entry for the columns it
-        // covers, so "table[r].size() - c" undercounts as soon as any earlier cell
-        // in the row spans more than one column.
-        return qBound(1, table[r][c].colSpan, qMax(1, cols - c));
-    };
-    auto rowSpanOf = [&](int r, int c) {
-        return qBound(1, table[r][c].rowSpan, qMax(1, rows - r));
-    };
-    for (int r = 0; r < rows; ++r) {
-        for (int c = 0; c < table[r].size(); ++c) {
-            if (mark[r][c].covered)
-                continue;
-            const int cs = colSpanOf(r, c);
-            const int rs = rowSpanOf(r, c);
-            for (int rr = r; rr < r + rs; ++rr) {
-                for (int cc = c; cc < c + cs && cc < mark[rr].size(); ++cc) {
-                    if (rr == r && cc == c)
-                        continue;
-                    mark[rr][cc].covered = true;
-                    if (cc == c) {
-                        mark[rr][cc].vContinue = true;
-                        mark[rr][cc].span = cs;
-                    }
-                }
+        bool anySpan = false;
+        for (const auto &cell : row) {
+            if (cell.colSpan > 1) {
+                anySpan = true;
+                break;
             }
         }
+        const bool reliable = !anySpan || row.size() == 1;
+        if (reliable) {
+            int rowCols = 0;
+            for (const auto &cell : row)
+                rowCols += qMax(1, cell.colSpan);
+            colsRef = qMax(colsRef, rowCols);
+        }
+        colsAnyRow = qMax(colsAnyRow, row.size());
     }
+    const int cols = colsRef > 0 ? colsRef : colsAnyRow;
     auto colWidth = [&](int c) {
         if (c >= 0 && c < widthsMm.size() && widthsMm.at(c) > 0)
             return twipsMm(widthsMm.at(c));
@@ -1150,39 +1142,75 @@ QString tableWml(const QVector<QVector<TableCell>> &table, const QVector<double>
         xml += QStringLiteral("<w:gridCol w:w=\"%1\"/>").arg(colWidth(c));
     xml += QStringLiteral("</w:tblGrid>");
     const QString vanP = van ? QStringLiteral("<w:pPr><w:rPr><w:vanish/></w:rPr></w:pPr>") : QString();
+    // `pending[gc]` carries a rowSpan anchored in an earlier row forward until it
+    // stops covering this column, so the synthetic "w:vMerge continue" placeholder
+    // Word itself writes for that column is emitted (with the anchor's own gridSpan,
+    // so a rowSpan+colSpan anchor's footprint round-trips) instead of being confused
+    // for one of this row's own stored cells.
+    struct Pending {
+        int rowsLeft = 0;
+        int span = 1;
+    };
+    QVector<Pending> pending(cols);
     for (int r = 0; r < rows; ++r) {
         xml += QStringLiteral("<w:tr>");
-        for (int c = 0; c < table[r].size(); ++c) {
-            if (mark[r][c].covered && !mark[r][c].vContinue)
+        // A row whose stored-cell count already equals the grid width is this row's
+        // "dense" shape: every covered position (horizontal or vertical) has its own
+        // (unused, often stale) stored entry that must be skipped over by consuming a
+        // stored slot, not just advancing the grid column. A shorter row is "sparse":
+        // only real cells are stored, so a covered position consumes no stored slot at
+        // all.
+        const bool dense = table[r].size() >= cols;
+        int gc = 0;
+        int si = 0;
+        while (gc < cols) {
+            if (pending[gc].rowsLeft > 0) {
+                const int span = qMax(1, pending[gc].span);
+                QString tcPr = span > 1 ? QStringLiteral("<w:gridSpan w:val=\"%1\"/>").arg(span) : QString();
+                tcPr += QStringLiteral("<w:vMerge w:val=\"continue\"/>");
+                xml += QStringLiteral("<w:tc><w:tcPr>") + tcPr + QStringLiteral("</w:tcPr><w:p>") + vanP
+                    + QStringLiteral("</w:p></w:tc>");
+                for (int cc = gc; cc < gc + span && cc < cols; ++cc)
+                    pending[cc].rowsLeft -= 1;
+                gc += span;
+                if (dense)
+                    si += span;
                 continue;
-            int span = 1;
-            QString merge;
-            if (mark[r][c].vContinue) {
-                span = qMax(1, mark[r][c].span);
-                merge = QStringLiteral("<w:vMerge w:val=\"continue\"/>");
-            } else {
-                span = colSpanOf(r, c);
-                if (rowSpanOf(r, c) > 1)
-                    merge = QStringLiteral("<w:vMerge w:val=\"restart\"/>");
             }
+            if (si >= table[r].size())
+                break;
+            const TableCell &cell = table[r][si];
+            const int cs = qBound(1, cell.colSpan, qMax(1, cols - gc));
+            const int rs = qBound(1, cell.rowSpan, qMax(1, rows - r));
             QString tcPr;
-            if (span > 1)
-                tcPr += QStringLiteral("<w:gridSpan w:val=\"%1\"/>").arg(span);
-            tcPr += merge;
+            if (cs > 1)
+                tcPr += QStringLiteral("<w:gridSpan w:val=\"%1\"/>").arg(cs);
+            if (rs > 1)
+                tcPr += QStringLiteral("<w:vMerge w:val=\"restart\"/>");
             xml += QStringLiteral("<w:tc>");
             if (!tcPr.isEmpty())
                 xml += QStringLiteral("<w:tcPr>") + tcPr + QStringLiteral("</w:tcPr>");
             xml += QStringLiteral("<w:p>") + vanP;
-            if (!mark[r][c].vContinue)
-                xml += runsToWml(table[r][c].runs, doc, o, QString(), false, van);
+            xml += runsToWml(cell.runs, doc, o, QString(), false, van);
             xml += QStringLiteral("</w:p>");
-            if (!mark[r][c].vContinue && !table[r][c].nested.isEmpty()) {
-                xml += nestedTableWml(table[r][c].nested, doc, o, van);
+            if (!cell.nested.isEmpty()) {
+                xml += nestedTableWml(cell.nested, doc, o, van);
                 // Word and LibreOffice keep a nested table only when the cell
                 // ends with a paragraph after the inner w:tbl.
                 xml += QStringLiteral("<w:p>") + vanP + QStringLiteral("</w:p>");
             }
             xml += QStringLiteral("</w:tc>");
+            if (rs > 1) {
+                for (int cc = gc; cc < gc + cs && cc < cols; ++cc) {
+                    pending[cc].rowsLeft = rs - 1;
+                    pending[cc].span = cs;
+                }
+            }
+            gc += cs;
+            // Dense: the anchor's own stored slot plus one stored placeholder per
+            // extra covered column it spans (merge_cells never removes those). Sparse:
+            // the anchor is the one and only stored slot for its whole span.
+            si += dense ? cs : 1;
         }
         xml += QStringLiteral("</w:tr>");
     }
@@ -1446,6 +1474,16 @@ bool saveDocx(const Document &doc, const QString &path, QString *error, bool emb
                 QFile f(b.imagePath);
                 if (f.open(QIODevice::ReadOnly))
                     bytes = f.readAll();
+            }
+            if (bytes.isEmpty()) {
+                // D2: an "image" block with no bytes and no (readable) path is the import
+                // placeholder for a drawing that had no resolvable picture (an unsupported
+                // shape/textbox) — there was never real image data to carry forward. Writing
+                // a 0-byte media entry referenced by a real <a:blip> is a broken image in
+                // Word, not a faithful degradation, so fall back to a minimal valid 1x1
+                // transparent PNG instead.
+                bytes = QByteArray::fromBase64(
+                    "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAAC0lEQVR4nGMAAQAABQABDQottAAAAABJRU5ErkJggg==");
             }
             media.push_back({QStringLiteral("word/media/") + name, bytes, false});
             extraRels += QStringLiteral(
@@ -2515,6 +2553,12 @@ bool loadDocx(const QByteArray &zipData, Document &doc, QString *error)
                 curRevStartOff = -1;
             } else if (n == QLatin1String("drawing") && inDrawing) {
                 inDrawing = false;
+                // D2: any <w:drawing> (picture or an unsupported shape/textbox with no
+                // resolvable blip) splits the paragraph into the text before it, an
+                // "image" block, and the text after it — never an empty paragraph, and
+                // never leaking the split into whatever drawing comes next. A drawing
+                // with no picture still gets a block (with no bytes/path), so an
+                // unsupported shape stays visible as a placeholder instead of vanishing.
                 if (inP) {
                     const QString keepStyle = pStyle;
                     const QString keepAlign = align;

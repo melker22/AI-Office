@@ -1149,8 +1149,15 @@ bool saveOdt(const Document &doc, const QString &path, QString *error)
                 if (f.open(QIODevice::ReadOnly))
                     bytes = f.readAll();
             }
-            if (!bytes.isEmpty())
-                pictures.push_back({href, bytes, false});
+            if (bytes.isEmpty()) {
+                // A DOCX import placeholder for a drawing with no resolvable picture (an
+                // unsupported shape/textbox) carries no real image data. Referencing a
+                // Pictures/* entry that is never written is a dangling xlink:href, so fall
+                // back to a minimal valid 1x1 transparent PNG instead of an absent file.
+                bytes = QByteArray::fromBase64(
+                    "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAAC0lEQVR4nGMAAQAABQABDQottAAAAABJRU5ErkJggg==");
+            }
+            pictures.push_back({href, bytes, false});
             bodyXml += QStringLiteral(
                            "<text:p text:style-name=\"Standard\"><draw:frame xmlns:draw=\"urn:oasis:names:tc:opendocument:xmlns:drawing:1.0\" "
                            "xmlns:svg=\"urn:oasis:names:tc:opendocument:xmlns:svg-compatible:1.0\" svg:width=\"%1mm\" svg:height=\"40mm\">"
