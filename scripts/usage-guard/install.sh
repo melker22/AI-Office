@@ -5,7 +5,8 @@ set -euo pipefail
 USER="${USER:-$(id -un)}"
 here="$(cd "$(dirname "$0")" && pwd)"
 D="$HOME/.local/share/aio-usage-guard"
-mkdir -p "$D" "$HOME/.local/state/aio-usage-guard"
+S="${AIO_GUARD_STATE:-${XDG_STATE_HOME:-$HOME/.local/state}/aio-usage-guard}"   # as state_dir()
+mkdir -p "$D" "$S"
 install -m 0755 "$here/../usage-guard.py" "$D/usage-guard.py"
 install -m 0755 "$here/start-daemon.sh" "$D/start-daemon.sh"
 

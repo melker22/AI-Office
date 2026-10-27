@@ -3,7 +3,8 @@
 # process group, so a Cockpit restart cannot take it down). If that unit is missing or fails to start,
 # fall back to a detached process and confirm it is up (exit 1 if it is not).
 D="$HOME/.local/share/aio-usage-guard"
-S="$HOME/.local/state/aio-usage-guard"
+# Same resolution as state_dir() in usage-guard.py.
+S="${AIO_GUARD_STATE:-${XDG_STATE_HOME:-$HOME/.local/state}/aio-usage-guard}"
 if command -v systemctl >/dev/null 2>&1 && systemctl --user cat aio-usage-guard.service >/dev/null 2>&1; then
   if systemctl --user start aio-usage-guard.service; then
     exit 0
