@@ -233,6 +233,10 @@ def ingest_inbox(state: dict) -> int:
         try:
             e = json.loads(line)
         except json.JSONDecodeError:
+            e = None
+        if not isinstance(e, dict):
+            # A bad line must not abort the cycle: the inbox would never be acknowledged and every
+            # later stop would be stuck behind it.
             log(f"inbox: dropped a malformed line {line[:80]!r}")
             continue
         reset_at = parse_time(e.get("reset_at"))
@@ -816,7 +820,19 @@ def self_test() -> int:
                 node_markers = [m for m in st["markers"] if m["id"] == "node1"]
             check("Fleet task without Run id creates no task marker", not node_markers, str(node_markers))
 
-            # 20. --dry-run reports without acting.
+            # 20. A JSON line that is not an object is dropped; later lines are still recorded.
+            inbox_p = Path(os.environ["AIO_GUARD_STATE"]) / "inbox.jsonl"
+            with open(inbox_p, "a", encoding="utf-8") as f:
+                f.write('["not", "an", "object"]\n')
+            run_main("record", stdin=json.dumps({"task": {"id": "t12", "waitingReason": "usage_limit",
+                                                          "usageLimitResetAt": "2026-10-31T10:00:00Z"}}))
+            run_main("once")
+            with locked_state() as st:
+                t12 = [m for m in st["markers"] if m["id"] == "t12"]
+            check("a non-object inbox line is dropped and later stops are recorded",
+                  t12 and inbox_p.read_text(encoding="utf-8") == "", f"{t12} {inbox_p.read_text(encoding='utf-8')!r}")
+
+            # 21. --dry-run reports without acting.
             with locked_state() as st:
                 add_marker(st, "task", "t2", "x", "claude", parse_time("2026-10-26T13:00:00Z"))
             scenario(tasks={"t2": {"status": "waiting_confirmation", "waitingReason": "usage_limit"}})
