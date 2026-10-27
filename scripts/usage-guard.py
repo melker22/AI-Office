@@ -257,7 +257,10 @@ def other_interrupted_nodes(run: dict) -> list[str]:
     `fleet resume` reruns every interrupted node, so such a Run is left for a human."""
     usage = {nid for nid, _ in usage_interrupted_nodes(run)}
     return [n.get("id") or "?" for n in run.get("nodes") or []
-            if n.get("status") == "interrupted" and (n.get("id") or "?") not in usage]
+            if n.get("status") == "interrupted" and (n.get("id") or "?") not in usage
+            # A loop group is marked interrupted *because* a body node was ("loop body was interrupted in
+            # iteration N"); it is a consequence, not a separate stop (seen live on wave 24).
+            and not (n.get("error") or "").lower().startswith("loop body was interrupted")]
 
 
 def scan_paused_fleets(state: dict) -> None:
@@ -273,7 +276,8 @@ def scan_paused_fleets(state: dict) -> None:
         st = cockpit("fleet", "status", r["runId"])
         run = st.get("run") if isinstance(st, dict) else None
         nodes = usage_interrupted_nodes(run) if isinstance(run, dict) else []
-        if nodes and not other_interrupted_nodes(run):
+        # Record even a mixed Run: handle_marker() leaves it paused and tells the user after the reset.
+        if nodes:
             reset = max((t for _, t in nodes if t), default=None)
             if add_marker(state, "fleet", r["runId"], r.get("fleetName") or "", "", reset, run=r["runId"]):
                 log(f"scan: fleet {r['runId']} paused by a usage limit until {iso(reset) or 'unknown'}")
@@ -579,7 +583,37 @@ def self_test() -> int:
             check("Run with a user-interrupted node is left alone and reported", not resumes and len(notes) == 1,
                   f"{resumes} {notes}")
 
-            # 11. --dry-run reports without acting.
+            # 11. A loop group interrupted because its body was is not "another reason" (live wave 24 case).
+            os.environ["AIO_GUARD_NOW"] = "2026-10-27T14:00:00+00:00"
+            with locked_state() as st:
+                st["last_scan"] = None
+            run_loop = {"status": "paused", "nodes": [
+                {"id": "review", "status": "interrupted", "error": "loop body was interrupted in iteration 1"},
+                {"id": "review#1.fix-pass", "status": "interrupted",
+                 "error": "task usage limit reached until 2026-10-27T13:00:00.2+00:00; retry with another account"}]}
+            scenario(runs=[{"runId": "f5", "fleetName": "loop", "status": "paused", "interruptedNodeCount": 2}],
+                     fleets={"f5": run_loop})
+            run_main("once")
+            resumes = [c for c in called() if c[:2] == ["fleet", "resume"]]
+            check("loop group interrupted by its usage-limited body is resumed", resumes == [["fleet", "resume", "f5"]],
+                  str(resumes))
+
+            # 12. The scan records a mixed Run, so the user still gets the manual-review notice.
+            with locked_state() as st:
+                st["last_scan"] = None
+            run_mixed2 = {"status": "paused", "nodes": [
+                {"id": "a", "status": "interrupted", "failureReason": "usage_limit",
+                 "usageLimitResetAt": "2026-10-27T13:00:00Z"},
+                {"id": "b", "status": "interrupted", "error": "turn canceled by user"}]}
+            scenario(runs=[{"runId": "f6", "fleetName": "mixed2", "status": "paused", "interruptedNodeCount": 2}],
+                     fleets={"f6": run_mixed2})
+            run_main("once")
+            resumes = [c for c in called() if c[:2] == ["fleet", "resume"]]
+            notes = [c for c in called() if c[0] == "display" and "mixed2" in " ".join(c)]
+            check("scan-only mixed Run is recorded, not resumed, and reported", not resumes and len(notes) == 1,
+                  f"{resumes} {notes}")
+
+            # 13. --dry-run reports without acting.
             with locked_state() as st:
                 add_marker(st, "task", "t2", "x", "claude", parse_time("2026-10-26T13:00:00Z"))
             scenario(tasks={"t2": {"status": "waiting_confirmation", "waitingReason": "usage_limit"}})
