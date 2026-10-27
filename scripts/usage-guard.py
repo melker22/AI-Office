@@ -80,8 +80,9 @@ def state_dir() -> Path:
 
 
 @contextlib.contextmanager
-def locked_state():
-    """Read-modify-write of state.json under an exclusive lock (hook and daemon run concurrently)."""
+def locked_state(persist: bool = True):
+    """Read-modify-write of state.json under an exclusive lock (hook and daemon run concurrently).
+    persist=False (dry runs) reads the state and discards every change."""
     d = state_dir()
     with open(d / "state.lock", "a+") as lock:
         fcntl.flock(lock, fcntl.LOCK_EX)
@@ -97,9 +98,11 @@ def locked_state():
             yield state
         finally:
             # Persist even when the body raised: a marker finished before the error must stay done.
-            tmp = path.with_suffix(".tmp")
-            tmp.write_text(json.dumps(state, ensure_ascii=False, indent=1), encoding="utf-8")
-            os.replace(tmp, path)
+            # (No `return` here: it would swallow the body's exception.)
+            if persist:
+                tmp = path.with_suffix(".tmp")
+                tmp.write_text(json.dumps(state, ensure_ascii=False, indent=1), encoding="utf-8")
+                os.replace(tmp, path)
 
 
 def log(msg: str) -> None:
@@ -252,6 +255,12 @@ def usage_interrupted_nodes(run: dict) -> list[tuple[str, datetime | None]]:
     return found
 
 
+def interruption_signature(run: dict) -> str:
+    """Identity of a Run's current set of interrupted nodes, to report a manual-review Run only once."""
+    return "|".join(sorted(f"{n.get('id')}:{n.get('failureReason') or ''}:{(n.get('error') or '')[:80]}"
+                           for n in run.get("nodes") or [] if n.get("status") == "interrupted"))
+
+
 def other_interrupted_nodes(run: dict) -> list[str]:
     """Interrupted nodes WITHOUT a usage-limit signal (e.g. stopped by the user with Steer/cancel).
     `fleet resume` reruns every interrupted node, so such a Run is left for a human."""
@@ -276,6 +285,9 @@ def scan_paused_fleets(state: dict) -> None:
         st = cockpit("fleet", "status", r["runId"])
         run = st.get("run") if isinstance(st, dict) else None
         nodes = usage_interrupted_nodes(run) if isinstance(run, dict) else []
+        if nodes and any(m.get("outcome") == "manual" and m.get("run") == r["runId"]
+                         and m.get("sig") == interruption_signature(run) for m in state["markers"]):
+            continue   # already reported for manual review; wait until the interruptions change
         # Record even a mixed Run: handle_marker() leaves it paused and tells the user after the reset.
         if nodes:
             reset = max((t for _, t in nodes if t), default=None)
@@ -302,11 +314,18 @@ def handle_marker(marker: dict, act: Actions) -> bool:
         if status != "paused":
             log(f"fleet {marker['run']} is {status}; nothing to resume")
             return True
-        if not usage_interrupted_nodes(run):
+        usage_nodes = usage_interrupted_nodes(run)
+        if not usage_nodes:
             log(f"fleet {marker['run']} is paused, but not by a usage limit: left alone")
             return True
+        latest = max((t for _, t in usage_nodes if t), default=None)
+        if latest is not None and now_utc() < latest + RESUME_GRACE:
+            log(f"fleet {marker['run']}: another node's limit lasts until {iso(latest)}; waiting")
+            return False   # every interrupted node must be past its own reset
         others = other_interrupted_nodes(run)
         if others:
+            marker["outcome"] = "manual"
+            marker["sig"] = interruption_signature(run)
             log(f"fleet {marker['run']} also has nodes interrupted for another reason {others}: left for a human")
             act.notify(f"O limite renovou, mas a Fleet {marker['name'] or marker['run']} tem nós parados por outro "
                        f"motivo ({', '.join(others)}). Não retomei; revise e use `cockpit fleet resume`.")
@@ -331,7 +350,7 @@ def handle_marker(marker: dict, act: Actions) -> bool:
 def cycle(threshold: float, act: Actions, force_scan: bool = False) -> None:
     now = now_utc()
     usage = cockpit("usage", "--all")
-    with locked_state() as state:
+    with locked_state(persist=not act.dry_run) as state:
         warn_thresholds(state, usage, threshold, act)
         last = parse_time(state.get("last_scan"))
         if force_scan or last is None or now - last >= SCAN_EVERY:
@@ -613,7 +632,54 @@ def self_test() -> int:
             check("scan-only mixed Run is recorded, not resumed, and reported", not resumes and len(notes) == 1,
                   f"{resumes} {notes}")
 
-            # 13. --dry-run reports without acting.
+            # 13. Several usage-limited nodes: resume only after the latest reset.
+            os.environ["AIO_GUARD_NOW"] = "2026-10-28T10:05:00+00:00"
+            with locked_state() as st:
+                st["last_scan"] = None
+            run_two = {"status": "paused", "nodes": [
+                {"id": "a", "status": "interrupted", "failureReason": "usage_limit", "usageLimitResetAt": "2026-10-28T10:00:00Z"},
+                {"id": "b", "status": "interrupted", "failureReason": "usage_limit", "usageLimitResetAt": "2026-10-28T12:00:00Z"}]}
+            with locked_state() as st:
+                add_marker(st, "fleet", "f7", "two", "", parse_time("2026-10-28T10:00:00Z"), run="f7")
+            scenario(runs=[], fleets={"f7": run_two})
+            run_main("once")
+            early = [c for c in called() if c[:2] == ["fleet", "resume"]]
+            os.environ["AIO_GUARD_NOW"] = "2026-10-28T12:05:00+00:00"
+            scenario(runs=[], fleets={"f7": run_two})
+            run_main("once")
+            late = [c for c in called() if c[:2] == ["fleet", "resume"]]
+            check("waits for the latest reset among interrupted nodes",
+                  not early and late == [["fleet", "resume", "f7"]], f"{early} {late}")
+
+            # 14. A mixed Run is reported once, not on every scan.
+            os.environ["AIO_GUARD_NOW"] = "2026-10-28T13:00:00+00:00"
+            run_mix3 = {"status": "paused", "nodes": [
+                {"id": "a", "status": "interrupted", "failureReason": "usage_limit"},
+                {"id": "b", "status": "interrupted", "error": "turn canceled by user"}]}
+            runs3 = [{"runId": "f8", "fleetName": "mix3", "status": "paused", "interruptedNodeCount": 2}]
+            notes_total = 0
+            for minutes in (0, 20, 40, 60, 80):
+                os.environ["AIO_GUARD_NOW"] = (parse_time("2026-10-28T13:00:00Z") + timedelta(minutes=minutes)).isoformat()
+                with locked_state() as st:
+                    st["last_scan"] = None
+                scenario(runs=runs3, fleets={"f8": run_mix3})
+                run_main("once")
+                notes_total += len([c for c in called() if c[0] == "display" and "mix3" in " ".join(c)])
+            check("mixed Run reported once across repeated scans", notes_total == 1, str(notes_total))
+
+            # 15. --dry-run changes no state.
+            with locked_state() as st:
+                before = json.dumps(st, sort_keys=True)
+                add_marker(st, "task", "t9", "dry", "claude", parse_time("2026-10-28T13:00:00Z"))
+            with locked_state() as st:
+                before = json.dumps(st, sort_keys=True)
+            scenario(tasks={"t9": {"status": "waiting_confirmation", "waitingReason": "usage_limit"}})
+            run_main("once", "--dry-run")
+            with locked_state() as st:
+                after = json.dumps(st, sort_keys=True)
+            check("dry-run persists nothing (marker stays pending)", before == after)
+
+            # 16. --dry-run reports without acting.
             with locked_state() as st:
                 add_marker(st, "task", "t2", "x", "claude", parse_time("2026-10-26T13:00:00Z"))
             scenario(tasks={"t2": {"status": "waiting_confirmation", "waitingReason": "usage_limit"}})
