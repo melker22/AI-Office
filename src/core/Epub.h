@@ -8,6 +8,7 @@ namespace aioffice {
 struct Document;
 
 // EPUB 3 export. `info`, when set, receives format, chapters, images, and identifier.
+// `warnings` is added only when an orphan note or a page-field substitution was published.
 bool saveEpub(const Document &doc, const QString &path, QString *error, QJsonObject *info = nullptr);
 
 } // namespace aioffice

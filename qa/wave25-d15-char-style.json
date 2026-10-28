@@ -1,0 +1,35 @@
+{
+  "calls": [
+    {"tool": "document_new", "args": {"title": "Wave25 D15", "force": true}},
+    {"tool": "create_style", "args": {
+      "name": "Emphasis",
+      "kind": "character",
+      "italic": true,
+      "font": "Liberation Serif",
+      "size_pt": 12
+    }},
+    {"tool": "insert_blocks", "args": {"after_id": "start", "blocks": [
+      {"id": "pChar", "type": "paragraph", "lang": "pt-PT", "runs": [
+        {"text": "antes "},
+        {"text": "ESTILO-CHAR", "char_style": "Emphasis"},
+        {"text": " depois"}
+      ]}
+    ]}},
+    {"tool": "document_save", "args": {"path": "/tmp/wave25-d15-char-style.epub"}, "expect": {
+      "ok": true,
+      "format": "epub",
+      "chapters": 1
+    }}
+  ],
+  "wave25": {
+    "checker": "epub",
+    "decision": "D15",
+    "epubcheck": {"errors": 0, "warnings": 0},
+    "nodes": [
+      {"tag": "span", "class": "sEmphasis", "text": "ESTILO-CHAR"}
+    ],
+    "css_rules": [
+      {"selector": ".sEmphasis", "contains": "font-style: italic"}
+    ]
+  }
+}

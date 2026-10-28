@@ -1,0 +1,37 @@
+{
+  "calls": [
+    {"tool": "document_new", "args": {"title": "Wave25 D13", "force": true}},
+    {"tool": "insert_blocks", "args": {"after_id": "start", "blocks": [
+      {"id": "pRefs", "type": "paragraph", "lang": "pt-PT", "runs": [
+        {"text": "OPEN-VIS ", "note_id": "fnVis"},
+        {"text": "SECRET-REF", "note_id": "fnHid", "hidden": true},
+        {"text": "SHOWIF-REF", "note_id": "fnShow", "show_if": "offvar"},
+        {"text": "SECRET-MIX", "note_id": "fnMix", "hidden": true},
+        {"text": "OPEN-REF", "note_id": "fnMix"}
+      ]},
+      {"id": "fnVis", "type": "footnote", "runs": [{"text": "VISIBLE-BODY"}]},
+      {"id": "fnHid", "type": "footnote", "runs": [{"text": "HIDDEN-BODY"}]},
+      {"id": "fnShow", "type": "footnote", "runs": [{"text": "SHOWIF-BODY"}]},
+      {"id": "fnMix", "type": "footnote", "runs": [{"text": "MIXED-BODY"}]},
+      {"id": "enOrphan", "type": "endnote", "runs": [{"text": "ORPHAN-ZETA"}]},
+      {"id": "fnLoose", "type": "footnote", "runs": [{"text": "ORPHAN-FOOT"}]}
+    ]}},
+    {"tool": "document_save", "args": {"path": "/tmp/wave25-d13-notes.epub"}, "expect": {
+      "ok": true,
+      "format": "epub",
+      "chapters": 1,
+      "warnings": [
+        "EPUB export: note enOrphan has no reference",
+        "EPUB export: note fnLoose has no reference"
+      ]
+    }}
+  ],
+  "wave25": {
+    "checker": "epub",
+    "decision": "D13",
+    "epubcheck": {"errors": 0, "warnings": 0},
+    "text_contains": ["VISIBLE-BODY", "MIXED-BODY", "OPEN-REF", "ORPHAN-ZETA", "ORPHAN-FOOT"],
+    "text_absent": ["HIDDEN-BODY", "SHOWIF-BODY", "SECRET-REF", "SHOWIF-REF", "SECRET-MIX"],
+    "aside_text_order": ["VISIBLE-BODY", "MIXED-BODY", "ORPHAN-ZETA", "ORPHAN-FOOT"]
+  }
+}
