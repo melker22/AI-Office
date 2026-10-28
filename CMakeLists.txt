@@ -322,7 +322,7 @@ foreach(_fx IN LISTS _aio_fixtures)
         WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}"
     )
 endforeach()
-# A-qa-1: re-enabled for wave 24 (export/reimport payload fidelity — T1–T3); excluded from default qa-all via label wave24.
+# A-qa-1: re-enabled for wave 24 (export/reimport payload fidelity — T1–T3); included in default qa-all via labels roundtrip and wave24.
 add_test(NAME roundtrip_foreign_odt_wave17 COMMAND "${CMAKE_COMMAND}" -E env AIOFFICE_HEADLESS=1 QT_QPA_PLATFORM=offscreen
     "${Python3_EXECUTABLE}" "${_AIO_PYTHON}" --cli "${AIOFFICE_CLI}" --foreign "${CMAKE_SOURCE_DIR}/qa/wave17-odt-revisions.aio.json" odt)
 set_tests_properties(roundtrip_foreign_odt_wave17 PROPERTIES
