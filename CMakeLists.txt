@@ -308,6 +308,8 @@ add_test(NAME wave23_cli COMMAND "${CMAKE_COMMAND}" -E env AIOFFICE_HEADLESS=1 Q
 set_tests_properties(wave23_cli PROPERTIES LABELS "playbook" TIMEOUT 60 WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}")
 add_test(NAME pr_merge_gate_selftest COMMAND "${Python3_EXECUTABLE}" "${CMAKE_SOURCE_DIR}/scripts/pr-merge-gate.py" --self-test)
 set_tests_properties(pr_merge_gate_selftest PROPERTIES LABELS "playbook" WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}")
+add_test(NAME usage_guard_selftest COMMAND "${Python3_EXECUTABLE}" "${CMAKE_SOURCE_DIR}/scripts/usage-guard.py" --self-test)
+set_tests_properties(usage_guard_selftest PROPERTIES LABELS "playbook" WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}")
 add_test(NAME fleet_verify_merged_selftest COMMAND bash "${CMAKE_SOURCE_DIR}/scripts/fleet-verify-merged.sh" --self-test)
 set_tests_properties(fleet_verify_merged_selftest PROPERTIES LABELS "playbook" WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}")
 add_test(NAME roundtrip_compare_selftest COMMAND "${Python3_EXECUTABLE}" "${_AIO_PYTHON}" --self-test)
