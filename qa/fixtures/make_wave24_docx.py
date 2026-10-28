@@ -331,6 +331,40 @@ def write_all() -> None:
         ),
     )
 
+    # CodeRabbit (CR): native w:ins ids built from doc.revisions.size()+1 collide
+    # after flushP drops a deduplicated entry, and with a JSON sidecar id that has
+    # gaps (rev7 here, while only 3 revisions are loaded). p1 has one native mark
+    # that duplicates rev1's exact range (dropped by D10 dedup) and one that
+    # survives; p2 has three more that all survive. Every surviving id must be
+    # distinct, and rev1/rev2/rev7 (from JSON) must stay put.
+    ids_body = "\n".join(
+        [
+            "<w:p>",
+            '<w:ins w:id="10" w:author="Ana" w:date="2024-01-01T00:00:00Z"><w:r><w:t>Dup1</w:t></w:r></w:ins>',
+            '<w:ins w:id="11" w:author="Deb" w:date="2024-01-02T00:00:00Z"><w:r><w:t>New1</w:t></w:r></w:ins>',
+            "</w:p>",
+            "<w:p>",
+            '<w:ins w:id="20" w:author="Eve" w:date="2024-01-03T00:00:00Z"><w:r><w:t>A</w:t></w:r></w:ins>',
+            '<w:ins w:id="21" w:author="Fay" w:date="2024-01-04T00:00:00Z"><w:r><w:t>B</w:t></w:r></w:ins>',
+            '<w:ins w:id="22" w:author="Gus" w:date="2024-01-05T00:00:00Z"><w:r><w:t>C</w:t></w:r></w:ins>',
+            "</w:p>",
+            sect(12240, 15840),
+        ]
+    )
+    pack(
+        "wave24-docx-revision-ids.docx",
+        ids_body,
+        extra_json=(
+            '{"schema":1,"track_changes":true,"bookmarks":[],"revisions":['
+            '{"id":"rev1","author":"Ana","kind":"insert","block_id":"p1",'
+            '"start":0,"end":4,"text":"Dup1","timestamp":1700000000000},'
+            '{"id":"rev2","author":"Bob","kind":"insert","block_id":"p2",'
+            '"start":100,"end":101,"text":"Z","timestamp":1700000001000},'
+            '{"id":"rev7","author":"Cid","kind":"insert","block_id":"p2",'
+            '"start":200,"end":201,"text":"W","timestamp":1700000002000}]}'
+        ),
+    )
+
 
 if __name__ == "__main__":
     write_all()
