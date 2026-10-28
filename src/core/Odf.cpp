@@ -929,66 +929,96 @@ bool appendOuterTable(QString &bodyXml, SpanCounter &sc, const QVector<QVector<T
             *error = odtTableTooWide();
         return false;
     }
-    int cols = 0;
-    for (int r = 0; r < nRows; ++r) {
-        const auto &row = table[r];
+    // `Block::table` reaches this exporter in two different shapes depending on where
+    // it came from (see tableWml in Docx.cpp for the full story): `loadDocx` never
+    // stores a cell for a position covered by an earlier colSpan or an earlier row's
+    // rowSpan (sparse: stored-cell count can be *less* than the grid width), while
+    // `insert_table` / `merge_cells` / `loadOdt` always keep one TableCell per grid
+    // column, covered or not (dense: stored-cell count always *equals* the grid
+    // width). A row with more than one stored cell where one of them has colSpan>1 is
+    // ambiguous between the two shapes, so it never votes on the column count; a
+    // "reliable" row — either no colSpan>1 anywhere, or exactly one stored cell —
+    // always votes with the sum of its own colSpans. With no reliable row at all,
+    // fall back to the widest row's raw stored size.
+    int colsRef = 0;
+    int colsAnyRow = 0;
+    for (const auto &row : table) {
         if (row.size() > kMaxOdtTableColumns) {
             if (error)
                 *error = odtTableTooWide();
             return false;
         }
-        qint64 width = 0;
-        for (int c = 0; c < row.size(); ++c) {
-            const int span = qMax(1, row[c].colSpan);
-            const int rspan = qMax(1, row[c].rowSpan);
+        bool anySpan = false;
+        qint64 rowCols = 0;
+        for (const auto &cell : row) {
+            const int span = qMax(1, cell.colSpan);
+            const int rspan = qMax(1, cell.rowSpan);
             if (span > kMaxOdtTableColumns || rspan > kMaxOdtTableColumns
-                || width > qint64(kMaxOdtTableColumns) - span || c > kMaxOdtTableColumns - span) {
+                || rowCols > qint64(kMaxOdtTableColumns) - span) {
                 if (error)
                     *error = odtTableTooWide();
                 return false;
             }
-            width += span;
-            cols = qMax(cols, c + span);
+            if (cell.colSpan > 1)
+                anySpan = true;
+            rowCols += span;
         }
-        cols = qMax(cols, row.size());
+        const bool reliable = !anySpan || row.size() == 1;
+        if (reliable)
+            colsRef = qMax(colsRef, int(rowCols));
+        colsAnyRow = qMax(colsAnyRow, row.size());
     }
+    const int cols = colsRef > 0 ? colsRef : colsAnyRow;
     if (cols > kMaxOdtTableColumns) {
         if (error)
             *error = odtTableTooWide();
         return false;
     }
-    QVector<QVector<char>> cover(nRows);
-    for (int r = 0; r < nRows; ++r)
-        cover[r] = QVector<char>(cols, 0);
-    for (int r = 0; r < nRows; ++r) {
-        for (int c = 0; c < table[r].size() && c < cols; ++c) {
-            if (cover[r][c])
-                continue;
-            const int cs = qMax(1, table[r][c].colSpan);
-            const int rs = qMax(1, table[r][c].rowSpan);
-            for (int rr = r; rr < qMin(nRows, r + rs); ++rr) {
-                for (int cc = c; cc < qMin(cols, c + cs); ++cc) {
-                    if (rr != r || cc != c)
-                        cover[rr][cc] = 1;
-                }
-            }
-        }
-    }
     bodyXml += QLatin1String(
         "<table:table xmlns:table=\"urn:oasis:names:tc:opendocument:xmlns:table:1.0\">");
     for (int c = 0; c < cols; ++c)
         bodyXml += QLatin1String("<table:table-column/>");
+    // `pending[gc]` carries a rowSpan anchored in an earlier row forward until it
+    // stops covering this column, so a continuation row emits one covered cell per
+    // covered column (with the anchor's own colSpan width) instead of confusing a
+    // covered position for one of this row's own stored cells.
+    struct Pending {
+        int rowsLeft = 0;
+        int span = 1;
+    };
+    QVector<Pending> pending(cols);
     for (int r = 0; r < nRows; ++r) {
         bodyXml += QLatin1String("<table:table-row>");
-        const int nStored = table[r].size();
-        for (int c = 0; c < cols; ++c) {
-            if (c >= nStored || cover[r][c]) {
-                bodyXml += QLatin1String("<table:covered-table-cell/>");
+        // A row whose stored-cell count already equals the grid width is this row's
+        // "dense" shape: every covered position (horizontal or vertical) has its own
+        // (unused, often stale) stored entry that must be skipped over by consuming a
+        // stored slot, not just advancing the grid column. A shorter row is "sparse":
+        // only real cells are stored, so a covered position consumes no stored slot.
+        const bool dense = table[r].size() >= cols;
+        int gc = 0;
+        int si = 0;
+        while (gc < cols) {
+            if (pending[gc].rowsLeft > 0) {
+                const int span = qMax(1, qMin(pending[gc].span, cols - gc));
+                for (int k = 0; k < span; ++k)
+                    bodyXml += QLatin1String("<table:covered-table-cell/>");
+                for (int cc = gc; cc < gc + span; ++cc)
+                    pending[cc].rowsLeft -= 1;
+                gc += span;
+                if (dense)
+                    si += span;
                 continue;
             }
-            const TableCell &cell = table[r][c];
-            const int cs = qMax(1, cell.colSpan);
-            const int rs = qMax(1, cell.rowSpan);
+            if (si >= table[r].size()) {
+                // Defensive: a well-formed row never runs out of stored cells before
+                // the grid width, but never walk off the end of the stored array.
+                bodyXml += QLatin1String("<table:covered-table-cell/>");
+                ++gc;
+                continue;
+            }
+            const TableCell &cell = table[r][si];
+            const int cs = qBound(1, cell.colSpan, qMax(1, cols - gc));
+            const int rs = qBound(1, cell.rowSpan, qMax(1, nRows - r));
             const bool merged = cs > 1 || rs > 1;
             QString attrs;
             // D4/A-odf-6: a merged cell's footprint is written as a pair (both
@@ -1008,6 +1038,19 @@ bool appendOuterTable(QString &bodyXml, SpanCounter &sc, const QVector<QVector<T
             if (!cell.nested.isEmpty() && !appendNestedTable(bodyXml, sc, cell.nested, doc, error))
                 return false;
             bodyXml += QLatin1String("</table:table-cell>");
+            for (int k = 1; k < cs; ++k)
+                bodyXml += QLatin1String("<table:covered-table-cell/>");
+            if (rs > 1) {
+                for (int cc = gc; cc < gc + cs; ++cc) {
+                    pending[cc].rowsLeft = rs - 1;
+                    pending[cc].span = cs;
+                }
+            }
+            gc += cs;
+            // Dense: the anchor's own stored slot plus one stored placeholder per
+            // extra covered column it spans (merge_cells never removes those). Sparse:
+            // the anchor is the one and only stored slot for its whole span.
+            si += dense ? cs : 1;
         }
         bodyXml += QLatin1String("</table:table-row>");
     }

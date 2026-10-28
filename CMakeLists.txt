@@ -403,6 +403,7 @@ set(_wave24_decision_playbooks
     wave24-docx-d2-image.json
     wave24-docx-d3-page.json
     wave24-docx-d4-tables.json
+    wave24-docx-d4-tables-odt.json
     wave24-docx-d5-caption.json
     wave24-docx-d6-core.json
     wave24-docx-d7-del-field.json

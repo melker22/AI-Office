@@ -1,0 +1,14 @@
+[
+  {"tool": "document_open", "args": {"path": "qa/fixtures/wave24-docx-tables.docx"}, "expect": {"ok": true}},
+  {"tool": "document_save", "args": {"path": "/tmp/aioffice-wave24-t3-d4-tables.odt"}},
+  {"tool": "document_open", "args": {"path": "/tmp/aioffice-wave24-t3-d4-tables.odt"}},
+  {"tool": "document_get", "args": {}, "expect": {
+    "document.body.0.type": "table",
+    "document.body.0.rows.1.0.runs.0.text": "Tall",
+    "document.body.0.rows.1.0.row_span": 2,
+    "document.body.0.rows.1.1.runs.0.text": "Top",
+    "document.body.0.rows.2.1.runs.0.text": "Bottom",
+    "document.body.0.rows.3.0.runs.0.text": "Span",
+    "document.body.0.rows.3.0.col_span": 2
+  }}
+]
