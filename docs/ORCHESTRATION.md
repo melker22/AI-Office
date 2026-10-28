@@ -100,7 +100,7 @@ nas revisões do HEAD; `mergeable_state == clean` (relido antes do CLEAN). E **t
 bloqueiam) — do corpo de **qualquer** revisão do PR — de qualquer commit, não só do HEAD — precisa de
 um comentário humano no PR com `cr-ack <id> <commit da correção ou motivo>` (o id completo do marcador, que o gate imprime; prefixo não vale). Depois,
 as threads não resolvidas são conferidas com a tool MCP do GitHub (`pull_request_read get_review_comments`).
-Só então merge. Token opcional: `GITHUB_TOKEN`/`GH_TOKEN`. Quando o CodeRabbit revisa sem deixar status no commit, valem a revisão publicada no commit do HEAD ou a resposta "Review finished"/"Already reviewed the last commit" dele, posterior ao push, neste PR.
+Só então merge. Token opcional: `GITHUB_TOKEN`/`GH_TOKEN`. Quando o CodeRabbit revisa sem deixar status no commit, a única prova aceita é uma revisão publicada pelo próprio bot (`coderabbitai[bot]`) no SHA do HEAD. As respostas "Review finished"/"Already reviewed the last commit" não valem: podem sair sem revisão (ex.: limite de taxa) e não dizem qual SHA foi revisado — nesse caso confira à mão.
 
 Origem: no PR #9 o gate antigo contava só comentários inline e o merge saiu com 2 achados do corpo da
 revisão ("Outside diff range" — o GitHub não deixa postá-los inline). No PR #10 o gate já lia o corpo, mas

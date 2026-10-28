@@ -259,6 +259,13 @@ def acknowledgements(issue_comments: list) -> dict[str, str]:
     return acks
 
 
+def is_coderabbit_bot(user: dict | None) -> bool:
+    """The CodeRabbit GitHub App itself (used where a review is accepted as PROOF). Finding problems keeps
+    the broader `login.startswith("coderabbit")` match: there, a false positive only blocks."""
+    user = user or {}
+    return user.get("type") == "Bot" and user.get("login") == "coderabbitai[bot]"
+
+
 def evaluate(pr_number: int, pr: dict, statuses: list, comments: list, reviews: list,
              commit_date: str, since: str | None, refetch,
              issue_comments: list | None = None, head_pr_count: int = 1) -> tuple[int, list[str]]:
@@ -270,22 +277,13 @@ def evaluate(pr_number: int, pr: dict, statuses: list, comments: list, reviews: 
     lines: list[str] = []
 
     st = {s["context"]: s["state"] for s in statuses}
-    # CodeRabbit sometimes reviews a commit without setting a commit status. Its review object on the
-    # head, or its own "Review finished" / "Already reviewed the last commit" reply to a review request
-    # made after the head was pushed (issue comments belong to THIS PR), proves the review happened.
-    head_reviewed = any(r["user"]["login"].startswith("coderabbit") and r.get("commit_id") == head for r in reviews)
-    cr_finished = False
-    try:
-        cr_finished = any(
-            (c.get("user") or {}).get("login", "").startswith("coderabbit")
-            and ("Review finished" in (c.get("body") or "") or "Already reviewed the last commit" in (c.get("body") or ""))
-            and created_on_or_after(c.get("updated_at") or c.get("created_at") or "", commit_date)
-            for c in issue_comments or [])
-    except ValueError:
-        cr_finished = False
+    # CodeRabbit sometimes reviews a commit without setting a commit status. The only accepted proof is
+    # then a review object by the CodeRabbit bot itself (exact identity) on the head SHA. Its "Review
+    # finished" replies are not proof: they can appear without a review (e.g. rate limited) and name no SHA.
+    head_reviewed = any(is_coderabbit_bot(r.get("user")) and r.get("commit_id") == head for r in reviews)
     for ctx in ("ci/circleci: build-and-test", "CodeRabbit"):
         state = st.get(ctx)
-        if ctx == "CodeRabbit" and state is None and (head_reviewed or cr_finished):
+        if ctx == "CodeRabbit" and state is None and head_reviewed:
             lines.append("note: CodeRabbit set no commit status, but it reviewed the head commit")
             continue
         if state in (None, "pending"):
@@ -312,7 +310,7 @@ def evaluate(pr_number: int, pr: dict, statuses: list, comments: list, reviews: 
 
     on_head = [
         r for r in reviews
-        if r["user"]["login"].startswith("coderabbit") and r.get("commit_id") == head
+        if is_coderabbit_bot(r.get("user")) and r.get("commit_id") == head
     ]
     cr_desc = next((x.get("description") or "" for x in statuses if x.get("context") == "CodeRabbit"), "")
     if not on_head and not pending:
@@ -326,8 +324,6 @@ def evaluate(pr_number: int, pr: dict, statuses: list, comments: list, reviews: 
                          "cannot be attributed to this one (push a commit or wait for a review object)")
         elif st.get("CodeRabbit") == "success" and cr_desc.startswith("Review completed"):
             lines.append("note: CodeRabbit completed the head review with no new review (nothing to report)")
-        elif cr_finished:
-            lines.append("note: CodeRabbit finished reviewing the head with nothing to post (its reply on this PR)")
         else:
             pending = True
             lines.append(f"PENDING no CodeRabbit review on the head commit yet (status: {cr_desc or 'none'})")
@@ -455,7 +451,7 @@ def self_test() -> int:
 
     sha = "a" * 40
     quiet_review = {
-        "user": {"login": "coderabbitai"},
+        "user": {"login": "coderabbitai[bot]", "type": "Bot"},
         "commit_id": sha,
         "submitted_at": "2026-10-21T23:00:00Z",
         "html_url": "https://example/review",
@@ -494,10 +490,10 @@ def self_test() -> int:
     finished = [{"user": {"login": "coderabbitai[bot]", "type": "Bot"}, "body": "✅ Action performed\n\nReview finished.",
                  "created_at": "2026-10-21T21:00:00Z", "updated_at": "2026-10-21T21:05:00Z"}]
     res = evaluate(10, pr(), ci_only, [], [], "2026-10-21T20:00:00Z", None, lambda: pr(), finished)
-    check("'Review finished' reply after the push, no status, no review object: clean", res[0] == 0, "\n".join(res[1]))
-    stale = [dict(finished[0], updated_at="2026-10-21T19:00:00Z", created_at="2026-10-21T19:00:00Z")]
-    res = evaluate(10, pr(), ci_only, [], [], "2026-10-21T20:00:00Z", None, lambda: pr(), stale)
-    check("a 'Review finished' reply from before the push does not count", res[0] == 2, "\n".join(res[1]))
+    check("a 'Review finished' reply without a head review is not proof (pending)", res[0] == 2, "\n".join(res[1]))
+    impostor = dict(quiet_review, user={"login": "coderabbitai-fan", "type": "User"})
+    code, text, n = run(pr(), ci_only, reviews=[impostor])
+    check("a review by a look-alike account is not proof", code == 2, text)
     code, text, n = run(pr(), paused, reviews=[])
     check("'Review paused' with no review on the head is pending", code == 2 and "Review paused" in text, text)
     code, text, n = run(pr(), success)
@@ -528,7 +524,7 @@ def self_test() -> int:
     check("dirty stays a problem while a status is pending", code == 1 and "mergeable_state = dirty" in text, text)
 
     late = {
-        "user": {"login": "coderabbitai"},
+        "user": {"login": "coderabbitai[bot]", "type": "Bot"},
         "in_reply_to_id": None,
         "created_at": "2026-10-21T22:00:00Z",
         "path": "src/core/Session.cpp",
@@ -568,7 +564,7 @@ def self_test() -> int:
     # Body findings from a review on an EARLIER commit (the PR #10 hole), both body formats.
     old_sha = "c" * 40
     new_fmt = {
-        "user": {"login": "coderabbitai"}, "commit_id": old_sha, "submitted_at": "2026-10-21T22:00:00Z",
+        "user": {"login": "coderabbitai[bot]", "type": "Bot"}, "commit_id": old_sha, "submitted_at": "2026-10-21T22:00:00Z",
         "html_url": "https://example/old-review",
         "body": ("**Actionable comments posted: 0**\n> [!CAUTION]\n> **⚠️ Outside diff range comments (1)**\n> \n"
                  "> <details>\n> <summary><strong>🟠 Major</strong> · Keep exports read-only. · "

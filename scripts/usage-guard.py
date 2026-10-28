@@ -379,6 +379,10 @@ def scan_paused_fleets(state: dict) -> None:
                 for nid, t in nodes:
                     if t is None:
                         seen.setdefault(nid, iso(now_utc()))
+        # One pending marker per Run: a restart-only stop gets a fresh "now" reset on every scan, which would
+        # otherwise add a new marker each time (and retry all of them if resume keeps failing).
+        if any(m.get("run") == r["runId"] and m["done"] is None for m in state["markers"]):
+            continue
         # Record even a mixed Run: handle_marker() leaves it paused and tells the user after the reset.
         if nodes or restarted:
             # Only restart interruptions: nothing to wait for (resume after the usual grace period).
@@ -430,7 +434,8 @@ def handle_marker(marker: dict, act: Actions) -> bool:
         others = other_interrupted_nodes(run)
         if others:
             log(f"fleet {marker['run']} also has nodes interrupted for another reason {others}: left for a human")
-            if not act.notify(f"O limite renovou, mas a Fleet {marker['name'] or marker['run']} tem nós parados por "
+            cause = "O limite renovou" if usage_nodes else "O Cockpit reiniciou"
+            if not act.notify(f"{cause}, mas a Fleet {marker['name'] or marker['run']} tem nós parados por "
                               f"outro motivo ({', '.join(others)}). Não retomei; revise e use `cockpit fleet resume`."):
                 return False   # retry the notice next cycle; do not mark the Run as reported
             marker["outcome"] = "manual"
@@ -539,6 +544,8 @@ if args[:2] == ["usage", "--all"]: ok(scen["usage"])
 if args[:3] == ["fleet", "list", "--runs"]: ok({"fleets": [], "runs": scen.get("runs", [])})
 if args[:2] == ["fleet", "status"]: ok({"run": scen["fleets"][args[2]]})
 if args[:2] == ["task", "get"]: ok(scen["tasks"][args[2]] if scen.get("raw_task") else {"task": scen["tasks"][args[2]]})
+if args[:2] == ["fleet", "resume"] and scen.get("resume_fails"):
+    print(json.dumps({"ok": False, "error": "resume failed"})); sys.exit(1)
 if args[:1] == ["display"] and scen.get("display_fails"):
     print(json.dumps({"ok": False, "error": "display failed"})); sys.exit(1)
 if args[:1] in (["display"], ["task"], ["fleet"]): ok({})
@@ -573,10 +580,17 @@ def self_test() -> int:
                     "runs": [], "fleets": {}, "tasks": {}}
             base.update(kw)
             scen_path.write_text(json.dumps(base), encoding="utf-8")
+            if calls.exists():
+                all_calls.extend(json.loads(x) for x in calls.read_text(encoding="utf-8").splitlines() if x)
             calls.write_text("", encoding="utf-8")
 
         def called() -> list[list[str]]:
             return [json.loads(x) for x in calls.read_text(encoding="utf-8").splitlines() if x]
+
+        all_calls: list[list[str]] = []
+
+        def calls_all() -> list[list[str]]:
+            return all_calls + called()
 
         def run_main(*argv: str, stdin: str = "") -> int:
             old_argv, old_in = sys.argv, sys.stdin
@@ -973,6 +987,25 @@ def self_test() -> int:
             run_main("once")
             check("restart + user-stopped node is not resumed",
                   not [c for c in called() if c[:2] == ["fleet", "resume"]])
+            rs_notes = [" ".join(c) for c in calls_all() if c[0] == "display" and "rsmix" in " ".join(c)]
+            check("its manual-review notice names the restart, not a usage limit",
+                  rs_notes and all("reiniciou" in n and "limite renovou" not in n for n in rs_notes), str(rs_notes))
+
+            # 24b. A restart-only Run that keeps failing to resume has ONE pending marker across scans.
+            with locked_state() as st:
+                st["last_scan"] = None
+            run_rs3 = {"status": "paused", "nodes": [
+                {"id": "t1", "status": "interrupted", "error": "grok task did not survive the restart"}]}
+            for minute in (0, 6, 12):
+                os.environ["AIO_GUARD_NOW"] = (parse_time("2026-11-02T13:00:00Z") + timedelta(minutes=minute)).isoformat()
+                with locked_state() as st:
+                    st["last_scan"] = None
+                scenario(runs=[{"runId": "f15", "fleetName": "rsfail", "status": "paused", "interruptedNodeCount": 1}],
+                         fleets={"f15": run_rs3}, resume_fails=True)
+                run_main("once")
+            with locked_state() as st:
+                f15 = [m for m in st["markers"] if m.get("run") == "f15"]
+            check("one pending marker per restart-only Run", len(f15) == 1 and f15[0]["done"] is None, str(f15))
 
             # 25. A reset time that jitters by a minute does not repeat the threshold warning.
             os.environ["AIO_GUARD_NOW"] = "2026-11-02T12:00:00+00:00"
