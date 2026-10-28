@@ -410,6 +410,7 @@ set(_wave24_decision_playbooks
     wave24-docx-d8-lists.json
     wave24-docx-d10-revisions.json
     wave24-docx-d10-revision-ids.json
+    wave24-qr-validate-block.json
     wave24-odt-d3-page.json
     wave24-odt-d4-table.json
     wave24-odt-d9-escape.json

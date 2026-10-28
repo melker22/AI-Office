@@ -1,0 +1,45 @@
+[
+  {"tool": "document_new", "args": {"title": "Wave24 QR validateBlock", "force": true}},
+
+  {
+    "tool": "insert_blocks",
+    "args": {"after_id": "end", "blocks": [
+      {"id": "oversized", "type": "qr", "qr": "ZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZ"}
+    ]},
+    "expect": {"ok": false, "error": "QR payload exceeds version 10 level M capacity"}
+  },
+
+  {
+    "tool": "insert_blocks",
+    "args": {"after_id": "end", "blocks": [
+      {"id": "p1", "type": "paragraph", "runs": [{"text": "Hi"}]}
+    ]},
+    "expect": {"ok": true}
+  },
+
+  {
+    "tool": "replace_range",
+    "args": {"ids": ["p1"], "blocks": [
+      {"id": "p1", "type": "qr", "qr": "ZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZ"}
+    ]},
+    "expect": {"ok": false, "error": "QR payload exceeds version 10 level M capacity"}
+  },
+
+  {
+    "tool": "document_get",
+    "args": {},
+    "expect": {"document.body.0.id": "p1", "document.body.0.type": "paragraph"}
+  },
+
+  {
+    "tool": "document_include",
+    "args": {"after_id": "end", "path": "qa/fixtures/wave24-qr-oversize-include.aio.json"},
+    "expect": {"ok": false, "error": "QR payload exceeds version 10 level M capacity"}
+  },
+
+  {
+    "tool": "document_open",
+    "args": {"path": "qa/fixtures/wave24-qr-oversize-open.aio.json"},
+    "expect": {"ok": false, "error": "QR payload exceeds version 10 level M capacity"}
+  }
+]
