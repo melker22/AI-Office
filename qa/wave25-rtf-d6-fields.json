@@ -1,0 +1,39 @@
+[
+  {"tool": "document_open", "args": {"path": "qa/fixtures/wave25-rtf-d6-fields-word.rtf"}, "expect": {
+    "ok": true,
+    "document.body.0.runs.0.field": "xref",
+    "document.body.0.runs.0.field_arg": "alvo",
+    "document.body.0.runs.0.text": "Alvo",
+    "document.body.1.runs.0.field": "seq",
+    "document.body.1.runs.0.field_arg": "{\"format\":\"arabic\",\"name\":\"Figura\"}",
+    "document.body.1.runs.0.text": "3",
+    "document.body.2.runs.0.field": "seq",
+    "document.body.2.runs.0.field_arg": "{\"format\":\"roman\",\"name\":\"Fig 1\"}",
+    "document.body.3.runs.0.field": "merge",
+    "document.body.3.runs.0.field_arg": "Nome \"A\" \\ fim",
+    "document.body.4.runs.0.field": "var",
+    "document.body.4.runs.0.field_arg": "Status",
+    "document.body.5.runs.0.field": "input",
+    "document.body.5.runs.0.field_arg": "Seu nome",
+    "document.body.6.runs.0.field": "input",
+    "document.body.6.runs.0.field_arg": "diga {ok}",
+    "document.body.7.runs.0.field": "word_count",
+    "document.body.7.runs.0.text": "10",
+    "document.body.8.runs.0.field": "merge",
+    "document.body.8.runs.0.field_arg": "AB",
+    "document.body.9.runs.0.link": "https://example.com/w",
+    "document.body.9.runs.0.text": "site"
+  }},
+  {"tool": "document_open", "args": {"path": "qa/fixtures/wave25-rtf-d6-fields-lo.rtf"}, "expect": {
+    "ok": true,
+    "document.body.0.runs.0.field": "xref",
+    "document.body.0.runs.0.field_arg": "marca",
+    "document.body.0.runs.0.text": "Alvo LO",
+    "document.body.1.runs.0.field": "merge",
+    "document.body.1.runs.0.field_arg": "Cliente",
+    "document.body.2.runs.0.field": "var",
+    "document.body.2.runs.0.field_arg": "Cidade",
+    "document.body.3.runs.0.field": "seq",
+    "document.body.3.runs.0.field_arg": "{\"format\":\"alpha\",\"name\":\"Cap\"}"
+  }}
+]
