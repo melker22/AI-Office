@@ -567,8 +567,11 @@ def test_d6(cli: Path, folder: Path) -> list[str]:
         err = need(rtf, needle, f"D6 {label}")
         if err:
             errors.append(err)
-    if "\\line" in rtf.split("MERGEFIELD", 1)[-1][:80]:
-        errors.append("D6: control character in MERGEFIELD became \\\\line")
+    # The quoted instruction itself has no \\line. The field result may, because
+    # the visible text still contains the original newline.
+    merge = snippets["MERGEFIELD"]
+    if "\\line" in merge:
+        errors.append("D6: sanitized MERGEFIELD instruction still contains \\\\line")
     return errors
 
 
