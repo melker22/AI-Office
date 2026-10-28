@@ -100,7 +100,7 @@ nas revisões do HEAD; `mergeable_state == clean` (relido antes do CLEAN). E **t
 bloqueiam) — do corpo de **qualquer** revisão do PR — de qualquer commit, não só do HEAD — precisa de
 um comentário humano no PR com `cr-ack <id> <commit da correção ou motivo>` (o id completo do marcador, que o gate imprime; prefixo não vale). Depois,
 as threads não resolvidas são conferidas com a tool MCP do GitHub (`pull_request_read get_review_comments`).
-Só então merge. Token opcional: `GITHUB_TOKEN`/`GH_TOKEN`.
+Só então merge. Token opcional: `GITHUB_TOKEN`/`GH_TOKEN`. Quando o CodeRabbit revisa sem deixar status no commit, valem a revisão publicada no commit do HEAD ou a resposta "Review finished"/"Already reviewed the last commit" dele, posterior ao push, neste PR.
 
 Origem: no PR #9 o gate antigo contava só comentários inline e o merge saiu com 2 achados do corpo da
 revisão ("Outside diff range" — o GitHub não deixa postá-los inline). No PR #10 o gate já lia o corpo, mas
@@ -161,6 +161,7 @@ para todos os nós movidos — eles voltam ao YAML (Claude).
 - O hook `task.waiting` com `waitingReason=usage_limit` (`usage-guard-record`) anota cada task parada por limite, junto com o horário de reset.
 - Depois do reset, retoma o que parou por limite, inclusive o orquestrador: uma Fleet com `cockpit fleet resume`, e uma task com uma mensagem de "continue de onde parou".
 - A cada 5 minutos procura Runs pausadas por limite que nenhum hook anotou.
+- Também retoma uma Run cujos nós foram interrompidos só porque o Cockpit reiniciou ("did not survive the restart"), passado o período de carência.
 - Nunca retoma uma Run pausada à mão nem uma task que espera por outro motivo. Uma Run com qualquer nó interrompido por outro motivo (Steer, cancelamento) também não é retomada, porque `fleet resume` religa todos os nós interrompidos; o guardião avisa e deixa a decisão para você.
 
 Comandos:

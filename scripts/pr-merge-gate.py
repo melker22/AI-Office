@@ -270,8 +270,24 @@ def evaluate(pr_number: int, pr: dict, statuses: list, comments: list, reviews: 
     lines: list[str] = []
 
     st = {s["context"]: s["state"] for s in statuses}
+    # CodeRabbit sometimes reviews a commit without setting a commit status. Its review object on the
+    # head, or its own "Review finished" / "Already reviewed the last commit" reply to a review request
+    # made after the head was pushed (issue comments belong to THIS PR), proves the review happened.
+    head_reviewed = any(r["user"]["login"].startswith("coderabbit") and r.get("commit_id") == head for r in reviews)
+    cr_finished = False
+    try:
+        cr_finished = any(
+            (c.get("user") or {}).get("login", "").startswith("coderabbit")
+            and ("Review finished" in (c.get("body") or "") or "Already reviewed the last commit" in (c.get("body") or ""))
+            and created_on_or_after(c.get("updated_at") or c.get("created_at") or "", commit_date)
+            for c in issue_comments or [])
+    except ValueError:
+        cr_finished = False
     for ctx in ("ci/circleci: build-and-test", "CodeRabbit"):
         state = st.get(ctx)
+        if ctx == "CodeRabbit" and state is None and (head_reviewed or cr_finished):
+            lines.append("note: CodeRabbit set no commit status, but it reviewed the head commit")
+            continue
         if state in (None, "pending"):
             pending = True
             status_pending = True
@@ -310,6 +326,8 @@ def evaluate(pr_number: int, pr: dict, statuses: list, comments: list, reviews: 
                          "cannot be attributed to this one (push a commit or wait for a review object)")
         elif st.get("CodeRabbit") == "success" and cr_desc.startswith("Review completed"):
             lines.append("note: CodeRabbit completed the head review with no new review (nothing to report)")
+        elif cr_finished:
+            lines.append("note: CodeRabbit finished reviewing the head with nothing to post (its reply on this PR)")
         else:
             pending = True
             lines.append(f"PENDING no CodeRabbit review on the head commit yet (status: {cr_desc or 'none'})")
@@ -470,6 +488,16 @@ def self_test() -> int:
     check("'Review completed' with no review on the head is clean", code == 0 and "CLEAN" in text, text)
     res = evaluate(10, pr(), completed, [], [], "2026-10-21T20:00:00Z", None, lambda: pr(), [], 2)
     check("'Review completed' on a head shared by two open PRs is pending", res[0] == 2, "\n".join(res[1]))
+    ci_only = [{"context": "ci/circleci: build-and-test", "state": "success"}]
+    code, text, n = run(pr(), ci_only)                     # quiet_review is on the head, no status
+    check("head review without a CodeRabbit status is clean", code == 0 and "CLEAN" in text, text)
+    finished = [{"user": {"login": "coderabbitai[bot]", "type": "Bot"}, "body": "✅ Action performed\n\nReview finished.",
+                 "created_at": "2026-10-21T21:00:00Z", "updated_at": "2026-10-21T21:05:00Z"}]
+    res = evaluate(10, pr(), ci_only, [], [], "2026-10-21T20:00:00Z", None, lambda: pr(), finished)
+    check("'Review finished' reply after the push, no status, no review object: clean", res[0] == 0, "\n".join(res[1]))
+    stale = [dict(finished[0], updated_at="2026-10-21T19:00:00Z", created_at="2026-10-21T19:00:00Z")]
+    res = evaluate(10, pr(), ci_only, [], [], "2026-10-21T20:00:00Z", None, lambda: pr(), stale)
+    check("a 'Review finished' reply from before the push does not count", res[0] == 2, "\n".join(res[1]))
     code, text, n = run(pr(), paused, reviews=[])
     check("'Review paused' with no review on the head is pending", code == 2 and "Review paused" in text, text)
     code, text, n = run(pr(), success)
