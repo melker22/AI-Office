@@ -142,8 +142,16 @@ def check_body(doc: dict, exp: dict[str, Any]) -> list[str]:
             if ri >= len(got_runs):
                 break
             errors.extend(f"block {bi} run {ri}: {e}" for e in run_matches(got_runs[ri], wr))
-        if "caption" in want_b and (block.get("caption") or "") != want_b["caption"]:
-            errors.append(f"block {bi} caption {block.get('caption')!r} != {want_b['caption']!r}")
+        if "caption" in want_b:
+            # D5: a DOCX "Caption" paragraph merges into the preceding table/image's
+            # caption_runs; the block's own plain "caption" string is only set for
+            # ODT (which never loses the separate paragraph). Fall back to the
+            # runs' joined text so both import paths check the same way.
+            got_caption = block.get("caption") or "".join(
+                r.get("text") or "" for r in (block.get("caption_runs") or [])
+            )
+            if got_caption != want_b["caption"]:
+                errors.append(f"block {bi} caption {got_caption!r} != {want_b['caption']!r}")
         if "nested" in want_b:
             nested = block.get("nested") or block.get("rows")
             if not nested and want_b["nested"]:

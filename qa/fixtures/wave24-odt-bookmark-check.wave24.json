@@ -1,0 +1,13 @@
+{
+  "decision": "D16",
+  "audit": [
+    "PR-11-ODT-bookmark"
+  ],
+  "export": {
+    "odt": {
+      "must_contain": [
+        "text:bookmark text:name=\"bm1\""
+      ]
+    }
+  }
+}

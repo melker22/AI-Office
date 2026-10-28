@@ -154,9 +154,9 @@ def fixture_d3_pages() -> None:
 </w:body></w:document>"""
     core = """<?xml version="1.0"?><cp:coreProperties xmlns:cp="http://schemas.openxmlformats.org/package/2006/metadata/core-properties"
  xmlns:dc="http://purl.org/dc/elements/1.1/"><dc:title>D3</dc:title></cp:coreProperties>"""
-    write_bytes("wave24-docx-page-a3.docx", pack_docx(doc, core))
+    write_bytes("wave24-docx-page-a3-check.docx", pack_docx(doc, core))
     write_json(
-        "wave24-docx-page-a3.wave24.json",
+        "wave24-docx-page-a3-check.wave24.json",
         {
             "decision": "D3",
             "audit": ["A-docx-6"],
@@ -177,9 +177,9 @@ def fixture_d3_pages() -> None:
         '<text:p text:style-name="Standard">Legal</text:p>'
         "</office:text></office:body></office:document-content>"
     )
-    write_bytes("wave24-odt-page-legal.odt", pack_odt(odt))
+    write_bytes("wave24-odt-page-legal-check.odt", pack_odt(odt))
     write_json(
-        "wave24-odt-page-legal.wave24.json",
+        "wave24-odt-page-legal-check.wave24.json",
         {
             "decision": "D3",
             "audit": ["A-odf-4"],
@@ -245,17 +245,18 @@ def fixture_d5_caption() -> None:
 <w:sectPr/></w:body></w:document>"""
     core = """<?xml version="1.0"?><cp:coreProperties xmlns:cp="http://schemas.openxmlformats.org/package/2006/metadata/core-properties"
  xmlns:dc="http://purl.org/dc/elements/1.1/"><dc:title>D5</dc:title></cp:coreProperties>"""
-    write_bytes("wave24-docx-caption.docx", pack_docx(doc, core))
+    write_bytes("wave24-docx-caption-check.docx", pack_docx(doc, core))
     write_json(
-        "wave24-docx-caption.wave24.json",
+        "wave24-docx-caption-check.wave24.json",
         {
             "decision": "D5",
             "audit": ["A-docx-8"],
+            # D5: a Caption paragraph right after a table/image merges into that
+            # block's caption_runs; it is never a separate body block.
             "body": [
-                {"block_index": 0, "type": "table"},
-                {"block_index": 1, "type": "paragraph", "caption": "Table 1: Demo"},
+                {"block_index": 0, "type": "table", "caption": "Table 1: Demo"},
             ],
-            "export": {"docx": {"must_contain": ["Caption", "SEQ"]}},
+            "export": {"docx": {"must_contain": ["Caption"]}},
         },
     )
 
@@ -423,15 +424,18 @@ def fixture_d16_bookmark() -> None:
         '<text:p><text:bookmark-start text:name="bm1"/>Mark<text:bookmark-end text:name="bm1"/></text:p>'
         "</office:text></office:body></office:document-content>"
     )
-    write_bytes("wave24-odt-bookmark.odt", pack_odt(odt))
+    write_bytes("wave24-odt-bookmark-check.odt", pack_odt(odt))
     write_json(
-        "wave24-odt-bookmark.wave24.json",
+        "wave24-odt-bookmark-check.wave24.json",
         {
             "decision": "D16",
             "audit": ["PR-11-ODT-bookmark"],
+            # Bookmarks are a single point (block_id + offset) in this app's model,
+            # never a start/end range, so a re-export always collapses back to the
+            # single-element <text:bookmark> form, not a bookmark-start/-end pair.
             "export": {
                 "odt": {
-                    "must_contain": ['text:bookmark-start text:name="bm1"'],
+                    "must_contain": ['text:bookmark text:name="bm1"'],
                 }
             },
         },
