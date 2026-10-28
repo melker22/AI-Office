@@ -1,0 +1,11 @@
+[
+  {"tool": "document_new", "args": {"title": "Wave25 D22", "force": true}},
+  {"tool": "apply_paragraph_format", "args": {"id": "p1", "lang": "pt-PT"}},
+  {"tool": "insert_at_caret", "args": {"id": "p1", "text": "Before the list"}},
+  {"tool": "insert_blocks", "args": {"after_id": "p1", "blocks": [
+    {"type": "list-item", "level": 1, "list_kind": "bullet", "runs": [{"text": "Outer"}]},
+    {"type": "list-item", "level": 2, "list_kind": "bullet", "runs": [{"text": "Inner"}]},
+    {"type": "list-item", "level": 1, "list_kind": "bullet", "runs": [{"text": "Next"}]}
+  ]}},
+  {"tool": "document_export_pdf", "args": {"path": "build/linux/wave25-d22-nested-list.pdf", "pdfa": true, "ua": true}}
+]

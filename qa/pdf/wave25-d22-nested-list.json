@@ -1,0 +1,12 @@
+{
+  "pdf": "build/linux/wave25-d22-nested-list.pdf",
+  "verapdf": {
+    "1b": {"compliant": true},
+    "ua1": {"compliant": true}
+  },
+  "qpdf": {
+    "no_part_fallback": true,
+    "struct_types": ["L", "LI", "Lbl", "LBody"]
+  },
+  "nested_list": {"min_l": 2}
+}

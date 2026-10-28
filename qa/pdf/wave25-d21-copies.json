@@ -1,0 +1,9 @@
+{
+  "pdf": "build/linux/wave25-d21-copies.pdf",
+  "verapdf": {
+    "1b": {"compliant": true},
+    "ua1": {"compliant": true}
+  },
+  "qpdf": {"no_part_fallback": true, "struct_types": ["P"]},
+  "copies_structure": {"role": "P", "min_count": 2, "distinct_pages": 2}
+}

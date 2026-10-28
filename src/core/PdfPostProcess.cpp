@@ -10,6 +10,7 @@
 #include <QtGlobal>
 #include <algorithm>
 #include <cstring>
+#include <functional>
 #include <zlib.h>
 
 namespace aioffice {
@@ -93,16 +94,48 @@ QVector<int> extractRefArray(const QByteArray &body, const QByteArray &key)
 
 QByteArray pdfUtf16String(const QString &s)
 {
+    // PDF literal strings treat raw CR/LF as end-of-line and normalize them, so a
+    // UTF-16 code unit whose byte is CR, LF, TAB, BS, or FF has to be escaped too.
     QByteArray out;
     out.append(char(0xFE));
     out.append(char(0xFF));
+    const auto appendByte = [&](unsigned char b) {
+        char esc = 0;
+        switch (b) {
+        case '(':
+        case ')':
+        case '\\':
+            esc = char(b);
+            break;
+        case '\n':
+            esc = 'n';
+            break;
+        case '\r':
+            esc = 'r';
+            break;
+        case '\t':
+            esc = 't';
+            break;
+        case '\b':
+            esc = 'b';
+            break;
+        case '\f':
+            esc = 'f';
+            break;
+        default:
+            break;
+        }
+        if (esc) {
+            out.append('\\');
+            out.append(esc);
+        } else {
+            out.append(char(b));
+        }
+    };
     for (const QChar &c : s) {
         const ushort u = c.unicode();
-        for (char b : {char((u >> 8) & 0xFF), char(u & 0xFF)}) {
-            if (b == '(' || b == ')' || b == '\\')
-                out.append('\\');
-            out.append(b);
-        }
+        appendByte(static_cast<unsigned char>((u >> 8) & 0xFF));
+        appendByte(static_cast<unsigned char>(u & 0xFF));
     }
     return out;
 }
@@ -491,6 +524,7 @@ struct ClipOut {
     int pageObj = 0;
     int pageIndex = 0;
     bool matched = false;
+    bool inStructure = true; // covered by another cell's span: painted as /Artifact
     bool hasLabel = false;
     MarkedBit label;
     QVector<MarkedBit> body;
@@ -622,6 +656,27 @@ bool pdfPostProcessTagStructure(const QString &path, const QVector<QVector<PdfTa
     }
 
     const QString catalogLang = docLang.trimmed().isEmpty() ? QStringLiteral("pt-PT") : docLang.trimmed();
+
+    // A cell painted inside another cell's ColSpan/RowSpan is not its own TD/TH.
+    // The anchor keeps the span attributes; this clip is marked /Artifact.
+    auto cellCoveredBySpan = [&](const PdfTagMarker &m) {
+        if (m.role != PdfTagRole::TableCell)
+            return false;
+        for (const auto &page : perPageMarkers) {
+            for (const PdfTagMarker &o : page) {
+                if (o.role != PdfTagRole::TableCell || o.blockId != m.blockId || o.copyIndex != m.copyIndex)
+                    continue;
+                if (o.row == m.row && o.col == m.col)
+                    continue;
+                const int cs = qMax(1, o.colSpan);
+                const int rs = qMax(1, o.rowSpan);
+                if (m.row >= o.row && m.row < o.row + rs && m.col >= o.col && m.col < o.col + cs)
+                    return true;
+            }
+        }
+        return false;
+    };
+
     const int structRootNum = u.reserveObj();
     const int docElemNum = u.reserveObj();
 
@@ -705,10 +760,11 @@ bool pdfPostProcessTagStructure(const QString &path, const QVector<QVector<PdfTa
                             return bit.mcid;
                         };
 
-                        if (clip.marker.role == PdfTagRole::Artifact) {
+                        if (clip.marker.role == PdfTagRole::Artifact || cellCoveredBySpan(clip.marker)) {
                             emitAt(rg.ownerStart, "/Artifact BMC\n");
                             emitAt(rg.ownerEnd, "\nEMC\n");
                             clip.matched = true;
+                            clip.inStructure = false;
                             outs.push_back(clip);
                             continue;
                         }
@@ -814,45 +870,62 @@ bool pdfPostProcessTagStructure(const QString &path, const QVector<QVector<PdfTa
     QVector<ClipOut> flat;
     for (const auto &clips : pageClips) {
         for (const auto &c : clips) {
-            if (c.matched && c.marker.role != PdfTagRole::Artifact)
+            if (c.matched && c.inStructure && c.marker.role != PdfTagRole::Artifact)
                 flat.push_back(c);
         }
     }
 
-    auto clipsOf = [&](const QString &id) {
+    // One structure element per copy of a block. A paragraph that continues onto the
+    // next logical page stays one element (same copyIndex). A repeated page does not.
+    struct StructKey {
+        int copyIndex = 0;
+        QString id;
+        bool operator==(const StructKey &o) const { return copyIndex == o.copyIndex && id == o.id; }
+    };
+
+    auto clipsOf = [&](const StructKey &key) {
         QVector<int> idx;
         for (int i = 0; i < flat.size(); ++i) {
-            if (flat[i].marker.blockId == id)
+            if (flat[i].marker.copyIndex == key.copyIndex && flat[i].marker.blockId == key.id)
                 idx.push_back(i);
         }
         return idx;
     };
-    auto roleOf = [&](const QString &id) {
+    auto roleOf = [&](const StructKey &key) {
         for (const auto &c : flat) {
-            if (c.marker.blockId == id)
+            if (c.marker.copyIndex == key.copyIndex && c.marker.blockId == key.id)
                 return c.marker.role;
         }
         return PdfTagRole::Paragraph;
     };
 
-    QStringList sequence;
-    QStringList seen;
-    auto consider = [&](const QString &id) {
-        if (id.isEmpty() || seen.contains(id))
+    QVector<StructKey> sequence;
+    QVector<StructKey> seen;
+    auto consider = [&](const StructKey &key) {
+        if (key.id.isEmpty() || seen.contains(key))
             return;
-        if (clipsOf(id).isEmpty())
+        if (clipsOf(key).isEmpty())
             return;
-        seen.push_back(id);
-        sequence.push_back(id);
+        seen.push_back(key);
+        sequence.push_back(key);
     };
+    QVector<int> copyOrder;
+    for (const auto &c : flat) {
+        if (!copyOrder.contains(c.marker.copyIndex))
+            copyOrder.push_back(c.marker.copyIndex);
+    }
+    std::sort(copyOrder.begin(), copyOrder.end());
     if (!readingOrder.isEmpty()) {
-        for (const auto &id : readingOrder)
-            consider(id);
+        for (int copy : copyOrder)
+            for (const auto &id : readingOrder)
+                consider(StructKey{copy, id});
     }
     QVector<int> byDoc;
     for (int i = 0; i < flat.size(); ++i)
         byDoc.push_back(i);
     std::sort(byDoc.begin(), byDoc.end(), [&](int a, int b) {
+        if (flat[a].marker.copyIndex != flat[b].marker.copyIndex)
+            return flat[a].marker.copyIndex < flat[b].marker.copyIndex;
         if (flat[a].marker.docOrder != flat[b].marker.docOrder)
             return flat[a].marker.docOrder < flat[b].marker.docOrder;
         if (flat[a].pageIndex != flat[b].pageIndex)
@@ -860,7 +933,7 @@ bool pdfPostProcessTagStructure(const QString &path, const QVector<QVector<PdfTa
         return a < b;
     });
     for (int i : byDoc)
-        consider(flat[i].marker.blockId);
+        consider(StructKey{flat[i].marker.copyIndex, flat[i].marker.blockId});
 
     auto defineElem = [&](int num, const QByteArray &body) { u.redefineObj(num, body); };
 
@@ -901,8 +974,8 @@ bool pdfPostProcessTagStructure(const QString &path, const QVector<QVector<PdfTa
     // PDF QA reads each child's /S from that array.
     QVector<QByteArray> docKidBodies;
 
-    auto emitSimple = [&](const QString &id) {
-        const QVector<int> idx = clipsOf(id);
+    auto emitSimple = [&](const StructKey &key) {
+        const QVector<int> idx = clipsOf(key);
         const PdfTagMarker &m = flat[idx[0]].marker;
         const int elem = u.reserveObj();
         const auto written = writeBits(elem, bodyBits(idx));
@@ -919,51 +992,105 @@ bool pdfPostProcessTagStructure(const QString &path, const QVector<QVector<PdfTa
         docKidBodies.push_back(body);
     };
 
-    auto emitList = [&](const QStringList &ids) {
-        const int listNum = u.reserveObj();
-        QByteArray listK = "[ ";
-        int firstPage = 0;
-        for (const auto &id : ids) {
-            const QVector<int> idx = clipsOf(id);
-            const int li = u.reserveObj();
-            const int lbody = u.reserveObj();
-            int lbl = -1;
-            QVector<QPair<int, MarkedBit *>> labels;
-            for (int i : idx) {
-                if (flat[i].hasLabel)
-                    labels.push_back({i, &flat[i].label});
+    // One copy's consecutive list items. A deeper level is an inner /L under the
+    // preceding /LI (ISO 32000-1 14.8.4.3.3), not another item of the outer /L.
+    auto emitList = [&](const QVector<StructKey> &ids) {
+        struct LiNode {
+            StructKey key;
+            int nested = -1;
+        };
+        struct LiList {
+            int level = 1;
+            QVector<LiNode> items;
+        };
+        QVector<LiList> lists;
+        QVector<int> roots;
+        QVector<int> stack;
+        auto closeList = [&]() {
+            const int done = stack.takeLast();
+            if (stack.isEmpty()) {
+                roots.push_back(done);
+                return;
             }
-            if (!labels.isEmpty()) {
-                lbl = u.reserveObj();
-                const auto lk = writeBits(lbl, labels);
-                defineElem(lbl, "<< /Type /StructElem /S /Lbl /P " + QByteArray::number(li) + " 0 R /Pg "
-                                    + QByteArray::number(lk.second) + " 0 R /K " + lk.first + " >>");
-                if (firstPage == 0)
-                    firstPage = lk.second;
+            LiList &parent = lists[stack.last()];
+            if (parent.items.isEmpty() || parent.items.last().nested >= 0)
+                roots.push_back(done);
+            else
+                parent.items.last().nested = done;
+        };
+        for (const StructKey &key : ids) {
+            const QVector<int> idx = clipsOf(key);
+            const int level = idx.isEmpty() ? 1 : qMax(1, flat[idx[0]].marker.level);
+            while (!stack.isEmpty() && lists[stack.last()].level > level)
+                closeList();
+            if (stack.isEmpty() || lists[stack.last()].level < level) {
+                lists.push_back(LiList{level, {}});
+                stack.push_back(lists.size() - 1);
             }
-            const auto bk = writeBits(lbody, bodyBits(idx));
-            if (firstPage == 0)
-                firstPage = bk.second;
-            defineElem(lbody, "<< /Type /StructElem /S /LBody /P " + QByteArray::number(li) + " 0 R /Pg "
-                                  + QByteArray::number(bk.second) + " 0 R /K " + bk.first + " >>");
-            QByteArray liK = "[ ";
-            if (lbl >= 0)
-                liK += QByteArray::number(lbl) + " 0 R ";
-            liK += QByteArray::number(lbody) + " 0 R ]";
-            defineElem(li, "<< /Type /StructElem /S /LI /P " + QByteArray::number(listNum) + " 0 R /K " + liK + " >>");
-            listK += QByteArray::number(li) + " 0 R ";
+            lists[stack.last()].items.push_back(LiNode{key, -1});
         }
-        listK += "]";
-        QByteArray listBody = "<< /Type /StructElem /S /L /P " + QByteArray::number(docElemNum) + " 0 R";
-        if (firstPage > 0)
-            listBody += " /Pg " + QByteArray::number(firstPage) + " 0 R";
-        listBody += " /K " + listK + " >>";
-        defineElem(listNum, listBody);
-        docKidBodies.push_back(listBody);
+        while (!stack.isEmpty())
+            closeList();
+
+        std::function<int(int, int)> emitNodes;
+        emitNodes = [&](int listIndex, int parentNum) -> int {
+            const int listNum = u.reserveObj();
+            QByteArray listK = "[ ";
+            int firstPage = 0;
+            const int count = lists[listIndex].items.size();
+            for (int n = 0; n < count; ++n) {
+                const StructKey itemKey = lists[listIndex].items[n].key;
+                const int nested = lists[listIndex].items[n].nested;
+                const int li = u.reserveObj();
+                const int nestedNum = nested >= 0 ? emitNodes(nested, li) : -1;
+                const QVector<int> idx = clipsOf(itemKey);
+                const int lbody = u.reserveObj();
+                int lbl = -1;
+                QVector<QPair<int, MarkedBit *>> labels;
+                for (int i : idx) {
+                    if (flat[i].hasLabel)
+                        labels.push_back({i, &flat[i].label});
+                }
+                if (!labels.isEmpty()) {
+                    lbl = u.reserveObj();
+                    const auto lk = writeBits(lbl, labels);
+                    defineElem(lbl, "<< /Type /StructElem /S /Lbl /P " + QByteArray::number(li) + " 0 R /Pg "
+                                        + QByteArray::number(lk.second) + " 0 R /K " + lk.first + " >>");
+                    if (firstPage == 0)
+                        firstPage = lk.second;
+                }
+                const auto bk = writeBits(lbody, bodyBits(idx));
+                if (firstPage == 0)
+                    firstPage = bk.second;
+                defineElem(lbody, "<< /Type /StructElem /S /LBody /P " + QByteArray::number(li) + " 0 R /Pg "
+                                      + QByteArray::number(bk.second) + " 0 R /K " + bk.first + " >>");
+                QByteArray liK = "[ ";
+                if (lbl >= 0)
+                    liK += QByteArray::number(lbl) + " 0 R ";
+                liK += QByteArray::number(lbody) + " 0 R ";
+                if (nestedNum >= 0)
+                    liK += QByteArray::number(nestedNum) + " 0 R ";
+                liK += "]";
+                defineElem(li, "<< /Type /StructElem /S /LI /P " + QByteArray::number(listNum)
+                                   + " 0 R /K " + liK + " >>");
+                listK += QByteArray::number(li) + " 0 R ";
+            }
+            listK += "]";
+            QByteArray listBody = "<< /Type /StructElem /S /L /P " + QByteArray::number(parentNum) + " 0 R";
+            if (firstPage > 0)
+                listBody += " /Pg " + QByteArray::number(firstPage) + " 0 R";
+            listBody += " /K " + listK + " >>";
+            defineElem(listNum, listBody);
+            if (parentNum == docElemNum)
+                docKidBodies.push_back(listBody);
+            return listNum;
+        };
+        for (int root : roots)
+            emitNodes(root, docElemNum);
     };
 
-    auto emitTable = [&](const QString &id) {
-        const QVector<int> idx = clipsOf(id);
+    auto emitTable = [&](const StructKey &key) {
+        const QVector<int> idx = clipsOf(key);
         const int tableNum = u.reserveObj();
         // A repeated header is the same logical row (0) on every continuation
         // fragment, and `fragment` restarts at 0 on each page. Key the grid by
@@ -989,7 +1116,10 @@ bool pdfPostProcessTagStructure(const QString &path, const QVector<QVector<PdfTa
                                   .arg(fragIt.key())
                                   .arg(cell.row)
                                   .arg(cell.col);
-                        headerIdByCol.insert(colIt.key(), pdfAsciiString(hid));
+                        const QByteArray hidBytes = pdfAsciiString(hid);
+                        const int span = qMax(1, cell.colSpan);
+                        for (int c = colIt.key(); c < colIt.key() + span; ++c)
+                            headerIdByCol.insert(c, hidBytes);
                     }
                 }
                 for (auto rowIt = fragIt.value().constBegin(); rowIt != fragIt.value().constEnd(); ++rowIt) {
@@ -1003,12 +1133,20 @@ bool pdfPostProcessTagStructure(const QString &path, const QVector<QVector<PdfTa
                             firstPage = ck.second;
                         const PdfTagMarker &cell = flat[cells[0]].marker;
                         const QByteArray tag = cell.headerCell ? QByteArray("/TH") : QByteArray("/TD");
+                        QByteArray spans;
+                        if (cell.colSpan > 1)
+                            spans += " /ColSpan " + QByteArray::number(cell.colSpan);
+                        if (cell.rowSpan > 1)
+                            spans += " /RowSpan " + QByteArray::number(cell.rowSpan);
                         QByteArray attrs;
                         if (cell.headerCell) {
                             attrs = " /ID (" + headerIdByCol.value(colIt.key())
-                                + ") /A << /O /Table /Scope /Column >>";
-                        } else if (headerIdByCol.contains(colIt.key())) {
-                            attrs = " /A << /O /Table /Headers [ (" + headerIdByCol.value(colIt.key()) + ") ] >>";
+                                + ") /A << /O /Table /Scope /Column" + spans + " >>";
+                        } else if (headerIdByCol.contains(colIt.key()) || !spans.isEmpty()) {
+                            attrs = " /A << /O /Table";
+                            if (headerIdByCol.contains(colIt.key()))
+                                attrs += " /Headers [ (" + headerIdByCol.value(colIt.key()) + ") ]";
+                            attrs += spans + " >>";
                         }
                         defineElem(cellNum, "<< /Type /StructElem /S " + tag + " /P " + QByteArray::number(tr)
                                                 + " 0 R /Pg " + QByteArray::number(ck.second) + " 0 R" + attrs + " /K "
@@ -1031,8 +1169,8 @@ bool pdfPostProcessTagStructure(const QString &path, const QVector<QVector<PdfTa
         docKidBodies.push_back(tableBody);
     };
 
-    auto emitToc = [&](const QString &id) {
-        const QVector<int> idx = clipsOf(id);
+    auto emitToc = [&](const StructKey &key) {
+        const QVector<int> idx = clipsOf(key);
         QVector<int> ordered = idx;
         std::sort(ordered.begin(), ordered.end(), [&](int a, int b) {
             if (flat[a].marker.tocEntry != flat[b].marker.tocEntry)
@@ -1075,21 +1213,22 @@ bool pdfPostProcessTagStructure(const QString &path, const QVector<QVector<PdfTa
     };
 
     for (int i = 0; i < sequence.size();) {
-        const QString id = sequence[i];
-        const PdfTagRole role = roleOf(id);
+        const StructKey key = sequence[i];
+        const PdfTagRole role = roleOf(key);
         if (role == PdfTagRole::ListItem) {
-            QStringList ids;
-            while (i < sequence.size() && roleOf(sequence[i]) == PdfTagRole::ListItem)
+            QVector<StructKey> ids;
+            while (i < sequence.size() && sequence[i].copyIndex == key.copyIndex
+                   && roleOf(sequence[i]) == PdfTagRole::ListItem)
                 ids.push_back(sequence[i++]);
             emitList(ids);
         } else if (role == PdfTagRole::TableCell) {
-            emitTable(id);
+            emitTable(key);
             ++i;
         } else if (role == PdfTagRole::TocItem) {
-            emitToc(id);
+            emitToc(key);
             ++i;
         } else {
-            emitSimple(id);
+            emitSimple(key);
             ++i;
         }
     }
