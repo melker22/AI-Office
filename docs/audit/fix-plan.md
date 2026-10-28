@@ -57,15 +57,59 @@ Gate: `scripts/qa-all.sh --gui --interop --pdf --formats` — 118/118 pass, 0 fa
 | CR-3-032 | **Corrigido** | `success_output` nas Fleets antigas. |
 | CR-9 (`\u` RTF self-test) | **Corrigido** | Autoteste deixa de aceitar substring falsa. |
 
-## Onda 24 — Fidelidade DOCX/ODT
+## Onda 24 — Fidelidade DOCX/ODT — **entregue** (2026-10-28, branch `fleet/wave24-docx-odt`, HEAD `d8a1a40`)
 
-Itens:
+Gate: `scripts/qa-all.sh --gui --interop --pdf --formats` — 166/166 ctest pass, 0 falha, 0 `DISABLED` (os dois ctests de A-qa-1, `roundtrip_foreign_odt_wave17` e `roundtrip_foreign_docx_wave17`, voltaram a rodar e passam). Interop LibreOffice ok (docx↔odt, fields, rtf, wave24 docx export).
 
-- **DOCX:** A-docx-4..12, CR-1-009 (mescla de revisões nativas com o JSON embutido). Do PR #11: ids únicos de bookmark, escape duplo no `FILLIN` e validação de `w:color`.
-- **ODT:** A-odf-1, A-odf-4..8 (notas, página real em mm, fonte, células mescladas, tipos de lista, formas). Do PR #11: escape de nomes de estilo e bookmarks dentro do parágrafo.
-- **QR:** A-odf-10 (o QR gerado não é decodificável).
+Executores: Cursor Grok 4.7 (nós iniciais T1/T2 DOCX import/export), depois Sonnet (fix-pass, CI label e sparse-table ODT), já que o Grok Build ficou indisponível durante a onda.
 
-Executores: Grok Build em DOCX e em ODT, em paralelo; Composer no QR e nas fixtures.
+### DOCX
+
+| Id | Estado | Notas |
+|---|---|---|
+| A-docx-4 | **Corrigido** | `loadDocx` lê `w:sz`/`w:rFonts`/`w:color`; `b/i/u/strike` respeitam `w:val`; `bidi` só é RTL em `"1"`/`"true"`. |
+| A-docx-5 | **Corrigido** | Parágrafo antes de um `w:drawing` passa por `flushP()` em vez de ser descartado com `runs.clear()`. |
+| A-docx-6 | **Corrigido** | `pgSz` guarda `widthMm`/`heightMm` reais; nomes A4/Letter/Legal/A3/A5 só como atalho dentro de 1 mm. |
+| A-docx-7 | **Corrigido** | Tabela aninhada usa pilha de `tableBlock`/`tableRow` em vez de uma única variável. |
+| A-docx-8 | **Corrigido** | Export emite `w:gridSpan`, `w:vMerge`, tabela aninhada e a legenda (`Caption` + `SEQ` nativo). |
+| A-docx-9 | **Corrigido** | `loadDocx` lê `docProps/core.xml` (`dc:title`/`subject`/`keywords`/`creator`) quando o JSON omite o campo. |
+| A-docx-10 | **Corrigido** | Um campo dentro de `w:del` exporta como `w:delText` e reimporta para `delAcc`, não para `runs` vivos. |
+| A-docx-11 | **Corrigido** | `word/numbering.xml` é mapeado; numId fora da tabela cai no fallback decimal/bullet (1/2) só quando a parte não existe. |
+| A-docx-12 | **Corrigido** | `xmlEscape` descarta controles C0 fora de tab/LF/CR; `w:color` só escreve com seis dígitos hex (`hex6`, Docx.cpp:108-145). |
+| CR-1-009 (Docx.cpp) | **Corrigido** | `jsonOwnsRevisions` foi removido; `loadDocx` sempre faz parsing nativo de `w:ins`/`w:del`/`w:rPrChange` e só pula uma marca quando uma revisão JSON do mesmo bloco/tipo já cobre o intervalo. |
+| PR #11 — bookmark `w:id` único | **Corrigido** | Contador `DocxOut::nextBmId` substitui o índice local por parágrafo (Docx.cpp:50, 1022). |
+| PR #11 — `FILLIN` escapado uma vez | **Corrigido** | `quoteFieldResult(r.fieldArg)` substitui o duplo `xmlEscape` (Docx.cpp:489). |
+| PR #11 — validação de `w:color` | **Corrigido** | Regex `hex6` aceita só seis dígitos hex antes de escrever o atributo. |
+
+### ODT
+
+| Id | Estado | Notas |
+|---|---|---|
+| A-odf-1 | **Corrigido** | Import de nota distingue `text:note-citation` de `text:note-body`; só o corpo entra no texto da nota. |
+| A-odf-4 | **Corrigido** | Página ODT guarda `widthMm`/`heightMm` reais; Legal/A3/custom não colapsam mais em Letter/A4. |
+| A-odf-5 | **Corrigido** | `applyTextProps`/import lê `style:font-name` de volta para o run. |
+| A-odf-6 | **Corrigido** | Export escreve `table:number-rows-spanned` além de `number-columns-spanned`; import lê os dois (`parseTableBound`). |
+| A-odf-7 | **Corrigido** | `listKindFromNumFormat`/`listKindFor` derivam o tipo real da lista do `style:num-format`, não um `"decimal"` fixo. |
+| A-odf-8 | **Corrigido** | Blocos `shape`/`chart`/`qr`/`form` têm leitura e escrita próprias (Odf.cpp:1063, 1221-1223). |
+| PR #11 — nomes de estilo escapados | **Corrigido** | `parent`, `odfStyleName(s.name)`, `s.align` e a orientação da página passam por `xmlEscape`; alinhamento validado por `isValidBlockAlign`. |
+| PR #11 — bookmark dentro do parágrafo | **Corrigido** | A marca de bookmark é emitida inline na sequência de `spansXml`/`RevMark` no deslocamento certo do parágrafo, não envolvendo o `text:p` inteiro. |
+
+### QR
+
+| Id | Estado | Notas |
+|---|---|---|
+| A-odf-10 | **Corrigido** | Encoder corrige o nível ECC do payload (versão 1, nível L) e grava os módulos de dados antes de travar as áreas de formato/timing, para a informação de formato não ser sobrescrita; ampliado para suportar bytes até a versão 10. QA roda `zbar` para confirmar que o símbolo é decodificável. |
+
+### QA / CI (fix-pass do Sonnet, após o Cursor Grok 4.7 ficar sem Grok Build)
+
+| Item | Estado | Notas |
+|---|---|---|
+| Label `wave24` fora do CI | **Corrigido** | `.circleci/config.yml` trocou `-LE wave24` por incluir `wave24` no `-L`, então os 35 testes da onda rodam no gate. |
+| Perda da célula ao exportar ODT com tabela esparsa | **Corrigido** | `appendOuterTable` ganhou a mesma distinção entre coluna de grade e índice armazenado que `tableWml` já tinha; nova fixture `qa/wave24-docx-d4-tables-odt.json` cobre o caso. |
+
+**Decisões:** nenhum item da onda 24 foi adiado; os dois ctests `DISABLED` de A-qa-1 (onda 23) voltaram a `TRUE`→ativos e passam. O backlog de GUI (Fase Humano) não foi tocado.
+
+**Próximo passo sugerido:** onda 25 (RTF/EPUB/PDF).
 
 ## Onda 25 — Fidelidade RTF/EPUB/PDF
 

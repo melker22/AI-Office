@@ -8,6 +8,29 @@
 
 ---
 
+## 2026-10-28 — Fleet wave24 — Cursor Grok/Composer/Sonnet
+
+**Objective:** Close Fleet wave 24 (DOCX/ODT round-trip fidelity, decodable QR). Update the handoff, fix-plan, and feature catalog to match what actually shipped. No push.
+
+**Done:**
+- Grok Build was unreachable for this wave; the executors were **Cursor Grok 4.7** on the DOCX/ODT T1/T2 nodes, then **Sonnet** on the fix-pass (CI label and the sparse-table ODT export regression it caught).
+- DOCX import now reads `w:sz`/`w:rFonts`/`w:color`, honors real `b`/`i`/`u`/`strike`/`bidi` values, stores real page mm instead of collapsing to Letter/A4, keeps nested tables on a stack, reads `docProps/core.xml` and `word/numbering.xml`.
+- DOCX export writes `w:gridSpan`/`w:vMerge`/nested `w:tbl`/caption `SEQ`, puts a field inside `w:del` as `w:delText`, keeps bookmark `w:id` unique via `DocxOut::nextBmId`, escapes `FILLIN` once with `quoteFieldResult`, and validates `w:color` against six hex digits before writing it.
+- `jsonOwnsRevisions` is gone from `Docx.cpp`: native `w:ins`/`w:del`/`w:rPrChange` parsing always runs and only yields to a JSON revision that already covers the same block/kind/range (CR-1-009).
+- ODT import distinguishes `text:note-citation` from the note body, reads `style:font-name` back, reads `table:number-rows-spanned`, derives the real list kind from `style:num-format`, and gives `shape`/`chart`/`qr`/`form` blocks real read/write support. Style names, alignment, and page orientation are escaped/validated on export.
+- `Qr.cpp` encoder fixed: data modules are written before the format/timing areas are locked (previously the lock overwrote data bits), and the ECC level matches the version-1-L payload; byte-mode support extends through version 10.
+- Sonnet fix-pass on top of that: `.circleci/config.yml` ran `-LE wave24` (excluding the wave), fixed to include `wave24` in `-L` so CI actually runs the 35 wave24 tests; and `appendOuterTable` in `Odf.cpp` lost a sparse-table cell on ODT export (ported the grid-column/stored-index distinction already present in `tableWml`), new fixture `qa/wave24-docx-d4-tables-odt.json`.
+- `scripts/qa-all.sh --gui --interop --pdf --formats` on the current tree: **166/166** ctest passed, **0** failed, **0** `DISABLED` — the two A-qa-1 ctests from wave 23 (`roundtrip_foreign_odt_wave17`, `roundtrip_foreign_docx_wave17`) are back on and pass; interop (docx→odt, odt→docx, fields, rtf) and the `wave24 docx export` interop check all green; real ctest time 347.37 s.
+- `git log main..HEAD --oneline`: `d8a1a40` fix: run wave24 ctest label in CI and fix sparse-table ODT export · `1001c45` fix: close the remaining DOCX table/image regressions the wave24 fix-pass missed · `b085f8c` fix: enable wave24 judges by default and fix the regressions they catch · `0ee1728` fix: accept caption_runs on reopen in wave 24 DOCX export judge · `8ffc0f9` Merge a48b71f: wave 24 QA judges (zbar, checkers, fixtures, ctest) · `e9c4dc2` Merge 533751f: encode ISO QR symbols in byte mode through version 10 · `2da7fbf` Merge 4a5a283: round-trip ODT page size, tables, notes, lists, figures, bookmarks · `8bec390` Merge 355038b: record wave 24 DOCX export in handoff · `4a5a283` fix: round-trip ODT page size, tables, notes, lists, figures, and bookmarks · `5ca0915` test: cover ODT page, tables, notes, lists, figures, and bookmarks · `47f9248` fix: drop native DOCX revisions already covered by the JSON sidecar · `355038b` docs: record the wave 24 DOCX export in the handoff · `3a46b22` test: register the wave 24 DOCX check after Python is found · `b5beaf8` fix: import DOCX run properties, tables, captions, numbering, and native revisions · `9b5a34d` test: add failing DOCX import playbooks for wave 24 · `533751f` fix: encode ISO QR symbols in byte mode through version 10 · `a48b71f` test: wave 24 QA judges (zbar, checkers, fixtures, ctest) · `160a213` fix: export DOCX nested tables, merged cells, captions, and safe XML · `05df4a2` test: check wave 24 DOCX export of spans, captions, and fields · `4929469` test: require decodable QR payloads and a capacity error · `f56b840` docs: update lessons from PR #13 · `4fe47e8` docs: wave 24 spec and fleet (DOCX/ODT round-trip fidelity, decodable QR).
+
+**Decisions:** Onda 24 is fully delivered, no item deferred (see `docs/audit/fix-plan.md`). GUI backlog (Fase Humano) untouched.
+
+**Next suggested step:** Onda 25 (RTF/EPUB/PDF fidelity per `docs/audit/fix-plan.md`).
+
+**Commits:** this entry documents the state at `d8a1a40` (see `git log main..HEAD` above); no new code commit was made by this node.
+
+---
+
 ## 2026-10-25 — Fleet wave24 T1 DOCX import — Grok 4.7
 
 **Objective:** Import side of wave 24 DOCX fidelity (D1, D2, D3 DOCX, D4 import, D5 import, D6, D7 import, D8, D10). Export DOCX, ODT, QR, and CI stay on later nodes. No push.
