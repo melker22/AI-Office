@@ -11,6 +11,8 @@ if command -v systemctl >/dev/null 2>&1 && systemctl --user cat aio-usage-guard.
   fi
   echo "usage-guard: systemctl --user start failed; starting a detached daemon instead" >&2
 fi
+# The installer records which Cockpit CLI to use; the systemd unit carries the same value.
+if [ -f "$D/env" ]; then set -a; . "$D/env"; set +a; fi
 py="$D/run-python"; [ -x "$py" ] || py="$(command -v python3 || true)"
 [ -n "$py" ] || { echo "usage-guard: no python3 to run the daemon" >&2; exit 1; }
 [ -f "$D/usage-guard.py" ] || { echo "usage-guard: $D/usage-guard.py is missing" >&2; exit 1; }

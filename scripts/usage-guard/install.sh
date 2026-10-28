@@ -24,6 +24,8 @@ done
 [ -n "$python" ] || { echo "install: python3 not found" >&2; exit 1; }
 # Every installed command (hooks, detached fallback, service) runs this exact interpreter.
 ln -sfn "$python" "$D/run-python"
+# ... and talks to this exact Cockpit CLI (the service gets it in its unit; the fallback reads this file).
+printf 'AIO_GUARD_COCKPIT=%q\n' "$C" > "$D/env"
 # PATH for the service: python3, node (the Cockpit CLI runs on it), the CLI, bash/env (the CLI's shebang),
 # the NixOS system profile when present, then the usual dirs.
 svc_path=""
@@ -43,7 +45,7 @@ done
 service_ok=0
 if command -v systemctl >/dev/null 2>&1 && systemctl --user show-environment >/dev/null 2>&1; then
   mkdir -p "$HOME/.config/systemd/user"
-  sed -e "s#@PYTHON@#$python#" -e "s#@PATH@#$svc_path#" "$here/aio-usage-guard.service" \
+  sed -e "s#@PYTHON@#$python#" -e "s#@PATH@#$svc_path#" -e "s#@COCKPIT@#$C#" "$here/aio-usage-guard.service" \
     > "$HOME/.config/systemd/user/aio-usage-guard.service"
   if systemctl --user daemon-reload && systemctl --user enable aio-usage-guard.service \
      && systemctl --user restart aio-usage-guard.service; then
