@@ -1,0 +1,11 @@
+{
+  "decision": "D3",
+  "audit": [
+    "A-docx-6"
+  ],
+  "page": {
+    "width_mm": 297,
+    "height_mm": 420,
+    "size": "A3"
+  }
+}

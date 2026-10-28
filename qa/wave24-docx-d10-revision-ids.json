@@ -1,0 +1,66 @@
+[
+  {"tool": "document_open", "args": {"path": "qa/fixtures/wave24-docx-revision-ids.docx"}, "expect": {"ok": true}},
+  {"tool": "document_get", "args": {}, "expect": {
+    "document.body.0.runs.0.text": "Dup1",
+    "document.body.0.runs.1.text": "New1",
+    "document.body.1.runs.0.text": "A",
+    "document.body.1.runs.1.text": "B",
+    "document.body.1.runs.2.text": "C",
+
+    "document.revisions.0.id": "rev1",
+    "document.revisions.0.block_id": "p1",
+    "document.revisions.0.start": 0,
+    "document.revisions.0.end": 4,
+
+    "document.revisions.1.id": "rev2",
+    "document.revisions.1.block_id": "p2",
+
+    "document.revisions.2.id": "rev7",
+    "document.revisions.2.block_id": "p2",
+
+    "document.revisions.3.id": "rev9",
+    "document.revisions.3.kind": "insert",
+    "document.revisions.3.block_id": "p1",
+    "document.revisions.3.start": 4,
+    "document.revisions.3.end": 8,
+    "document.revisions.3.text": "New1",
+
+    "document.revisions.4.id": "rev10",
+    "document.revisions.4.block_id": "p2",
+    "document.revisions.4.text": "A",
+
+    "document.revisions.5.id": "rev11",
+    "document.revisions.5.block_id": "p2",
+    "document.revisions.5.text": "B",
+
+    "document.revisions.6.id": "rev12",
+    "document.revisions.6.block_id": "p2",
+    "document.revisions.6.text": "C"
+  }},
+  {"tool": "revision_reject", "args": {"id": "rev9"}, "expect": {"ok": true}},
+  {"tool": "document_get", "args": {}, "expect": {
+    "document.body.0.runs.0.text": "Dup1",
+    "document.body.1.runs.0.text": "A",
+    "document.body.1.runs.1.text": "B",
+    "document.body.1.runs.2.text": "C",
+    "document.revisions.0.id": "rev1",
+    "document.revisions.0.start": 0,
+    "document.revisions.0.end": 4,
+    "document.revisions.1.id": "rev2",
+    "document.revisions.2.id": "rev7",
+    "document.revisions.3.id": "rev10",
+    "document.revisions.4.id": "rev11",
+    "document.revisions.5.id": "rev12"
+  }},
+  {"tool": "revision_accept", "args": {"id": "rev11"}, "expect": {"ok": true}},
+  {"tool": "document_get", "args": {}, "expect": {
+    "document.body.1.runs.0.text": "A",
+    "document.body.1.runs.1.text": "B",
+    "document.body.1.runs.2.text": "C",
+    "document.revisions.0.id": "rev1",
+    "document.revisions.1.id": "rev2",
+    "document.revisions.2.id": "rev7",
+    "document.revisions.3.id": "rev10",
+    "document.revisions.4.id": "rev12"
+  }}
+]

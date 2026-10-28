@@ -1,0 +1,36 @@
+[
+  {"tool": "document_open", "args": {"path": "qa/fixtures/wave24-odt-figure.odt"}},
+  {"tool": "document_get", "args": {}, "expect": {
+    "document.body.0.type": "paragraph",
+    "document.body.0.runs.0.text": "Lead",
+    "document.body.1.type": "image",
+    "document.body.1.alt": "Photo",
+    "document.body.2.type": "image",
+    "document.body.2.alt": "Box"
+  }},
+  {"tool": "document_new", "args": {"title": "Wave24 figures", "force": true}},
+  {"tool": "insert_blocks", "args": {"after_id": "end", "blocks": [
+    {"id": "sh1", "type": "shape", "shape": "ellipse", "fill": "#B5651D", "stroke": "#2A2420", "width_mm": 30, "height_mm": 16, "alt": "Badge"},
+    {"id": "ch1", "type": "chart", "data": [{"label": "A", "value": 2}], "width_mm": 40, "height_mm": 24, "alt": "Chart"},
+    {"id": "qr1", "type": "qr", "qr": "payload-24", "width_mm": 24, "height_mm": 24, "alt": "Code"},
+    {"id": "fm1", "type": "form", "form": "checkbox", "runs": [{"text": "Yes"}], "alt": "Box"}
+  ]}},
+  {"tool": "document_save", "args": {"path": "/tmp/aioffice-wave24-t3-d15.odt"}},
+  {"tool": "document_open", "args": {"path": "/tmp/aioffice-wave24-t3-d15.odt"}},
+  {"tool": "document_get", "args": {}, "expect": {
+    "document.body.1.type": "shape",
+    "document.body.1.id": "sh1",
+    "document.body.1.shape": "ellipse",
+    "document.body.1.fill": "#B5651D",
+    "document.body.2.type": "chart",
+    "document.body.2.id": "ch1",
+    "document.body.2.data.0.label": "A",
+    "document.body.3.type": "qr",
+    "document.body.3.id": "qr1",
+    "document.body.3.qr": "payload-24",
+    "document.body.4.type": "form",
+    "document.body.4.id": "fm1",
+    "document.body.4.form": "checkbox",
+    "document.body.4.runs.0.text": "Yes"
+  }}
+]

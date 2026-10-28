@@ -1,0 +1,60 @@
+[
+  {
+    "tool": "document_new",
+    "args": {
+      "title": "Wave24 QR",
+      "force": true
+    }
+  },
+  {
+    "tool": "insert_qr",
+    "args": {
+      "after_id": "end",
+      "qr": "q"
+    },
+    "expect": {
+      "ok": true
+    }
+  },
+  {
+    "tool": "insert_qr",
+    "args": {
+      "after_id": "end",
+      "qr": "abcdefghijklmnopq"
+    },
+    "expect": {
+      "ok": true
+    }
+  },
+  {
+    "tool": "insert_qr",
+    "args": {
+      "after_id": "end",
+      "qr": "mmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmm"
+    },
+    "expect": {
+      "ok": true
+    }
+  },
+  {
+    "tool": "insert_qr",
+    "args": {
+      "after_id": "end",
+      "qr": "MMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMM"
+    },
+    "expect": {
+      "ok": true
+    }
+  },
+  {
+    "tool": "insert_qr",
+    "args": {
+      "after_id": "end",
+      "qr": "ZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZ"
+    },
+    "expect": {
+      "ok": false,
+      "error": "QR payload exceeds version 10 level M capacity"
+    }
+  }
+]

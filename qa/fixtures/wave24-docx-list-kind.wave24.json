@@ -1,0 +1,12 @@
+{
+  "decision": "D8",
+  "audit": [
+    "A-docx-11"
+  ],
+  "body": [
+    {
+      "block_index": 0,
+      "type": "list-item"
+    }
+  ]
+}

@@ -1,0 +1,12 @@
+[
+  {"tool": "document_open", "args": {"path": "qa/fixtures/wave24-docx-del-field.docx"}, "expect": {"ok": true}},
+  {"tool": "document_get", "args": {}, "expect": {
+    "document.body.0.runs.0.text": "Hi ",
+    "document.body.0.runs.1.text": "there",
+    "document.revisions.0.kind": "delete",
+    "document.revisions.0.text": "1",
+    "document.revisions.0.deleted_runs.0.text": "1",
+    "document.revisions.0.deleted_runs.0.field": "page_number"
+  }},
+  {"tool": "page_preview", "args": {"page": 1}, "expect": {"ids": ["p1"]}}
+]

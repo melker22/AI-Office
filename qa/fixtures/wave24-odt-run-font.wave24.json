@@ -1,0 +1,18 @@
+{
+  "decision": "D13",
+  "audit": [
+    "A-odf-5"
+  ],
+  "body": [
+    {
+      "block_index": 0,
+      "plain": "Fonted",
+      "runs": [
+        {
+          "text": "Fonted",
+          "font": "DejaVu Sans"
+        }
+      ]
+    }
+  ]
+}

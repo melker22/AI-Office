@@ -1,0 +1,20 @@
+{
+  "decision": "D9",
+  "audit": [
+    "A-docx-12",
+    "A-odf-9"
+  ],
+  "export_after_play": true,
+  "export": {
+    "docx": {
+      "must_not_contain": [
+        "\u000b"
+      ]
+    },
+    "odt": {
+      "must_not_contain": [
+        "\u000b"
+      ]
+    }
+  }
+}

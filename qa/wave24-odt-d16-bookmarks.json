@@ -1,0 +1,31 @@
+[
+  {"tool": "document_open", "args": {"path": "qa/fixtures/wave24-odt-bookmark.odt"}},
+  {"tool": "document_get", "args": {}, "expect": {
+    "document.body.0.type": "heading",
+    "document.body.0.runs.0.text": "Title",
+    "document.bookmarks.0.name": "mid",
+    "document.bookmarks.0.offset": 2,
+    "document.bookmarks.0.block_id": "h1",
+    "document.body.1.runs.0.text": "Hello world",
+    "document.bookmarks.1.name": "here",
+    "document.bookmarks.1.offset": 6,
+    "document.bookmarks.1.block_id": "p1"
+  }},
+  {"tool": "document_new", "args": {"title": "Wave24 bookmarks", "force": true}},
+  {"tool": "insert_blocks", "args": {"after_id": "end", "blocks": [
+    {"id": "para", "type": "paragraph", "runs": [{"text": "Hello world"}]},
+    {"id": "head", "type": "heading", "level": 1, "runs": [{"text": "Title"}]}
+  ]}},
+  {"tool": "bookmark_add", "args": {"id": "para", "name": "here", "offset": 6}},
+  {"tool": "bookmark_add", "args": {"id": "head", "name": "mid", "offset": 2}},
+  {"tool": "document_save", "args": {"path": "/tmp/aioffice-wave24-t3-d16.odt"}},
+  {"tool": "document_open", "args": {"path": "/tmp/aioffice-wave24-t3-d16.odt"}},
+  {"tool": "document_get", "args": {}, "expect": {
+    "document.bookmarks.0.name": "here",
+    "document.bookmarks.0.offset": 6,
+    "document.bookmarks.0.block_id": "p2",
+    "document.bookmarks.1.name": "mid",
+    "document.bookmarks.1.offset": 2,
+    "document.bookmarks.1.block_id": "h1"
+  }}
+]

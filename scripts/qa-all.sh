@@ -36,7 +36,7 @@ if [ "$gui" = 1 ]; then
   run "cmake --build --preset linux --target aioffice" || { echo "BUILD FAILED: aioffice (GUI)"; exit 1; }
 fi
 
-ctest_labels='playbook|roundtrip'
+ctest_labels='playbook|roundtrip|wave24'
 if [ "$pdf" = 1 ]; then
   ctest_labels="${ctest_labels}|pdf"
 fi
@@ -45,6 +45,7 @@ if [ "$formats" = 1 ]; then
 fi
 
 status=0
+# Wave 24 fidelity judges (D1-D17) landed with T1-T4; run them with the rest (label wave24).
 if ! run "ctest --test-dir build/linux --output-on-failure --no-tests=error -L '${ctest_labels}'"; then
   status=1
 fi

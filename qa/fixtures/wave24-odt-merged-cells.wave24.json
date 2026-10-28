@@ -1,0 +1,14 @@
+{
+  "decision": "D4",
+  "audit": [
+    "A-odf-6"
+  ],
+  "export": {
+    "odt": {
+      "must_contain": [
+        "table:number-columns-spanned",
+        "table:number-rows-spanned"
+      ]
+    }
+  }
+}

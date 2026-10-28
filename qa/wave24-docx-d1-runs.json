@@ -1,0 +1,42 @@
+[
+  {"tool": "document_open", "args": {"path": "qa/fixtures/wave24-docx-runs.docx"}, "expect": {"ok": true}},
+  {"tool": "document_get", "args": {}, "expect": {
+    "document.body.0": {
+      "id": "p1",
+      "type": "paragraph",
+      "style": "Normal",
+      "dir": "ltr",
+      "runs": [{
+        "text": "Off",
+        "bold": false,
+        "italic": false,
+        "underline": false,
+        "font": "Calibri",
+        "size_pt": 14,
+        "color": "#FF0000",
+        "highlight": "#FFFF00"
+      }]
+    },
+    "document.body.1": {
+      "id": "p2",
+      "type": "paragraph",
+      "style": "Normal",
+      "dir": "rtl",
+      "runs": [{
+        "text": "On",
+        "bold": true,
+        "italic": true,
+        "underline": true,
+        "strike": true,
+        "font": "Times New Roman",
+        "size_pt": 12,
+        "highlight": "#00FF00"
+      }]
+    },
+    "document.body.2.dir": "ltr",
+    "document.body.2.runs.0.text": "Zero",
+    "document.body.3.dir": "rtl",
+    "document.body.3.runs.0.text": "Empty"
+  }},
+  {"tool": "page_preview", "args": {"page": 1}, "expect": {"ids": ["p1", "p2", "p3", "p4"]}}
+]

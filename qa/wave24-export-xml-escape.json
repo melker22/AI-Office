@@ -1,0 +1,25 @@
+[
+  {
+    "tool": "document_new",
+    "args": {
+      "title": "D9",
+      "force": true
+    }
+  },
+  {
+    "tool": "insert_blocks",
+    "args": {
+      "after_id": "end",
+      "blocks": [
+        {
+          "type": "paragraph",
+          "runs": [
+            {
+              "text": "Ctl\u000bX"
+            }
+          ]
+        }
+      ]
+    }
+  }
+]

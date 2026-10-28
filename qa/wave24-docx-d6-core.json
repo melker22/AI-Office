@@ -1,0 +1,17 @@
+[
+  {"tool": "document_open", "args": {"path": "qa/fixtures/wave24-docx-core.docx"}, "expect": {"ok": true}},
+  {"tool": "document_get", "args": {}, "expect": {
+    "document.meta.title": "Relatorio",
+    "document.meta.subject": "Vendas",
+    "document.meta.keywords": "trimestre",
+    "document.meta.author": "Ada"
+  }},
+
+  {"tool": "document_open", "args": {"path": "qa/fixtures/wave24-docx-core-json.docx"}, "expect": {"ok": true}},
+  {"tool": "document_get", "args": {}, "expect": {
+    "document.meta.title": "FromJson",
+    "document.meta.author": "JsonAda",
+    "document.meta.subject": "Tema",
+    "document.meta.keywords": "alfa"
+  }}
+]

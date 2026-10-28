@@ -189,6 +189,9 @@ foreach(_pb IN LISTS _aio_playbooks)
     if(_pb_name MATCHES "^wave20-")
         continue()
     endif()
+    if(_pb_name MATCHES "^wave24-")
+        continue()
+    endif()
     add_test(NAME "playbook_${_pb_name}" COMMAND aioffice_cli play "${_pb}")
     set_tests_properties("playbook_${_pb_name}" PROPERTIES
         LABELS "playbook"
@@ -238,6 +241,19 @@ set_tests_properties(play_classify PROPERTIES LABELS "playbook" WORKING_DIRECTOR
 # Roundtrip tests run Python; require it at configure time so a missing interpreter
 # fails loudly here instead of as "no such file or directory" inside ctest (CI container).
 find_package(Python3 REQUIRED COMPONENTS Interpreter)
+add_test(NAME wave24_docx_export COMMAND "${CMAKE_COMMAND}" -E env AIOFFICE_HEADLESS=1 QT_QPA_PLATFORM=offscreen
+    "${Python3_EXECUTABLE}" "${CMAKE_SOURCE_DIR}/qa/check_wave24_docx_export.py" --cli "${AIOFFICE_CLI}")
+set_tests_properties(wave24_docx_export PROPERTIES
+    LABELS "playbook"
+    TIMEOUT 180
+    WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}"
+)
+add_test(NAME wave24_docx_export_selftest COMMAND "${Python3_EXECUTABLE}"
+    "${CMAKE_SOURCE_DIR}/qa/check_wave24_docx_export.py" --self-test)
+set_tests_properties(wave24_docx_export_selftest PROPERTIES
+    LABELS "playbook"
+    WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}"
+)
 add_test(NAME wave23_io_ids
     COMMAND "${CMAKE_COMMAND}" -E env AIOFFICE_HEADLESS=1 QT_QPA_PLATFORM=offscreen
         "${Python3_EXECUTABLE}" "${CMAKE_SOURCE_DIR}/qa/check_wave23_io_ids.py"
@@ -256,6 +272,18 @@ set_tests_properties(wave23_io_hostile PROPERTIES
     LABELS "playbook"
     WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}"
     TIMEOUT 60
+)
+# D17: page-preview PNGs must decode with zbarimg. The playbook above is the
+# capacity expect; this checker is the byte-for-byte judge.
+add_test(NAME wave24_qr
+    COMMAND "${CMAKE_COMMAND}" -E env AIOFFICE_HEADLESS=1 QT_QPA_PLATFORM=offscreen
+        "${Python3_EXECUTABLE}" "${CMAKE_SOURCE_DIR}/qa/check_qr.py"
+        --cli "${AIOFFICE_CLI}"
+        --playbook "${CMAKE_SOURCE_DIR}/qa/wave24-qr.json")
+set_tests_properties(wave24_qr PROPERTIES
+    LABELS "playbook"
+    WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}"
+    TIMEOUT 300
 )
 set(_AIO_PYTHON "${CMAKE_SOURCE_DIR}/qa/check_roundtrip.py")
 add_test(NAME play_expect_shape COMMAND "${CMAKE_COMMAND}" -E env AIOFFICE_HEADLESS=1 QT_QPA_PLATFORM=offscreen
@@ -294,21 +322,113 @@ foreach(_fx IN LISTS _aio_fixtures)
         WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}"
     )
 endforeach()
-# A-qa-1: foreign compare now checks revision payload; export/reimport still drops it (wave 24 / T3-io).
+# A-qa-1: re-enabled for wave 24 (export/reimport payload fidelity — T1–T3); included in default qa-all via labels roundtrip and wave24.
 add_test(NAME roundtrip_foreign_odt_wave17 COMMAND "${CMAKE_COMMAND}" -E env AIOFFICE_HEADLESS=1 QT_QPA_PLATFORM=offscreen
     "${Python3_EXECUTABLE}" "${_AIO_PYTHON}" --cli "${AIOFFICE_CLI}" --foreign "${CMAKE_SOURCE_DIR}/qa/wave17-odt-revisions.aio.json" odt)
 set_tests_properties(roundtrip_foreign_odt_wave17 PROPERTIES
-    LABELS "roundtrip"
-    DISABLED TRUE
+    LABELS "roundtrip;wave24"
     WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}"
 )
 add_test(NAME roundtrip_foreign_docx_wave17 COMMAND "${CMAKE_COMMAND}" -E env AIOFFICE_HEADLESS=1 QT_QPA_PLATFORM=offscreen
     "${Python3_EXECUTABLE}" "${_AIO_PYTHON}" --cli "${AIOFFICE_CLI}" --foreign "${CMAKE_SOURCE_DIR}/qa/wave17-docx-revisions.aio.json" docx)
 set_tests_properties(roundtrip_foreign_docx_wave17 PROPERTIES
-    LABELS "roundtrip"
-    DISABLED TRUE
+    LABELS "roundtrip;wave24"
     WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}"
 )
+
+add_test(NAME wave24_qr_decode COMMAND "${CMAKE_COMMAND}" -E env AIOFFICE_HEADLESS=1 QT_QPA_PLATFORM=offscreen
+    "${Python3_EXECUTABLE}" "${CMAKE_SOURCE_DIR}/qa/check_qr.py" --cli "${AIOFFICE_CLI}")
+set_tests_properties(wave24_qr_decode PROPERTIES
+    LABELS "wave24"
+    TIMEOUT 180
+    WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}"
+)
+add_test(NAME wave24_qr_selftest COMMAND "${Python3_EXECUTABLE}" "${CMAKE_SOURCE_DIR}/qa/check_qr.py" --self-test)
+set_tests_properties(wave24_qr_selftest PROPERTIES LABELS "playbook" WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}")
+
+add_test(NAME wave24_checker_selftest COMMAND "${Python3_EXECUTABLE}" "${CMAKE_SOURCE_DIR}/qa/check_wave24.py" --self-test)
+set_tests_properties(wave24_checker_selftest PROPERTIES LABELS "playbook" WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}")
+
+file(GLOB _wave24_fixture_expectations CONFIGURE_DEPENDS "${CMAKE_SOURCE_DIR}/qa/fixtures/wave24-*.wave24.json")
+foreach(_w24exp IN LISTS _wave24_fixture_expectations)
+    get_filename_component(_w24stem "${_w24exp}" NAME_WE)
+    string(REGEX REPLACE "\\.wave24$" "" _w24base "${_w24stem}")
+    set(_w24fixture "")
+    if(EXISTS "${CMAKE_SOURCE_DIR}/qa/fixtures/${_w24base}.docx")
+        set(_w24fixture "${CMAKE_SOURCE_DIR}/qa/fixtures/${_w24base}.docx")
+    elseif(EXISTS "${CMAKE_SOURCE_DIR}/qa/fixtures/${_w24base}.odt")
+        set(_w24fixture "${CMAKE_SOURCE_DIR}/qa/fixtures/${_w24base}.odt")
+    endif()
+    if(_w24fixture STREQUAL "")
+        continue()
+    endif()
+    add_test(NAME "wave24_${_w24base}" COMMAND "${CMAKE_COMMAND}" -E env AIOFFICE_HEADLESS=1 QT_QPA_PLATFORM=offscreen
+        "${Python3_EXECUTABLE}" "${CMAKE_SOURCE_DIR}/qa/check_wave24.py"
+        --cli "${AIOFFICE_CLI}" --fixture "${_w24fixture}")
+    set_tests_properties("wave24_${_w24base}" PROPERTIES
+        LABELS "wave24"
+        TIMEOUT 180
+        WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}"
+    )
+endforeach()
+
+file(GLOB _wave24_playbooks CONFIGURE_DEPENDS "${CMAKE_SOURCE_DIR}/qa/wave24-*.json")
+foreach(_w24pb IN LISTS _wave24_playbooks)
+    get_filename_component(_w24pb_name "${_w24pb}" NAME)
+    if(_w24pb_name MATCHES "\\.wave24\\.json$")
+        continue()
+    endif()
+    get_filename_component(_w24pb_stem "${_w24pb}" NAME_WE)
+    if(NOT EXISTS "${CMAKE_SOURCE_DIR}/qa/${_w24pb_stem}.wave24.json")
+        continue()
+    endif()
+    add_test(NAME "wave24_play_${_w24pb_stem}" COMMAND "${CMAKE_COMMAND}" -E env AIOFFICE_HEADLESS=1 QT_QPA_PLATFORM=offscreen
+        "${Python3_EXECUTABLE}" "${CMAKE_SOURCE_DIR}/qa/check_wave24.py"
+        --cli "${AIOFFICE_CLI}" --playbook "${_w24pb}")
+    set_tests_properties("wave24_play_${_w24pb_stem}" PROPERTIES
+        LABELS "wave24"
+        TIMEOUT 180
+        WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}"
+    )
+endforeach()
+
+# Per-decision functional playbooks (D1-D16): plain `aioffice_cli play` scripts with
+# inline `expect`, one file per decision, asserting the real tool-visible behaviour
+# (document_get/page_preview/round trip through document_save+document_open) rather
+# than the check_wave24.py body/export judge above. Each exercises a fixture built by
+# qa/fixtures/make_wave24_docx.py or qa/fixtures/gen_wave24_odt.py and fails without
+# its decision's fix. D17 (QR) is covered separately by wave24_qr/wave24_qr_decode.
+set(_wave24_decision_playbooks
+    wave24-docx-d1-runs.json
+    wave24-docx-d2-image.json
+    wave24-docx-d3-page.json
+    wave24-docx-d4-tables.json
+    wave24-docx-d4-tables-odt.json
+    wave24-docx-d5-caption.json
+    wave24-docx-d6-core.json
+    wave24-docx-d7-del-field.json
+    wave24-docx-d8-lists.json
+    wave24-docx-d10-revisions.json
+    wave24-docx-d10-revision-ids.json
+    wave24-qr-validate-block.json
+    wave24-odt-d3-page.json
+    wave24-odt-d4-table.json
+    wave24-odt-d9-escape.json
+    wave24-odt-d12-notes.json
+    wave24-odt-d13-font.json
+    wave24-odt-d14-lists.json
+    wave24-odt-d15-figures.json
+    wave24-odt-d16-bookmarks.json
+)
+foreach(_w24d IN LISTS _wave24_decision_playbooks)
+    get_filename_component(_w24d_stem "${_w24d}" NAME_WE)
+    add_test(NAME "wave24_decision_${_w24d_stem}" COMMAND aioffice_cli play "${CMAKE_SOURCE_DIR}/qa/${_w24d}")
+    set_tests_properties("wave24_decision_${_w24d_stem}" PROPERTIES
+        LABELS "wave24"
+        TIMEOUT 180
+        WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}"
+    )
+endforeach()
 
 file(GLOB _aio_pdf_playbooks CONFIGURE_DEPENDS "${CMAKE_SOURCE_DIR}/qa/wave19-pdf-*.json")
 foreach(_pdf_pb IN LISTS _aio_pdf_playbooks)

@@ -5,10 +5,18 @@
 > verificável para a onda N+1. **Só entra lição com evidência** (thread de review, commit ou incidente).
 > O checklist curto que executores e revisores aplicam está em `.cursor/rules/lessons.mdc`.
 
-Última PR processada: **#12** (auditoria de codebase: relatórios, plano de correção e gate de merge mais
-rígido). PR #11 foi revisão-only (base `audit/coderabbit-base` vs código completo) e foi fechada sem merge —
-não conta como PR processado, mas os 29 achados do seu `coderabbit-pr11.json` já alimentaram o `fix-plan.md`
-e as lições abaixo quando tinham evidência própria de thread. Entre #7 e #12, quatro PRs mergearam:
+Última PR processada: **#13** (onda 23 — integridade, I/O hostil e transporte stdio do MCP). 15 threads
+inline em três rodadas de CodeRabbit, mais 8 achados fora do diff no corpo das revisões (PR #13
+pullrequestreview-5642604443/5642650466/5642889711/5643127751/5643779721) e um nitpick trivial não corrigido
+(canvas.xhtml, pullrequestreview-5643827857). Reforçou L3 (`priorRuns` de revisão de formatação e remapeamento
+de bookmark/xref incompletos em múltiplos caminhos de código, não só um), L4 (estatística usando `plainText()`
+em vez de `statText()` para legendas), L7 (decisões "fechadas" do spec da onda 23 descreviam código já
+substituído), L10/L18/L21 (gate e self-test com evidência incompleta) e abriu a lição nova L23 (checagem de
+papel de documento EPUB por heurística de nome de arquivo em vez de metadado canônico do manifesto/OPF, errada
+em três rodadas sucessivas). PR #11 foi revisão-only (base `audit/coderabbit-base` vs código completo) e foi
+fechada sem merge — não conta como PR processado, mas os 29 achados do seu `coderabbit-pr11.json` já
+alimentaram o `fix-plan.md` e as lições abaixo quando tinham evidência própria de thread. Entre #7 e #12,
+quatro PRs mergearam:
 - **PR #8** (fix trivial de encoding UTF-8 do banner): 1 thread menor (exemplo de XML malformado em
   `docs/AI_HANDOFF_ARCHIVE.md`), sem padrão novo.
 - **PR #9** (wave 20 — EPUB 3 export e RTF nativo): 24 threads em duas rodadas. A maioria já documentada em
@@ -42,9 +50,32 @@ Formato: `L<n> — regra` · onde falhou (evidência) · ocorrências.
   (commit `98194e3`); PR #6 2ª rodada CodeRabbit — fingerprint sem tipo/ocorrência ainda confundia TOC
   com heading (https://github.com/melker22/AI-Office/pull/6#discussion_r4329241338, corrigido em
   `0f4bcae`). · 2
-- **L3 — Um contrato, todos os caminhos.** Ao mudar um invariante (ex.: delete = ponto), migre TODOS os
-  criadores, o reject/accept, o import e os arquivos antigos (normalizar ao carregar). · PR #4 Backspace
-  ainda criava delete com largura; reject usava `end - start`. · 1
+- **L3 — Um contrato, todos os caminhos.** Ao mudar um invariante (ex.: delete = ponto, escrita atômica,
+  remapeamento de id), migre TODOS os criadores, o reject/accept, o import e os arquivos antigos (normalizar
+  ao carregar) — e lembre que uma correção pode *destruir* o invariante em vez de só esquecê-lo num caminho:
+  apagar o destino antes do rename não é "escrita atômica parcial", é nenhuma. · PR #4 Backspace ainda criava
+  delete com largura; reject usava `end - start`. PR #13 (onda 23, três rodadas de CodeRabbit): `split_block`
+  não dividia `priorRuns` da revisão de formatação no ponto de corte, perdendo a metade direita no reject
+  (https://github.com/melker22/AI-Office/pull/13#discussion_r4370398850, corrigido em `498c96d`);
+  `find_replace` dentro de uma revisão de formatação não atualizava `priorRuns`, perdendo a substituição no
+  reject (https://github.com/melker22/AI-Office/pull/13#pullrequestreview-5642650466, corrigido em `5bd2d35`);
+  limpar o intervalo inteiro de uma revisão de formatação deixava `priorRuns` vazio em vez de um `TextRun`
+  vazio, e o reject falhava com "no prior formatting"
+  (https://github.com/melker22/AI-Office/pull/13#pullrequestreview-5643127751, corrigido em `b401bfe`); o
+  `expandRegexReplacement` (`\0`, `\&`, `\\`) só era aplicado numa das duas fases de `find_replace`
+  (https://github.com/melker22/AI-Office/pull/13#discussion_r4370637444, corrigido em `851f607`);
+  `document_include` remapeava bookmark ids nos runs mas não nas células de tabela nem em células aninhadas
+  (https://github.com/melker22/AI-Office/pull/13#discussion_r4371177039, corrigido em `f5caace`/`1bec219`,
+  CodeRabbit confirmou a lacuna de novo em
+  https://github.com/melker22/AI-Office/pull/13#pullrequestreview-5643670952 antes do fix final); e um nome de
+  bookmark importado que colide com um do host ficava sem remapear
+  (https://github.com/melker22/AI-Office/pull/13#pullrequestreview-5643127751, corrigido em `7135558`);
+  `QFile::rename` nunca sobrescreve destino existente, então `placeConverted` apagava o destino antes do
+  rename — se o rename falhasse depois, o destino ficava sem arquivo nenhum, pior que antes da "correção
+  atômica" (https://github.com/melker22/AI-Office/pull/13#discussion_r4370398863, corrigido em `53f2369`); e
+  `export_text`/`export_markdown`/`export_html` com `path` ainda usavam `QFile::open(WriteOnly|Truncate)` sem
+  checar o retorno de `write()`, só `saveTo` usava o helper atômico compartilhado
+  (https://github.com/melker22/AI-Office/pull/13#pullrequestreview-5642604443, corrigido em `83f0b12`). · 9
 - **L4 — Correção completa, não pontual.** Valor derivado (stat, seq, xref) é recalculado num ponto
   único (leitura/salvamento), não em gatilhos por ferramenta; e uma correção que só estreita o caso comum
   ainda precisa cobrir o caso em lote. · Onda 18 review: `stat` só atualizava com `hide_if`/vars; `seq`
@@ -53,7 +84,11 @@ Formato: `L<n> — regra` · onde falhou (evidência) · ocorrências.
   quando várias notas chegam pendentes no mesmo flush — CodeRabbit reabriu o mesmo defeito na 2ª rodada
   (https://github.com/melker22/AI-Office/pull/9#discussion_r4338510187,
   https://github.com/melker22/AI-Office/pull/9#discussion_r4339255897); corrigido coletando todos os ids
-  pendentes de uma vez em `resolveNotes` antes de reescrevê-los (commit `6dcc356`). · 3
+  pendentes de uma vez em `resolveNotes` antes de reescrevê-los (commit `6dcc356`). PR #13: `Block::plainText()`
+  era a fonte de palavras/caracteres em `document_stats`, mas também servia para outros usos que não devem
+  contar legenda; a correção manteve `plainText()` só com texto do corpo e passou a estatística a usar
+  `statText()`, que inclui legenda (decisão D15)
+  (https://github.com/melker22/AI-Office/pull/13#discussion_r4370398847, corrigido em `c63bf75`). · 4
 - **L5 — Operações em vários blocos geram dados por bloco.** · PR #4 `priorRuns` só do primeiro bloco. · 1
 - **L20 — Não mute uma coleção enquanto itera sobre ela; ordem de saída que importa é construída
   explicitamente, nunca herdada da ordem de iteração de um hash.** `QHash`/`QMap` não garantem ordem
@@ -91,7 +126,12 @@ Formato: `L<n> — regra` · onde falhou (evidência) · ocorrências.
   descrevia o fallback da wave 15 (`/Part`), omitindo `/Table`/`/Figure`/`/Note`/`/TOC` da wave 19
   (https://github.com/melker22/AI-Office/pull/7#discussion_r4331347162); PR #7 `docs/waves/wave19-pdf.md`
   D3 dizia que o idioma ia para o XMP quando na verdade só vai para `/Lang` do catálogo — PDF/A-1 proíbe
-  `dc:language` (https://github.com/melker22/AI-Office/pull/7#discussion_r4331347176). · 4
+  `dc:language` (https://github.com/melker22/AI-Office/pull/7#discussion_r4331347176). PR #13:
+  `docs/waves/wave23-integrity.md` D7 ainda descrevia `find_replace` chamando `shiftRevisionOffsets` por
+  substituição, quando o código novo planeja todos os hits primeiro e usa `revisionAcceptsReplacement`; D10
+  descrevia uma realimentação de layout que o código não faz; D5 omitia `undo`/`redo`/`checkpoint`/`restore`
+  da lista que `toolForbiddenInBatch` já proibia
+  (https://github.com/melker22/AI-Office/pull/13#pullrequestreview-5642889711, corrigido em `fecf1fc`). · 5
 - **L8 — Portabilidade de compilador.** Forward declaration com a mesma tag (`struct`/`class`) da
   definição. · PR #6 (MSVC C4099). · 1
 
@@ -112,7 +152,11 @@ Formato: `L<n> — regra` · onde falhou (evidência) · ocorrências.
   `scripts/check-audit-playbooks.sh` saía `0` com "0 audit playbook(s) checked" quando o diretório estava
   vazio (corrigido em `af6d8c9`); e `A-docx-3-odf-9-rtf-3-write-failure-ignored.json` testava DOCX, ODT e
   RTF num só playbook, parando no primeiro `ok:true` e nunca checando os outros dois formatos
-  (https://github.com/melker22/AI-Office/pull/12#discussion_r4368989107, corrigido em `af6d8c9`). · 3
+  (https://github.com/melker22/AI-Office/pull/12#discussion_r4368989107, corrigido em `af6d8c9`). PR #13:
+  `qa/check_wave23_lok.py` passava quando `document_export_pdf` falhava antes de chamar o LibreOffice (destino
+  inalterado + CLI com saída não-zero), sem exigir evidência de que a publicação foi de fato tentada —
+  corrigido exigindo que o interposer registre uma publicação no destino
+  (https://github.com/melker22/AI-Office/pull/13#discussion_r4370637434, corrigido em `9e74fdc`). · 4
 - **L11 — Ambiente hermético.** Tudo que a CI usa vem do Nix (fontes, Python, soffice opcional); nada
   do sistema do desenvolvedor. Teste com `nix-shell --pure`. · PR #3 fontes; PR #4 `python3`. · 2
 - **L21 — Diretório de trabalho compartilhado entre execuções usa lock com caminho estável e controlado
@@ -126,7 +170,11 @@ Formato: `L<n> — regra` · onde falhou (evidência) · ocorrências.
   `eb2d611`); e mesmo corrigido para um diretório do dono, a chave ainda vinha de `XDG_RUNTIME_DIR`, que
   varia por invocação (https://github.com/melker22/AI-Office/pull/12#discussion_r4369354620); corrigido com
   lock único em `$HOME/.cache` cobrindo `setup.sh` e todos os playbooks, mais diretório de trabalho privado
-  por execução (commit `a8870a7`). · 1
+  por execução (commit `a8870a7`). PR #13: `scripts/fleet-verify-merged.sh` escrevia a saída do self-test em
+  caminhos fixos `/tmp/fleet-verify-self-*.txt`; outro usuário local que criasse esses caminhos como symlink
+  antes podia truncar um arquivo seu, arbitrário, pelo redirecionamento do self-test
+  (https://github.com/melker22/AI-Office/pull/13#discussion_r4370398843, corrigido com `mktemp` em
+  `061ea50`). · 2
 - **L16 — Script de QA que chama ferramenta externa propaga a falha dela, não só imprime.** Passe
   `check=False` explícito em todo `subprocess.run` (nunca dependa do default) e trate o `returncode`/saída
   à mão; detecte "ferramenta ausente" com `shutil.which`/`FileNotFoundError`, nunca procurando "not found"
@@ -147,7 +195,37 @@ Formato: `L<n> — regra` · onde falhou (evidência) · ocorrências.
   e nunca faça o teste "recusar root" (vira CI vermelha, não proteção). · PR #13: `wave23_io_hostile`
   passava local e falhava na CI com "refusing to run as root". Idem para a glibc: um `LD_PRELOAD` de
   teste herdado por processos filhos quebrou na CI (`GLIBC_ABI_DT_X86_64_PLT`), onde `/usr/bin/env`
-  usa outra glibc — o interposer remove o `LD_PRELOAD` ao carregar e o teste confere que não vazou. · 2
+  usa outra glibc — o interposer remove o `LD_PRELOAD` ao carregar e o teste confere que não vazou. O mesmo
+  interposer (`qa/place_convert_interpose.c`) tinha um defeito funcional independente de privilégio: ao
+  interceptar `open`/`open64`/`openat`/`openat64` com `O_TMPFILE`, não repassava o argumento `mode`
+  variádico ao `open` real, então todo arquivo `O_TMPFILE` criado pelo processo sob teste saía com a
+  permissão errada (https://github.com/melker22/AI-Office/pull/13#discussion_r4370637431, corrigido com
+  `needs_mode` em `95f66fa`). · 3
+- **L23 — Classifique pelo metadado canônico, nunca por heurística de nome/substring sobre texto
+  concatenado; metadado ilegível falha a checagem, não passa por omissão.** Um checker de papel de
+  documento (navegação vs. conteúdo num EPUB, cabeçalho vs. corpo) que decide por regex solto sobre um bundle
+  de vários XML concatenados, ou por substring no nome do arquivo ("contém `nav`"), aceita qualquer entrada
+  real porque o fallback nunca é exercitado (self-test só usa fragmentos de raiz única) ou produz falso
+  positivo/negativo (um conteúdo chamado `canvas.xhtml`, um TOC com sub-capítulos cujo `<ol>` aninhado é
+  legítimo). Decida pelo manifesto/OPF (`properties="nav"`), com href percent-decoded e sem fragmento/query, e
+  se o OPF não parsear, falhe a checagem — nunca trate "não sei" como "não é navegação". · PR #13, três
+  rodadas de CodeRabbit sobre `qa/check_epub.py`: `html_has_nested_list` usava `ET.fromstring` no bundle
+  inteiro do EPUB (sempre `ParseError`, sempre regex) e a regex casava `<li>` e `<ol>` através de arquivos
+  diferentes, aceitando listas lineares como aninhadas
+  (https://github.com/melker22/AI-Office/pull/13#discussion_r4370398840, corrigido parseando cada XHTML
+  isoladamente em `e11c988`); a correção seguinte ainda incluía `nav.xhtml` na busca, cujo TOC aninhado
+  mascarava a ausência de lista aninhada nos capítulos
+  (https://github.com/melker22/AI-Office/pull/13#discussion_r4370637426, corrigido excluindo documentos de
+  navegação em `75fc7c3`); a exclusão usava substring `"nav"` no nome do arquivo, então um capítulo de
+  conteúdo chamado algo como `navigator.xhtml` seria ignorado por engano, e o self-test com `canvas.xhtml`
+  não cobria essa lacuna (nitpick trivial, não corrigido:
+  https://github.com/melker22/AI-Office/pull/13#pullrequestreview-5643827857); os hrefs do manifesto OPF
+  precisavam de percent-decoding e remoção de fragmento/query antes de comparar com os nomes do ZIP
+  (https://github.com/melker22/AI-Office/pull/13#discussion_r4370742453, corrigido em `82f8385`); e por fim,
+  quando o OPF é malformado, `_nav_document_names` pulava seu manifesto e tratava a ausência de metadado como
+  "nenhum documento de navegação", deixando `toc.xhtml` contar como conteúdo
+  (https://github.com/melker22/AI-Office/pull/13#pullrequestreview-5643779721, corrigido falhando a checagem
+  quando o OPF não parseia, em `c545057`). · 5
 
 ## Processo (Fleets)
 
@@ -194,7 +272,14 @@ Formato: `L<n> — regra` · onde falhou (evidência) · ocorrências.
   à posição estrutural do cabeçalho, commits `bf03420`/`cf5ce76`/`cc094c4`); e `cr-ack <id>` sem commit
   nem motivo era aceito como reconhecimento válido (corrigido no mesmo PR). Regra: um gate que decide
   "limpo" só pode fazê-lo com evidência completa, autenticada, corrente (reler antes do `exit 0`) e
-  ancorada em posição estrutural — nunca em substring de texto arbitrário. · 9
+  ancorada em posição estrutural — nunca em substring de texto arbitrário. PR #13: `pr-merge-gate.py` tratava
+  qualquer PR que listasse o commit HEAD como "revisão completa" mesmo quando esse PR era uma branch
+  empilhada que só compartilha o commit, não a própria revisão
+  (https://github.com/melker22/AI-Office/pull/13#discussion_r4370398845); e `head_pr_count` contava PRs
+  abertos cujo branch contém o commit HEAD mas cujo próprio head é outro commit — um PR irmão inflava a
+  contagem de "revisões pendentes" do PR correto
+  (https://github.com/melker22/AI-Office/pull/13#discussion_r4370637439); corrigidos juntos, escopando o
+  caminho "sem revisão" a reviews cujo `commit_id` é exatamente o head deste PR (`b67e915`/`fecf1fc`). · 11
 - **L17 — O nó `lessons` lê handoff atual E arquivo antes de avançar o marcador.** Se a entrada de
   handoff de um PR ainda não processado já foi movida para `AI_HANDOFF_ARCHIVE.md`, ler só
   `AI_HANDOFF.md` perde o registro de intervenção e o Passo 4 marca esse PR como processado sem revisitar

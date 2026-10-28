@@ -1,0 +1,16 @@
+[
+  {"tool": "document_open", "args": {"path": "qa/fixtures/wave24-docx-tables.docx"}, "expect": {"ok": true}},
+  {"tool": "document_get", "args": {}, "expect": {
+    "document.body.0.type": "table",
+    "document.body.0.rows.0.0.runs.0.text": "Outer",
+    "document.body.0.rows.0.1.nested.0.0.runs.0.text": "In1",
+    "document.body.0.rows.0.1.nested.0.1.runs.0.text": "In2",
+    "document.body.0.rows.1.0.runs.0.text": "Tall",
+    "document.body.0.rows.1.0.row_span": 2,
+    "document.body.0.rows.1.1.runs.0.text": "Top",
+    "document.body.0.rows.2.0.runs.0.text": "Bottom",
+    "document.body.0.rows.3.0.runs.0.text": "Span",
+    "document.body.0.rows.3.0.col_span": 2
+  }},
+  {"tool": "page_preview", "args": {"page": 1}, "expect": {"ids": ["t1"]}}
+]

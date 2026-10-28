@@ -1,0 +1,65 @@
+[
+  {"tool": "document_open", "args": {"path": "qa/fixtures/wave24-odt-page-legal.odt"}},
+  {"tool": "document_get", "args": {}, "expect": {
+    "document.meta.page.size": "Legal",
+    "document.meta.page.orientation": "portrait",
+    "document.meta.page.width_mm": 215.9,
+    "document.meta.page.height_mm": 355.6,
+    "document.body.0.runs.0.text": "Legal"
+  }},
+  {"tool": "document_open", "args": {"path": "qa/fixtures/wave24-odt-page-letter.odt"}},
+  {"tool": "document_get", "args": {}, "expect": {
+    "document.meta.page.size": "Letter",
+    "document.meta.page.orientation": "portrait",
+    "document.meta.page.width_mm": 215.9,
+    "document.meta.page.height_mm": 279.4
+  }},
+  {"tool": "document_open", "args": {"path": "qa/fixtures/wave24-odt-page-a3.odt"}},
+  {"tool": "document_get", "args": {}, "expect": {
+    "document.meta.page.size": "A3",
+    "document.meta.page.orientation": "portrait",
+    "document.meta.page.width_mm": 297,
+    "document.meta.page.height_mm": 420
+  }},
+  {"tool": "document_open", "args": {"path": "qa/fixtures/wave24-odt-page-a5.odt"}},
+  {"tool": "document_get", "args": {}, "expect": {
+    "document.meta.page.size": "A5",
+    "document.meta.page.orientation": "portrait",
+    "document.meta.page.width_mm": 148,
+    "document.meta.page.height_mm": 210
+  }},
+  {"tool": "document_open", "args": {"path": "qa/fixtures/wave24-odt-page-a4-land.odt"}},
+  {"tool": "document_get", "args": {}, "expect": {
+    "document.meta.page.size": "A4",
+    "document.meta.page.orientation": "landscape",
+    "document.meta.page.width_mm": 297,
+    "document.meta.page.height_mm": 210
+  }},
+  {"tool": "document_open", "args": {"path": "qa/fixtures/wave24-odt-page-custom.odt"}},
+  {"tool": "document_get", "args": {}, "expect": {
+    "document.meta.page.size": "custom",
+    "document.meta.page.orientation": "portrait",
+    "document.meta.page.width_mm": 180,
+    "document.meta.page.height_mm": 240
+  }},
+  {"tool": "document_new", "args": {"title": "Wave24 page", "force": true}},
+  {"tool": "set_page_layout", "args": {"size": "Legal", "orientation": "portrait"}},
+  {"tool": "document_save", "args": {"path": "/tmp/aioffice-wave24-t3-d3-legal.odt"}},
+  {"tool": "document_open", "args": {"path": "/tmp/aioffice-wave24-t3-d3-legal.odt"}},
+  {"tool": "document_get", "args": {}, "expect": {
+    "document.meta.page.size": "Legal",
+    "document.meta.page.width_mm": 215.9,
+    "document.meta.page.height_mm": 355.6,
+    "document.meta.page.orientation": "portrait"
+  }},
+  {"tool": "document_new", "args": {"title": "Wave24 custom", "force": true}},
+  {"tool": "set_page_layout", "args": {"width_mm": 180, "height_mm": 240, "orientation": "portrait"}},
+  {"tool": "document_save", "args": {"path": "/tmp/aioffice-wave24-t3-d3-custom.odt"}},
+  {"tool": "document_open", "args": {"path": "/tmp/aioffice-wave24-t3-d3-custom.odt"}},
+  {"tool": "document_get", "args": {}, "expect": {
+    "document.meta.page.size": "custom",
+    "document.meta.page.width_mm": 180,
+    "document.meta.page.height_mm": 240,
+    "document.meta.page.orientation": "portrait"
+  }}
+]
