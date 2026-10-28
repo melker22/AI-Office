@@ -55,6 +55,11 @@ struct PdfTagMarker {
     int textTo = -1;
     bool headerCell = false;
     bool listLabel = false; // first text object inside the clip is /Lbl
+    int colSpan = 1;
+    int rowSpan = 1;
+    // Which repetition of the exported page sequence this physical page belongs to.
+    // `copies` > 1 makes each repetition its own structure elements (key is copy + block).
+    int copyIndex = 0;
     QString alt;
     // Empty: the clip is one marked-content sequence. One entry applies to every body
     // text object in the clip. Several entries: one per body text object, in paint order
@@ -82,6 +87,11 @@ struct PdfTagMarker {
 // A page whose clips do not match falls back to one `/Part` and is not given a wrong tag.
 //
 // `docLang` is written as the catalog `/Lang` (BCP 47).
+// Elements are keyed by `(copyIndex, block id)`, so a second copy of a page is not
+// folded into the first. Consecutive list items nest by `level`: a deeper run is an
+// inner `/L` under the parent `/LI`. A table cell writes `/ColSpan` and `/RowSpan`
+// on `/A << /O /Table ... >>` when either is greater than 1. A cell that sits inside
+// that rectangle is an `/Artifact`, not another `/TD` or `/TH`.
 bool pdfPostProcessTagStructure(const QString &path, const QVector<QVector<PdfTagMarker>> &perPageMarkers,
                                  const QString &docLang, const QStringList &readingOrder, QString *error);
 
