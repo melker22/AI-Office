@@ -16,7 +16,15 @@
     "document.body.2.runs.1.note_id": "fn1",
     "document.body.3.type": "footnote",
     "document.body.3.id": "fn1",
-    "document.body.3.runs.0.text": "So nota."
+    "document.body.3.runs.0.text": "So nota.",
+    "document.body.4.runs.0.text": "Mais",
+    "document.body.4.runs.1.note_id": "en2",
+    "document.body.5.type": "endnote",
+    "document.body.5.id": "en2",
+    "document.body.5.runs.0.text": "Nota ",
+    "document.body.5.runs.1.text": "aninhada",
+    "document.body.5.runs.1.bold": true,
+    "document.body.5.runs.2.text": "."
   }},
   {"tool": "document_open", "args": {"path": "qa/fixtures/wave25-rtf-d8-endnote-lo.rtf"}, "expect": {
     "ok": true,
