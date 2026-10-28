@@ -143,6 +143,8 @@ struct ListLevel {
 struct ListDef {
     int id = -1;
     QVector<ListLevel> levels;
+    // {\*\aiolistkind checkbox|task} on the list definition (writer), not on the item.
+    QString kindOverride;
 };
 
 struct OverrideBuild {
@@ -846,15 +848,23 @@ private:
 
     void applyAioList(Kind kind)
     {
+        if (kind == Kind::AioListKind) {
+            const QString k = stack_.last().buf.trimmed().toLower();
+            if (k != QLatin1String("checkbox") && k != QLatin1String("task"))
+                return;
+            // The writer puts the kind on {\list}. A per-item group still wins later.
+            if (!listStack_.isEmpty() && inside(Kind::List)) {
+                listStack_.last().kindOverride = k;
+                return;
+            }
+            if (stack_.size() < 2)
+                return;
+            stack_[stack_.size() - 2].para.listKindOverride = k;
+            return;
+        }
         if (stack_.size() < 2)
             return;
         ParaState &para = stack_[stack_.size() - 2].para;
-        if (kind == Kind::AioListKind) {
-            const QString k = stack_.last().buf.trimmed().toLower();
-            if (k == QLatin1String("checkbox") || k == QLatin1String("task"))
-                para.listKindOverride = k;
-            return;
-        }
         const QString t = stack_.last().buf.trimmed();
         if (t == QLatin1String("0") || t == QLatin1String("1")) {
             para.checkSet = true;
@@ -1823,19 +1833,22 @@ private:
             hLevel = headingLevelOf(styleName);
 
         int nfc = 255;
+        QString listKindFromDef;
         if (para.ls > 0 && overrides_.contains(para.ls)) {
             const int listId = overrides_.value(para.ls);
             if (lists_.contains(listId)) {
-                const QVector<ListLevel> levels = lists_.value(listId).levels;
-                if (para.ilvl >= 0 && para.ilvl < levels.size())
-                    nfc = levels.at(para.ilvl).nfc;
+                const ListDef def = lists_.value(listId);
+                listKindFromDef = def.kindOverride;
+                if (para.ilvl >= 0 && para.ilvl < def.levels.size())
+                    nfc = def.levels.at(para.ilvl).nfc;
             }
         }
+        const QString kindOverride = !para.listKindOverride.isEmpty() ? para.listKindOverride : listKindFromDef;
         const bool headingStyle = headingLevelOf(styleName) > 0 || outline >= 0;
-        if (!para.listKindOverride.isEmpty()) {
+        if (!kindOverride.isEmpty()) {
             b.type = QStringLiteral("list-item");
             b.level = qBound(1, para.ilvl + 1, 9);
-            b.listKind = para.listKindOverride;
+            b.listKind = kindOverride;
             b.checked = para.checkSet && para.checked;
             b.style = styleName.trimmed().isEmpty() ? QStringLiteral("Normal") : styleName.trimmed();
         } else if (headingStyle && hLevel > 0 && (nfc == 255 || para.ls <= 0)) {
@@ -2119,6 +2132,7 @@ private:
         }
         QString kind;
         QString arg;
+        QString xrefKind;
         if (key == QLatin1String("PAGE"))
             kind = QStringLiteral("page_number");
         else if (key == QLatin1String("NUMPAGES"))
@@ -2135,9 +2149,11 @@ private:
             kind = QStringLiteral("filename");
         else if (key == QLatin1String("NUMWORDS"))
             kind = QStringLiteral("word_count");
-        else if (key == QLatin1String("REF")) {
+        else if (key == QLatin1String("REF") || key == QLatin1String("PAGEREF")) {
             kind = QStringLiteral("xref");
             arg = readFieldArg(inst, i);
+            if (key == QLatin1String("PAGEREF"))
+                xrefKind = QStringLiteral("page");
         } else if (key == QLatin1String("MERGEFIELD")) {
             kind = QStringLiteral("merge");
             arg = readFieldArg(inst, i);
@@ -2180,6 +2196,7 @@ private:
             }
             r.field = kind;
             r.fieldArg = arg;
+            r.xrefKind = xrefKind;
             r.link.clear();
             r.noteId.clear();
             dest->push_back(r);
