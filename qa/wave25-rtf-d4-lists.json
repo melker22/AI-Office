@@ -1,0 +1,55 @@
+[
+  {"tool": "document_open", "args": {"path": "qa/fixtures/wave25-rtf-d4-lists-word.rtf"}, "expect": {
+    "ok": true,
+    "document.body.0.type": "list-item",
+    "document.body.0.list_kind": "checkbox",
+    "document.body.0.level": 1,
+    "document.body.0.runs.0.text": "Aberta",
+    "document.body.1.type": "list-item",
+    "document.body.1.list_kind": "checkbox",
+    "document.body.1.level": 2,
+    "document.body.1.checked": true,
+    "document.body.1.runs.0.text": "Feita",
+    "document.body.2.type": "list-item",
+    "document.body.2.list_kind": "task",
+    "document.body.2.level": 1,
+    "document.body.2.runs.0.text": "Tarefa"
+  }},
+  {"tool": "document_open", "args": {"path": "qa/fixtures/wave25-rtf-d4-lists-lo.rtf"}, "expect": {
+    "ok": true,
+    "document.body.0.type": "list-item",
+    "document.body.0.list_kind": "checkbox",
+    "document.body.0.level": 1,
+    "document.body.0.checked": true,
+    "document.body.0.runs.0.text": "Feita LO",
+    "document.body.1.type": "list-item",
+    "document.body.1.list_kind": "task",
+    "document.body.1.runs.0.text": "Tarefa LO"
+  }},
+  {"tool": "document_open", "args": {"path": "qa/fixtures/wave25-rtf-d4-lists-def-word.rtf"}, "expect": {
+    "ok": true,
+    "document.body.0.type": "list-item",
+    "document.body.0.list_kind": "checkbox",
+    "document.body.0.level": 1,
+    "document.body.0.runs.0.text": "Aberta",
+    "document.body.1.type": "list-item",
+    "document.body.1.list_kind": "checkbox",
+    "document.body.1.level": 2,
+    "document.body.1.checked": true,
+    "document.body.1.runs.0.text": "Feita",
+    "document.body.2.type": "list-item",
+    "document.body.2.list_kind": "task",
+    "document.body.2.level": 1,
+    "document.body.2.runs.0.text": "Tarefa"
+  }},
+  {"tool": "document_open", "args": {"path": "qa/fixtures/wave25-rtf-d4-lists-def-lo.rtf"}, "expect": {
+    "ok": true,
+    "document.body.0.type": "list-item",
+    "document.body.0.list_kind": "checkbox",
+    "document.body.0.checked": true,
+    "document.body.0.runs.0.text": "Feita LO",
+    "document.body.1.type": "list-item",
+    "document.body.1.list_kind": "task",
+    "document.body.1.runs.0.text": "Tarefa LO"
+  }}
+]
