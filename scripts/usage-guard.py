@@ -293,7 +293,18 @@ def warn_thresholds(state: dict, usage: dict | None, threshold: float, act: Acti
         return
     for label, pct, reset in usage_windows(usage):
         key = f"{label}@{iso(reset) or '?'}"
-        if pct >= threshold and key not in state["warned"]:
+        # Cockpit reports the reset with a little jitter (18:30 vs 18:29:59): a reset within 15 minutes of
+        # one already warned about is the same window.
+        same_window = False
+        for w in state["warned"]:
+            wl, _, wt = w.rpartition("@")
+            if wl != label:
+                continue
+            prev = parse_time(wt)
+            if (prev is None and reset is None) or (prev and reset and abs(prev - reset) <= timedelta(minutes=15)):
+                same_window = True
+                break
+        if pct >= threshold and not same_window:
             when = reset.astimezone().strftime("%d/%m %H:%M") if reset else "?"
             act.notify(f"{label} em {pct:.0f}%. Se o limite encher, o trabalho pausa e eu retomo "
                        f"sozinho depois do reset ({when}).")
@@ -316,6 +327,16 @@ def usage_interrupted_nodes(run: dict) -> list[tuple[str, datetime | None]]:
     return found
 
 
+RESTART_MARK = "did not survive the restart"
+
+
+def restart_interrupted_nodes(run: dict) -> list[str]:
+    """Nodes interrupted only because Cockpit restarted ("task did not survive the restart"). Like a usage
+    limit, nothing was wrong with the work itself, so the guard resumes them (right away)."""
+    return [n.get("id") or "?" for n in run.get("nodes") or []
+            if n.get("status") == "interrupted" and RESTART_MARK in (n.get("error") or "").lower()]
+
+
 def interruption_signature(run: dict) -> str:
     """Identity of a Run's current set of interrupted nodes, to report a manual-review Run only once."""
     return "|".join(sorted(f"{n.get('id')}:{n.get('failureReason') or ''}:{(n.get('error') or '')[:80]}"
@@ -325,7 +346,7 @@ def interruption_signature(run: dict) -> str:
 def other_interrupted_nodes(run: dict) -> list[str]:
     """Interrupted nodes WITHOUT a usage-limit signal (e.g. stopped by the user with Steer/cancel).
     `fleet resume` reruns every interrupted node, so such a Run is left for a human."""
-    usage = {nid for nid, _ in usage_interrupted_nodes(run)}
+    usage = {nid for nid, _ in usage_interrupted_nodes(run)} | set(restart_interrupted_nodes(run))
     return [n.get("id") or "?" for n in run.get("nodes") or []
             if n.get("status") == "interrupted" and (n.get("id") or "?") not in usage
             # A loop group is marked interrupted *because* a body node was ("loop body was interrupted in
@@ -346,7 +367,8 @@ def scan_paused_fleets(state: dict) -> None:
         st = cockpit("fleet", "status", r["runId"])
         run = st.get("run") if isinstance(st, dict) else None
         nodes = usage_interrupted_nodes(run) if isinstance(run, dict) else []
-        if nodes and any(m.get("outcome") == "manual" and m.get("run") == r["runId"]
+        restarted = restart_interrupted_nodes(run) if isinstance(run, dict) else []
+        if (nodes or restarted) and any(m.get("outcome") == "manual" and m.get("run") == r["runId"]
                          and m.get("sig") == interruption_signature(run) for m in state["markers"]):
             continue   # already reported for manual review; wait until the interruptions change
         # Remember when each unknown-reset node was first observed, even if the marker is not due yet
@@ -357,9 +379,14 @@ def scan_paused_fleets(state: dict) -> None:
                 for nid, t in nodes:
                     if t is None:
                         seen.setdefault(nid, iso(now_utc()))
+        # One pending marker per Run: a restart-only stop gets a fresh "now" reset on every scan, which would
+        # otherwise add a new marker each time (and retry all of them if resume keeps failing).
+        if any(m.get("run") == r["runId"] and m["done"] is None for m in state["markers"]):
+            continue
         # Record even a mixed Run: handle_marker() leaves it paused and tells the user after the reset.
-        if nodes:
-            reset = max((t for _, t in nodes if t), default=None)
+        if nodes or restarted:
+            # Only restart interruptions: nothing to wait for (resume after the usual grace period).
+            reset = max((t for _, t in nodes if t), default=None) if nodes else now_utc()
             if add_marker(state, "fleet", r["runId"], r.get("fleetName") or "", "", reset, run=r["runId"]):
                 log(f"scan: fleet {r['runId']} paused by a usage limit until {iso(reset) or 'unknown'}")
                 state["markers"][-1]["unknown_seen"] = {nid: iso(now_utc()) for nid, t in nodes if t is None}
@@ -385,8 +412,8 @@ def handle_marker(marker: dict, act: Actions) -> bool:
             log(f"fleet {marker['run']} is {status}; nothing to resume")
             return True
         usage_nodes = usage_interrupted_nodes(run)
-        if not usage_nodes:
-            log(f"fleet {marker['run']} is paused, but not by a usage limit: left alone")
+        if not usage_nodes and not restart_interrupted_nodes(run):
+            log(f"fleet {marker['run']} is paused, but not by a usage limit or a restart: left alone")
             return True
         latest = max((t for _, t in usage_nodes if t), default=None)
         if latest is not None and now_utc() < latest + RESUME_GRACE:
@@ -407,14 +434,16 @@ def handle_marker(marker: dict, act: Actions) -> bool:
         others = other_interrupted_nodes(run)
         if others:
             log(f"fleet {marker['run']} also has nodes interrupted for another reason {others}: left for a human")
-            if not act.notify(f"O limite renovou, mas a Fleet {marker['name'] or marker['run']} tem nós parados por "
+            cause = "O limite renovou" if usage_nodes else "O Cockpit reiniciou"
+            if not act.notify(f"{cause}, mas a Fleet {marker['name'] or marker['run']} tem nós parados por "
                               f"outro motivo ({', '.join(others)}). Não retomei; revise e use `cockpit fleet resume`."):
                 return False   # retry the notice next cycle; do not mark the Run as reported
             marker["outcome"] = "manual"
             marker["sig"] = interruption_signature(run)
             return True
         if act.resume_fleet(marker["run"]):
-            act.notify(f"Limite renovou: retomei a Fleet {marker['name'] or marker['run']} de onde parou.")
+            why = "O limite renovou" if usage_nodes else "O Cockpit reiniciou"
+            act.notify(f"{why}: retomei a Fleet {marker['name'] or marker['run']} de onde parou.")
             return True
         return False
     t = cockpit("task", "get", marker["id"])
@@ -515,6 +544,8 @@ if args[:2] == ["usage", "--all"]: ok(scen["usage"])
 if args[:3] == ["fleet", "list", "--runs"]: ok({"fleets": [], "runs": scen.get("runs", [])})
 if args[:2] == ["fleet", "status"]: ok({"run": scen["fleets"][args[2]]})
 if args[:2] == ["task", "get"]: ok(scen["tasks"][args[2]] if scen.get("raw_task") else {"task": scen["tasks"][args[2]]})
+if args[:2] == ["fleet", "resume"] and scen.get("resume_fails"):
+    print(json.dumps({"ok": False, "error": "resume failed"})); sys.exit(1)
 if args[:1] == ["display"] and scen.get("display_fails"):
     print(json.dumps({"ok": False, "error": "display failed"})); sys.exit(1)
 if args[:1] in (["display"], ["task"], ["fleet"]): ok({})
@@ -549,10 +580,17 @@ def self_test() -> int:
                     "runs": [], "fleets": {}, "tasks": {}}
             base.update(kw)
             scen_path.write_text(json.dumps(base), encoding="utf-8")
+            if calls.exists():
+                all_calls.extend(json.loads(x) for x in calls.read_text(encoding="utf-8").splitlines() if x)
             calls.write_text("", encoding="utf-8")
 
         def called() -> list[list[str]]:
             return [json.loads(x) for x in calls.read_text(encoding="utf-8").splitlines() if x]
+
+        all_calls: list[list[str]] = []
+
+        def calls_all() -> list[list[str]]:
+            return all_calls + called()
 
         def run_main(*argv: str, stdin: str = "") -> int:
             old_argv, old_in = sys.argv, sys.stdin
@@ -914,7 +952,71 @@ def self_test() -> int:
             check("unknown-reset wait counts from the scan's first observation",
                   resumes == [["fleet", "resume", "f12"]], str(resumes))
 
-            # 23. --dry-run reports without acting.
+            # 23. A Run interrupted only by a Cockpit restart is resumed (after the grace period).
+            os.environ["AIO_GUARD_NOW"] = "2026-11-02T10:00:00+00:00"
+            with locked_state() as st:
+                st["last_scan"] = None
+            run_rs = {"status": "paused", "nodes": [
+                {"id": "t1", "status": "interrupted", "error": "grok task did not survive the restart"},
+                {"id": "t2", "status": "interrupted", "error": "grok task did not survive the restart"}]}
+            runs_rs = [{"runId": "f13", "fleetName": "restart", "status": "paused", "interruptedNodeCount": 2}]
+            scenario(runs=runs_rs, fleets={"f13": run_rs})
+            run_main("once")
+            early = [c for c in called() if c[:2] == ["fleet", "resume"]]
+            os.environ["AIO_GUARD_NOW"] = "2026-11-02T10:02:00+00:00"
+            scenario(runs=runs_rs, fleets={"f13": run_rs})
+            run_main("once")
+            late = [c for c in called() if c[:2] == ["fleet", "resume"]]
+            notes = [c for c in called() if c[0] == "display" and "reiniciou" in " ".join(c)]
+            check("a restart-only Run is resumed after the grace period",
+                  not early and late == [["fleet", "resume", "f13"]] and len(notes) == 1, f"{early} {late} {notes}")
+
+            # 24. Restart + a user-stopped node is still left for a human.
+            with locked_state() as st:
+                st["last_scan"] = None
+            run_rs2 = {"status": "paused", "nodes": [
+                {"id": "t1", "status": "interrupted", "error": "grok task did not survive the restart"},
+                {"id": "t2", "status": "interrupted", "error": "turn canceled by user"}]}
+            os.environ["AIO_GUARD_NOW"] = "2026-11-02T11:00:00+00:00"
+            scenario(runs=[{"runId": "f14", "fleetName": "rsmix", "status": "paused", "interruptedNodeCount": 2}],
+                     fleets={"f14": run_rs2})
+            run_main("once")
+            os.environ["AIO_GUARD_NOW"] = "2026-11-02T11:02:00+00:00"
+            scenario(runs=[{"runId": "f14", "fleetName": "rsmix", "status": "paused", "interruptedNodeCount": 2}],
+                     fleets={"f14": run_rs2})
+            run_main("once")
+            check("restart + user-stopped node is not resumed",
+                  not [c for c in called() if c[:2] == ["fleet", "resume"]])
+            rs_notes = [" ".join(c) for c in calls_all() if c[0] == "display" and "rsmix" in " ".join(c)]
+            check("its manual-review notice names the restart, not a usage limit",
+                  rs_notes and all("reiniciou" in n and "limite renovou" not in n for n in rs_notes), str(rs_notes))
+
+            # 24b. A restart-only Run that keeps failing to resume has ONE pending marker across scans.
+            with locked_state() as st:
+                st["last_scan"] = None
+            run_rs3 = {"status": "paused", "nodes": [
+                {"id": "t1", "status": "interrupted", "error": "grok task did not survive the restart"}]}
+            for minute in (0, 6, 12):
+                os.environ["AIO_GUARD_NOW"] = (parse_time("2026-11-02T13:00:00Z") + timedelta(minutes=minute)).isoformat()
+                with locked_state() as st:
+                    st["last_scan"] = None
+                scenario(runs=[{"runId": "f15", "fleetName": "rsfail", "status": "paused", "interruptedNodeCount": 1}],
+                         fleets={"f15": run_rs3}, resume_fails=True)
+                run_main("once")
+            with locked_state() as st:
+                f15 = [m for m in st["markers"] if m.get("run") == "f15"]
+            check("one pending marker per restart-only Run", len(f15) == 1 and f15[0]["done"] is None, str(f15))
+
+            # 25. A reset time that jitters by a minute does not repeat the threshold warning.
+            os.environ["AIO_GUARD_NOW"] = "2026-11-02T12:00:00+00:00"
+            jitter_notes = 0
+            for reset in ("2026-11-02T18:30:00Z", "2026-11-02T18:29:59Z", "2026-11-02T18:30:01Z"):
+                scenario(usage={"claude": {"fiveHour": {"usedPercent": 97, "resetsAt": reset}}})
+                run_main("once")
+                jitter_notes += len([c for c in called() if c[0] == "display" and "97%" in " ".join(c)])
+            check("jittering reset time warns once", jitter_notes == 1, str(jitter_notes))
+
+            # 26. --dry-run reports without acting.
             with locked_state() as st:
                 add_marker(st, "task", "t2", "x", "claude", parse_time("2026-10-26T13:00:00Z"))
             scenario(tasks={"t2": {"status": "waiting_confirmation", "waitingReason": "usage_limit"}})
