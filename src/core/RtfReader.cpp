@@ -1,9 +1,13 @@
 #include "core/RtfReader.h"
 
+#include "core/RtfLang.h"
+
 #include <QByteArray>
 #include <QFile>
 #include <QFileInfo>
 #include <QHash>
+#include <QJsonDocument>
+#include <QJsonObject>
 #include <QRegularExpression>
 #include <QSet>
 #include <QStringDecoder>
@@ -47,9 +51,14 @@ enum class Kind {
     ListOverride,
     Field,
     Pict,
+    PicProp,
+    PropName,
+    PropValue,
     Footnote,
     BkmkStart,
-    BkmkEnd
+    BkmkEnd,
+    AioListKind,
+    AioCheck
 };
 
 enum class Sink { Body, Note, Inst, Result, Discard, Pict, FontName, StyleName, InfoText, Bkmk };
@@ -94,6 +103,11 @@ struct ParaState {
     int outline = -1;
     bool keepn = false;
     bool pagebb = false;
+    // Private {\*\aiolistkind}/{\*\aiocheck} hints. They survive group close
+    // by bubbling to the frame that owns the following \par.
+    QString listKindOverride;
+    bool checkSet = false;
+    bool checked = false;
 };
 
 struct Frame {
@@ -180,7 +194,100 @@ struct FieldState {
 struct PendingNote {
     QString tempId;
     QVector<TextRun> runs;
+    bool endnote = false;
 };
+
+struct UprState {
+    Sink dest = Sink::Body;
+    bool sawUd = false;
+    QVector<TextRun> runs;
+    QString inst;
+};
+
+void skipFieldWs(const QString &s, int &i)
+{
+    while (i < s.size() && s.at(i).isSpace())
+        ++i;
+}
+
+// Unescape \\ \{ \} \" and drop control characters. Used on one field token,
+// not on a whole instruction, so a quoted span can still see \" as an escape.
+QString unescapeFieldPiece(const QString &in)
+{
+    QString out;
+    out.reserve(in.size());
+    for (int i = 0; i < in.size(); ++i) {
+        const QChar c = in.at(i);
+        if (c == QLatin1Char('\\') && i + 1 < in.size()) {
+            const QChar n = in.at(i + 1);
+            if (n == QLatin1Char('\\') || n == QLatin1Char('{') || n == QLatin1Char('}')
+                || n == QLatin1Char('"')) {
+                out.append(n);
+                ++i;
+                continue;
+            }
+        }
+        if (c.category() == QChar::Other_Control)
+            continue;
+        out.append(c);
+    }
+    return out;
+}
+
+QString readFieldArg(const QString &s, int &i)
+{
+    skipFieldWs(s, i);
+    if (i >= s.size())
+        return {};
+    if (s.at(i) == QLatin1Char('"')) {
+        ++i;
+        QString out;
+        while (i < s.size()) {
+            const QChar c = s.at(i);
+            if (c == QLatin1Char('\\') && i + 1 < s.size()) {
+                const QChar n = s.at(i + 1);
+                if (n == QLatin1Char('\\') || n == QLatin1Char('{') || n == QLatin1Char('}')
+                    || n == QLatin1Char('"')) {
+                    out.append(n);
+                    i += 2;
+                    continue;
+                }
+            }
+            if (c.category() == QChar::Other_Control) {
+                ++i;
+                continue;
+            }
+            if (c == QLatin1Char('"')) {
+                ++i;
+                break;
+            }
+            out.append(c);
+            ++i;
+        }
+        return out;
+    }
+    const int start = i;
+    while (i < s.size() && !s.at(i).isSpace())
+        ++i;
+    return unescapeFieldPiece(s.mid(start, i - start));
+}
+
+QString readFieldToken(const QString &s, int &i)
+{
+    skipFieldWs(s, i);
+    const int start = i;
+    while (i < s.size() && !s.at(i).isSpace())
+        ++i;
+    return s.mid(start, i - start);
+}
+
+QString seqFieldArg(const QString &name, const QString &format)
+{
+    QJsonObject o;
+    o.insert(QStringLiteral("format"), format);
+    o.insert(QStringLiteral("name"), name);
+    return QString::fromUtf8(QJsonDocument(o).toJson(QJsonDocument::Compact));
+}
 
 struct PendingBookmark {
     QString name;
@@ -213,32 +320,24 @@ double twipsToMm(int twips)
     return std::round(static_cast<double>(twips) * 25.4 / 1440.0 * 100.0) / 100.0;
 }
 
-QString lcidTag(int id)
+// LCIDs that are not in the shared D1 table. 1025/1037/1041/1042/1049 stay out
+// so the short tags (ar, he, ja, ko, ru) win. 1034 is the traditional Spanish
+// sort LCID and still means es-ES.
+QString legacyLcidTag(int id)
 {
     switch (id) {
-    case 1025: return QStringLiteral("ar-SA");
     case 1026: return QStringLiteral("bg-BG");
     case 1027: return QStringLiteral("ca-ES");
-    case 1028: return QStringLiteral("zh-TW");
     case 1029: return QStringLiteral("cs-CZ");
     case 1030: return QStringLiteral("da-DK");
-    case 1031: return QStringLiteral("de-DE");
     case 1032: return QStringLiteral("el-GR");
-    case 1033: return QStringLiteral("en-US");
     case 1034: return QStringLiteral("es-ES");
     case 1035: return QStringLiteral("fi-FI");
-    case 1036: return QStringLiteral("fr-FR");
-    case 1037: return QStringLiteral("he-IL");
     case 1038: return QStringLiteral("hu-HU");
-    case 1040: return QStringLiteral("it-IT");
-    case 1041: return QStringLiteral("ja-JP");
-    case 1042: return QStringLiteral("ko-KR");
     case 1043: return QStringLiteral("nl-NL");
     case 1044: return QStringLiteral("nb-NO");
     case 1045: return QStringLiteral("pl-PL");
-    case 1046: return QStringLiteral("pt-BR");
     case 1048: return QStringLiteral("ro-RO");
-    case 1049: return QStringLiteral("ru-RU");
     case 1050: return QStringLiteral("hr-HR");
     case 1053: return QStringLiteral("sv-SE");
     case 1055: return QStringLiteral("tr-TR");
@@ -246,10 +345,6 @@ QString lcidTag(int id)
     case 1058: return QStringLiteral("uk-UA");
     case 1066: return QStringLiteral("vi-VN");
     case 1081: return QStringLiteral("hi-IN");
-    case 2052: return QStringLiteral("zh-CN");
-    case 2057: return QStringLiteral("en-GB");
-    case 2070: return QStringLiteral("pt-PT");
-    case 3082: return QStringLiteral("es-ES");
     default: return {};
     }
 }
@@ -314,7 +409,7 @@ const char *codePageName(int cpg)
 
 class RtfParser {
 public:
-    bool parse(const QByteArray &data, Document &out, QString *error)
+    bool parse(const QByteArray &data, Document &out, QString *error, QStringList *warnings)
     {
         data_ = data;
         n_ = data_.size();
@@ -372,6 +467,8 @@ public:
             doc_.body.push_back(p);
         }
         applyPage();
+        if (warnings)
+            *warnings = warnings_;
         out = doc_;
         return true;
     }
@@ -408,8 +505,11 @@ private:
 
     QVector<TextRun> bodyRuns_;
     QVector<QVector<TextRun>> noteStack_;
+    QVector<bool> noteEnd_;
     QVector<FieldState> fields_;
     QVector<PendingNote> pendingNotes_;
+    QVector<UprState> upr_;
+    QStringList warnings_;
     QVector<PendingBookmark> pendingBms_;
     int noteSerial_ = 0;
     QHash<QString, int> idNext_;
@@ -425,6 +525,9 @@ private:
     bool pictHi_ = false;
     int pictNibble_ = 0;
     int pictGoal_ = 0;
+    QString pictSn_;
+    QString pictAlt_;
+    QString pictName_;
 
     QVector<int> cellX_;
     int trLeft_ = 0;
@@ -583,8 +686,11 @@ private:
             f.color = colorAt(ch.cf);
         if (ch.highlight > 0)
             f.highlight = colorAt(ch.highlight);
-        if (ch.lang > 0 && ch.lang != 1024)
-            f.lang = lcidTag(ch.lang);
+        if (ch.lang > 0 && ch.lang != 1024) {
+            f.lang = rtfTagForLcid(ch.lang);
+            if (f.lang.isEmpty())
+                f.lang = legacyLcidTag(ch.lang);
+        }
         return f;
     }
 
@@ -653,7 +759,106 @@ private:
             stack_.last().buf.append(ch);
             break;
         case Sink::Discard:
+            takeUprDiscard(ch);
             break;
+        }
+    }
+
+    bool takeUprDiscard(QChar ch)
+    {
+        if (upr_.isEmpty() || upr_.last().sawUd || stack_.isEmpty() || stack_.last().skipAll)
+            return false;
+        UprState &u = upr_.last();
+        if (u.dest == Sink::Inst) {
+            u.inst.append(ch);
+            return true;
+        }
+        appendRun(u.runs, QString(ch), fmtOf(stack_.last().ch));
+        return true;
+    }
+
+    void appendExisting(QVector<TextRun> &runs, const TextRun &incoming)
+    {
+        if (incoming.text.isEmpty())
+            return;
+        if (!runs.isEmpty()) {
+            TextRun &last = runs.last();
+            const bool same = last.field.isEmpty() && last.noteId.isEmpty() && last.link.isEmpty()
+                && incoming.field.isEmpty() && incoming.noteId.isEmpty() && incoming.link.isEmpty()
+                && last.bold == incoming.bold && last.italic == incoming.italic
+                && last.underline == incoming.underline && last.strike == incoming.strike
+                && last.superscript == incoming.superscript && last.subscript == incoming.subscript
+                && last.font == incoming.font && last.color == incoming.color
+                && last.highlight == incoming.highlight && last.lang == incoming.lang
+                && last.sizePt == incoming.sizePt;
+            if (same) {
+                last.text += incoming.text;
+                return;
+            }
+        }
+        runs.push_back(incoming);
+    }
+
+    void emitUpr(const UprState &u)
+    {
+        if (u.dest == Sink::Inst) {
+            if (!fields_.isEmpty())
+                fields_.last().inst += u.inst;
+            return;
+        }
+        QVector<TextRun> *dest = nullptr;
+        if (u.dest == Sink::Body) {
+            if (!u.runs.isEmpty())
+                suppressEmptyPar_ = false;
+            dest = &bodyRuns_;
+        } else if (u.dest == Sink::Note && !noteStack_.isEmpty())
+            dest = &noteStack_.last();
+        else if (u.dest == Sink::Result && !fields_.isEmpty())
+            dest = &fields_.last().result;
+        if (!dest)
+            return;
+        for (const TextRun &r : u.runs)
+            appendExisting(*dest, r);
+    }
+
+    void finishUpr()
+    {
+        if (upr_.isEmpty())
+            return;
+        const UprState u = upr_.takeLast();
+        if (!u.sawUd)
+            emitUpr(u);
+    }
+
+    void bubbleListHints()
+    {
+        if (stack_.size() < 2)
+            return;
+        const ParaState &src = stack_.last().para;
+        ParaState &dst = stack_[stack_.size() - 2].para;
+        if (!src.listKindOverride.isEmpty() && dst.listKindOverride.isEmpty())
+            dst.listKindOverride = src.listKindOverride;
+        if (src.checkSet && !dst.checkSet) {
+            dst.checkSet = true;
+            dst.checked = src.checked;
+        }
+    }
+
+    void applyAioList(Kind kind)
+    {
+        if (stack_.size() < 2)
+            return;
+        ParaState &para = stack_[stack_.size() - 2].para;
+        if (kind == Kind::AioListKind) {
+            const QString k = stack_.last().buf.trimmed().toLower();
+            if (k == QLatin1String("checkbox") || k == QLatin1String("task"))
+                para.listKindOverride = k;
+            return;
+        }
+        const QString t = stack_.last().buf.trimmed();
+        if (t == QLatin1String("0") || t == QLatin1String("1")) {
+            para.checkSet = true;
+            para.checked = t == QLatin1String("1");
         }
     }
 
@@ -735,8 +940,21 @@ private:
             finishListLevel();
         else if (kind == Kind::ListOverride)
             finishOverride();
+        else if (kind == Kind::Upr)
+            finishUpr();
+        else if (kind == Kind::PropName)
+            pictSn_ = stack_.last().buf.trimmed();
+        else if (kind == Kind::PropValue) {
+            const QString value = stack_.last().buf.trimmed();
+            if (pictSn_.compare(QLatin1String("wzDescription"), Qt::CaseInsensitive) == 0)
+                pictAlt_ = value;
+            else if (pictSn_.compare(QLatin1String("wzName"), Qt::CaseInsensitive) == 0)
+                pictName_ = value;
+        } else if (kind == Kind::AioListKind || kind == Kind::AioCheck)
+            applyAioList(kind);
         if (!error_.isEmpty())
             return;
+        bubbleListHints();
         stack_.removeLast();
         if (stack_.isEmpty()) {
             while (i_ < n_ && (data_[i_] == ' ' || data_[i_] == '\t' || data_[i_] == '\r' || data_[i_] == '\n'))
@@ -1029,13 +1247,23 @@ private:
             return true;
         }
         if (word == QLatin1String("upr")) {
+            UprState u;
+            u.dest = stack_.size() >= 2 ? stack_.at(stack_.size() - 2).sink : Sink::Body;
+            upr_.push_back(u);
             stack_.last().kind = Kind::Upr;
             stack_.last().sink = Sink::Discard;
             return true;
         }
         if (word == QLatin1String("ud")) {
             stack_.last().kind = Kind::Ud;
-            stack_.last().sink = Sink::Discard;
+            if (!upr_.isEmpty()) {
+                upr_.last().sawUd = true;
+                upr_.last().runs.clear();
+                upr_.last().inst.clear();
+                stack_.last().sink = upr_.last().dest;
+            }
+            // A lone \ud keeps the sink it inherited. Recognized children
+            // (title, fldinst) still override that sink.
             return true;
         }
         if (word == QLatin1String("listtable")) {
@@ -1093,12 +1321,41 @@ private:
             pictJpeg_ = false;
             pictHi_ = false;
             pictGoal_ = 0;
+            pictAlt_.clear();
+            pictName_.clear();
+            pictSn_.clear();
+            return true;
+        }
+        if (word == QLatin1String("picprop")) {
+            stack_.last().kind = Kind::PicProp;
+            stack_.last().sink = Sink::Discard;
+            return true;
+        }
+        if ((word == QLatin1String("sn") || word == QLatin1String("sv")) && inside(Kind::PicProp)) {
+            stack_.last().kind = word == QLatin1String("sn") ? Kind::PropName : Kind::PropValue;
+            stack_.last().sink = Sink::InfoText;
+            return true;
+        }
+        if (word == QLatin1String("aiolistkind")) {
+            stack_.last().kind = Kind::AioListKind;
+            stack_.last().sink = Sink::InfoText;
+            return true;
+        }
+        if (word == QLatin1String("aiocheck")) {
+            // Spec form is {\*\aiocheck 0} / {\*\aiocheck 1}: the space ends the
+            // control word, so 0|1 is destination text. \aiocheck0 / \aiocheck1
+            // (numeric parameter, no text) is accepted as the same signal.
+            stack_.last().kind = Kind::AioCheck;
+            stack_.last().sink = Sink::InfoText;
+            if (has && (v == 0 || v == 1))
+                stack_.last().buf = QString::number(v);
             return true;
         }
         if (word == QLatin1String("footnote")) {
             stack_.last().kind = Kind::Footnote;
             stack_.last().sink = Sink::Note;
             noteStack_.push_back({});
+            noteEnd_.push_back(false);
             return true;
         }
         if (word == QLatin1String("bkmkstart")) {
@@ -1130,7 +1387,7 @@ private:
             || word == QLatin1String("xmlnstbl") || word == QLatin1String("latentstyles")
             || word == QLatin1String("colorschememapping") || word == QLatin1String("datastore")
             || word == QLatin1String("themedata") || word == QLatin1String("rsidtbl") || word == QLatin1String("revtbl")
-            || word == QLatin1String("background") || word == QLatin1String("blipuid") || word == QLatin1String("picprop")
+            || word == QLatin1String("background") || word == QLatin1String("blipuid")
             || word == QLatin1String("object") || word == QLatin1String("objdata") || word == QLatin1String("shp")
             || word == QLatin1String("shpinst") || word == QLatin1String("shpgrp") || word == QLatin1String("comment")
             || word == QLatin1String("annotation") || word == QLatin1String("falt"))
@@ -1181,6 +1438,15 @@ private:
         }
         if (word == QLatin1String("page")) {
             onPage();
+            return;
+        }
+        if (word == QLatin1String("column")) {
+            onColumn();
+            return;
+        }
+        if (word == QLatin1String("ftnalt")) {
+            if (!noteEnd_.isEmpty())
+                noteEnd_.last() = true;
             return;
         }
         if (word == QLatin1String("cell")) {
@@ -1403,6 +1669,21 @@ private:
         suppressEmptyPar_ = true;
     }
 
+    void onColumn()
+    {
+        if (stack_.isEmpty() || stack_.last().sink != Sink::Body || stack_.last().skipAll)
+            return;
+        if (stack_.last().para.inTable)
+            return;
+        if (!bodyRuns_.isEmpty() || !pendingBms_.isEmpty())
+            flushBodyParagraph(stack_.last().para, false);
+        Block br;
+        br.type = QStringLiteral("break");
+        br.breakKind = QStringLiteral("column");
+        addBlock(br);
+        suppressEmptyPar_ = true;
+    }
+
     void onCell()
     {
         if (stack_.isEmpty() || stack_.last().skipAll)
@@ -1551,7 +1832,13 @@ private:
             }
         }
         const bool headingStyle = headingLevelOf(styleName) > 0 || outline >= 0;
-        if (headingStyle && hLevel > 0 && (nfc == 255 || para.ls <= 0)) {
+        if (!para.listKindOverride.isEmpty()) {
+            b.type = QStringLiteral("list-item");
+            b.level = qBound(1, para.ilvl + 1, 9);
+            b.listKind = para.listKindOverride;
+            b.checked = para.checkSet && para.checked;
+            b.style = styleName.trimmed().isEmpty() ? QStringLiteral("Normal") : styleName.trimmed();
+        } else if (headingStyle && hLevel > 0 && (nfc == 255 || para.ls <= 0)) {
             b.type = QStringLiteral("heading");
             b.level = qBound(1, hLevel, 9);
             b.style = headingStyleName(styleName, b.level);
@@ -1559,6 +1846,8 @@ private:
             b.type = QStringLiteral("list-item");
             b.level = qBound(1, para.ilvl + 1, 9);
             b.listKind = nfc == 23 ? QStringLiteral("bullet") : QStringLiteral("decimal");
+            if (para.checkSet)
+                b.checked = para.checked;
             b.style = styleName.trimmed().isEmpty() ? QStringLiteral("Normal") : styleName.trimmed();
         } else if (headingStyle && hLevel > 0) {
             b.type = QStringLiteral("heading");
@@ -1695,7 +1984,7 @@ private:
         idMap.reserve(now.size());
         for (const PendingNote &note : now) {
             Block nb;
-            nb.type = QStringLiteral("footnote");
+            nb.type = note.endnote ? QStringLiteral("endnote") : QStringLiteral("footnote");
             nb.style = QStringLiteral("Normal");
             nb.align = QStringLiteral("left");
             QVector<TextRun> runs = note.runs;
@@ -1762,6 +2051,9 @@ private:
 
     void finishNote()
     {
+        bool endnote = false;
+        if (!noteEnd_.isEmpty())
+            endnote = noteEnd_.takeLast();
         QVector<TextRun> runs;
         if (!noteStack_.isEmpty())
             runs = noteStack_.takeLast();
@@ -1770,6 +2062,7 @@ private:
         PendingNote pn;
         pn.tempId = temp;
         pn.runs = runs;
+        pn.endnote = endnote;
         pendingNotes_.push_back(pn);
         TextRun mark;
         mark.text = QString::number(number);
@@ -1801,21 +2094,15 @@ private:
             dest = &bodyRuns_;
         if (!dest)
             return;
-        const QString inst = field.inst.simplified();
-        QString key;
-        for (int k = 0; k < inst.size(); ++k) {
-            if (inst.at(k).isLetter()) {
-                int e = k;
-                while (e < inst.size() && inst.at(e).isLetter())
-                    ++e;
-                key = inst.mid(k, e - k).toUpper();
-                break;
-            }
-        }
+        const QString inst = field.inst;
+        int i = 0;
+        skipFieldWs(inst, i);
+        const int keyAt = i;
+        while (i < inst.size() && inst.at(i).isLetter())
+            ++i;
+        const QString key = inst.mid(keyAt, i - keyAt).toUpper();
         if (key == QLatin1String("HYPERLINK")) {
-            const int q1 = inst.indexOf(QLatin1Char('"'));
-            const int q2 = q1 >= 0 ? inst.indexOf(QLatin1Char('"'), q1 + 1) : -1;
-            const QString url = q1 >= 0 && q2 > q1 ? inst.mid(q1 + 1, q2 - q1 - 1) : QString();
+            const QString url = readFieldArg(inst, i);
             QVector<TextRun> runs = field.result;
             if (runs.isEmpty()) {
                 TextRun r;
@@ -1831,6 +2118,7 @@ private:
             return;
         }
         QString kind;
+        QString arg;
         if (key == QLatin1String("PAGE"))
             kind = QStringLiteral("page_number");
         else if (key == QLatin1String("NUMPAGES"))
@@ -1847,6 +2135,41 @@ private:
             kind = QStringLiteral("filename");
         else if (key == QLatin1String("NUMWORDS"))
             kind = QStringLiteral("word_count");
+        else if (key == QLatin1String("REF")) {
+            kind = QStringLiteral("xref");
+            arg = readFieldArg(inst, i);
+        } else if (key == QLatin1String("MERGEFIELD")) {
+            kind = QStringLiteral("merge");
+            arg = readFieldArg(inst, i);
+        } else if (key == QLatin1String("DOCVARIABLE")) {
+            kind = QStringLiteral("var");
+            arg = readFieldArg(inst, i);
+        } else if (key == QLatin1String("FILLIN")) {
+            kind = QStringLiteral("input");
+            arg = readFieldArg(inst, i);
+        } else if (key == QLatin1String("SEQ")) {
+            kind = QStringLiteral("seq");
+            const QString name = readFieldArg(inst, i);
+            QString format = QStringLiteral("arabic");
+            while (i < inst.size()) {
+                const QString tok = readFieldToken(inst, i);
+                if (tok.isEmpty())
+                    break;
+                if (tok != QLatin1String("\\*") && !tok.startsWith(QLatin1String("\\*")))
+                    continue;
+                QString sw = tok.mid(2);
+                if (sw.isEmpty())
+                    sw = readFieldToken(inst, i);
+                if (sw.compare(QLatin1String("ROMAN"), Qt::CaseInsensitive) == 0)
+                    format = QStringLiteral("roman");
+                else if (sw.compare(QLatin1String("ALPHABETIC"), Qt::CaseInsensitive) == 0
+                         || sw.compare(QLatin1String("ALPHA"), Qt::CaseInsensitive) == 0)
+                    format = QStringLiteral("alpha");
+                else if (sw.compare(QLatin1String("ARABIC"), Qt::CaseInsensitive) == 0)
+                    format = QStringLiteral("arabic");
+            }
+            arg = seqFieldArg(name, format);
+        }
         if (!kind.isEmpty()) {
             TextRun r;
             if (!field.result.isEmpty()) {
@@ -1856,6 +2179,7 @@ private:
                     r.text += part.text;
             }
             r.field = kind;
+            r.fieldArg = arg;
             r.link.clear();
             r.noteId.clear();
             dest->push_back(r);
@@ -1891,12 +2215,17 @@ private:
         const bool odd = pictHi_;
         const int goal = pictGoal_;
         QByteArray bytes = pict_;
+        QString alt = pictAlt_.trimmed();
+        QString name = pictName_.trimmed();
         pict_.clear();
         pictActive_ = false;
         pictPng_ = false;
         pictJpeg_ = false;
         pictHi_ = false;
         pictGoal_ = 0;
+        pictAlt_.clear();
+        pictName_.clear();
+        pictSn_.clear();
         if (odd && (png || jpeg)) {
             fail(QStringLiteral("Malformed RTF: incomplete \\pict hex"));
             return;
@@ -1904,15 +2233,36 @@ private:
         if ((!png && !jpeg) || bytes.isEmpty())
             return;
         const bool inTable = stack_.size() >= 2 && stack_.at(stack_.size() - 2).para.inTable;
-        if (inTable)
+        if (inTable) {
+            auto cleanLabel = [](QString s) {
+                QString out;
+                for (const QChar &c : s) {
+                    if (c.category() != QChar::Other_Control)
+                        out.append(c);
+                }
+                return out.trimmed();
+            };
+            QString label = cleanLabel(alt);
+            if (label.isEmpty())
+                label = cleanLabel(name);
+            if (label.isEmpty())
+                label = png ? QStringLiteral("png") : QStringLiteral("jpeg");
+            const QString text = QStringLiteral("[imagem: %1]").arg(label);
+            TextRun r;
+            if (stack_.size() >= 2)
+                fmtOf(stack_.at(stack_.size() - 2).ch).apply(r);
+            r.text = text;
+            appendExisting(bodyRuns_, r);
+            warnings_ << QStringLiteral("RTF import: image in table cell replaced: %1").arg(text);
             return;
+        }
         ParaState para;
         bool parentBody = true;
         if (stack_.size() >= 2) {
             para = stack_.at(stack_.size() - 2).para;
             parentBody = stack_.at(stack_.size() - 2).sink == Sink::Body;
         }
-        if (parentBody && !bodyRuns_.isEmpty())
+        if (parentBody)
             flushBodyParagraph(para, false);
         Block img;
         img.type = QStringLiteral("image");
@@ -2062,7 +2412,7 @@ private:
 
 } // namespace
 
-bool loadRtfFile(const QString &path, Document &doc, QString *error)
+bool loadRtfFile(const QString &path, Document &doc, QString *error, QStringList *warnings)
 {
     QFile f(path);
     if (!f.open(QIODevice::ReadOnly)) {
@@ -2077,7 +2427,7 @@ bool loadRtfFile(const QString &path, Document &doc, QString *error)
     }
     const QByteArray data = f.readAll();
     Document parsed;
-    if (!RtfParser().parse(data, parsed, error))
+    if (!RtfParser().parse(data, parsed, error, warnings))
         return false;
     parsed.fileName = QFileInfo(path).fileName();
     doc = parsed;
