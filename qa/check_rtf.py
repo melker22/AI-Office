@@ -473,7 +473,28 @@ def self_test() -> int:
     else:
         print("ok   table plain_contains")
 
-    return 0 if ok else 1
+    if not ok:
+        return 1
+
+    # Wave 25 writer judges. The CLI is the one ctest just built. LD_PRELOAD
+    # stays here so the child does not inherit an interposer (L22).
+    script = REPO / "qa" / "wave25-rtf.py"
+    if not script.is_file():
+        print("FAIL wave25 checker missing")
+        return 1
+    env = headless_env()
+    env.pop("LD_PRELOAD", None)
+    proc = subprocess.run(
+        [sys.executable, str(script), "--self-test"],
+        cwd=REPO,
+        env=env,
+        check=False,
+    )
+    if proc.returncode != 0:
+        print("FAIL wave25 rtf checker")
+        return 1
+    print("ok   wave25 rtf checker")
+    return 0
 
 
 def main() -> int:
