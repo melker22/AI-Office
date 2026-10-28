@@ -3,6 +3,9 @@
 # process group, so a Cockpit restart cannot take it down). If that unit is missing or fails to start,
 # fall back to a detached process and confirm it is up (exit 1 if it is not).
 D="$HOME/.local/share/aio-usage-guard"
+# The installer records which Cockpit CLI and state dir to use (the systemd unit carries the same values);
+# load them BEFORE resolving the state dir.
+if [ -f "$D/env" ]; then set -a; . "$D/env"; set +a; fi
 # Same resolution as state_dir() in usage-guard.py.
 S="${AIO_GUARD_STATE:-${XDG_STATE_HOME:-$HOME/.local/state}/aio-usage-guard}"
 if command -v systemctl >/dev/null 2>&1 && systemctl --user cat aio-usage-guard.service >/dev/null 2>&1; then
@@ -11,8 +14,6 @@ if command -v systemctl >/dev/null 2>&1 && systemctl --user cat aio-usage-guard.
   fi
   echo "usage-guard: systemctl --user start failed; starting a detached daemon instead" >&2
 fi
-# The installer records which Cockpit CLI to use; the systemd unit carries the same value.
-if [ -f "$D/env" ]; then set -a; . "$D/env"; set +a; fi
 py="$D/run-python"; [ -x "$py" ] || py="$(command -v python3 || true)"
 [ -n "$py" ] || { echo "usage-guard: no python3 to run the daemon" >&2; exit 1; }
 [ -f "$D/usage-guard.py" ] || { echo "usage-guard: $D/usage-guard.py is missing" >&2; exit 1; }
