@@ -2,6 +2,7 @@
 
 #include "core/Csl.h"
 #include "core/FieldExpr.h"
+#include "core/Qr.h"
 #include <QDateTime>
 #include <QJsonArray>
 #include <QJsonDocument>
@@ -441,6 +442,15 @@ QString validateBlock(const Block &b)
         return QStringLiteral("invalid align: ") + b.align;
     if (!isValidBlockDir(b.dir))
         return QStringLiteral("invalid dir: ") + b.dir;
+    // Same capacity rule as insertQr/encodeQr (ISO/IEC 18004 byte mode, version 10,
+    // level M). A block built by insert_blocks/replace_range/document_include, or
+    // read back from a native JSON document, must fail the same way a direct
+    // insert_qr call would — never silently keep (or truncate) an oversized payload.
+    if (b.type == QLatin1String("qr")) {
+        const QString capErr = qrCapacityError(b.qrText);
+        if (!capErr.isEmpty())
+            return capErr;
+    }
     return hideIfExprError(b.hideIf);
 }
 
