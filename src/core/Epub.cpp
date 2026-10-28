@@ -12,6 +12,7 @@
 #include <QFileInfo>
 #include <QHash>
 #include <QImage>
+#include <QJsonArray>
 #include <QRegularExpression>
 #include <QSet>
 #include <QUuid>
@@ -224,7 +225,9 @@ QString runInlineStyle(const TextRun &r)
     return decls.join(QStringLiteral("; "));
 }
 
-QString stylesheet(const Document &doc)
+// First style name keeps the base class. A later name that sanitizes to the same
+// class gets a stable suffix in doc.styles order (-2, -3, …), the same pattern as xml ids.
+QString stylesheet(const Document &doc, QHash<QString, QString> *classes)
 {
     QString css;
     css += QStringLiteral(
@@ -240,12 +243,22 @@ QString stylesheet(const Document &doc)
         "ul.checklist { list-style: none; padding-left: 0.2em; }\n"
         "aside.footnote, aside.endnote { margin-top: 1.2em; padding-top: 0.4em; border-top: 1px solid #C4B8A8; font-size: 0.9em; }\n"
         "a.noteref { font-size: 0.75em; vertical-align: super; text-decoration: none; }\n");
-    QSet<QString> seen;
+    QSet<QString> taken;
+    QSet<QString> seenNames;
     for (const auto &s : doc.styles) {
-        const QString cls = cssClassName(s.name);
-        if (cls.isEmpty() || seen.contains(cls))
+        if (s.name.isEmpty() || seenNames.contains(s.name))
             continue;
-        seen.insert(cls);
+        const QString base = cssClassName(s.name);
+        if (base.isEmpty())
+            continue;
+        seenNames.insert(s.name);
+        QString cls = base;
+        int n = 2;
+        while (taken.contains(cls))
+            cls = base + QLatin1Char('-') + QString::number(n++);
+        taken.insert(cls);
+        if (classes)
+            classes->insert(s.name, cls);
         QStringList sels;
         sels << QStringLiteral(".") + cls;
         if (s.name.startsWith(QLatin1String("Heading "))) {
@@ -323,9 +336,12 @@ struct WriteCtx {
     const QVector<Chapter> *chapters = nullptr;
     QHash<QString, QVector<NoteUse>> *noteUses = nullptr;
     QVector<QString> *noteOrder = nullptr;
+    const QVector<QString> *orphans = nullptr;
     QVector<Asset> *assets = nullptr;
     QString *error = nullptr;
     QHash<QString, QString> *xmlIds = nullptr;
+    const QHash<QString, QString> *styleClass = nullptr;
+    QStringList *warnings = nullptr;
 };
 
 using Attrs = QVector<QPair<QString, QString>>;
@@ -345,11 +361,159 @@ QString blockLang(const Block &b, const QString &docLang)
     return usableLang(b.lang, docLang);
 }
 
-QString blockDir(const Block &b)
+// Explicit ltr/rtl wins. Otherwise the first strong character, the same rule as
+// Preview.cpp resolvedParagraphDirection. That helper is file-local, so the rule is duplicated here.
+QString resolvedDir(const Document &doc, const Block &b)
 {
     if (b.dir == QLatin1String("rtl") || b.dir == QLatin1String("ltr"))
         return b.dir;
-    return QStringLiteral("ltr");
+    QString text;
+    for (const auto &r : b.runs)
+        text += runDisplayText(doc, r, 1, 1, &r);
+    return text.isRightToLeft() ? QStringLiteral("rtl") : QStringLiteral("ltr");
+}
+
+QString classFor(const WriteCtx &ctx, const QString &name)
+{
+    if (name.trimmed().isEmpty())
+        return {};
+    if (ctx.styleClass) {
+        const auto it = ctx.styleClass->constFind(name);
+        if (it != ctx.styleClass->cend())
+            return it.value();
+    }
+    return cssClassName(name);
+}
+
+void warnOnce(WriteCtx &ctx, const QString &message)
+{
+    if (!ctx.warnings || ctx.warnings->contains(message))
+        return;
+    ctx.warnings->push_back(message);
+}
+
+bool runIsSuppressed(const Document &doc, const TextRun &r)
+{
+    if (r.hidden)
+        return true;
+    if (r.showIf.isEmpty())
+        return false;
+    if (showIfIsBareName(r.showIf)) {
+        const QString v = doc.vars.value(r.showIf);
+        return v.isEmpty() || v == QLatin1String("0") || v == QLatin1String("false");
+    }
+    const FieldExprResult ev = FieldExpr::evaluate(r.showIf, doc, fieldContextFor(doc, 1, 1));
+    if (!ev.ok)
+        return false;
+    return !fieldExprIsTruthy(ev.value);
+}
+
+QString cssQuotedMarker(const QString &bullet)
+{
+    QString body;
+    for (const QChar c : bullet) {
+        if (c.category() == QChar::Other_Control)
+            continue;
+        if (c == QLatin1Char('\\') || c == QLatin1Char('"'))
+            body += QLatin1Char('\\');
+        body += c;
+    }
+    return QStringLiteral("list-style-type: \"") + body + QStringLiteral(" \"");
+}
+
+void appendStyle(Attrs &attrs, const QString &decl)
+{
+    if (decl.isEmpty())
+        return;
+    for (auto &pair : attrs) {
+        if (pair.first != QLatin1String("style"))
+            continue;
+        if (!pair.second.isEmpty())
+            pair.second += QStringLiteral("; ");
+        pair.second += decl;
+        return;
+    }
+    attrs.push_back({QStringLiteral("style"), decl});
+}
+
+QString runsVisibleText(const Document &doc, const QVector<TextRun> &runs)
+{
+    QString t;
+    for (const auto &r : runs) {
+        if (r.field == QLatin1String("page_number") || r.field == QLatin1String("page_count"))
+            continue;
+        if (r.field == QLatin1String("xref") && r.xrefKind == QLatin1String("page"))
+            continue;
+        t += runDisplayText(doc, r, 1, 1, &r);
+    }
+    return t;
+}
+
+bool isCaptionTarget(const Block &b)
+{
+    return b.type == QLatin1String("image") || b.type == QLatin1String("table") || b.type == QLatin1String("equation")
+        || b.type == QLatin1String("chart") || b.type == QLatin1String("shape") || b.type == QLatin1String("qr");
+}
+
+QString blockVisibleText(const Document &doc, const Block &b)
+{
+    if (isCaptionTarget(b)) {
+        const QString cap = captionDisplayText(doc, b, 1, 1).trimmed();
+        if (!cap.isEmpty())
+            return cap;
+        if (!b.altText.trimmed().isEmpty())
+            return b.altText.trimmed();
+    }
+    const QString shown = runsVisibleText(doc, b.runs);
+    if (!shown.trimmed().isEmpty())
+        return shown;
+    const QString plain = b.plainText();
+    if (!plain.trimmed().isEmpty())
+        return plain;
+    return {};
+}
+
+QString xrefPageHref(const WriteCtx &ctx, const QString &targetId)
+{
+    const QString direct = ctx.blockHref ? ctx.blockHref->value(targetId) : QString();
+    if (!direct.isEmpty())
+        return direct;
+    if (ctx.doc->findBlock(targetId))
+        return QStringLiteral("#") + xmlIdFor(targetId, ctx.xmlIds);
+    for (const auto &bm : ctx.doc->bookmarks) {
+        if (bm.id != targetId && bm.name != targetId)
+            continue;
+        const QString via = ctx.blockHref ? ctx.blockHref->value(bm.blockId) : QString();
+        if (!via.isEmpty())
+            return via;
+        if (!bm.blockId.isEmpty())
+            return QStringLiteral("#") + xmlIdFor(bm.blockId, ctx.xmlIds);
+    }
+    if (targetId.isEmpty())
+        return {};
+    return QStringLiteral("#") + xmlIdFor(targetId, ctx.xmlIds);
+}
+
+QString xrefPageLabel(const Document &doc, const QString &targetId)
+{
+    if (const Block *tgt = doc.findBlock(targetId)) {
+        const QString shown = blockVisibleText(doc, *tgt);
+        if (!shown.isEmpty())
+            return shown;
+        return targetId;
+    }
+    for (const auto &bm : doc.bookmarks) {
+        if (bm.id != targetId && bm.name != targetId)
+            continue;
+        if (const Block *b = doc.findBlock(bm.blockId)) {
+            const QString shown = blockVisibleText(doc, *b);
+            if (!shown.isEmpty())
+                return shown;
+        }
+        if (!bm.name.isEmpty())
+            return bm.name;
+    }
+    return targetId;
 }
 
 void writeTextBreaks(XhtmlWriter &x, const QString &s)
@@ -390,14 +554,16 @@ bool noteUsable(const Document &doc, const QString &noteId, const Block **out)
 void writeRuns(XhtmlWriter &x, WriteCtx &ctx, const Block &host, const QVector<TextRun> &runs)
 {
     const QString hostLang = blockLang(host, ctx.docLang);
-    const QString hostDir = blockDir(host);
+    const QString hostDir = resolvedDir(*ctx.doc, host);
     for (const auto &r : runs) {
+        if (runIsSuppressed(*ctx.doc, r))
+            continue;
         const QString shown = runDisplayText(*ctx.doc, r, 1, 1, &r);
         if (!r.noteId.isEmpty()) {
             const Block *note = nullptr;
             if (noteUsable(*ctx.doc, r.noteId, &note) && ctx.noteChapter->contains(r.noteId)) {
                 const int owner = ctx.noteChapter->value(r.noteId);
-                if (ctx.noteOrder && !ctx.noteUses->contains(r.noteId))
+                if (ctx.noteOrder && !ctx.noteOrder->contains(r.noteId))
                     ctx.noteOrder->push_back(r.noteId);
                 QVector<NoteUse> &uses = (*ctx.noteUses)[r.noteId];
                 NoteUse use;
@@ -420,10 +586,27 @@ void writeRuns(XhtmlWriter &x, WriteCtx &ctx, const Block &host, const QVector<T
                 continue;
             }
         }
+        if (r.field == QLatin1String("page_number") || r.field == QLatin1String("page_count")) {
+            warnOnce(ctx, QStringLiteral("EPUB export: %1 in %2 left empty (EPUB has no pages)").arg(r.field, host.id));
+            continue;
+        }
+        if (r.field == QLatin1String("xref") && r.xrefKind == QLatin1String("page")) {
+            warnOnce(ctx, QStringLiteral("EPUB export: xref page %1 in %2 replaced by a link to the target text")
+                             .arg(r.fieldArg, host.id));
+            const QString href = xrefPageHref(ctx, r.fieldArg);
+            const QString label = xrefPageLabel(*ctx.doc, r.fieldArg);
+            if (!href.isEmpty())
+                x.start(QStringLiteral("a"), {{QStringLiteral("href"), href}});
+            x.text(label.isEmpty() ? r.fieldArg : label);
+            if (!href.isEmpty())
+                x.end(QStringLiteral("a"));
+            continue;
+        }
         if (shown.isEmpty() && r.ruby.isEmpty())
             continue;
         const QString href = r.link.isEmpty() ? QString() : resolveHref(ctx, r.link);
         const QString style = runInlineStyle(r);
+        const QString charCls = classFor(ctx, r.charStyle);
         const QString runLang = r.lang.trimmed().isEmpty() ? QString() : usableLang(r.lang, QString());
         const bool langDiff = !runLang.isEmpty() && runLang.compare(hostLang, Qt::CaseInsensitive) != 0;
         QString runDir;
@@ -435,6 +618,8 @@ void writeRuns(XhtmlWriter &x, WriteCtx &ctx, const Block &host, const QVector<T
         if (!href.isEmpty())
             x.start(QStringLiteral("a"), {{QStringLiteral("href"), href}});
         Attrs span;
+        if (!charCls.isEmpty())
+            span.push_back({QStringLiteral("class"), charCls});
         if (!style.isEmpty())
             span.push_back({QStringLiteral("style"), style});
         if (langDiff)
@@ -489,8 +674,8 @@ Attrs blockAttrs(const Block &b, const WriteCtx &ctx, bool withId)
     Attrs attrs;
     if (withId && !b.id.isEmpty())
         attrs.push_back({QStringLiteral("id"), xmlIdFor(b.id, ctx.xmlIds)});
-    addLangDir(attrs, blockLang(b, ctx.docLang), b.dir == QLatin1String("rtl") || b.dir == QLatin1String("ltr") ? b.dir : QString());
-    const QString cls = cssClassName(b.style);
+    addLangDir(attrs, blockLang(b, ctx.docLang), resolvedDir(*ctx.doc, b));
+    const QString cls = classFor(ctx, b.style);
     if (!cls.isEmpty())
         attrs.push_back({QStringLiteral("class"), cls});
     const QString style = blockInlineStyle(b);
@@ -785,7 +970,10 @@ void writeList(XhtmlWriter &x, WriteCtx &ctx, const QVector<const Block *> &item
             continue;
         }
         any = true;
-        x.start(QStringLiteral("li"), blockAttrs(b, ctx, true));
+        Attrs liAttrs = blockAttrs(b, ctx, true);
+        if (!b.listBullet.isEmpty())
+            appendStyle(liAttrs, cssQuotedMarker(b.listBullet));
+        x.start(QStringLiteral("li"), liAttrs);
         if (b.listKind == QLatin1String("checkbox") || b.listKind == QLatin1String("task"))
             x.text(b.checked ? QStringLiteral("☑ ") : QStringLiteral("☐ "));
         writeRuns(x, ctx, b, b.runs);
@@ -877,11 +1065,23 @@ void writeNotes(XhtmlWriter &x, WriteCtx &ctx)
 {
     if (!ctx.noteOrder || !ctx.noteUses)
         return;
+    // Orphans follow in-flow notes, in body order, and only in the last chapter.
+    // The index loop still grows: a note body may reference another note.
+    const bool lastChapter = ctx.chapters && ctx.chapterIndex + 1 == ctx.chapters->size();
+    if (lastChapter && ctx.orphans) {
+        for (const QString &id : *ctx.orphans) {
+            if (!ctx.noteOrder->contains(id))
+                ctx.noteOrder->push_back(id);
+        }
+    }
+    QSet<QString> written;
     // Index loop plus a copied use list: writeRuns may insert a note that this
     // chapter's text mentions. Mutating the hash under a QHash iterator is UB,
     // and QHash order is not the order of first reference.
     for (int i = 0; i < ctx.noteOrder->size(); ++i) {
         const QString id = ctx.noteOrder->at(i);
+        if (written.contains(id))
+            continue;
         const int owner = ctx.noteChapter ? ctx.noteChapter->value(id, -1) : -1;
         if (owner != ctx.chapterIndex)
             continue;
@@ -898,16 +1098,22 @@ void writeNotes(XhtmlWriter &x, WriteCtx &ctx)
                 }
             }
         }
-        if (!owned)
+        const bool orphan = ctx.orphans && ctx.orphans->contains(id);
+        if (!owned && !orphan)
             continue;
         const Block *note = nullptr;
         if (!noteUsable(*ctx.doc, id, &note))
             continue;
+        written.insert(id);
+        if (orphan)
+            warnOnce(ctx, QStringLiteral("EPUB export: note %1 has no reference").arg(id));
         const bool endnote = note->type == QLatin1String("endnote");
         Attrs attrs = {{QStringLiteral("id"), xmlIdFor(note->id, ctx.xmlIds)},
                        {QStringLiteral("epub:type"), endnote ? QStringLiteral("endnote") : QStringLiteral("footnote")},
-                       {QStringLiteral("role"), endnote ? QStringLiteral("doc-endnote") : QStringLiteral("doc-footnote")},
+                       // doc-endnote is not in the EPUB 3.3 role set (epubcheck RSC-005/RSC-017).
+                       {QStringLiteral("role"), endnote ? QStringLiteral("note") : QStringLiteral("doc-footnote")},
                        {QStringLiteral("class"), endnote ? QStringLiteral("endnote") : QStringLiteral("footnote")}};
+        addLangDir(attrs, blockLang(*note, ctx.docLang), resolvedDir(*ctx.doc, *note));
         x.start(QStringLiteral("aside"), attrs);
         x.nl();
         x.start(QStringLiteral("p"));
@@ -1395,17 +1601,35 @@ bool saveEpub(const Document &doc, const QString &path, QString *error, QJsonObj
     }
 
     QHash<QString, int> noteChapter;
+    QSet<QString> inFlowNotes;
+    QSet<QString> visibleNotes;
     for (int ci = 0; ci < chapters.size(); ++ci) {
         for (int idx : chapters[ci].indexes) {
             forEachRun(doc.body.at(idx), [&](const TextRun &r) {
-                if (r.noteId.isEmpty() || noteChapter.contains(r.noteId))
+                if (r.noteId.isEmpty() || !noteUsable(doc, r.noteId, nullptr))
                     return;
-                if (!noteUsable(doc, r.noteId, nullptr))
+                inFlowNotes.insert(r.noteId);
+                if (runIsSuppressed(doc, r) || visibleNotes.contains(r.noteId))
                     return;
+                visibleNotes.insert(r.noteId);
                 noteChapter.insert(r.noteId, ci);
             });
         }
     }
+    QVector<QString> orphans;
+    const int orphanChapter = chapters.size() - 1;
+    for (const Block &b : doc.body) {
+        if (!isNote(b) || b.id.isEmpty() || !noteUsable(doc, b.id, nullptr))
+            continue;
+        if (inFlowNotes.contains(b.id))
+            continue;
+        orphans.push_back(b.id);
+        noteChapter.insert(b.id, orphanChapter);
+    }
+
+    QHash<QString, QString> styleClass;
+    const QString css = stylesheet(doc, &styleClass);
+    QStringList warnings;
 
     QString err;
     QVector<Asset> assets;
@@ -1422,9 +1646,12 @@ bool saveEpub(const Document &doc, const QString &path, QString *error, QJsonObj
         ctx.chapters = &chapters;
         ctx.noteUses = &noteUses;
         ctx.noteOrder = &noteOrder;
+        ctx.orphans = &orphans;
         ctx.assets = &assets;
         ctx.error = &err;
         ctx.xmlIds = &xmlIds;
+        ctx.styleClass = &styleClass;
+        ctx.warnings = &warnings;
         QString xhtml;
         if (!writeChapter(doc, chapters[ci], ci, ctx, &xhtml, &err)) {
             if (error)
@@ -1447,7 +1674,6 @@ bool saveEpub(const Document &doc, const QString &path, QString *error, QJsonObj
             *error = err.isEmpty() ? QStringLiteral("EPUB package failed") : err;
         return false;
     }
-    const QString css = stylesheet(doc);
     const QString container = writeContainer();
 
     QVector<ZipEntry> entries;
@@ -1488,6 +1714,12 @@ bool saveEpub(const Document &doc, const QString &path, QString *error, QJsonObj
         info->insert(QStringLiteral("chapters"), chapters.size());
         info->insert(QStringLiteral("images"), assets.size());
         info->insert(QStringLiteral("identifier"), urn);
+        if (!warnings.isEmpty()) {
+            QJsonArray wa;
+            for (const QString &w : warnings)
+                wa.append(w);
+            info->insert(QStringLiteral("warnings"), wa);
+        }
     }
     return true;
 }
