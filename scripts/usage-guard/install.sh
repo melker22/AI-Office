@@ -9,6 +9,7 @@ S="${AIO_GUARD_STATE:-${XDG_STATE_HOME:-$HOME/.local/state}/aio-usage-guard}"   
 mkdir -p "$D" "$S"
 install -m 0755 "$here/../usage-guard.py" "$D/usage-guard.py"
 install -m 0755 "$here/start-daemon.sh" "$D/start-daemon.sh"
+install -m 0755 "$here/record.sh" "$D/record.sh"
 
 # Same lookup order as cockpit_bin() in usage-guard.py.
 C="${AIO_GUARD_COCKPIT:-}"
@@ -58,7 +59,7 @@ if [ "$service_ok" = 0 ]; then
   "$D/start-daemon.sh"
 fi
 
-record_cmd='"$HOME/.local/share/aio-usage-guard/run-python" "$HOME/.local/share/aio-usage-guard/usage-guard.py" record'
+record_cmd='"$HOME/.local/share/aio-usage-guard/record.sh"'
 daemon_cmd='"$HOME/.local/share/aio-usage-guard/start-daemon.sh"'
 hook_id() {  # id of the hook with this name, or empty
   "$C" hooks list | "$python" -c 'import json,sys; n=sys.argv[1]; print(next((h["id"] for h in json.load(sys.stdin)["data"]["hooks"] if h.get("name")==n), ""))' "$1"

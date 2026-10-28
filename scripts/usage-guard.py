@@ -383,12 +383,17 @@ def handle_marker(marker: dict, act: Actions) -> bool:
         if latest is not None and now_utc() < latest + RESUME_GRACE:
             log(f"fleet {marker['run']}: another node's limit lasts until {iso(latest)}; waiting")
             return False   # every interrupted node must be past its own reset
-        if any(t is None for _, t in usage_nodes):
-            # A node with no known reset: the other nodes' resets say nothing about it. Wait at least the
-            # unknown-reset retry period from when the stop was recorded.
-            created = parse_time(marker.get("created")) or now_utc()
-            if now_utc() < created + UNKNOWN_RESET_RETRY:
-                log(f"fleet {marker['run']}: a usage-limited node has no reset time; waiting")
+        unknown = [nid for nid, t in usage_nodes if t is None]
+        if unknown:
+            # A node with no known reset: the other nodes' resets say nothing about it. Each such node
+            # waits the unknown-reset retry period from when the guard FIRST saw it stopped (a second
+            # node may stop long after the Run was first recorded).
+            seen = marker.setdefault("unknown_seen", {})
+            first_seen = {nid: parse_time(seen.get(nid)) or now_utc() for nid in unknown}
+            for nid, t in first_seen.items():
+                seen.setdefault(nid, iso(t))
+            if any(now_utc() < t + UNKNOWN_RESET_RETRY for t in first_seen.values()):
+                log(f"fleet {marker['run']}: usage-limited node(s) {unknown} have no reset time; waiting")
                 return False
         others = other_interrupted_nodes(run)
         if others:
@@ -673,7 +678,8 @@ def self_test() -> int:
                 add_marker(st, "fleet", "f4", "mixed", "", parse_time("2026-10-27T11:00:00Z"), run="f4",
                            seen=parse_time("2026-10-27T11:00:00Z"))
             run_mixed = {"status": "paused", "nodes": [
-                {"id": "a", "status": "interrupted", "failureReason": "usage_limit"},
+                {"id": "a", "status": "interrupted", "failureReason": "usage_limit",
+                 "usageLimitResetAt": "2026-10-27T11:00:00Z"},
                 {"id": "b", "status": "interrupted", "error": "turn canceled by user"}]}
             scenario(runs=[{"runId": "f4", "fleetName": "mixed", "status": "paused", "interruptedNodeCount": 2}],
                      fleets={"f4": run_mixed})
@@ -857,6 +863,27 @@ def self_test() -> int:
             late = [c for c in called() if c[:2] == ["fleet", "resume"]]
             check("a node without a reset time delays the resume", not early and late == [["fleet", "resume", "f10"]],
                   f"{early} {late}")
+
+            # 21b. A second node stopping later (no reset) restarts the wait from when it was first seen.
+            os.environ["AIO_GUARD_NOW"] = "2026-10-31T11:00:00+00:00"
+            with locked_state() as st:
+                add_marker(st, "fleet", "f11", "late", "", parse_time("2026-10-31T10:00:00Z"), run="f11",
+                           seen=parse_time("2026-10-31T10:00:00Z"))
+            run_late = {"status": "paused", "nodes": [
+                {"id": "a", "status": "interrupted", "failureReason": "usage_limit", "usageLimitResetAt": "2026-10-31T10:00:00Z"},
+                {"id": "b", "status": "interrupted", "failureReason": "usage_limit"}]}
+            scenario(runs=[], fleets={"f11": run_late})
+            run_main("once")                       # first sees node b at 11:00
+            os.environ["AIO_GUARD_NOW"] = "2026-10-31T11:10:00+00:00"
+            scenario(runs=[], fleets={"f11": run_late})
+            run_main("once")
+            early2 = [c for c in called() if c[:2] == ["fleet", "resume"]]
+            os.environ["AIO_GUARD_NOW"] = "2026-10-31T11:16:00+00:00"
+            scenario(runs=[], fleets={"f11": run_late})
+            run_main("once")
+            late2 = [c for c in called() if c[:2] == ["fleet", "resume"]]
+            check("a later unknown-reset node waits from when it was first seen",
+                  not early2 and late2 == [["fleet", "resume", "f11"]], f"{early2} {late2}")
 
             # 22. --dry-run reports without acting.
             with locked_state() as st:
