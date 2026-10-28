@@ -470,7 +470,9 @@ def daemon(interval: float, threshold: float) -> int:
         return 0
     lock.seek(0)
     lock.truncate()
-    lock.write(str(os.getpid()))
+    # "<pid> <launch token>": the launcher waits for ITS token, so a stale pid left in the file (or a
+    # reused pid) can never pass for this launch.
+    lock.write(f"{os.getpid()} {os.environ.get('AIO_GUARD_LAUNCH_TOKEN', '')}".strip())
     lock.flush()
     log(f"daemon started (pid {os.getpid()}, every {interval:.0f}s, threshold {threshold:.0f}%)")
     act = Actions(dry_run=False)
@@ -489,7 +491,7 @@ def status() -> int:
         pending = [m for m in state["markers"] if m["done"] is None]
         done = [m for m in state["markers"] if m["done"] is not None]
     lockf = state_dir() / "daemon.lock"
-    pid = lockf.read_text().strip() if lockf.exists() else ""
+    pid = (lockf.read_text().split() or [""])[0] if lockf.exists() else ""
     alive = bool(pid) and Path(f"/proc/{pid}").exists()
     print(f"daemon: {'running pid ' + pid if alive else 'not running'}")
     print(f"pending ({len(pending)}):")
