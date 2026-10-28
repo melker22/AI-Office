@@ -1018,7 +1018,9 @@ def self_test() -> int:
         ok = False
     else:
         print("ok   raw CR inside a PDF literal is a control, not an escape")
-    escaped = b"/Alt (\xfe\xff\x00\\r\\n\\t\\b\\f)"
+    # Each control is its own UTF-16BE code unit: a 0x00 high byte plus the
+    # escaped low byte. Consecutive escapes without the high byte are not "\r\n\t\b\f".
+    escaped = b"/Alt (\xfe\xff\x00\\r\x00\\n\x00\\t\x00\\b\x00\\f)"
     elits = iter_pdf_literals(escaped, b"/Alt")
     if (
         len(elits) != 1
