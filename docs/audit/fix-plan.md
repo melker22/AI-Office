@@ -67,7 +67,7 @@ Executores: Cursor Grok 4.7 (nós iniciais T1/T2 DOCX import/export), depois Son
 
 | Id | Estado | Notas |
 |---|---|---|
-| A-docx-4 | **Corrigido** | `loadDocx` lê `w:sz`/`w:rFonts`/`w:color`; `b/i/u/strike` respeitam `w:val`; `bidi` só é RTL em `"1"`/`"true"`. |
+| A-docx-4 | **Corrigido** | `loadDocx` lê `w:sz`/`w:rFonts`/`w:color`; `b/i/u/strike` respeitam `w:val`; `bidi` só é RTL com valor vazio, `1`, `true` ou `on` (`bidiIsOn`). |
 | A-docx-5 | **Corrigido** | Parágrafo antes de um `w:drawing` passa por `flushP()` em vez de ser descartado com `runs.clear()`. |
 | A-docx-6 | **Corrigido** | `pgSz` guarda `widthMm`/`heightMm` reais; nomes A4/Letter/Legal/A3/A5 só como atalho dentro de 1 mm. |
 | A-docx-7 | **Corrigido** | Tabela aninhada usa pilha de `tableBlock`/`tableRow` em vez de uma única variável. |
@@ -75,11 +75,11 @@ Executores: Cursor Grok 4.7 (nós iniciais T1/T2 DOCX import/export), depois Son
 | A-docx-9 | **Corrigido** | `loadDocx` lê `docProps/core.xml` (`dc:title`/`subject`/`keywords`/`creator`) quando o JSON omite o campo. |
 | A-docx-10 | **Corrigido** | Um campo dentro de `w:del` exporta como `w:delText` e reimporta para `delAcc`, não para `runs` vivos. |
 | A-docx-11 | **Corrigido** | `word/numbering.xml` é mapeado; numId fora da tabela cai no fallback decimal/bullet (1/2) só quando a parte não existe. |
-| A-docx-12 | **Corrigido** | `xmlEscape` descarta controles C0 fora de tab/LF/CR; `w:color` só escreve com seis dígitos hex (`hex6`, Docx.cpp:108-145). |
+| A-docx-12 | **Corrigido** | `xmlEscape` descarta controles C0 fora de tab/LF/CR; `w:color` só escreve com seis dígitos hex, validados num laço sobre os caracteres, não por regex (`docxHexColor`, Docx.cpp:109-121). |
 | CR-1-009 (Docx.cpp) | **Corrigido** | `jsonOwnsRevisions` foi removido; `loadDocx` sempre faz parsing nativo de `w:ins`/`w:del`/`w:rPrChange` e só pula uma marca quando uma revisão JSON do mesmo bloco/tipo já cobre o intervalo. |
 | PR #11 — bookmark `w:id` único | **Corrigido** | Contador `DocxOut::nextBmId` substitui o índice local por parágrafo (Docx.cpp:50, 1022). |
 | PR #11 — `FILLIN` escapado uma vez | **Corrigido** | `quoteFieldResult(r.fieldArg)` substitui o duplo `xmlEscape` (Docx.cpp:489). |
-| PR #11 — validação de `w:color` | **Corrigido** | Regex `hex6` aceita só seis dígitos hex antes de escrever o atributo. |
+| PR #11 — validação de `w:color` | **Corrigido** | `docxHexColor` aceita só seis dígitos hex, verificados caractere a caractere (não por regex), antes de escrever o atributo. |
 
 ### ODT
 
@@ -98,7 +98,7 @@ Executores: Cursor Grok 4.7 (nós iniciais T1/T2 DOCX import/export), depois Son
 
 | Id | Estado | Notas |
 |---|---|---|
-| A-odf-10 | **Corrigido** | Encoder corrige o nível ECC do payload (versão 1, nível L) e grava os módulos de dados antes de travar as áreas de formato/timing, para a informação de formato não ser sobrescrita; ampliado para suportar bytes até a versão 10. QA roda `zbar` para confirmar que o símbolo é decodificável. |
+| A-odf-10 | **Corrigido** | Encoder usa byte mode nível M (versões 1–10) e reserva os módulos de função (finders, timing, separadores, área de formato, módulo escuro) antes de posicionar os dados, para a informação de formato não ser sobrescrita. QA roda `zbar` para confirmar que o símbolo é decodificável. |
 
 ### QA / CI (fix-pass do Sonnet, após o Cursor Grok 4.7 ficar sem Grok Build)
 
