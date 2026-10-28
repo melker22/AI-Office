@@ -355,6 +355,10 @@ def self_test() -> int:
 
     golden = REPO / "qa/fixtures/wave24-zbar-golden.png"
     resolved = zbarimg_path()
+    # shutil.which, never a substring of stderr/the exception message: the fallback's
+    # own output can legitimately mention "nix-shell" (e.g. in a path) without that
+    # meaning either tool is absent (L10).
+    nix = shutil.which("nix-shell")
     if resolved and golden.is_file():
         try:
             got = decode_with_zbar(golden)
@@ -363,13 +367,25 @@ def self_test() -> int:
         except SystemExit as exc:
             print(f"FAIL self-test golden decode: {exc}")
             ok = False
-    elif not resolved:
+    elif not resolved and nix and golden.is_file():
+        # zbarimg itself is absent but the nix-shell fallback is on PATH: decode_with_zbar
+        # must fall back to it and succeed, not fail as though no decoder existed at all.
+        try:
+            got = decode_with_zbar(golden)
+            assert_payload(got, "SELFTEST", label="golden PNG (nix-shell fallback)")
+            print("ok   nix-shell fallback decodes golden fixture")
+        except SystemExit as exc:
+            print(f"FAIL self-test nix-shell fallback decode: {exc}")
+            ok = False
+    elif not resolved and not nix:
+        # Neither zbarimg nor its nix-shell fallback is available: this is the only
+        # case where decode_with_zbar must raise a clear "missing tool" error.
         try:
             decode_with_zbar(golden if golden.is_file() else Path("/nonexistent.png"))
             print("FAIL self-test decode should exit when zbarimg missing")
             ok = False
         except SystemExit as exc:
-            if "zbarimg not on PATH" not in str(exc) and "nix-shell" not in str(exc):
+            if "zbarimg not on PATH" not in str(exc) and "nix-shell is not available" not in str(exc):
                 print(f"FAIL self-test missing zbar message: {exc}")
                 ok = False
             else:
