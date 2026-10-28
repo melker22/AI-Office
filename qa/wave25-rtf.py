@@ -245,6 +245,12 @@ def test_d1(cli: Path, folder: Path) -> list[str]:
                     {"id": "he", "type": "paragraph", "lang": "he", "runs": [{"text": "ivrit"}]},
                     {"id": "pt", "type": "paragraph", "lang": "pt-PT", "runs": [{"text": "lisboa"}]},
                     {"id": "us", "type": "paragraph", "lang": "en-US", "runs": [{"text": "usa"}]},
+                    # After a known language. \\pard alone must not keep \\lang1033.
+                    {"id": "zz", "type": "paragraph", "lang": "xx-ZZ", "runs": [{"text": "depois"}]},
+                    {"id": "heil", "type": "paragraph", "lang": "he-IL", "runs": [{"text": "heil"}]},
+                    {"id": "fr", "type": "paragraph", "lang": "fr-FR", "runs": [{"text": "franca"}]},
+                    {"id": "de", "type": "paragraph", "lang": "de-DE", "runs": [{"text": "alemanha"}]},
+                    {"id": "esbare", "type": "paragraph", "lang": "es", "runs": [{"text": "castelhano"}]},
                 ],
             },
         },
@@ -255,6 +261,8 @@ def test_d1(cli: Path, folder: Path) -> list[str]:
     for msg in (
         'RTF export: unknown language "xx-YY" written without \\lang',
         'RTF export: unknown language "pt-AO" written without \\lang',
+        'RTF export: unknown language "xx-ZZ" written without \\lang',
+        'RTF export: unknown language "he-IL" written without \\lang',
     ):
         if msg not in warns:
             errors.append(f"D1: warning missing {msg!r} in {warns!r}")
@@ -278,6 +286,11 @@ def test_d1(cli: Path, folder: Path) -> list[str]:
         "espanha": "es-ES",
         "lisboa": "pt-PT",
         "usa": "en-US",
+        "depois": "",
+        "heil": "",
+        "franca": "fr-FR",
+        "alemanha": "de-DE",
+        "castelhano": "es-ES",
     }
     for text, want in expect.items():
         got = lang_of(text)
@@ -292,6 +305,8 @@ def test_d1(cli: Path, folder: Path) -> list[str]:
         ("\\lang3082", "es-ES"),
         ("\\lang2058", "es-MX"),
         ("\\lang1037", "he"),
+        ("\\lang1036", "fr-FR"),
+        ("\\lang1031", "de-DE"),
         ("\\lang1049", "ru-absent-ok"),
     ):
         if needle == "\\lang1049":
@@ -517,7 +532,7 @@ def test_d5(cli: Path, folder: Path) -> list[str]:
 
 def test_d6(cli: Path, folder: Path) -> list[str]:
     errors: list[str] = []
-    nasty = 'A "B"\\C{D}\n'
+    nasty = 'A "B"\\C{D}\n\x01'
     seq_arg = json.dumps({"name": 'Fig "A"', "format": "roman"}, separators=(",", ":"))
     steps = [
         {"tool": "document_new", "args": {"title": "wave25 d6", "force": True}},
