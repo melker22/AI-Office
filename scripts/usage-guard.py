@@ -349,11 +349,20 @@ def scan_paused_fleets(state: dict) -> None:
         if nodes and any(m.get("outcome") == "manual" and m.get("run") == r["runId"]
                          and m.get("sig") == interruption_signature(run) for m in state["markers"]):
             continue   # already reported for manual review; wait until the interruptions change
+        # Remember when each unknown-reset node was first observed, even if the marker is not due yet
+        # (another node's later reset would otherwise start that wait hours late).
+        for m in state["markers"]:
+            if m.get("run") == r["runId"] and m["done"] is None:
+                seen = m.setdefault("unknown_seen", {})
+                for nid, t in nodes:
+                    if t is None:
+                        seen.setdefault(nid, iso(now_utc()))
         # Record even a mixed Run: handle_marker() leaves it paused and tells the user after the reset.
         if nodes:
             reset = max((t for _, t in nodes if t), default=None)
             if add_marker(state, "fleet", r["runId"], r.get("fleetName") or "", "", reset, run=r["runId"]):
                 log(f"scan: fleet {r['runId']} paused by a usage limit until {iso(reset) or 'unknown'}")
+                state["markers"][-1]["unknown_seen"] = {nid: iso(now_utc()) for nid, t in nodes if t is None}
 
 
 def due(marker: dict, now: datetime) -> bool:
@@ -885,7 +894,25 @@ def self_test() -> int:
             check("a later unknown-reset node waits from when it was first seen",
                   not early2 and late2 == [["fleet", "resume", "f11"]], f"{early2} {late2}")
 
-            # 22. --dry-run reports without acting.
+            # 22. The scan's first observation of an unknown-reset node counts, even while another node's
+            #     later reset keeps the marker waiting.
+            os.environ["AIO_GUARD_NOW"] = "2026-11-01T10:00:00+00:00"
+            with locked_state() as st:
+                st["last_scan"] = None
+            run_obs = {"status": "paused", "nodes": [
+                {"id": "a", "status": "interrupted", "failureReason": "usage_limit", "usageLimitResetAt": "2026-11-01T12:00:00Z"},
+                {"id": "b", "status": "interrupted", "failureReason": "usage_limit"}]}
+            runs_obs = [{"runId": "f12", "fleetName": "obs", "status": "paused", "interruptedNodeCount": 2}]
+            scenario(runs=runs_obs, fleets={"f12": run_obs})
+            run_main("once")                                  # scan sees b at 10:00
+            os.environ["AIO_GUARD_NOW"] = "2026-11-01T12:05:00+00:00"
+            scenario(runs=runs_obs, fleets={"f12": run_obs})
+            run_main("once")
+            resumes = [c for c in called() if c[:2] == ["fleet", "resume"]]
+            check("unknown-reset wait counts from the scan's first observation",
+                  resumes == [["fleet", "resume", "f12"]], str(resumes))
+
+            # 23. --dry-run reports without acting.
             with locked_state() as st:
                 add_marker(st, "task", "t2", "x", "claude", parse_time("2026-10-26T13:00:00Z"))
             scenario(tasks={"t2": {"status": "waiting_confirmation", "waitingReason": "usage_limit"}})
