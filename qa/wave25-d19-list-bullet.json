@@ -12,6 +12,7 @@
     }}
   ],
   "wave25": {
+    "checker": "epub",
     "decision": "D19",
     "epubcheck": {"errors": 0, "warnings": 0},
     "list_markers": ["★", "+"],

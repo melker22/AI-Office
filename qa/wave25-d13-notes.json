@@ -27,6 +27,7 @@
     }}
   ],
   "wave25": {
+    "checker": "epub",
     "decision": "D13",
     "epubcheck": {"errors": 0, "warnings": 0},
     "text_contains": ["VISIBLE-BODY", "MIXED-BODY", "OPEN-REF", "ORPHAN-ZETA", "ORPHAN-FOOT"],

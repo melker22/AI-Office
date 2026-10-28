@@ -39,6 +39,7 @@
     }}
   ],
   "wave25": {
+    "checker": "epub",
     "decision": "D16",
     "epubcheck": {"errors": 0, "warnings": 0},
     "text_contains": ["PAGINAFIMTOTALENDXREF", "Titulo Alvo", "Legenda Da Figura"],

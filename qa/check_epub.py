@@ -612,27 +612,69 @@ def write_nav_list_epub(path: Path, nav_name: str, nav_inner: str, chapter_inner
 XML_LANG = "{http://www.w3.org/XML/1998/namespace}lang"
 
 
+_CONTENT_MEDIA = {"application/xhtml+xml", "text/html"}
+
+
+def _manifest_items(zf: zipfile.ZipFile) -> list[dict[str, Any]]:
+    """Manifest items from the OPF named by container.xml.
+
+    Classification uses media-type and properties, not the filename. A missing or
+    unreadable OPF, or a href that is not in the package, is an error.
+    """
+    names = {_zip_name_key(n): n for n in zf.namelist()}
+    items: list[dict[str, Any]] = []
+    for opf in _opf_names(zf):
+        try:
+            root = ET.fromstring(zf.read(opf))
+        except ET.ParseError as exc:
+            raise ValueError(f"{opf}: OPF is not well-formed ({exc})") from exc
+        for item in root.iter():
+            if _local_tag(item.tag) != "item":
+                continue
+            href = _resolve_opf_href(opf, item.get("href") or "")
+            if not href:
+                raise ValueError(f"{opf}: manifest item has no href")
+            real = names.get(href)
+            if real is None:
+                raise ValueError(f"{opf}: manifest href {href!r} is not in the package")
+            media = (item.get("media-type") or "").split(";", 1)[0].strip().lower()
+            if not media:
+                raise ValueError(f"{opf}: manifest item {href!r} has no media-type")
+            items.append(
+                {
+                    "name": real,
+                    "media_type": media,
+                    "properties": (item.get("properties") or "").split(),
+                }
+            )
+    return items
+
+
 def content_roots(epub: Path) -> list[ET.Element]:
-    """Parsed content XHTML documents. Navigation documents (OPF properties=nav) are skipped."""
+    """Content documents: manifest items whose media-type is XHTML or HTML, except properties=nav."""
     roots: list[ET.Element] = []
     with zipfile.ZipFile(epub) as zf:
-        nav = _nav_document_names(zf)
-        for name in zf.namelist():
-            key = _zip_name_key(name)
-            if not key.endswith(".xhtml") and not key.endswith(".html"):
-                continue
-            if key in nav:
-                continue
-            roots.append(ET.fromstring(zf.read(name)))
+        content = [
+            item
+            for item in _manifest_items(zf)
+            if item["media_type"] in _CONTENT_MEDIA and "nav" not in item["properties"]
+        ]
+        if not content:
+            raise ValueError("OPF manifest has no content document")
+        for item in content:
+            try:
+                roots.append(ET.fromstring(zf.read(item["name"])))
+            except ET.ParseError as exc:
+                raise ValueError(f"{item['name']}: not well-formed XML ({exc})") from exc
     return roots
 
 
 def style_css(epub: Path) -> str:
     with zipfile.ZipFile(epub) as zf:
-        for name in zf.namelist():
-            if _zip_name_key(name).endswith("style.css"):
-                return zf.read(name).decode("utf-8", errors="replace")
-    return ""
+        sheets = [item for item in _manifest_items(zf) if item["media_type"] == "text/css"]
+        if not sheets:
+            raise ValueError("OPF manifest has no text/css stylesheet")
+        return "\n".join(zf.read(item["name"]).decode("utf-8") for item in sheets)
 
 
 def element_text(el: ET.Element) -> str:
@@ -761,6 +803,19 @@ def check_wave25_package(epub: Path, spec: dict[str, Any]) -> list[str]:
     return errors
 
 
+EPUB_WAVE25 = {f"D{n}" for n in range(13, 20)}
+
+
+def epub_wave25_spec(playbook: object) -> dict[str, Any] | None:
+    """EPUB wave 25 checks declare checker=epub. Other qa/wave25-*.json files belong to other decisions."""
+    if not isinstance(playbook, dict):
+        return None
+    spec = playbook.get("wave25")
+    if not isinstance(spec, dict) or spec.get("checker") != "epub":
+        return None
+    return spec
+
+
 def run_wave25_suite(cli: Path) -> bool:
     books = sorted((REPO / "qa").glob("wave25-*.json"))
     if not books:
@@ -770,6 +825,7 @@ def run_wave25_suite(cli: Path) -> bool:
         print(f"FAIL wave25: missing cli {cli}")
         return False
     ok = True
+    seen: set[str] = set()
     for playbook_path in books:
         try:
             playbook = json.loads(playbook_path.read_text(encoding="utf-8"))
@@ -777,11 +833,19 @@ def run_wave25_suite(cli: Path) -> bool:
             print(f"FAIL {playbook_path.name}: {exc}")
             ok = False
             continue
-        if not isinstance(playbook, dict) or not isinstance(playbook.get("wave25"), dict):
-            print(f"FAIL {playbook_path.name}: needs an object with a wave25 spec")
+        spec = epub_wave25_spec(playbook)
+        if spec is None:
+            continue
+        decision = spec.get("decision")
+        if not isinstance(decision, str) or decision not in EPUB_WAVE25:
+            print(f"FAIL {playbook_path.name}: checker epub needs decision D13–D19")
             ok = False
             continue
-        decision = playbook["wave25"].get("decision") or playbook_path.name
+        if decision in seen:
+            print(f"FAIL {playbook_path.name}: duplicate decision {decision}")
+            ok = False
+            continue
+        seen.add(decision)
         with tempfile.TemporaryDirectory(prefix="wave25-epub-") as tmp:
             epub = Path(tmp) / "book.epub"
             rewritten = rewrite_save_path(playbook, epub)
@@ -798,7 +862,7 @@ def run_wave25_suite(cli: Path) -> bool:
                 ok = False
                 continue
             try:
-                errors = check_wave25_package(epub, playbook["wave25"])
+                errors = check_wave25_package(epub, spec)
             except (OSError, zipfile.BadZipFile, ET.ParseError, ValueError) as exc:
                 print(f"FAIL {decision}: cannot read EPUB ({exc})")
                 ok = False
@@ -810,6 +874,10 @@ def run_wave25_suite(cli: Path) -> bool:
                 ok = False
                 continue
             print(f"ok   {decision}")
+    missing = EPUB_WAVE25 - seen
+    if missing:
+        print("FAIL wave25: missing EPUB decisions " + ", ".join(sorted(missing)))
+        ok = False
     return ok
 
 
@@ -1026,6 +1094,78 @@ def self_test(cli: Path | None = None) -> int:
         ok = False
     else:
         print("ok   dir:auto check fails without dir")
+
+    if epub_wave25_spec({"wave25": {"decision": "D1"}}) is not None:
+        print("FAIL a wave25 playbook without checker=epub should be skipped")
+        ok = False
+    else:
+        print("ok   non-epub wave25 playbook skipped")
+    if epub_wave25_spec({"wave25": {"checker": "epub", "decision": "D13"}}) is None:
+        print("FAIL checker=epub should select the playbook")
+        ok = False
+    else:
+        print("ok   checker=epub selects the playbook")
+
+    with tempfile.TemporaryDirectory(prefix="aioffice-epub-manifest-") as tmp:
+        classified = Path(tmp) / "classified.epub"
+        container = (
+            '<?xml version="1.0"?>\n'
+            '<container version="1.0" xmlns="urn:oasis:names:tc:opendocument:xmlns:container">'
+            '<rootfiles><rootfile full-path="OEBPS/content.opf" media-type="application/oebps-package+xml"/>'
+            "</rootfiles></container>"
+        )
+        opf = (
+            '<?xml version="1.0"?>\n'
+            '<package xmlns="http://www.idpf.org/2007/opf" version="3.0"><manifest>'
+            '<item id="decoy" href="chapter.xhtml" media-type="image/png"/>'
+            '<item id="nav" href="nav.xhtml" media-type="application/xhtml+xml" properties="nav"/>'
+            '<item id="body" href="notes.bin" media-type="application/xhtml+xml"/>'
+            '<item id="css" href="style.css" media-type="text/css"/>'
+            "</manifest></package>"
+        )
+        body = (
+            '<?xml version="1.0"?><html xmlns="http://www.w3.org/1999/xhtml">'
+            '<body><p id="real">REAL</p></body></html>'
+        )
+        decoy = (
+            '<?xml version="1.0"?><html xmlns="http://www.w3.org/1999/xhtml">'
+            '<body><p id="decoy">DECOY</p></body></html>'
+        )
+        nav = (
+            '<?xml version="1.0"?><html xmlns="http://www.w3.org/1999/xhtml">'
+            "<body><nav><p>NAV</p></nav></body></html>"
+        )
+        with zipfile.ZipFile(classified, "w") as zf:
+            zf.writestr("META-INF/container.xml", container)
+            zf.writestr("OEBPS/content.opf", opf)
+            zf.writestr("OEBPS/chapter.xhtml", decoy)
+            zf.writestr("OEBPS/nav.xhtml", nav)
+            zf.writestr("OEBPS/notes.bin", body)
+            zf.writestr("OEBPS/style.css", ".sReal { color: #010203; }\n")
+        try:
+            roots = content_roots(classified)
+            texts = [element_text(root) for root in roots]
+            css = style_css(classified)
+        except (OSError, zipfile.BadZipFile, ET.ParseError, ValueError) as exc:
+            print(f"FAIL manifest classification: {exc}")
+            ok = False
+        else:
+            if texts != ["REAL"] or "color: #010203" not in css:
+                print(f"FAIL manifest classification used a name heuristic: {texts!r}")
+                ok = False
+            else:
+                print("ok   manifest media-type selects content and css")
+        broken = Path(tmp) / "broken.epub"
+        with zipfile.ZipFile(broken, "w") as zf:
+            zf.writestr("META-INF/container.xml", container)
+            zf.writestr("OEBPS/content.opf", "<package><manifest>")
+        try:
+            content_roots(broken)
+        except ValueError:
+            print("ok   unparseable OPF fails content classification")
+        else:
+            print("FAIL unparseable OPF should fail content classification")
+            ok = False
 
     if not run_wave25_suite(cli or (REPO / "build" / "linux" / "aioffice-cli")):
         ok = False

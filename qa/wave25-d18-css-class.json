@@ -14,6 +14,7 @@
     }}
   ],
   "wave25": {
+    "checker": "epub",
     "decision": "D18",
     "epubcheck": {"errors": 0, "warnings": 0},
     "nodes": [
