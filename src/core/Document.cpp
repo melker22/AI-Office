@@ -385,6 +385,39 @@ static QString normalizedBlockDir(QString dir)
     return dir;
 }
 
+QString nextPrefixedId(const QString &prefix, const QStringList &ids)
+{
+    int maxN = 0;
+    for (const QString &id : ids) {
+        if (!id.startsWith(prefix) || id.size() <= prefix.size())
+            continue;
+        const QString rest = id.mid(prefix.size());
+        bool digits = true;
+        for (const QChar c : rest) {
+            if (!c.isDigit()) {
+                digits = false;
+                break;
+            }
+        }
+        if (!digits)
+            continue;
+        bool ok = false;
+        const int n = rest.toInt(&ok);
+        if (ok && n > maxN)
+            maxN = n;
+    }
+    return prefix + QString::number(maxN + 1);
+}
+
+QString nextRevisionId(const QVector<Revision> &revs)
+{
+    QStringList ids;
+    ids.reserve(revs.size());
+    for (const Revision &rv : revs)
+        ids.append(rv.id);
+    return nextPrefixedId(QStringLiteral("rev"), ids);
+}
+
 bool isValidBlockAlign(const QString &align)
 {
     if (align.isEmpty())

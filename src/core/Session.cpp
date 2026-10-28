@@ -258,34 +258,8 @@ QString tableCapError(int rows, int cols)
     return {};
 }
 
-int maxPrefixedNumber(const QString &prefix, const QStringList &ids)
-{
-    int maxN = 0;
-    for (const QString &id : ids) {
-        if (!id.startsWith(prefix) || id.size() <= prefix.size())
-            continue;
-        const QString rest = id.mid(prefix.size());
-        bool digits = true;
-        for (const QChar c : rest) {
-            if (!c.isDigit()) {
-                digits = false;
-                break;
-            }
-        }
-        if (!digits)
-            continue;
-        bool ok = false;
-        const int n = rest.toInt(&ok);
-        if (ok && n > maxN)
-            maxN = n;
-    }
-    return maxN;
-}
-
-QString nextPrefixedId(const QString &prefix, const QStringList &ids)
-{
-    return prefix + QString::number(maxPrefixedNumber(prefix, ids) + 1);
-}
+// nextPrefixedId/nextRevisionId (max-of-numeric-suffix, not count-based) live in
+// Document.h/.cpp so Docx.cpp's native-revision import can share them too (D10/CR).
 
 QStringList collectRevisionIds(const QVector<Revision> &revs)
 {
@@ -294,11 +268,6 @@ QStringList collectRevisionIds(const QVector<Revision> &revs)
     for (const Revision &rv : revs)
         ids.append(rv.id);
     return ids;
-}
-
-QString nextRevisionId(const QVector<Revision> &revs)
-{
-    return nextPrefixedId(QStringLiteral("rev"), collectRevisionIds(revs));
 }
 
 QStringList collectBookmarkIds(const QVector<Bookmark> &marks)

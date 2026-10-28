@@ -320,6 +320,16 @@ struct Document {
     int wordCount() const;
 };
 
+// Smallest `<prefix><N>` not already in `ids` (case-sensitive, decimal suffix only).
+// Shared by every id generator (revisions, bookmarks, ...) so a caller merging ids
+// from more than one source (e.g. JSON sidecar + natively parsed marks) always gets
+// a number past the highest one actually in use, not just past the count of ids seen
+// so far — a count-based id collides as soon as some entries are removed (dedup) or
+// the source numbering has gaps.
+QString nextPrefixedId(const QString &prefix, const QStringList &ids);
+// Next "rev<N>" past the highest N already used in `revs`.
+QString nextRevisionId(const QVector<Revision> &revs);
+
 // Visibility for stat fields and document_stats (sectionHidden + hideIf at page=1, pages=1).
 bool documentBlockVisibleForStat(const Document &doc, const Block &b, int page, int pages);
 // Words in blocks that document_stats keeps. hide_if uses page=1 and pages=1.

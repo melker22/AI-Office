@@ -2476,7 +2476,13 @@ bool loadDocx(const QByteArray &zipData, Document &doc, QString *error)
                     }
                     if (runHasFmtChange && curLen() > before) {
                         Revision rv;
-                        rv.id = QStringLiteral("rev%1").arg(doc.revisions.size() + 1);
+                        // Count-based ids collide: flushP's dedup below removes some
+                        // revisions by index, so "size()+1" can repeat an id already
+                        // handed out, and it never accounts for JSON sidecar ids (loaded
+                        // into doc.revisions before this native parse starts) that have
+                        // gaps, e.g. rev1/rev2/rev7. nextRevisionId (shared with Session,
+                        // used for document_include) scans the actual ids in use instead.
+                        rv.id = nextRevisionId(doc.revisions);
                         rv.kind = QStringLiteral("format");
                         rv.author = fmtAuthor;
                         rv.timestamp = fmtDate;
@@ -2524,7 +2530,7 @@ bool loadDocx(const QByteArray &zipData, Document &doc, QString *error)
                 curLinkHref.clear();
             } else if (n == QLatin1String("ins") && curRevStartOff >= 0) {
                 Revision rv;
-                rv.id = QStringLiteral("rev%1").arg(doc.revisions.size() + 1);
+                rv.id = nextRevisionId(doc.revisions);
                 rv.kind = QStringLiteral("insert");
                 rv.author = curRevAuthor;
                 rv.timestamp = curRevDate;
@@ -2537,7 +2543,7 @@ bool loadDocx(const QByteArray &zipData, Document &doc, QString *error)
                 curRevStartOff = -1;
             } else if (n == QLatin1String("del") && curRevStartOff >= 0) {
                 Revision rv;
-                rv.id = QStringLiteral("rev%1").arg(doc.revisions.size() + 1);
+                rv.id = nextRevisionId(doc.revisions);
                 rv.kind = QStringLiteral("delete");
                 rv.author = curRevAuthor;
                 rv.timestamp = curRevDate;
