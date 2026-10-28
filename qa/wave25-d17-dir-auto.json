@@ -1,0 +1,24 @@
+{
+  "calls": [
+    {"tool": "document_new", "args": {"title": "Wave25 D17", "force": true}},
+    {"tool": "insert_blocks", "args": {"after_id": "start", "blocks": [
+      {"id": "pAutoRtl", "type": "paragraph", "lang": "pt-PT", "runs": [{"text": "עברית"}]},
+      {"id": "pAutoLtr", "type": "paragraph", "runs": [{"text": "HelloAuto"}]},
+      {"id": "pForceRtl", "type": "paragraph", "dir": "rtl", "runs": [{"text": "LatinForced"}]}
+    ]}},
+    {"tool": "document_save", "args": {"path": "/tmp/wave25-d17-dir-auto.epub"}, "expect": {
+      "ok": true,
+      "format": "epub",
+      "chapters": 1
+    }}
+  ],
+  "wave25": {
+    "decision": "D17",
+    "epubcheck": {"errors": 0, "warnings": 0},
+    "nodes": [
+      {"tag": "p", "id": "pAutoRtl", "text": "עברית", "dir": "rtl"},
+      {"tag": "p", "id": "pAutoLtr", "text": "HelloAuto", "dir": "ltr"},
+      {"tag": "p", "id": "pForceRtl", "text": "LatinForced", "dir": "rtl"}
+    ]
+  }
+}

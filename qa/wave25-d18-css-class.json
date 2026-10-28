@@ -1,0 +1,28 @@
+{
+  "calls": [
+    {"tool": "document_new", "args": {"title": "Wave25 D18", "force": true}},
+    {"tool": "create_style", "args": {"name": "Foo_Bar", "color": "#112233"}},
+    {"tool": "create_style", "args": {"name": "Foo-Bar", "color": "#445566"}},
+    {"tool": "insert_blocks", "args": {"after_id": "start", "blocks": [
+      {"id": "pUnder", "type": "paragraph", "lang": "pt-PT", "style": "Foo_Bar", "runs": [{"text": "STYLE-UNDER"}]},
+      {"id": "pHyphen", "type": "paragraph", "style": "Foo-Bar", "runs": [{"text": "STYLE-HYPHEN"}]}
+    ]}},
+    {"tool": "document_save", "args": {"path": "/tmp/wave25-d18-css-class.epub"}, "expect": {
+      "ok": true,
+      "format": "epub",
+      "chapters": 1
+    }}
+  ],
+  "wave25": {
+    "decision": "D18",
+    "epubcheck": {"errors": 0, "warnings": 0},
+    "nodes": [
+      {"tag": "p", "id": "pUnder", "class": "sFoo-Bar", "text": "STYLE-UNDER"},
+      {"tag": "p", "id": "pHyphen", "class": "sFoo-Bar-2", "text": "STYLE-HYPHEN"}
+    ],
+    "css_rules": [
+      {"selector": ".sFoo-Bar", "contains": "color: #112233"},
+      {"selector": ".sFoo-Bar-2", "contains": "color: #445566"}
+    ]
+  }
+}

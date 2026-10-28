@@ -1,0 +1,26 @@
+{
+  "calls": [
+    {"tool": "document_new", "args": {"title": "Wave25 D14", "force": true}},
+    {"tool": "insert_blocks", "args": {"after_id": "start", "blocks": [
+      {"id": "pRef", "type": "paragraph", "lang": "pt-PT", "runs": [
+        {"text": "arabe ", "note_id": "fnAr"},
+        {"text": "forcada ", "note_id": "fnLtr"}
+      ]},
+      {"id": "fnAr", "type": "footnote", "lang": "ar", "runs": [{"text": "مرحبا"}]},
+      {"id": "fnLtr", "type": "footnote", "lang": "ar", "dir": "ltr", "runs": [{"text": "مرحبا لتر"}]}
+    ]}},
+    {"tool": "document_save", "args": {"path": "/tmp/wave25-d14-note-lang.epub"}, "expect": {
+      "ok": true,
+      "format": "epub",
+      "chapters": 1
+    }}
+  ],
+  "wave25": {
+    "decision": "D14",
+    "epubcheck": {"errors": 0, "warnings": 0},
+    "nodes": [
+      {"tag": "aside", "id": "fnAr", "xml_lang": "ar", "lang": "ar", "dir": "rtl"},
+      {"tag": "aside", "id": "fnLtr", "xml_lang": "ar", "lang": "ar", "dir": "ltr"}
+    ]
+  }
+}
