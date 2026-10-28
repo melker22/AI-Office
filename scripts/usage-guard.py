@@ -383,6 +383,13 @@ def handle_marker(marker: dict, act: Actions) -> bool:
         if latest is not None and now_utc() < latest + RESUME_GRACE:
             log(f"fleet {marker['run']}: another node's limit lasts until {iso(latest)}; waiting")
             return False   # every interrupted node must be past its own reset
+        if any(t is None for _, t in usage_nodes):
+            # A node with no known reset: the other nodes' resets say nothing about it. Wait at least the
+            # unknown-reset retry period from when the stop was recorded.
+            created = parse_time(marker.get("created")) or now_utc()
+            if now_utc() < created + UNKNOWN_RESET_RETRY:
+                log(f"fleet {marker['run']}: a usage-limited node has no reset time; waiting")
+                return False
         others = other_interrupted_nodes(run)
         if others:
             log(f"fleet {marker['run']} also has nodes interrupted for another reason {others}: left for a human")
@@ -663,7 +670,8 @@ def self_test() -> int:
             os.environ["AIO_GUARD_NOW"] = "2026-10-27T12:00:00+00:00"
             with locked_state() as st:
                 st["last_scan"] = None
-                add_marker(st, "fleet", "f4", "mixed", "", parse_time("2026-10-27T11:00:00Z"), run="f4")
+                add_marker(st, "fleet", "f4", "mixed", "", parse_time("2026-10-27T11:00:00Z"), run="f4",
+                           seen=parse_time("2026-10-27T11:00:00Z"))
             run_mixed = {"status": "paused", "nodes": [
                 {"id": "a", "status": "interrupted", "failureReason": "usage_limit"},
                 {"id": "b", "status": "interrupted", "error": "turn canceled by user"}]}
@@ -832,7 +840,25 @@ def self_test() -> int:
             check("a non-object inbox line is dropped and later stops are recorded",
                   t12 and inbox_p.read_text(encoding="utf-8") == "", f"{t12} {inbox_p.read_text(encoding='utf-8')!r}")
 
-            # 21. --dry-run reports without acting.
+            # 21. A node without a reset time holds the Run even when the other node's reset has passed.
+            os.environ["AIO_GUARD_NOW"] = "2026-10-31T10:05:00+00:00"
+            with locked_state() as st:
+                add_marker(st, "fleet", "f10", "nores", "", parse_time("2026-10-31T10:00:00Z"), run="f10",
+                           seen=parse_time("2026-10-31T10:00:00Z"))
+            run_nores = {"status": "paused", "nodes": [
+                {"id": "a", "status": "interrupted", "failureReason": "usage_limit", "usageLimitResetAt": "2026-10-31T10:00:00Z"},
+                {"id": "b", "status": "interrupted", "failureReason": "usage_limit"}]}
+            scenario(runs=[], fleets={"f10": run_nores})
+            run_main("once")
+            early = [c for c in called() if c[:2] == ["fleet", "resume"]]
+            os.environ["AIO_GUARD_NOW"] = "2026-10-31T10:20:00+00:00"
+            scenario(runs=[], fleets={"f10": run_nores})
+            run_main("once")
+            late = [c for c in called() if c[:2] == ["fleet", "resume"]]
+            check("a node without a reset time delays the resume", not early and late == [["fleet", "resume", "f10"]],
+                  f"{early} {late}")
+
+            # 22. --dry-run reports without acting.
             with locked_state() as st:
                 add_marker(st, "task", "t2", "x", "claude", parse_time("2026-10-26T13:00:00Z"))
             scenario(tasks={"t2": {"status": "waiting_confirmation", "waitingReason": "usage_limit"}})
