@@ -401,8 +401,10 @@ struct RtfOut {
     QString paraProps(const Block &b, bool inTable = false)
     {
         // \\pard drops paragraph properties inherited from the previous paragraph
-        // (list, outline level, heading spacing) before \\intbl.
-        QString p = inTable ? QStringLiteral("\\pard\\intbl") : QStringLiteral("\\pard");
+        // (list, outline level, heading spacing) before \\intbl. \\plain drops
+        // character properties, including \\lang: an unknown or empty language
+        // must not keep the previous paragraph's LCID (wave 25 D1).
+        QString p = inTable ? QStringLiteral("\\pard\\intbl\\plain") : QStringLiteral("\\pard\\plain");
         p += paraAlign(b);
         if (b.dir == QLatin1String("rtl"))
             p += QStringLiteral("\\rtlpar");
@@ -910,7 +912,7 @@ struct RtfOut {
                     body += QStringLiteral("\\page");
                 const QString note = commentSuffix(b);
                 if (!note.isEmpty())
-                    body += QStringLiteral("\\pard ") + note;
+                    body += QStringLiteral("\\pard\\plain ") + note;
                 body += QStringLiteral("\\par\n");
                 continue;
             }
@@ -943,7 +945,7 @@ struct RtfOut {
                 body += emitTable(b);
                 const QString note = commentSuffix(b);
                 if (!note.isEmpty())
-                    body += QStringLiteral("\\pard ") + note + QStringLiteral("\\par\n");
+                    body += QStringLiteral("\\pard\\plain ") + note + QStringLiteral("\\par\n");
                 else
                     body += QStringLiteral("\\pard\n");
                 continue;

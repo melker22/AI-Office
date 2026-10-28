@@ -115,8 +115,11 @@ their arguments and escape `\`, `{`, `}`, and `"`; control characters are stripp
 `tableId:row:col` (0-based) is not a `\pict`: the cell gains `[imagem: alt or file name]` and `warnings` names
 the image. An anchor in that shape that matches no cell is still written as `\pict` and warned, never dropped.
 `hide_if` / `section_hidden` text is written with `\v` and a warning that includes the block id; that is not
-redaction. An unknown language is written with no `\lang` and a warning. A tag with no region uses the principal
-variant (`pt` is pt-BR / 1046, `en` is en-US / 1033). Tracked revisions and shapes/forms are flattened to plain
+redaction. An unknown language is written with no `\lang` and a warning. Each paragraph starts with `\plain`
+(after `\pard\intbl` in a cell), so a missing or unknown language does not keep the previous paragraph's `\lang`.
+A region that is not in the table (`he-IL`, `pt-AO`) is unknown and does not fall back to the language prefix.
+A tag with no region uses the principal variant (`pt` is pt-BR / 1046, `en` is en-US / 1033, `es` is es-ES / 3082,
+`fr` is fr-FR / 1036, `de` is de-DE / 1031, `it` is it-IT / 1040, `zh` is zh-CN / 2052). Tracked revisions and shapes/forms are flattened to plain
 text. Block comments, including comments on a table or a break, are flattened to plain text and warned (full
 fidelity stays in `.aio.json`/ODT/DOCX).
 

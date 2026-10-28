@@ -60,18 +60,8 @@ inline int rtfLcidForTag(const QString &tag)
         if (n == QString::fromLatin1(entries[i].tag).toLower())
             return entries[i].lcid;
     }
-    // Tags the current reader already emits. The canonical tag stays the short one.
-    if (n == QLatin1String("ar-sa"))
-        return 1025;
-    if (n == QLatin1String("he-il"))
-        return 1037;
-    if (n == QLatin1String("ru-ru"))
-        return 1049;
-    if (n == QLatin1String("ja-jp"))
-        return 1041;
-    if (n == QLatin1String("ko-kr"))
-        return 1042;
-    // A region we do not know (pt-AO) is unknown. Do not fall back to the language prefix.
+    // A region that is not in the table (pt-AO, he-IL) is unknown.
+    // Do not fall back to the language prefix.
     if (n.contains(QLatin1Char('-')))
         return 0;
     if (n == QLatin1String("pt"))
