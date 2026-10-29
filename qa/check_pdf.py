@@ -491,6 +491,7 @@ WAVE25_PLAYBOOKS = (
     "wave25-d21-copies.json",
     "wave25-d21-note-copies.json",
     "wave25-d21-note-collide.json",
+    "wave25-d21-copy-order.json",
     "wave25-d22-nested-list.json",
     "wave25-d22-list-order.json",
     "wave25-d23-cell-span.json",
@@ -774,6 +775,106 @@ def _pdf_string(value: Any) -> str | None:
     return None
 
 
+def _page_obj_num(ref: str) -> int | None:
+    token = ref.split()
+    if not token or not token[0].isdigit():
+        return None
+    return int(token[0])
+
+
+def _document_kids(objects: dict[str, Any]) -> list[dict[str, Any]]:
+    """Children of /Document in /K order. The writer inlines those dictionaries."""
+    kids: list[dict[str, Any]] = []
+    for elem in _struct_elems(objects):
+        if _name_of(elem.get("/S") or elem.get("S")) != "/Document":
+            continue
+        for kid in _as_list(elem.get("/K") if "/K" in elem else elem.get("K")):
+            if isinstance(kid, dict) and _name_of(kid.get("/S") or kid.get("S")):
+                kids.append(kid)
+                continue
+            ref = _ref_of(kid)
+            if not ref:
+                continue
+            child = _lookup_object(objects, ref)
+            if child:
+                kids.append(child)
+        if kids:
+            return kids
+    return kids
+
+
+def copy_reading_order_rows(objects: dict[str, Any]) -> tuple[list[tuple[str, int]], str | None]:
+    """(/Pg ref, first MCID) for each direct /Document child, in tree order."""
+    rows: list[tuple[str, int]] = []
+    for kid in _document_kids(objects):
+        page = _ref_of(kid.get("/Pg") if "/Pg" in kid else kid.get("Pg"))
+        if not page:
+            pages = _mcr_pages(kid, objects, set())
+            page = next(iter(pages)) if len(pages) == 1 else None
+        mcid = _min_mcid(kid, objects, set())
+        if not page or mcid is None:
+            return [], "copy_reading_order: a /Document child has no /Pg or MCID"
+        rows.append((page, mcid))
+    return rows, None
+
+
+def copy_reading_order_errors_from_rows(
+    rows: list[tuple[str, int]], spec: dict[str, Any]
+) -> list[str]:
+    """Each copy is one /Pg run. Copy 0's run is entirely before copy 1.
+
+    Within a copy, MCIDs follow reading_order and then document order. The
+    fixture lists that sequence in mcids_per_copy (paint order is not enough:
+    the promoted block keeps the higher MCID and must come first).
+    """
+    try:
+        copies = int(spec.get("copies"))
+    except (TypeError, ValueError):
+        return ["copy_reading_order: copies must be an integer"]
+    want = spec.get("mcids_per_copy")
+    if copies < 2 or not isinstance(want, list) or not want:
+        return ["copy_reading_order: need copies >= 2 and a non-empty mcids_per_copy"]
+    if not all(isinstance(item, int) and not isinstance(item, bool) for item in want):
+        return ["copy_reading_order: mcids_per_copy must be integers"]
+    if len(rows) != copies * len(want):
+        return [
+            f"copy_reading_order: {len(rows)} /Document children, "
+            f"expected {copies * len(want)}"
+        ]
+    groups: list[tuple[str, list[int]]] = []
+    for page, mcid in rows:
+        if groups and groups[-1][0] == page:
+            groups[-1][1].append(mcid)
+        else:
+            groups.append((page, [mcid]))
+    if len(groups) != copies:
+        seen = [page for page, _mcids in groups]
+        return [
+            f"copy_reading_order: {len(groups)} /Pg runs {seen}, expected {copies} "
+            "(one copy's structure was split by the next copy)"
+        ]
+    errors: list[str] = []
+    nums: list[int] = []
+    for page, mcids in groups:
+        num = _page_obj_num(page)
+        if num is None:
+            errors.append(f"copy_reading_order: bad /Pg {page!r}")
+            continue
+        nums.append(num)
+        if mcids != want:
+            errors.append(f"copy_reading_order: /Pg {page} MCIDs {mcids} != {want}")
+    if len(nums) == copies and (len(set(nums)) != copies or nums != sorted(nums)):
+        errors.append(f"copy_reading_order: copy pages are not in order {nums}")
+    return errors
+
+
+def copy_reading_order_errors(objects: dict[str, Any], spec: dict[str, Any]) -> list[str]:
+    rows, err = copy_reading_order_rows(objects)
+    if err:
+        return [err]
+    return copy_reading_order_errors_from_rows(rows, spec)
+
+
 def note_id_errors(elems: list[dict[str, Any]], want: list[Any]) -> list[str]:
     """/Note /ID values, one per copy. Missing or duplicate ids fail."""
     if not isinstance(want, list) or not want or not all(isinstance(item, str) and item for item in want):
@@ -830,7 +931,9 @@ def check_wave25_extra(pdf: Path, exp: dict[str, Any]) -> list[str]:
             if not ok and not any(err.startswith(key) for err in errors):
                 errors.append(f"{key}: expected {want!r}, found {seen!r}")
 
-    needs_objects = any(k in exp for k in ("copies_structure", "nested_list", "cell_spans", "note_ids"))
+    needs_objects = any(
+        k in exp for k in ("copies_structure", "nested_list", "cell_spans", "note_ids", "copy_reading_order")
+    )
     objects: dict[str, Any] = {}
     elems: list[dict[str, Any]] = []
     if needs_objects:
@@ -944,6 +1047,13 @@ def check_wave25_extra(pdf: Path, exp: dict[str, Any]) -> list[str]:
             errors.append("note_ids: no structure elements")
         else:
             errors.extend(note_id_errors(elems, exp.get("note_ids")))
+
+    order = exp.get("copy_reading_order")
+    if isinstance(order, dict):
+        if not objects:
+            errors.append("copy_reading_order: no structure objects")
+        else:
+            errors.extend(copy_reading_order_errors(objects, order))
     return errors
 
 
@@ -1190,6 +1300,29 @@ def self_test(cli: Path) -> int:
         ok = False
     else:
         print("ok   named \r \n \t \b \f escapes decode")
+
+    # The copy-order judge must reject a reading_order pass that emits every
+    # copy's promoted block before the rest of copy 0. MCIDs 2,0,1 are the
+    # fixture: the promoted block was painted last.
+    split = [
+        ("13 0 R", 2),
+        ("19 0 R", 2),
+        ("13 0 R", 0),
+        ("13 0 R", 1),
+        ("19 0 R", 0),
+        ("19 0 R", 1),
+    ]
+    whole = [("13 0 R", 2), ("13 0 R", 0), ("13 0 R", 1), ("19 0 R", 2), ("19 0 R", 0), ("19 0 R", 1)]
+    spec = {"copies": 2, "mcids_per_copy": [2, 0, 1]}
+    if not copy_reading_order_errors_from_rows(split, spec):
+        print("FAIL self-test copy_reading_order accepted an interleaved copy")
+        ok = False
+    elif copy_reading_order_errors_from_rows(whole, spec):
+        print("FAIL self-test copy_reading_order rejected a complete copy:", 
+              copy_reading_order_errors_from_rows(whole, spec))
+        ok = False
+    else:
+        print("ok   copy_reading_order rejects a split copy")
 
     if run_wave25_suite(cli) != 0:
         ok = False

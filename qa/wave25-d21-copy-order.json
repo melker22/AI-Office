@@ -1,0 +1,4 @@
+[
+  {"tool": "document_open", "args": {"path": "qa/wave25-d21-copy-order.aio.json"}},
+  {"tool": "document_export_pdf", "args": {"path": "build/linux/wave25-d21-copy-order.pdf", "pdfa": true, "ua": true, "copies": 2}}
+]

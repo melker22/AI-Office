@@ -1,0 +1,26 @@
+{
+  "schema": 1,
+  "meta": {
+    "title": "Wave25 copy reading order",
+    "author": "QA",
+    "reading_order": ["pRead"]
+  },
+  "body": [
+    {
+      "id": "p1",
+      "type": "paragraph",
+      "lang": "pt-PT",
+      "runs": [{"text": "Alpha is painted first and stays after the reading-order block."}]
+    },
+    {
+      "id": "p2",
+      "type": "paragraph",
+      "runs": [{"text": "Beta is painted second and is not in reading_order."}]
+    },
+    {
+      "id": "pRead",
+      "type": "paragraph",
+      "runs": [{"text": "Gamma is painted last and is the only reading_order id."}]
+    }
+  ]
+}

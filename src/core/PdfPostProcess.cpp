@@ -940,11 +940,6 @@ bool pdfPostProcessTagStructure(const QString &path, const QVector<QVector<PdfTa
             copyOrder.push_back(c.marker.copyIndex);
     }
     std::sort(copyOrder.begin(), copyOrder.end());
-    if (!readingOrder.isEmpty()) {
-        for (int copy : copyOrder)
-            for (const auto &id : readingOrder)
-                consider(StructKey{copy, id});
-    }
     QVector<int> byDoc;
     for (int i = 0; i < flat.size(); ++i)
         byDoc.push_back(i);
@@ -957,8 +952,21 @@ bool pdfPostProcessTagStructure(const QString &path, const QVector<QVector<PdfTa
             return flat[a].pageIndex < flat[b].pageIndex;
         return a < b;
     });
-    for (int i : byDoc)
-        consider(StructKey{flat[i].marker.copyIndex, flat[i].marker.blockId});
+    // Finish one copy before the next. readingOrder is that copy's prefix;
+    // everything else stays in byDoc order. consider() skips an id already
+    // taken and an id that has no clips, so a partial readingOrder does not
+    // pull the same block in from a later copy.
+    for (int copy : copyOrder) {
+        if (!readingOrder.isEmpty()) {
+            for (const auto &id : readingOrder)
+                consider(StructKey{copy, id});
+        }
+        for (int i : byDoc) {
+            if (flat[i].marker.copyIndex != copy)
+                continue;
+            consider(StructKey{copy, flat[i].marker.blockId});
+        }
+    }
 
     auto defineElem = [&](int num, const QByteArray &body) { u.redefineObj(num, body); };
 
