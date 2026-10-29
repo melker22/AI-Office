@@ -1,0 +1,347 @@
+version: 1
+name: wave26-layout-preview
+description: >
+  Onda 26 — layout e preview (auditoria 2026-10). Spec: docs/waves/wave26-layout-preview.md.
+  Executor Grok Build (Cursor a 94%: não usada). Regras L22, L25–L27 em todo prompt. Push/PR pré-aprovados;
+  o orquestrador roda o gate de merge.
+args:
+  opus_audit:
+    default: "false"
+    description: "true = auditoria final do Opus antes do PR"
+defaults:
+  agent: grok
+  model: grok-4.7
+  approval: full-access
+max_parallel: 3
+nodes:
+  lessons:
+    title: Lições dos PRs anteriores (Sonnet)
+    agent: claude
+    model: claude-sonnet-5
+    effort: medium
+    prompt: |
+      REGRAS (L22, L25–L27): faça tudo você mesmo, neste turno; NÃO use skills nem subagentes nem tarefas em
+      segundo plano; nunca submeta saída provisória; NÃO use `git stash` (é compartilhado entre worktrees);
+      a CI roda como root e com outra glibc (teste não depende de privilégio nem de LD_PRELOAD herdado).
+      Projeto AI Office Writer. Mantenha docs/LESSONS.md e .cursor/rules/lessons.mdc. Não altere código.
+      Faça tudo neste turno, sem subagentes em segundo plano.
+      1. Veja em docs/LESSONS.md a linha "Última PR processada". Liste os PRs mergeados depois dela em
+         melker22/AI-Office (tool MCP do GitHub; `gh` não existe). Nenhum novo → não mude nada.
+      2. Para cada PR novo, leia as threads do CodeRabbit (pull_request_read get_review_comments), o CORPO
+         das revisões (outside-diff, "<Severity> comments: N") e as entradas em docs/AI_HANDOFF.md e
+         docs/AI_HANDOFF_ARCHIVE.md.
+      3. Defeito real que chegou ao CodeRabbit ou exigiu intervenção: instância de lição existente →
+         acrescente evidência e incremente; padrão novo → lição nova com regra VERIFICÁVEL. Sem evidência
+         (link de thread/commit) não entra.
+      4. Reescreva o checklist de .cursor/rules/lessons.mdc (máx. 15 itens) e atualize "Última PR processada".
+      5. Commit `docs: update lessons from PR #N` em inglês, sem push. Submeta commit =
+         `git rev-parse HEAD` (mesmo sem mudanças), qa_green = true, summary.
+    success_output: qa_green
+    output_contract: &executor_contract
+      type: object
+      required: [commit, qa_green, summary]
+      properties:
+        commit: { type: string, pattern: "^[0-9a-f]{40}$" }
+        qa_green: { type: boolean }
+        blocker: { type: string }
+        summary: { type: string }
+
+  t1-text:
+    title: T1 montagem de texto do layout (Grok Build)
+    needs: [lessons]
+    effort: high
+    workspace: isolated
+    prompt: |
+      Projeto AI Office Writer (C++20/Qt 6). PRIMEIRO: `git merge {{needs.lessons.output.commit}}`.
+      Leia docs/waves/wave26-layout-preview.md (decisões FECHADAS), os achados citados em
+      docs/audit/module-sweep.md e docs/audit/coderabbit-history.md, docs/ORCHESTRATION.md e o checklist de
+      .cursor/rules/lessons.mdc.
+      REGRAS (L22, L25–L27): faça tudo você mesmo, neste turno; NÃO use skills nem subagentes nem tarefas em
+      segundo plano; nunca submeta saída provisória; NÃO use `git stash` (é compartilhado entre worktrees);
+      a CI roda como root e com outra glibc (teste não depende de privilégio nem de LD_PRELOAD herdado).
+      Só `blockTextLayout` e seus auxiliares em src/core/Preview.cpp (montagem do texto, intervalos de formatação,
+      hifenização, displayToModel/modelToDisplay), docs/mcp-tools.md e qa/. NÃO mexa na pintura de marcas,
+      seleção ou células (T2), nem no deslocamento de página, hit-test ou Document.cpp (T3).
+      Decisões: D1, D2, D3.
+      As linhas da auditoria são de antes das ondas 23–25: confirme cada defeito no código ATUAL. Já corrigido →
+      mesmo assim escreva o teste que o prova e registre "já corrigido" no summary.
+      Para cada decisão: primeiro um teste que FALHA hoje (qa/wave26-*, ligado ao ctest; PNG decodificado só
+      com a biblioteca padrão em qa/png_probe.py — se outro nó também o criar, a integração une), depois a
+      correção. Compile só o alvo do CLI (`cmake --preset linux` e `cmake --build --preset linux --target
+      aioffice_cli`; no worktree isolado o primeiro build desse alvo é inevitável, nunca o projeto inteiro) e
+      rode `ctest --test-dir build/linux -R 'wave26|pdf_check|preview'` (inclui o juiz de estrutura PDF).
+      Um teste que depende da decisão de outra tarefa (T1 texto, T2 pintura, T3 geometria) pode falhar antes da
+      integração: liste-o no summary, sem contorná-lo; o gate `build-1` roda tudo depois de integrar.
+      Qualquer outra falha bloqueia qa_green. O QA completo é do gate `build-1`, não
+      deste nó (L26). Commits em inglês (fix:/test:), sem push. Submeta
+      commit = `git rev-parse HEAD`, qa_green, summary (decisão → teste → commit).
+    success_output: qa_green
+    output_contract: *executor_contract
+
+  t2-paint:
+    title: T2 pintura de trechos, seleção e células (Grok Build)
+    needs: [lessons]
+    effort: high
+    workspace: isolated
+    prompt: |
+      Projeto AI Office Writer (C++20/Qt 6). PRIMEIRO: `git merge {{needs.lessons.output.commit}}`.
+      Leia docs/waves/wave26-layout-preview.md (decisões FECHADAS), os achados citados em
+      docs/audit/module-sweep.md e docs/audit/coderabbit-history.md, docs/ORCHESTRATION.md e o checklist de
+      .cursor/rules/lessons.mdc.
+      REGRAS (L22, L25–L27): faça tudo você mesmo, neste turno; NÃO use skills nem subagentes nem tarefas em
+      segundo plano; nunca submeta saída provisória; NÃO use `git stash` (é compartilhado entre worktrees);
+      a CI roda como root e com outra glibc (teste não depende de privilégio nem de LD_PRELOAD herdado).
+      Só a pintura em src/core/Preview.cpp (marcas com `textFrom >= 0`, retângulos de seleção,
+      `paintTableCellMarker` e a medida de altura de célula), docs/mcp-tools.md e qa/. Use a API de
+      `blockTextLayout` como ela está; NÃO mude a montagem do texto (T1) nem o deslocamento de página (T3).
+      Decisões: D4, D5, D6.
+      As linhas da auditoria são de antes das ondas 23–25: confirme cada defeito no código ATUAL. Já corrigido →
+      mesmo assim escreva o teste que o prova e registre "já corrigido" no summary.
+      Para cada decisão: primeiro um teste que FALHA hoje (qa/wave26-*, ligado ao ctest; PNG decodificado só
+      com a biblioteca padrão em qa/png_probe.py — se outro nó também o criar, a integração une), depois a
+      correção. Compile só o alvo do CLI (`cmake --preset linux` e `cmake --build --preset linux --target
+      aioffice_cli`; no worktree isolado o primeiro build desse alvo é inevitável, nunca o projeto inteiro) e
+      rode `ctest --test-dir build/linux -R 'wave26|pdf_check|preview'` (inclui o juiz de estrutura PDF).
+      Um teste que depende da decisão de outra tarefa (T1 texto, T2 pintura, T3 geometria) pode falhar antes da
+      integração: liste-o no summary, sem contorná-lo; o gate `build-1` roda tudo depois de integrar.
+      Qualquer outra falha bloqueia qa_green. O QA completo é do gate `build-1`, não
+      deste nó (L26). Commits em inglês (fix:/test:), sem push. Submeta
+      commit = `git rev-parse HEAD`, qa_green, summary (decisão → teste → commit).
+    success_output: qa_green
+    output_contract: *executor_contract
+
+  t3-geometry:
+    title: T3 geometria de página e campos aninhados (Grok Build)
+    needs: [lessons]
+    effort: high
+    workspace: isolated
+    prompt: |
+      Projeto AI Office Writer (C++20/Qt 6). PRIMEIRO: `git merge {{needs.lessons.output.commit}}`.
+      Leia docs/waves/wave26-layout-preview.md (decisões FECHADAS), os achados citados em
+      docs/audit/module-sweep.md e docs/audit/coderabbit-history.md, docs/ORCHESTRATION.md e o checklist de
+      .cursor/rules/lessons.mdc.
+      REGRAS (L22, L25–L27): faça tudo você mesmo, neste turno; NÃO use skills nem subagentes nem tarefas em
+      segundo plano; nunca submeta saída provisória; NÃO use `git stash` (é compartilhado entre worktrees);
+      a CI roda como root e com outra glibc (teste não depende de privilégio nem de LD_PRELOAD herdado).
+      Só o deslocamento de página (`gutter_mirror`) em src/core/Preview.cpp, `DocumentLayout::hitTest`,
+      caret/hit-test em src/core/Session.cpp, `forEachFieldRun` em src/core/Document.cpp, o campo `filepath`
+      em src/core/{Docx,RtfWriter,RtfReader,Odf}.cpp (D8b), docs/mcp-tools.md e qa/. NÃO mexa em `blockTextLayout` (T1) nem na pintura de trechos/seleção/células (T2).
+      Decisões: D7, D8, D8b.
+      As linhas da auditoria são de antes das ondas 23–25: confirme cada defeito no código ATUAL. Já corrigido →
+      mesmo assim escreva o teste que o prova e registre "já corrigido" no summary.
+      Para cada decisão: primeiro um teste que FALHA hoje (qa/wave26-*, ligado ao ctest; PNG decodificado só
+      com a biblioteca padrão em qa/png_probe.py — se outro nó também o criar, a integração une), depois a
+      correção. Compile só o alvo do CLI (`cmake --preset linux` e `cmake --build --preset linux --target
+      aioffice_cli`; no worktree isolado o primeiro build desse alvo é inevitável, nunca o projeto inteiro) e
+      rode `ctest --test-dir build/linux -R 'wave26|pdf_check|preview'` (inclui o juiz de estrutura PDF).
+      Um teste que depende da decisão de outra tarefa (T1 texto, T2 pintura, T3 geometria) pode falhar antes da
+      integração: liste-o no summary, sem contorná-lo; o gate `build-1` roda tudo depois de integrar.
+      Qualquer outra falha bloqueia qa_green. O QA completo é do gate `build-1`, não
+      deste nó (L26). Commits em inglês (fix:/test:), sem push. Submeta
+      commit = `git rev-parse HEAD`, qa_green, summary (decisão → teste → commit).
+    success_output: qa_green
+    output_contract: *executor_contract
+
+  integrate-1:
+    title: Integrar T1–T3 (Grok Build)
+    needs: [t1-text, t2-paint, t3-geometry]
+    effort: medium
+    prompt: |
+      REGRAS (L22, L25–L27): faça tudo você mesmo, neste turno; NÃO use skills nem subagentes nem tarefas em
+      segundo plano; nunca submeta saída provisória; NÃO use `git stash` (é compartilhado entre worktrees);
+      a CI roda como root e com outra glibc (teste não depende de privilégio nem de LD_PRELOAD herdado).
+      Neste worktree, faça `git merge` dos commits EXATOS, nesta ordem:
+      {{needs.t1-text.output.commit}}, {{needs.t2-paint.output.commit}}, {{needs.t3-geometry.output.commit}}.
+      Conflitos esperados: src/core/Preview.cpp (as três tarefas mexem em regiões diferentes; a T2 usa a API
+      de `blockTextLayout` que a T1 pode ter mudado — adapte a T2 à API nova, preservando as decisões das
+      duas), qa/png_probe.py (una numa só versão), CMakeLists.txt, docs/mcp-tools.md: mantenha TODAS as
+      adições. Compile só o CLI (`cmake --build --preset linux --target aioffice_cli`) e rode os testes wave26
+      (`ctest --test-dir build/linux -R wave26`); o QA completo é do gate seguinte. Corrija só quebras de
+      merge, commit. Submeta commit = HEAD após os merges, qa_green (true se o CLI compila e os wave26
+      passam), summary.
+    success_output: qa_green
+    output_contract: *executor_contract
+
+  build-1:
+    type: gate
+    gate: command
+    needs: [integrate-1, lessons, t1-text, t2-paint, t3-geometry]
+    run: scripts/fleet-verify-merged.sh 5 && scripts/qa-all.sh --gui --interop --pdf --formats
+
+  t4-regress:
+    title: T4 regressão completa (Grok Build)
+    effort: high
+    needs: [build-1]
+    prompt: |
+      REGRAS (L22, L25–L27): faça tudo você mesmo, neste turno; NÃO use skills nem subagentes nem tarefas em
+      segundo plano; nunca submeta saída provisória; NÃO use `git stash` (é compartilhado entre worktrees);
+      a CI roda como root e com outra glibc (teste não depende de privilégio nem de LD_PRELOAD herdado).
+      Projeto AI Office Writer, worktree integrado da onda 26. Leia docs/waves/wave26-layout-preview.md
+      (critério de pronto) e o checklist de lições. Faça tudo neste turno, sem subagentes em segundo plano.
+      Rode `scripts/qa-all.sh --gui --interop --pdf --formats`. Corrija o CÓDIGO (não testes nem
+      expectativas) até passar. Confirme: qa/audit/ não tem mais nenhum playbook desta onda (só os das
+      de ondas futuras, se houver); cada decisão D1–D8 tem um expect que falharia sem ela (liste no summary
+      decisão → arquivo de teste); qa/check_mcp_stdio.py passa. Decisão que pareça impossível → PARE e
+      reporte "PRECISA OPUS: ..." com evidência. Commit em inglês, sem push. Submeta commit/qa_green/summary.
+    success_output: qa_green
+    output_contract: *executor_contract
+
+  qa-full:
+    type: gate
+    gate: command
+    needs: [t4-regress]
+    run: scripts/fleet-verify-merged.sh 1 && scripts/qa-all.sh --gui --interop --pdf --formats
+
+  review:
+    type: loop
+    needs: [qa-full]
+    max_iterations: 3
+    on_exhausted: review-adjudication
+    until:
+      run: scripts/fleet-verify-merged.sh 1 && test "{{needs.review-pass.output.issues}}" -eq 0
+    nodes:
+      review-pass:
+        agent: claude
+        model: claude-sonnet-5
+        effort: high
+        session: continue
+        prompt: |
+          REGRAS (L22, L25–L27): faça tudo você mesmo, neste turno; NÃO use skills nem subagentes nem tarefas em
+          segundo plano; nunca submeta saída provisória; NÃO use `git stash` (é compartilhado entre worktrees);
+          a CI roda como root e com outra glibc (teste não depende de privilégio nem de LD_PRELOAD herdado).
+          Você é o Tech Lead. PRIMEIRO verifique no diff cada item de .cursor/rules/lessons.mdc. Depois
+          revise `git diff main...HEAD` contra docs/waves/wave26-layout-preview.md (D1–D10, critério de pronto).
+          Para cada decisão, confirme que o comportamento existe E que um teste falharia sem ele. Procure:
+          formatação fora de lugar no `page_preview` (prefixo sintético, número de nota com note_restart,
+          hifenização por idioma do run, trecho entre páginas, célula de tabela); seleção que não segue as
+          linhas; hit_test/caret_geometry que não batem com a pintura em página par espelhada; seq em tabela
+          aninhada; regressão de desempenho de layout; PDF não conforme (veraPDF); teste que depende de root/glibc (L22); regressões das ondas 12–25. Rode `scripts/qa-all.sh --gui --interop --pdf --formats`. Não corrija
+          nada. Só defeitos reais. Faça tudo neste turno. Submeta issues e findings ("arquivo:linha —
+          defeito — correção sugerida").
+        followup_prompt: |
+          REGRAS (L22, L25–L27): faça tudo você mesmo, neste turno; NÃO use skills nem subagentes nem tarefas em
+          segundo plano; nunca submeta saída provisória; NÃO use `git stash` (é compartilhado entre worktrees);
+          a CI roda como root e com outra glibc (teste não depende de privilégio nem de LD_PRELOAD herdado).
+          Houve correção. Verifique de novo o checklist de lições e `git diff main...HEAD`, rode
+          `scripts/qa-all.sh --gui --interop --pdf --formats` e submeta só os findings que continuam ou surgiram.
+        output_contract:
+          type: object
+          required: [issues, findings]
+          properties:
+            issues: { type: integer, minimum: 0 }
+            findings: { type: array, items: { type: string } }
+      fix-pass:
+        needs: [review-pass]
+        effort: high
+        prompt: |
+          REGRAS (L22, L25–L27): faça tudo você mesmo, neste turno; NÃO use skills nem subagentes nem tarefas em
+          segundo plano; nunca submeta saída provisória; NÃO use `git stash` (é compartilhado entre worktrees);
+          a CI roda como root e com outra glibc (teste não depende de privilégio nem de LD_PRELOAD herdado).
+          Projeto AI Office Writer (spec: docs/waves/wave26-layout-preview.md; checklist .cursor/rules/lessons.mdc).
+          Findings: {{needs.review-pass.output.findings}}
+          Lista vazia → não altere nada. Senão corrija (com teste que falha antes), rode
+          `scripts/qa-all.sh --gui --interop --pdf --formats` e commit `fix: ...` em inglês, sem push.
+          Submeta commit = `git rev-parse HEAD`, qa_green, summary.
+        success_output: qa_green
+        output_contract: *executor_contract
+
+  review-adjudication:
+    title: Adjudicação final (Sonnet)
+    needs: [review]
+    agent: claude
+    model: claude-sonnet-5
+    effort: high
+    prompt: |
+      REGRAS (L22, L25–L27): faça tudo você mesmo, neste turno; NÃO use skills nem subagentes nem tarefas em
+      segundo plano; nunca submeta saída provisória; NÃO use `git stash` (é compartilhado entre worktrees);
+      a CI roda como root e com outra glibc (teste não depende de privilégio nem de LD_PRELOAD herdado).
+      Três passadas não zeraram os findings. Descarte os que não são defeitos (com motivo), faça UMA
+      correção direta dos reais (com teste e commit), rode `scripts/qa-all.sh --gui --interop --pdf
+      --formats` e pare. Nunca pergunte a um humano. Submeta commit = `git rev-parse HEAD` e resolved =
+      true só se nenhum defeito real ficou aberto.
+    success_output: resolved
+    output_contract:
+      type: object
+      required: [verdict, resolved, accepted, dismissed, commit]
+      properties:
+        verdict: { type: string, enum: [resolved, failed] }
+        resolved: { type: boolean }
+        accepted: { type: array, items: { type: string } }
+        dismissed: { type: array, items: { type: string } }
+        commit: { type: string, pattern: "^[0-9a-f]{40}$" }
+
+  opus-audit:
+    title: Auditoria Opus (opcional)
+    needs: [review-adjudication]
+    enabled: "{{args.opus_audit}}"
+    agent: claude
+    model: claude-opus-5-5
+    effort: high
+    prompt: |
+      REGRAS (L22, L25–L27): faça tudo você mesmo, neste turno; NÃO use skills nem subagentes nem tarefas em
+      segundo plano; nunca submeta saída provisória; NÃO use `git stash` (é compartilhado entre worktrees);
+      a CI roda como root e com outra glibc (teste não depende de privilégio nem de LD_PRELOAD herdado).
+      Auditoria final de `git diff main...HEAD` contra docs/waves/wave26-layout-preview.md (foco: D1/D2 montagem de
+      texto e intervalos, D6 células, D7 geometria). Corrija só o crítico, commit.
+      Submeta commit/qa_green/summary.
+    success_output: qa_green
+    output_contract: *executor_contract
+
+  qa-final:
+    type: gate
+    gate: command
+    needs: [opus-audit, review-adjudication, t4-regress]
+    run: scripts/fleet-verify-merged.sh 1 && scripts/qa-all.sh --gui --interop --pdf --formats
+
+  handoff:
+    title: Handoff + catálogo (Grok Build)
+    needs: [qa-final]
+    effort: medium
+    prompt: |
+      REGRAS (L22, L25–L27): faça tudo você mesmo, neste turno; NÃO use skills nem subagentes nem tarefas em
+      segundo plano; nunca submeta saída provisória; NÃO use `git stash` (é compartilhado entre worktrees);
+      a CI roda como root e com outra glibc (teste não depende de privilégio nem de LD_PRELOAD herdado).
+      Atualize só estes arquivos e commit `docs: ...` em inglês, sem push:
+      - docs/AI_HANDOFF.md: entrada nova no topo ("Fleet wave26 — Grok Build/Sonnet"), com o
+        resultado REAL de `scripts/qa-all.sh --gui --interop --pdf --formats` (rode-o) e
+        `git log main..HEAD --oneline` (hashes reais; não cite o hash do próprio commit).
+      - docs/audit/fix-plan.md: marque a onda 26 como entregue, item por item (corrigido / adiado com motivo).
+      - docs/WRITER_FEATURE_CATALOG.md: as linhas de preview/layout (notas, hifenização,
+        tabelas, seleção, margem espelhada, campos seq) conforme o entregue.
+      Submeta commit/qa_green/summary. Resumo da revisão: {{needs.review.report}}
+    success_output: qa_green
+    output_contract: *executor_contract
+
+  notion-sync:
+    title: Sincronizar Notion (Sonnet)
+    needs: [handoff]
+    agent: claude
+    model: claude-sonnet-5
+    effort: low
+    prompt: |
+      REGRAS (L22, L25–L27): faça tudo você mesmo, neste turno; NÃO use skills nem subagentes nem tarefas em
+      segundo plano; nunca submeta saída provisória; NÃO use `git stash` (é compartilhado entre worktrees);
+      a CI roda como root e com outra glibc (teste não depende de privilégio nem de LD_PRELOAD herdado).
+      Sincronize o Notion com o repositório (regra: documentação sempre atualizada). Tools MCP do
+      Notion; NÃO altere código; NÃO apague nem arquive páginas; nunca cole segredos. Fontes:
+      docs/audit/fix-plan.md, topo de docs/AI_HANDOFF.md, docs/waves/wave26-layout-preview.md, docs/LESSONS.md.
+      Notion: hub 3cb46a79156b819daef5ea9d7c41385a; board collection://f3cc11ed-9e5e-4389-b49a-ca98f98dda62;
+      snapshot 3cb46a79156b8117a87fc72cd190f8c6. Atualize a seção "Auditoria 2026-10" do hub (onda 26
+      entregue: o que foi corrigido; a auditoria 2026-10 fica concluída na Fase IA), "Última sync" e o snapshot. Reporte as mudanças.
+
+  open-pr:
+    title: Push + PR (Sonnet)
+    needs: [notion-sync]
+    agent: claude
+    model: claude-sonnet-5
+    effort: medium
+    prompt: |
+      REGRAS (L22, L25–L27): faça tudo você mesmo, neste turno; NÃO use skills nem subagentes nem tarefas em
+      segundo plano; nunca submeta saída provisória; NÃO use `git stash` (é compartilhado entre worktrees);
+      a CI roda como root e com outra glibc (teste não depende de privilégio nem de LD_PRELOAD herdado).
+      Push deste branch para origin (nunca main) e PR para `main` em melker22/AI-Office via tool MCP do
+      GitHub (push/PR pré-aprovados pelo utilizador). Título em inglês
+      `fix: wave 26 — layout and preview fidelity`. Corpo: resumo de
+      docs/waves/wave26-layout-preview.md (diagnóstico + decisões), a lista de ids da auditoria corrigidos, test
+      plan e o handoff: {{needs.handoff.report}}. NÃO faça merge (o orquestrador roda o gate). Não
+      reescreva commits. Reporte a URL e o número do PR.
