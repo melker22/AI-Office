@@ -643,6 +643,7 @@ def _manifest_items(zf: zipfile.ZipFile) -> list[dict[str, Any]]:
             items.append(
                 {
                     "name": real,
+                    "href": href,
                     "media_type": media,
                     "properties": (item.get("properties") or "").split(),
                 }
@@ -805,12 +806,51 @@ def unexpected_hrefs(roots: list[ET.Element], needles: list[Any]) -> list[str]:
     return errors
 
 
+def chapter_text_errors(epub: Path, specs: list[Any]) -> list[str]:
+    """Match chapter text by the manifest href of one content document."""
+    errors: list[str] = []
+    if not isinstance(specs, list) or not specs:
+        return ["chapter_text must be a non-empty list"]
+    with zipfile.ZipFile(epub) as zf:
+        items = [
+            item
+            for item in _manifest_items(zf)
+            if item["media_type"] in _CONTENT_MEDIA and "nav" not in item["properties"]
+        ]
+        files = [
+            (item.get("href") or "", zf.read(item["name"]).decode("utf-8"))
+            for item in items
+        ]
+    for spec in specs:
+        if not isinstance(spec, dict):
+            errors.append(f"chapter_text entry must be an object, got {spec!r}")
+            continue
+        needle = spec.get("href_contains") or ""
+        if not isinstance(needle, str) or not needle:
+            errors.append(f"chapter_text href_contains must be a non-empty string, got {needle!r}")
+            continue
+        matches = [text for href, text in files if needle in href]
+        if len(matches) != 1:
+            errors.append(f"chapter file {needle!r} matched {len(matches)}")
+            continue
+        text = matches[0]
+        for snippet in spec.get("contains") or []:
+            if not isinstance(snippet, str) or not snippet or snippet not in text:
+                errors.append(f"{needle} missing {snippet!r}")
+        for snippet in spec.get("absent") or []:
+            if isinstance(snippet, str) and snippet and snippet in text:
+                errors.append(f"{needle} should not contain {snippet!r}")
+    return errors
+
+
 def check_wave25_package(epub: Path, spec: dict[str, Any]) -> list[str]:
     errors = check_expectations(epub, spec)
     roots = content_roots(epub)
     errors.extend(missing_nodes(roots, spec.get("nodes") or []))
     errors.extend(unexpected_hrefs(roots, spec.get("href_absent") or []))
     errors.extend(marker_errors(li_styles(roots), spec.get("list_markers") or []))
+    if "chapter_text" in spec:
+        errors.extend(chapter_text_errors(epub, spec.get("chapter_text")))
     css = style_css(epub)
     for rule in spec.get("css_rules") or []:
         if not isinstance(rule, dict):

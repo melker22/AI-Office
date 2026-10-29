@@ -1626,6 +1626,28 @@ bool saveEpub(const Document &doc, const QString &path, QString *error, QJsonObj
             inFlowNotes.insert(r.noteId);
         });
     }
+    // A usable note cited only from another note inherits that note's chapter.
+    // An assignment that already exists is left alone.
+    bool nestedGrew = true;
+    while (nestedGrew) {
+        nestedGrew = false;
+        for (const Block &host : doc.body) {
+            if (!isNote(host) || host.id.isEmpty() || !noteUsable(doc, host.id, nullptr))
+                continue;
+            if (!noteChapter.contains(host.id))
+                continue;
+            const int hostChapter = noteChapter.value(host.id);
+            forEachRun(host, [&](const TextRun &r) {
+                if (r.noteId.isEmpty() || r.noteId == host.id || !noteUsable(doc, r.noteId, nullptr))
+                    return;
+                if (noteChapter.contains(r.noteId))
+                    return;
+                inFlowNotes.insert(r.noteId);
+                noteChapter.insert(r.noteId, hostChapter);
+                nestedGrew = true;
+            });
+        }
+    }
     QVector<QString> orphans;
     const int orphanChapter = chapters.size() - 1;
     for (const Block &b : doc.body) {
