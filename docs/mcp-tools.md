@@ -77,7 +77,7 @@ The document is a JSON object with **stable block IDs**. Agents must address con
 
 ### Text run fields
 
-`text`, `bold`, `italic`, `underline`, `strike`, `superscript`, `subscript`, `font` (optional), `size_pt` (0 = inherit), `color`, `highlight`, `link`, `field` (`page_number` | `page_count` | `date` | `time` | `title` | `author` | `xref` | `filename` | `word_count` | `custom` | `merge` | `chapter` | `var` | `input` | `cite` | `seq` | `if` | `doc_info` | `stat` | `sender` | `input_list`; the same kinds `insert_field` accepts), `field_arg`, `xref_kind` (`"page"` on a run whose `field` is `xref` when the reference is a page, the same value a `PAGEREF` import stores; omitted when empty), `note_id`, `ruby`, `redact`, `show_if`. `seq` stores `field_arg` as compact JSON `{"format":"arabic|roman|alpha","name":"…"}`.
+`text`, `bold`, `italic`, `underline`, `strike`, `superscript`, `subscript`, `font` (optional), `size_pt` (0 = inherit), `color`, `highlight`, `link`, `field` (`page_number` | `page_count` | `date` | `time` | `title` | `author` | `xref` | `filename` | `word_count` | `custom` | `merge` | `chapter` | `var` | `input` | `cite` | `filepath` | `seq` | `if` | `doc_info` | `stat` | `sender` | `input_list`; the same kinds `insert_field` accepts), `field_arg`, `xref_kind` (`"page"` on a run whose `field` is `xref` when the reference is a page, the same value a `PAGEREF` import stores; omitted when empty), `note_id`, `ruby`, `redact`, `show_if`. `seq` stores `field_arg` as compact JSON `{"format":"arabic|roman|alpha","name":"…"}`.
 
 ### ID prefixes
 
@@ -327,7 +327,7 @@ Hiperlink na seleção (`url`). Marcador nomeado no bloco (`name`, `id` opcional
 
 ### `insert_field`
 
-Args: `{ "kind": "page_number"|"page_count"|"date"|"title"|"author"|"xref"|"filename"|"word_count"|"custom"|"merge"|"if"|"doc_info"|"stat"|"sender"|"seq"|"input_list", "arg"?: string|object, "xref_kind"?: string }`  
+Args: `{ "kind": "page_number"|"page_count"|"date"|"time"|"title"|"author"|"xref"|"filename"|"filepath"|"word_count"|"custom"|"merge"|"chapter"|"var"|"input"|"cite"|"if"|"doc_info"|"stat"|"sender"|"seq"|"input_list", "arg"?: string|object, "xref_kind"?: string }`  
 Insere no caret. `xref`/`custom`/`merge` usam `arg`. Campo `merge` mostra `«arg»` até `mail_merge`. `date` usa `arg` como formato Qt (`dd/MM/yyyy` por omissão; `yyyy-MM-dd hh:mm` para data/hora). `if` takes `arg` as `{ "cond": string, "then": string, "else": string }` (object or JSON string). `cond` is an expression; the field shows `then` or `else`. `document_get` and a working-document save re-evaluate it with the real page total (`pages`) and `page` 1. A syntax error shows `#ERR` and `validate` reports `invalid_expression`.
 
 ### `field_evaluate`
