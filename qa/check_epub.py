@@ -818,10 +818,17 @@ def chapter_text_errors(epub: Path, specs: list[Any]) -> list[str]:
             for item in _manifest_items(zf)
             if item["media_type"] in _CONTENT_MEDIA and "nav" not in item["properties"]
         ]
-        files = [
-            (item.get("href") or "", zf.read(item["name"]).decode("utf-8"))
-            for item in items
-        ]
+        files: list[tuple[str, str]] = []
+        for item in items:
+            href = item.get("href") or ""
+            # Compare element text, not serialized XHTML: a note with "&" is
+            # "&amp;" in the file.
+            try:
+                root = ET.fromstring(zf.read(item["name"]))
+            except ET.ParseError as exc:
+                errors.append(f"chapter file {href!r} is not well-formed XML: {exc}")
+                continue
+            files.append((href, "".join(root.itertext())))
     for spec in specs:
         if not isinstance(spec, dict):
             errors.append(f"chapter_text entry must be an object, got {spec!r}")
