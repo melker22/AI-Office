@@ -437,7 +437,7 @@ def footnote_scale(cli: Path, count: int, max_seconds: float) -> list[str]:
     return errors
 
 
-def self_test() -> int:
+def self_test(cli: Path) -> int:
     ok = True
     body = [{"type": "paragraph", "runs": [{"text": "A", "bold": True}]}]
     exp = {"body": [{"block_index": 0, "plain": "A", "runs": [{"text": "A", "bold": True}]}]}
@@ -485,7 +485,7 @@ def self_test() -> int:
     env = headless_env()
     env.pop("LD_PRELOAD", None)
     proc = subprocess.run(
-        [sys.executable, str(script), "--self-test"],
+        [sys.executable, str(script), "--self-test", "--cli", str(cli)],
         cwd=REPO,
         env=env,
         check=False,
@@ -521,7 +521,7 @@ def main() -> int:
     args = parser.parse_args()
 
     if args.self_test:
-        return self_test()
+        return self_test(args.cli)
 
     cli = args.cli.resolve()
     if not cli.is_file():
