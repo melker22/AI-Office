@@ -475,23 +475,22 @@ QString blockVisibleText(const Document &doc, const Block &b)
 
 QString xrefPageHref(const WriteCtx &ctx, const QString &targetId)
 {
-    const QString direct = ctx.blockHref ? ctx.blockHref->value(targetId) : QString();
+    // Only a fragment that this package actually emits. A hidden or missing
+    // target has no blockHref, and a made-up #id is RSC-012. The caller then
+    // writes the label with no <a>.
+    if (!ctx.blockHref || targetId.isEmpty())
+        return {};
+    const QString direct = ctx.blockHref->value(targetId);
     if (!direct.isEmpty())
         return direct;
-    if (ctx.doc->findBlock(targetId))
-        return QStringLiteral("#") + xmlIdFor(targetId, ctx.xmlIds);
     for (const auto &bm : ctx.doc->bookmarks) {
         if (bm.id != targetId && bm.name != targetId)
             continue;
-        const QString via = ctx.blockHref ? ctx.blockHref->value(bm.blockId) : QString();
+        const QString via = ctx.blockHref->value(bm.blockId);
         if (!via.isEmpty())
             return via;
-        if (!bm.blockId.isEmpty())
-            return QStringLiteral("#") + xmlIdFor(bm.blockId, ctx.xmlIds);
     }
-    if (targetId.isEmpty())
-        return {};
-    return QStringLiteral("#") + xmlIdFor(targetId, ctx.xmlIds);
+    return {};
 }
 
 QString xrefPageLabel(const Document &doc, const QString &targetId)
@@ -1615,6 +1614,17 @@ bool saveEpub(const Document &doc, const QString &path, QString *error, QJsonObj
                 noteChapter.insert(r.noteId, ci);
             });
         }
+    }
+    // A reference that lives only in an omitted block (section_hidden or a true
+    // hide_if) is a hidden reference. The note is left out, and it is not an orphan.
+    for (const Block &b : doc.body) {
+        if (!omittedBlock(doc, b))
+            continue;
+        forEachRun(b, [&](const TextRun &r) {
+            if (r.noteId.isEmpty() || !noteUsable(doc, r.noteId, nullptr))
+                return;
+            inFlowNotes.insert(r.noteId);
+        });
     }
     QVector<QString> orphans;
     const int orphanChapter = chapters.size() - 1;

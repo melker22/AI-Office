@@ -786,10 +786,30 @@ def rewrite_save_path(playbook: dict[str, Any], epub: Path) -> dict[str, Any]:
     return data
 
 
+def unexpected_hrefs(roots: list[ET.Element], needles: list[Any]) -> list[str]:
+    """href_absent: no content-document href may contain the needle (broken fragments)."""
+    hrefs: list[str] = []
+    for root in roots:
+        for el in root.iter():
+            href = el.get("href") or ""
+            if href:
+                hrefs.append(href)
+    errors: list[str] = []
+    for needle in needles:
+        if not isinstance(needle, str) or not needle:
+            errors.append(f"href_absent entry must be a non-empty string, got {needle!r}")
+            continue
+        hit = next((href for href in hrefs if needle in href), "")
+        if hit:
+            errors.append(f"unexpected href containing {needle!r}: {hit!r}")
+    return errors
+
+
 def check_wave25_package(epub: Path, spec: dict[str, Any]) -> list[str]:
     errors = check_expectations(epub, spec)
     roots = content_roots(epub)
     errors.extend(missing_nodes(roots, spec.get("nodes") or []))
+    errors.extend(unexpected_hrefs(roots, spec.get("href_absent") or []))
     errors.extend(marker_errors(li_styles(roots), spec.get("list_markers") or []))
     css = style_css(epub)
     for rule in spec.get("css_rules") or []:

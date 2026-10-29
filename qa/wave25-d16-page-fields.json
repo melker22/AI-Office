@@ -12,6 +12,9 @@
         "image_mime": "image/png",
         "image_b64": "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg=="
       },
+      {"id": "pHid", "type": "paragraph", "section_hidden": true, "runs": [{"text": "OCULTO-ALVO"}]},
+      {"id": "pExpr", "type": "paragraph", "hide_if": "1", "runs": [{"text": "OCULTO-EXPR"}]},
+      {"id": "pMark", "type": "paragraph", "runs": [{"text": "MARCA-VIS"}]},
       {"id": "pFields", "type": "paragraph", "runs": [
         {"text": "PAGINA"},
         {"field": "page_number"},
@@ -23,9 +26,19 @@
         {"field": "xref", "field_arg": "hTarget", "xref_kind": "page"},
         {"text": "CAP"},
         {"field": "xref", "field_arg": "imgCap", "xref_kind": "page"},
+        {"text": "HID"},
+        {"field": "xref", "field_arg": "pHid", "xref_kind": "page"},
+        {"text": "MISS"},
+        {"field": "xref", "field_arg": "goneX", "xref_kind": "page"},
+        {"text": "MARK"},
+        {"field": "xref", "field_arg": "bmVis", "xref_kind": "page"},
+        {"text": "BEXPR"},
+        {"field": "xref", "field_arg": "bmExpr", "xref_kind": "page"},
         {"text": "TAIL"}
       ]}
     ]}},
+    {"tool": "bookmark_add", "args": {"id": "pMark", "name": "bmVis"}},
+    {"tool": "bookmark_add", "args": {"id": "pExpr", "name": "bmExpr"}},
     {"tool": "document_save", "args": {"path": "/tmp/wave25-d16-page-fields.epub"}, "expect": {
       "ok": true,
       "format": "epub",
@@ -34,7 +47,11 @@
         "EPUB export: page_number in pFields left empty (EPUB has no pages)",
         "EPUB export: page_count in pFields left empty (EPUB has no pages)",
         "EPUB export: xref page hTarget in pFields replaced by a link to the target text",
-        "EPUB export: xref page imgCap in pFields replaced by a link to the target text"
+        "EPUB export: xref page imgCap in pFields replaced by a link to the target text",
+        "EPUB export: xref page pHid in pFields replaced by a link to the target text",
+        "EPUB export: xref page goneX in pFields replaced by a link to the target text",
+        "EPUB export: xref page bmVis in pFields replaced by a link to the target text",
+        "EPUB export: xref page bmExpr in pFields replaced by a link to the target text"
       ]
     }}
   ],
@@ -42,11 +59,13 @@
     "checker": "epub",
     "decision": "D16",
     "epubcheck": {"errors": 0, "warnings": 0},
-    "text_contains": ["PAGINAFIMTOTALENDXREF", "Titulo Alvo", "Legenda Da Figura"],
+    "text_contains": ["PAGINAFIMTOTALENDXREF", "Titulo Alvo", "Legenda Da Figura", "OCULTO-ALVO", "OCULTO-EXPR", "goneX", "MARCA-VIS"],
     "text_absent": ["PAGINA1FIM", "TOTAL1END"],
+    "href_absent": ["pHid", "goneX", "pExpr"],
     "nodes": [
       {"tag": "a", "href_contains": "hTarget", "text": "Titulo Alvo"},
-      {"tag": "a", "href_contains": "imgCap", "text": "Legenda Da Figura"}
+      {"tag": "a", "href_contains": "imgCap", "text": "Legenda Da Figura"},
+      {"tag": "a", "href_contains": "pMark", "text": "MARCA-VIS"}
     ]
   }
 }

@@ -9,10 +9,22 @@
         {"text": "SECRET-MIX", "note_id": "fnMix", "hidden": true},
         {"text": "OPEN-REF", "note_id": "fnMix"}
       ]},
+      {"id": "pBoth", "type": "paragraph", "runs": [
+        {"text": "BOTH-REF", "note_id": "fnBoth"}
+      ]},
+      {"id": "pSec", "type": "paragraph", "section_hidden": true, "runs": [
+        {"text": "SEC-REF", "note_id": "fnSec"}
+      ]},
+      {"id": "pExpr", "type": "paragraph", "hide_if": "1", "runs": [
+        {"text": "EXPR-REF", "note_id": "fnExpr"}
+      ]},
       {"id": "fnVis", "type": "footnote", "runs": [{"text": "VISIBLE-BODY"}]},
       {"id": "fnHid", "type": "footnote", "runs": [{"text": "HIDDEN-BODY"}]},
       {"id": "fnShow", "type": "footnote", "runs": [{"text": "SHOWIF-BODY"}]},
       {"id": "fnMix", "type": "footnote", "runs": [{"text": "MIXED-BODY"}]},
+      {"id": "fnBoth", "type": "footnote", "runs": [{"text": "BOTH-BODY"}]},
+      {"id": "fnSec", "type": "footnote", "runs": [{"text": "SEC-BODY"}]},
+      {"id": "fnExpr", "type": "endnote", "runs": [{"text": "EXPR-BODY"}]},
       {"id": "enOrphan", "type": "endnote", "runs": [{"text": "ORPHAN-ZETA"}]},
       {"id": "fnLoose", "type": "footnote", "runs": [{"text": "ORPHAN-FOOT"}]}
     ]}},
@@ -30,8 +42,8 @@
     "checker": "epub",
     "decision": "D13",
     "epubcheck": {"errors": 0, "warnings": 0},
-    "text_contains": ["VISIBLE-BODY", "MIXED-BODY", "OPEN-REF", "ORPHAN-ZETA", "ORPHAN-FOOT"],
-    "text_absent": ["HIDDEN-BODY", "SHOWIF-BODY", "SECRET-REF", "SHOWIF-REF", "SECRET-MIX"],
-    "aside_text_order": ["VISIBLE-BODY", "MIXED-BODY", "ORPHAN-ZETA", "ORPHAN-FOOT"]
+    "text_contains": ["VISIBLE-BODY", "MIXED-BODY", "BOTH-BODY", "OPEN-REF", "BOTH-REF", "ORPHAN-ZETA", "ORPHAN-FOOT"],
+    "text_absent": ["HIDDEN-BODY", "SHOWIF-BODY", "SEC-BODY", "EXPR-BODY", "SECRET-REF", "SHOWIF-REF", "SECRET-MIX", "SEC-REF", "EXPR-REF"],
+    "aside_text_order": ["VISIBLE-BODY", "MIXED-BODY", "BOTH-BODY", "ORPHAN-ZETA", "ORPHAN-FOOT"]
   }
 }
