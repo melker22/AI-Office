@@ -77,7 +77,7 @@ The document is a JSON object with **stable block IDs**. Agents must address con
 
 ### Text run fields
 
-`text`, `bold`, `italic`, `underline`, `strike`, `superscript`, `subscript`, `font` (optional), `size_pt` (0 = inherit), `color`, `highlight`, `link`, `field` (`page_number` | `page_count` | `date` | `time` | `title` | `author` | `xref` | `filename` | `word_count` | `custom` | `merge` | `chapter` | `var` | `input` | `cite` | `filepath` | `seq` | `if` | `doc_info` | `stat` | `sender` | `input_list`; the same kinds `insert_field` accepts), `field_arg`, `xref_kind` (`"page"` on a run whose `field` is `xref` when the reference is a page, the same value a `PAGEREF` import stores; omitted when empty), `note_id`, `ruby`, `redact`, `show_if`. `seq` stores `field_arg` as compact JSON `{"format":"arabic|roman|alpha","name":"…"}`.
+`text`, `bold`, `italic`, `underline`, `strike`, `superscript`, `subscript`, `font` (optional), `size_pt` (0 = inherit), `color`, `highlight`, `link`, `field` (`page_number` | `page_count` | `date` | `time` | `title` | `author` | `xref` | `filename` | `word_count` | `custom` | `merge` | `chapter` | `var` | `input` | `cite` | `filepath` | `seq` | `if` | `doc_info` | `stat` | `sender` | `input_list`; the same kinds `insert_field` accepts), `field_arg`, `xref_kind` (on a run whose `field` is `xref`: `"page"` (the value a `PAGEREF` import stores), `"heading_number"`, `"category_number"`, `"footnote_number"` or `"endnote_number"`; omitted for a plain text reference. `insert_crossref` `kind: "above_below"` is resolved once into a `custom` field with fixed text, so it never appears here), `note_id`, `ruby`, `redact`, `show_if`. `seq` stores `field_arg` as compact JSON `{"format":"arabic|roman|alpha","name":"…"}`.
 
 ### ID prefixes
 
