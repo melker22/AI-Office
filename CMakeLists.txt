@@ -490,7 +490,7 @@ foreach(_epub_pb IN LISTS _aio_epub_playbooks)
         WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}"
     )
 endforeach()
-add_test(NAME epub_check_selftest COMMAND "${Python3_EXECUTABLE}" "${CMAKE_SOURCE_DIR}/qa/check_epub.py" --self-test)
+add_test(NAME epub_check_selftest COMMAND "${Python3_EXECUTABLE}" "${CMAKE_SOURCE_DIR}/qa/check_epub.py" --self-test --cli "${AIOFFICE_CLI}")
 set_tests_properties(epub_check_selftest PROPERTIES LABELS "playbook" WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}")
 
 file(GLOB _aio_rtf_playbooks CONFIGURE_DEPENDS "${CMAKE_SOURCE_DIR}/qa/wave20-rtf-*.json")

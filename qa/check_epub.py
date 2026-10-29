@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+import inspect
 import json
 import os
 import re
@@ -920,6 +921,24 @@ def wave25_validator_exit_errors() -> list[str]:
     return []
 
 
+def epub_cli_wiring_errors() -> list[str]:
+    """self_test must forward the CLI it was given, and ctest must pass that path."""
+    errors: list[str] = []
+    source = inspect.getsource(self_test)
+    if '"build"' in source and "aioffice-cli" in source:
+        errors.append("epub self_test still falls back to the build/linux CLI")
+    if "run_wave25_suite(cli)" not in source:
+        errors.append("epub self_test does not pass cli into run_wave25_suite")
+    cmake = (REPO / "CMakeLists.txt").read_text(encoding="utf-8")
+    start = cmake.find("add_test(NAME epub_check_selftest")
+    end = cmake.find("set_tests_properties(epub_check_selftest", start)
+    if start < 0 or end < 0:
+        errors.append("epub_check_selftest CMake block not found")
+    elif '--cli "${AIOFFICE_CLI}"' not in cmake[start:end]:
+        errors.append('epub_check_selftest does not pass --cli "${AIOFFICE_CLI}"')
+    return errors
+
+
 def run_wave25_suite(cli: Path) -> bool:
     books = sorted((REPO / "qa").glob("wave25-*.json"))
     if not books:
@@ -979,7 +998,7 @@ def run_wave25_suite(cli: Path) -> bool:
     return ok
 
 
-def self_test(cli: Path | None = None) -> int:
+def self_test(cli: Path) -> int:
     ok = True
 
     sample = (
@@ -1272,7 +1291,14 @@ def self_test(cli: Path | None = None) -> int:
     else:
         print("ok   wave25 suite continues after a validator SystemExit")
 
-    if not run_wave25_suite(cli or (REPO / "build" / "linux" / "aioffice-cli")):
+    wiring = epub_cli_wiring_errors()
+    if wiring:
+        print("FAIL self-test cli wiring: " + "; ".join(wiring))
+        ok = False
+    else:
+        print("ok   epub self-test uses the passed CLI")
+
+    if not run_wave25_suite(cli):
         ok = False
 
     return 0 if ok else 1
