@@ -13,6 +13,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import re
 import subprocess
 import sys
 import tempfile
@@ -867,6 +868,46 @@ def test_hyperlink_switches(cli: Path, folder: Path) -> list[str]:
         errors.append(f"HYPERLINK #_Toc1 round-trip: {back!r}")
     if ("site", "https://x") not in back:
         errors.append(f"HYPERLINK https://x round-trip: {back!r}")
+
+    # A declared bookmark whose name is not a legal RTF bookmark token is
+    # normalized (sec-1 -> sec_1). A #name link must cite that same token.
+    # A #blockId with no bookmark declaration must not grow a \\bkmkstart.
+    steps = [
+        {"tool": "document_new", "args": {"title": "wave25 hyperlink bookmark", "force": True}},
+        {
+            "tool": "replace_range",
+            "args": {
+                "id": "p1",
+                "blocks": [
+                    {"id": "p1", "type": "paragraph", "runs": [{"text": "Alvo"}]},
+                    {"id": "pLoose", "type": "paragraph", "runs": [{"text": "sem marca"}]},
+                    {
+                        "id": "pLink",
+                        "type": "paragraph",
+                        "runs": [
+                            {"text": "ir", "link": "#sec-1"},
+                            {"text": "solto", "link": "#pLoose"},
+                        ],
+                    },
+                ],
+            },
+        },
+        {"tool": "bookmark_add", "args": {"id": "p1", "name": "sec-1", "offset": 0}},
+    ]
+    _save, rtf, _doc = roundtrip(cli, steps, folder, "hl-bm.rtf")
+    check_balanced(rtf, "HYPERLINK bookmark", errors)
+    starts = re.findall(r"\{\\\*\\bkmkstart ([^}]+)\}", rtf)
+    local_targets = re.findall(r'HYPERLINK \\\\l "([^"]*)"', rtf)
+    if starts != ["sec_1"]:
+        errors.append(f"HYPERLINK bookmark: \\bkmkstart names {starts!r}, expected ['sec_1']")
+    elif "sec_1" not in local_targets:
+        errors.append(
+            f"HYPERLINK \\\\l {local_targets!r} does not use the \\bkmkstart name {starts[0]!r}"
+        )
+    if "sec-1" in local_targets:
+        errors.append("HYPERLINK \\\\l kept the un-normalized bookmark name sec-1")
+    if any(name == "pLoose" or name.startswith("pLoose") for name in starts):
+        errors.append(f"HYPERLINK bookmark: undeclared block id grew a bookmark {starts!r}")
     return errors
 
 

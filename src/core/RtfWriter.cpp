@@ -291,9 +291,11 @@ struct RtfOut {
         if (!r.link.isEmpty()) {
             // A local target is the \l switch. Anything else is the URL, and a
             // later import skips \o / \t / \m / \n before that URL.
-            if (r.link.startsWith(QLatin1Char('#')))
-                instr = QStringLiteral(" HYPERLINK \\l %1 ").arg(quoteFieldArg(r.link.mid(1)));
-            else
+            if (r.link.startsWith(QLatin1Char('#'))) {
+                // Same token marksFor writes on \bkmkstart. No bookmark is
+                // emitted when that target was never declared.
+                instr = QStringLiteral(" HYPERLINK \\l %1 ").arg(quoteFieldArg(bm(r.link.mid(1))));
+            } else
                 instr = QStringLiteral(" HYPERLINK %1 ").arg(quoteFieldArg(r.link));
             return true;
         }
