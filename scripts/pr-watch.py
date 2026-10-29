@@ -29,6 +29,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import re
 import stat
 import subprocess
 import sys
@@ -171,12 +172,27 @@ def cr_state(head: str, since: datetime, reviews: list[dict], comments: list[dic
         if is_bot(c.get("user")) and c.get("created_at") and iso(c["created_at"]) > since
     ]
     for c in reversed(replies):  # newest reply decides
-        body = (c.get("body") or "").lower()
-        if "rate limited" in body:
-            return "rate_limited", f"reply {c.get('html_url')}"
-        if "review finished" in body or "already reviewed" in body:
-            return "no_review", f"reply {c.get('html_url')}"
+        outcome = reply_outcome(c.get("body") or "")
+        if outcome:
+            return outcome, f"reply {c.get('html_url')}"
     return "pending", ""
+
+
+def reply_outcome(body: str) -> str:
+    """Outcome of a CodeRabbit command reply, from its own text only.
+
+    Every reply carries the same boilerplate note ("> Note: ... does not
+    re-review already reviewed commits ..."), so HTML comments and quoted
+    lines are dropped before matching. "Review triggered." is still pending.
+    """
+    text = re.sub(r"<!--.*?-->", "", body, flags=re.S)
+    lines = [ln for ln in text.splitlines() if not ln.lstrip().startswith(">")]
+    low = " ".join(lines).lower()
+    if "rate limited" in low:
+        return "rate_limited"
+    if "review finished" in low or "already reviewed the last commit" in low:
+        return "no_review"
+    return ""
 
 
 class Watcher:
@@ -376,6 +392,18 @@ def self_test() -> int:
     check("finished, no review", cr_state(head, since, [], [fin])[0] == "no_review")
     rl = {"user": BOT_USER, "created_at": "2026-10-29T10:06:00Z", "body": "Review rate limited."}
     check("newest reply wins", cr_state(head, since, [], [fin, rl])[0] == "rate_limited")
+    note = ("\n\n> Note: CodeRabbit is an incremental review system and does not re-review already reviewed "
+            "commits. This command is applicable only when automatic reviews are paused.\n")
+    def reply(text: str) -> str:  # shape of a real CodeRabbit command reply (PR #17)
+        return ("<!-- This is an auto-generated reply by CodeRabbit -->\n<details>\n<summary>Action performed"
+                f"</summary>\n<dl>\n<dd>\n\n{text}{note}\n</dd>\n</dl>\n</details>")
+    check("triggered is pending", reply_outcome(reply("Review triggered.")) == "", reply_outcome(reply("Review triggered.")))
+    check("finished", reply_outcome(reply("Review finished.")) == "no_review")
+    check("already reviewed", reply_outcome(reply("Already reviewed the last commit. Use `@coderabbitai full review` "
+                                                  "to rerun a review of the entire changeset.")) == "no_review")
+    check("rate limited", reply_outcome(reply("Review rate limited.")) == "rate_limited")
+    trig = {"user": BOT_USER, "created_at": "2026-10-29T10:07:00Z", "body": reply("Review triggered.")}
+    check("triggered after finished stays pending", cr_state(head, since, [], [trig])[0] == "pending")
     check("ci none", ci_state([], []) == "pending")
     check("ci coderabbit ignored", ci_state([{"context": "CodeRabbit", "state": "success"}], []) == "pending")
     check("ci newest status", ci_state([{"context": "ci", "state": "success"},
