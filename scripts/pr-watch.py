@@ -211,7 +211,8 @@ def summary_covers(comment: dict, head: str) -> bool:
 # rate limits (the walkthrough of a PR about rate limits, for one) does not match.
 _RATE_NOTICE = re.compile(r"(?m)^<!-- This is an auto-generated comment: rate limited by coderabbit\.ai -->$")
 _REPLY_MARK = "<!-- This is an auto-generated reply by CodeRabbit -->"
-_WAIT = re.compile(r"(?i)wait\s+\**\s*([0-9][^*\n]{0,40}?)\s*\**\s+before")
+_REPLY_MARK_RE = re.compile(r"(?m)^<!-- This is an auto-generated reply by CodeRabbit -->$")
+_WAIT = re.compile(r"(?i)(?:wait\s+\**\s*([0-9][^*\n]{0,40}?)\s*\**\s+before|available in\s+\**\s*([0-9][^*\n.]{0,40}))")
 
 
 def summary_rate_limited(body: str) -> bool:
@@ -221,7 +222,7 @@ def summary_rate_limited(body: str) -> bool:
 
 def summary_wait(body: str) -> str:
     m = _WAIT.search(body)
-    return f" (wait {m.group(1).strip()})" if m else ""
+    return f" (wait {(m.group(1) or m.group(2)).strip()})" if m else ""
 
 
 def cr_state(head: str, since: datetime, reviews: list[dict], comments: list[dict]) -> tuple[str, str]:
@@ -249,7 +250,7 @@ def cr_state(head: str, since: datetime, reviews: list[dict], comments: list[dic
         if edited and iso(edited) > since and summary_rate_limited(body):
             events.append((iso(edited), "rate_limited", f"summary {c.get('html_url')}{summary_wait(body)}"))
         created = c.get("created_at")
-        if created and iso(created) > since and _REPLY_MARK in body:  # only command replies
+        if created and iso(created) > since and _REPLY_MARK_RE.search(body):  # only command replies (whole-line marker)
             outcome = reply_outcome(body)
             if outcome:
                 events.append((iso(created), outcome, f"reply {c.get('html_url')}"))
@@ -543,6 +544,13 @@ def self_test() -> int:
           cr_state(head, since, [], [dict(rl_summary, updated_at="2026-10-29T10:40:00Z"), later_fin])[0] == "rate_limited")
     check("review on head beats a rate-limit summary",
           cr_state(head, since, [new_rev], [rl_summary])[0] == "reviewed")
+    quoted_mark = {"user": BOT_USER, "created_at": "2026-10-29T10:50:00Z", "html_url": "q",
+                   "body": "> " + _REPLY_MARK + "\nReview finished."}
+    check("a quoted reply marker is not a command reply", cr_state(head, since, [], [quoted_mark])[0] == "pending")
+    new_notice = ("<!-- This is an auto-generated comment: rate limited by coderabbit.ai -->\n\n> [!WARNING]\n"
+                  "> ## Review limit reached\n> \n> **Next included review available in 5 minutes.**\n")
+    st2, det2 = cr_state(head, since, [], [dict(rl_summary, body=new_notice)])
+    check("wait time from the 'available in' notice", st2 == "rate_limited" and "5 minutes" in det2, (st2, det2))
     plain = {"user": BOT_USER, "created_at": "2026-10-29T10:50:00Z", "body": "Review finished. Rate limited.", "html_url": "p"}
     check("a bot comment that is not a command reply is ignored", cr_state(head, since, [], [plain])[0] == "pending")
     prose = dict(rl_summary, body="<!-- walkthrough_start -->\n> ## Rate limit exceeded\nThe watcher handles rate limited replies.")
