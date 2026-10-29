@@ -450,10 +450,29 @@ def check_d5(cli: Path) -> None:
 
 
 def region_of(rgba: bytes, width: int, height: int, rgb: tuple[int, int, int], tol: float) -> tuple[int, int, int, int]:
-    box = bbox_close(rgba, width, height, rgb, tol)
-    if box is None:
+    # The global bbox of a close color also catches antialiased neighbors
+    # (red ink on paper lands near pink). Keep the dense rows and columns,
+    # which are the cell fill, and inset past the border.
+    tol2 = tol * tol
+    row_count = [0] * height
+    col_count = [0] * width
+    for y in range(height):
+        base = y * width * 4
+        for x in range(width):
+            i = base + x * 4
+            dr = rgba[i] - rgb[0]
+            dg = rgba[i + 1] - rgb[1]
+            db = rgba[i + 2] - rgb[2]
+            if dr * dr + dg * dg + db * db <= tol2:
+                row_count[y] += 1
+                col_count[x] += 1
+    peak_row = max(row_count) if row_count else 0
+    peak_col = max(col_count) if col_count else 0
+    if peak_row < 8 or peak_col < 8:
         raise SystemExit(f"background {rgb} not found")
-    x0, y0, x1, y1 = box
+    rows = [i for i, count in enumerate(row_count) if count >= peak_row * 0.5]
+    cols = [i for i, count in enumerate(col_count) if count >= peak_col * 0.5]
+    x0, y0, x1, y1 = cols[0], rows[0], cols[-1] + 1, rows[-1] + 1
     return x0 + 3, y0 + 3, max(x0 + 4, x1 - 3), max(y0 + 4, y1 - 3)
 
 
