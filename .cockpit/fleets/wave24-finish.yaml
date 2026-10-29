@@ -46,7 +46,7 @@ nodes:
     max_iterations: 3
     on_exhausted: review-adjudication
     until:
-      run: test "{{needs.review-pass.output.issues}}" -eq 0 && scripts/fleet-verify-merged.sh 1
+      run: scripts/fleet-verify-merged.sh 1 && test "{{needs.review-pass.output.issues}}" -eq 0
     nodes:
       review-pass:
         session: continue

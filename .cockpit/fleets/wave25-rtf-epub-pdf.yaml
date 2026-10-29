@@ -74,8 +74,10 @@ nodes:
       Decisões: D1 (writer + a tabela compartilhada), D3, D4 (writer), D5 (writer), D6 (writer + sanitização do
       \\fldinst), D7, D8 (writer), D9, D11, D12.
       Para cada decisão: primeiro um teste que FALHA hoje (qa/wave25-*.json ligado ao ctest, ou checker),
-      depois a correção. `scripts/qa-all.sh --gui --formats` verde. Commits em inglês (fix:/test:), sem
-      push. Submeta commit = `git rev-parse HEAD`, qa_green, summary (decisão → teste → commit).
+      depois a correção. Compile só o alvo do CLI (`cmake --preset linux` e `cmake --build --preset linux
+      --target aioffice_cli`; no worktree isolado o primeiro build desse alvo é inevitável, nunca o projeto
+      inteiro) e rode `ctest --test-dir build/linux -R wave25`. O QA completo é do gate `build-1`, não deste
+      nó (L26). Commits em inglês (fix:/test:), sem push. Submeta commit = `git rev-parse HEAD`, qa_green, summary (decisão → teste → commit).
     success_output: qa_green
     output_contract: *executor_contract
 
@@ -98,8 +100,10 @@ nodes:
       Decisões: D1 (reader), D2, D4 (reader: destinos privados aiolistkind/aiocheck), D5 (reader), D6 (reader),
       D8 (reader: \\ftnalt → endnote), D10. Fixtures RTF escritas à mão (estilo Word e LibreOffice).
       Para cada decisão: primeiro um teste que FALHA hoje (qa/wave25-*.json ligado ao ctest, ou checker),
-      depois a correção. `scripts/qa-all.sh --gui --formats` verde. Commits em inglês (fix:/test:), sem
-      push. Submeta commit = `git rev-parse HEAD`, qa_green, summary (decisão → teste → commit).
+      depois a correção. Compile só o alvo do CLI (`cmake --preset linux` e `cmake --build --preset linux
+      --target aioffice_cli`; no worktree isolado o primeiro build desse alvo é inevitável, nunca o projeto
+      inteiro) e rode `ctest --test-dir build/linux -R wave25`. O QA completo é do gate `build-1`, não deste
+      nó (L26). Commits em inglês (fix:/test:), sem push. Submeta commit = `git rev-parse HEAD`, qa_green, summary (decisão → teste → commit).
     success_output: qa_green
     output_contract: *executor_contract
 
@@ -119,8 +123,10 @@ nodes:
       Só src/core/Epub.{h,cpp}, src/core/Xhtml.{h,cpp}, docs/mcp-tools.md e qa/. O epubcheck continua 0/0.
       Decisões: D13–D19.
       Para cada decisão: primeiro um teste que FALHA hoje (qa/wave25-*.json ligado ao ctest, ou checker),
-      depois a correção. `scripts/qa-all.sh --gui --formats` verde. Commits em inglês (fix:/test:), sem
-      push. Submeta commit = `git rev-parse HEAD`, qa_green, summary (decisão → teste → commit).
+      depois a correção. Compile só o alvo do CLI (`cmake --preset linux` e `cmake --build --preset linux
+      --target aioffice_cli`; no worktree isolado o primeiro build desse alvo é inevitável, nunca o projeto
+      inteiro) e rode `ctest --test-dir build/linux -R wave25`. O QA completo é do gate `build-1`, não deste
+      nó (L26). Commits em inglês (fix:/test:), sem push. Submeta commit = `git rev-parse HEAD`, qa_green, summary (decisão → teste → commit).
     success_output: qa_green
     output_contract: *executor_contract
 
@@ -141,8 +147,10 @@ nodes:
       marcador de tags), docs/mcp-tools.md e qa/. veraPDF PDF/UA-1 e PDF/A-1b continuam conformes.
       Decisões: D20–D23.
       Para cada decisão: primeiro um teste que FALHA hoje (qa/wave25-*.json ligado ao ctest, ou checker),
-      depois a correção. `scripts/qa-all.sh --gui --formats` verde. Commits em inglês (fix:/test:), sem
-      push. Submeta commit = `git rev-parse HEAD`, qa_green, summary (decisão → teste → commit).
+      depois a correção. Compile só o alvo do CLI (`cmake --preset linux` e `cmake --build --preset linux
+      --target aioffice_cli`; no worktree isolado o primeiro build desse alvo é inevitável, nunca o projeto
+      inteiro) e rode `ctest --test-dir build/linux -R wave25`. O QA completo é do gate `build-1`, não deste
+      nó (L26). Commits em inglês (fix:/test:), sem push. Submeta commit = `git rev-parse HEAD`, qa_green, summary (decisão → teste → commit).
     success_output: qa_green
     output_contract: *executor_contract
 
@@ -202,7 +210,7 @@ nodes:
     max_iterations: 3
     on_exhausted: review-adjudication
     until:
-      run: test "{{needs.review-pass.output.issues}}" -eq 0 && scripts/fleet-verify-merged.sh 1
+      run: scripts/fleet-verify-merged.sh 1 && test "{{needs.review-pass.output.issues}}" -eq 0
     nodes:
       review-pass:
         agent: claude
