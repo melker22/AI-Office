@@ -103,13 +103,30 @@ class Http:
             if exc.code == 304 and cached:
                 self.not_modified += 1
                 return Response(304, cached[1], hdrs)
-            if exc.code == 429 or (exc.code == 403 and hget("X-RateLimit-Remaining") == "0"):
+            retry_after = hget("Retry-After")
+            secondary = False
+            if exc.code == 403 and not retry_after and hget("X-RateLimit-Remaining") != "0":
+                try:  # a secondary limit can come with quota left and no timing header
+                    secondary = "secondary rate limit" in (exc.read() or b"").decode("utf-8", "replace").lower()
+                except (OSError, ValueError):
+                    secondary = False
+            if exc.code == 429 or (exc.code == 403 and (hget("X-RateLimit-Remaining") == "0" or retry_after
+                                                        or secondary)):
+                # Wait for the later of Retry-After (secondary limits) and X-RateLimit-Reset (primary);
+                # with neither usable, 60 s.
+                deadlines = []
                 try:
-                    self.rate_reset = float(hget("X-RateLimit-Reset") or 0)
+                    if retry_after:
+                        deadlines.append(time.time() + float(retry_after))
                 except ValueError:
-                    self.rate_reset = 0.0
-                if not self.rate_reset:
-                    self.rate_reset = time.time() + 60
+                    pass
+                try:
+                    reset = float(hget("X-RateLimit-Reset") or 0)
+                    if reset:
+                        deadlines.append(reset)
+                except ValueError:
+                    pass
+                self.rate_reset = max(deadlines) if deadlines else time.time() + 60
             return Response(exc.code, None, hdrs)
         except (urllib.error.URLError, OSError, ValueError):
             return Response(0, None, {})
@@ -189,6 +206,20 @@ def summary_covers(comment: dict, head: str) -> bool:
     return False
 
 
+_RATE_NOTICE = re.compile(r"(?im)^(?:>\s*)*#+\s*rate limit exceeded\b|rate limited by coderabbit\.ai")
+_WAIT = re.compile(r"(?i)wait\s+\**\s*([0-9][^*\n]{0,40}?)\s*\**\s+before")
+
+
+def summary_rate_limited(body: str) -> bool:
+    """CodeRabbit's rate-limit notice inside an (edited) summary comment."""
+    return bool(_RATE_NOTICE.search(body))
+
+
+def summary_wait(body: str) -> str:
+    m = _WAIT.search(body)
+    return f" (wait {m.group(1).strip()})" if m else ""
+
+
 def cr_state(head: str, since: datetime, reviews: list[dict], comments: list[dict]) -> tuple[str, str]:
     for r in reviews:
         if not (is_bot(r.get("user")) and r.get("commit_id") == head):
@@ -201,14 +232,24 @@ def cr_state(head: str, since: datetime, reviews: list[dict], comments: list[dic
         ts = c.get("updated_at") or c.get("created_at")
         if ts and iso(ts) > since and summary_covers(c, head):
             return "reviewed", f"summary marks {head[:7]} reviewed ({c.get('html_url')})"
-    replies = [
-        c for c in comments
-        if is_bot(c.get("user")) and c.get("created_at") and iso(c["created_at"]) > since
-    ]
-    for c in reversed(replies):  # newest reply decides
-        outcome = reply_outcome(c.get("body") or "")
-        if outcome:
-            return outcome, f"reply {c.get('html_url')}"
+    # The newest bot event after `since` decides: a rate-limit notice that an automatic review writes by
+    # editing the summary (its updated_at), or a command reply (its created_at).
+    events: list[tuple[datetime, str, str]] = []
+    for c in comments:
+        if not is_bot(c.get("user")):
+            continue
+        body = c.get("body") or ""
+        edited = c.get("updated_at") or c.get("created_at")
+        if edited and iso(edited) > since and summary_rate_limited(body):
+            events.append((iso(edited), "rate_limited", f"summary {c.get('html_url')}{summary_wait(body)}"))
+        created = c.get("created_at")
+        if created and iso(created) > since:
+            outcome = reply_outcome(body)
+            if outcome:
+                events.append((iso(created), outcome, f"reply {c.get('html_url')}"))
+    if events:
+        _, outcome, detail = max(events, key=lambda e: e[0])
+        return outcome, detail
     return "pending", ""
 
 
@@ -280,8 +321,11 @@ def done(s: Snapshot, until: str) -> bool:
 
 def notify(task: str, line: str) -> None:
     cockpit = os.environ.get("AIO_COCKPIT") or str(Path.home() / ".agi-tools" / "bin" / "cockpit")
-    subprocess.run([cockpit, "task", "send", task, "--stdin"], input=f"pr-watch: {line}\n",
-                   text=True, check=False, capture_output=True)
+    try:
+        subprocess.run([cockpit, "task", "send", task, "--stdin"], input=f"pr-watch: {line}\n",
+                       text=True, check=False, capture_output=True)
+    except OSError as exc:  # Cockpit CLI missing: the watch result still stands
+        print(f"pr-watch: could not notify task {task}: {exc}", file=sys.stderr)
 
 
 def run(args: argparse.Namespace, http: Http, sleep: Callable[[float], None] = time.sleep,
@@ -315,7 +359,10 @@ def run(args: argparse.Namespace, http: Http, sleep: Callable[[float], None] = t
                     notify(args.notify_task, line)
                 return 0
         if clock() - start >= args.timeout:
-            print(json.dumps({"pr": args.pr, "event": "timeout"}), file=out, flush=True)
+            line = json.dumps({"pr": args.pr, "event": "timeout"})
+            print(line, file=out, flush=True)
+            if args.notify_task:
+                notify(args.notify_task, line)
             return 2
         wait = interval
         if http.rate_reset:
@@ -474,6 +521,21 @@ def self_test() -> int:
     check("summary marker for another SHA", cr_state(head, since, [], [other])[0] == "pending")
     not_summary = dict(summary, body=summary_body.replace("<!-- walkthrough_start -->\n", ""))
     check("marker outside the summary", cr_state(head, since, [], [not_summary])[0] == "pending")
+    rl_body = ("<!-- This is an auto-generated comment: rate limited by coderabbit.ai -->\n> [!WARNING]\n"
+               "> ## Rate limit exceeded\n>\n> Please wait **26 minutes and 15 seconds** before requesting another review.\n")
+    rl_summary = {"user": BOT_USER, "created_at": "2026-10-28T00:00:00Z", "updated_at": "2026-10-29T10:20:00Z",
+                  "body": rl_body, "html_url": "u"}
+    st, det = cr_state(head, since, [], [rl_summary])
+    check("rate limit in an edited summary", st == "rate_limited" and "26 minutes and 15 seconds" in det, (st, det))
+    check("old rate-limit summary ignored",
+          cr_state(head, since, [], [dict(rl_summary, updated_at="2026-10-29T09:00:00Z")])[0] == "pending")
+    later_fin = {"user": BOT_USER, "created_at": "2026-10-29T10:30:00Z", "body": "Review finished.", "html_url": "f"}
+    check("a later reply beats an older rate-limit summary",
+          cr_state(head, since, [], [rl_summary, later_fin])[0] == "no_review")
+    check("a later rate-limit summary beats an older reply",
+          cr_state(head, since, [], [dict(rl_summary, updated_at="2026-10-29T10:40:00Z"), later_fin])[0] == "rate_limited")
+    check("review on head beats a rate-limit summary",
+          cr_state(head, since, [new_rev], [rl_summary])[0] == "reviewed")
     check("ci none", ci_state([], []) == "pending")
     check("ci coderabbit ignored", ci_state([{"context": "CodeRabbit", "state": "success"}], []) == "pending")
     check("ci newest status", ci_state([{"context": "ci", "state": "success"},
@@ -585,6 +647,80 @@ def self_test() -> int:
         main(["7", "--repo", "o/r", "--timeout", "1000"], http=Http(tok, opener=gh), sleep=sl,
              clock=lambda clock2=clock2: clock2[0], out=io.StringIO())
         check(f"interval token={bool(tok)}", waits2 and waits2[0] == want, waits2[:2])
+
+    # Retry-After (secondary limit) wins when it is later than X-RateLimit-Reset.
+    class _Secondary(_FakeGitHub):
+        def __init__(self) -> None:
+            super().__init__()
+            self.limited = 1
+
+        def __call__(self, req):
+            if self.limited:
+                self.limited -= 1
+                from email.message import Message
+                m = Message()
+                m["Retry-After"] = "600"
+                raise urllib.error.HTTPError(req.full_url, 403, "secondary rate limit", m, None)
+            return super().__call__(req)
+
+    class _SecondaryNoHeader(_FakeGitHub):
+        def __init__(self) -> None:
+            super().__init__()
+            self.limited = 1
+
+        def __call__(self, req):
+            if self.limited:
+                self.limited -= 1
+                import io as _io
+                from email.message import Message
+                m = Message()
+                m["X-RateLimit-Remaining"] = "4000"
+                raise urllib.error.HTTPError(req.full_url, 403, "Forbidden", m,
+                                             _io.BytesIO(b'{"message":"You have exceeded a secondary rate limit."}'))
+            return super().__call__(req)
+
+    gh2 = _SecondaryNoHeader()
+    add_review(gh2)
+    waits4: list[float] = []
+    now4 = [0.0]
+
+    def rec4(sec: float) -> None:
+        waits4.append(sec)
+        now4[0] += sec
+
+    main(["7", "--repo", "o/r", "--interval", "5"], http=Http("", opener=gh2), sleep=rec4,
+         clock=lambda: now4[0], out=io.StringIO())
+    check("secondary limit without headers waits 60 s", waits4 and waits4[0] >= 55, waits4[:2])
+
+    gh = _Secondary()
+    add_review(gh)
+    waits3: list[float] = []
+    now3 = [0.0]
+
+    def rec3(sec: float) -> None:
+        waits3.append(sec)
+        now3[0] += sec
+
+    main(["7", "--repo", "o/r", "--interval", "30"], http=Http("", opener=gh), sleep=rec3,
+         clock=lambda: now3[0], out=io.StringIO())
+    check("Retry-After honoured", waits3 and waits3[0] >= 590, waits3[:2])
+
+    # A missing Cockpit CLI does not break the result; a timeout is also sent to --notify-task.
+    import contextlib
+    saved_c = os.environ.get("AIO_COCKPIT")
+    os.environ["AIO_COCKPIT"] = "/nonexistent/cockpit"
+    try:
+        with contextlib.redirect_stderr(io.StringIO()) as err:
+            code = main(["7", "--repo", "o/r", "--timeout", "10", "--interval", "5", "--notify-task", "t1"],
+                        http=Http("", opener=_FakeGitHub()), sleep=lambda s: None,
+                        clock=iter([0, 0, 20, 20, 20]).__next__, out=io.StringIO())
+        check("timeout notifies and survives a missing CLI", code == 2 and "could not notify task t1" in err.getvalue(),
+              (code, err.getvalue()))
+    finally:
+        if saved_c is None:
+            os.environ.pop("AIO_COCKPIT", None)
+        else:
+            os.environ["AIO_COCKPIT"] = saved_c
 
     # Token file must be private.
     import tempfile
