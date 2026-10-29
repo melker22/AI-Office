@@ -983,7 +983,15 @@ def test_d12(cli: Path, folder: Path) -> list[str]:
                         "header": False,
                         "col_widths_mm": [20],
                         "rows": [[{"text": "p"}, {"text": "q"}]],
-                    }
+                    },
+                    {"type": "paragraph", "runs": [{"text": "Sep3"}]},
+                    {
+                        "id": "tZero",
+                        "type": "table",
+                        "header": False,
+                        "col_widths_mm": [0, 30],
+                        "rows": [[{"text": "z"}, {"text": "w"}]],
+                    },
                 ],
             },
         },
@@ -1005,6 +1013,9 @@ def test_d12(cli: Path, folder: Path) -> list[str]:
         errors.append(f"D12: a short width list fell back to equal columns: {partial!r}")
     elif not num_close(partial[0], 20, 0.001) or float(partial[1]) < 10:
         errors.append(f"D12: the column past a short width list is not usable: {partial!r}")
+    zero = (tables[3].get("col_widths_mm") or []) if len(tables) > 3 else []
+    if len(zero) != 2 or float(zero[0]) < 10 or not num_close(zero[1], 30, 0.001):
+        errors.append(f"D12: a 0 mm width is not given the even default: {zero!r}")
     # 20mm = 1134 twips, 30mm = 1701 twips. cellx is the cumulative right edge.
     err = need(rtf, "\\cellx1134", "D12")
     if err:

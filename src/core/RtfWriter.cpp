@@ -791,12 +791,12 @@ struct RtfOut {
             for (int c = 0; c < cols; ++c)
                 widths.append(qMax(1, colW));
         } else {
-            // A column past the end of a short width list gets the even default,
-            // not a one-twip sliver.
+            // A column past the end of a short width list, or with a width of
+            // 0 mm or less, gets the even default, not a one-twip sliver.
             const int fallback = qMax(1, cols > 0 ? 9000 / cols : 9000);
             for (int c = 0; c < cols; ++c) {
                 int tw = fallback;
-                if (c < b.colWidthsMm.size())
+                if (c < b.colWidthsMm.size() && b.colWidthsMm.at(c) > 0)
                     tw = qRound(b.colWidthsMm.at(c) * kTwipsPerMm / 10.0);
                 widths.append(qMax(1, tw));
             }
