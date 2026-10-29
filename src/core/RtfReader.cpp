@@ -274,6 +274,42 @@ QString readFieldArg(const QString &s, int &i)
     return unescapeFieldPiece(s.mid(start, i - start));
 }
 
+// Switches before the URL are not the URL. \l, \o, and \t consume the next
+// argument. \m and \n do not. A HYPERLINK that only has \l is the local target.
+QString hyperlinkTarget(const QString &s, int i)
+{
+    QString url;
+    QString location;
+    bool sawUrl = false;
+    while (i < s.size()) {
+        skipFieldWs(s, i);
+        if (i >= s.size())
+            break;
+        if (s.at(i) == QLatin1Char('\\') && i + 1 < s.size()) {
+            const QChar sw = s.at(i + 1).toLower();
+            const bool withArg = sw == QLatin1Char('l') || sw == QLatin1Char('o') || sw == QLatin1Char('t');
+            const bool bare = sw == QLatin1Char('m') || sw == QLatin1Char('n');
+            if (withArg || bare) {
+                i += 2;
+                if (withArg) {
+                    const QString arg = readFieldArg(s, i);
+                    if (sw == QLatin1Char('l'))
+                        location = arg;
+                }
+                continue;
+            }
+        }
+        const QString tok = readFieldArg(s, i);
+        if (!sawUrl) {
+            url = tok;
+            sawUrl = true;
+        }
+    }
+    if (url.isEmpty() && !location.isEmpty())
+        return QLatin1Char('#') + location;
+    return url;
+}
+
 QString readFieldToken(const QString &s, int &i)
 {
     skipFieldWs(s, i);
@@ -1635,6 +1671,18 @@ private:
             appendChar(QChar(0x201D));
         else if (word == QLatin1String("bullet"))
             appendChar(QChar(0x2022));
+        // A field switch written as a control word (\l, not \\l) is eaten before
+        // the instruction string exists. Put \l \o \t \m \n back so HYPERLINK can
+        // tell the switch from the URL. The argument, when there is one, follows
+        // as ordinary destination text.
+        if (!fields_.isEmpty() && f.sink == Sink::Inst) {
+            const QString sw = word.toLower();
+            if (sw == QLatin1String("l") || sw == QLatin1String("o") || sw == QLatin1String("t")
+                || sw == QLatin1String("m") || sw == QLatin1String("n")) {
+                fields_.last().inst.append(QLatin1Char('\\'));
+                fields_.last().inst.append(sw);
+            }
+        }
         Q_UNUSED(f);
     }
 
@@ -2115,7 +2163,7 @@ private:
             ++i;
         const QString key = inst.mid(keyAt, i - keyAt).toUpper();
         if (key == QLatin1String("HYPERLINK")) {
-            const QString url = readFieldArg(inst, i);
+            const QString url = hyperlinkTarget(inst, i);
             QVector<TextRun> runs = field.result;
             if (runs.isEmpty()) {
                 TextRun r;

@@ -289,7 +289,12 @@ struct RtfOut {
             return true;
         }
         if (!r.link.isEmpty()) {
-            instr = QStringLiteral(" HYPERLINK %1 ").arg(quoteFieldArg(r.link));
+            // A local target is the \l switch. Anything else is the URL, and a
+            // later import skips \o / \t / \m / \n before that URL.
+            if (r.link.startsWith(QLatin1Char('#')))
+                instr = QStringLiteral(" HYPERLINK \\l %1 ").arg(quoteFieldArg(r.link.mid(1)));
+            else
+                instr = QStringLiteral(" HYPERLINK %1 ").arg(quoteFieldArg(r.link));
             return true;
         }
         return false;

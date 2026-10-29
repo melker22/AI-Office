@@ -747,6 +747,120 @@ def test_d11(cli: Path, folder: Path) -> list[str]:
     return errors
 
 
+def import_rtf(cli: Path, folder: Path, name: str, body: str) -> dict[str, Any]:
+    path = folder / name
+    path.write_text(
+        "{\\rtf1\\ansi\\ansicpg1252\\uc1\\deff0\n"
+        "{\\fonttbl{\\f0\\fnil Liberation Serif;}}\n" + body + "}",
+        encoding="ascii",
+    )
+    out = play(
+        cli,
+        [
+            {"tool": "document_open", "args": {"path": str(path)}},
+            {"tool": "document_get", "args": {}},
+        ],
+        folder,
+    )
+    results = out.get("results") or []
+    if len(results) != 2:
+        raise SystemExit(f"import result count {len(results)} != 2")
+    return results[-1].get("document") or {}
+
+
+def run_links(doc: dict[str, Any]) -> list[tuple[str, str]]:
+    found: list[tuple[str, str]] = []
+    for block in blocks(doc):
+        for run in block.get("runs") or []:
+            link = run.get("link") or ""
+            if link:
+                found.append((run.get("text") or "", link))
+    return found
+
+
+def test_hyperlink_switches(cli: Path, folder: Path) -> list[str]:
+    """HYPERLINK switches are not the URL. \\l is a local bookmark (#name).
+
+    The hand-written field uses the control word \\l. Word stores the same
+    switch as the two characters \\\\l inside \\fldinst. Export of a #name
+    link must use that second spelling, and the import must come back as #name.
+    """
+    errors: list[str] = []
+    local = import_rtf(
+        cli,
+        folder,
+        "hl-local.rtf",
+        '{\\field{\\*\\fldinst HYPERLINK \\l "_Toc1"}{\\fldrslt texto}}\\par\n',
+    )
+    if ("texto", "#_Toc1") not in run_links(local):
+        errors.append(f"HYPERLINK \\\\l import: {run_links(local)!r}")
+
+    stored = import_rtf(
+        cli,
+        folder,
+        "hl-stored.rtf",
+        '{\\field{\\*\\fldinst HYPERLINK \\\\l "_Toc1"}{\\fldrslt texto}}\\par\n',
+    )
+    if ("texto", "#_Toc1") not in run_links(stored):
+        errors.append(f"HYPERLINK stored \\\\\\\\l import: {run_links(stored)!r}")
+
+    tipped = import_rtf(
+        cli,
+        folder,
+        "hl-tip.rtf",
+        '{\\field{\\*\\fldinst HYPERLINK "https://x" \\o "dica"}{\\fldrslt site}}\\par\n',
+    )
+    if ("site", "https://x") not in run_links(tipped):
+        errors.append(f"HYPERLINK \\\\o after URL: {run_links(tipped)!r}")
+
+    before = import_rtf(
+        cli,
+        folder,
+        "hl-before.rtf",
+        '{\\field{\\*\\fldinst HYPERLINK \\o "dica" \\t "frame" \\m \\n "https://x"}'
+        '{\\fldrslt site}}\\par\n',
+    )
+    if ("site", "https://x") not in run_links(before):
+        errors.append(f"HYPERLINK switches before URL: {run_links(before)!r}")
+
+    steps = [
+        {"tool": "document_new", "args": {"title": "wave25 hyperlink", "force": True}},
+        {
+            "tool": "insert_blocks",
+            "args": {
+                "after_id": "end",
+                "blocks": [
+                    {
+                        "id": "pLink",
+                        "type": "paragraph",
+                        "runs": [
+                            {"text": "texto", "link": "#_Toc1"},
+                            {"text": "site", "link": "https://x"},
+                        ],
+                    }
+                ],
+            },
+        },
+    ]
+    _save, rtf, doc = roundtrip(cli, steps, folder, "hl-out.rtf")
+    check_balanced(rtf, "HYPERLINK", errors)
+    local_instr = fldinst_rtf("HYPERLINK \\l " + quote_field_arg("_Toc1"))
+    err = need(rtf, local_instr, "HYPERLINK export \\\\l")
+    if err:
+        errors.append(err)
+    if 'HYPERLINK "#_Toc1"' in rtf:
+        errors.append("HYPERLINK export wrote #_Toc1 as a URL")
+    err = need(rtf, fldinst_rtf("HYPERLINK " + quote_field_arg("https://x")), "HYPERLINK export URL")
+    if err:
+        errors.append(err)
+    back = run_links(doc)
+    if ("texto", "#_Toc1") not in back:
+        errors.append(f"HYPERLINK #_Toc1 round-trip: {back!r}")
+    if ("site", "https://x") not in back:
+        errors.append(f"HYPERLINK https://x round-trip: {back!r}")
+    return errors
+
+
 def test_d12(cli: Path, folder: Path) -> list[str]:
     errors: list[str] = []
     steps = [
@@ -843,6 +957,7 @@ def run_suite(cli: Path) -> list[str]:
             ("D9", test_d9),
             ("D11", test_d11),
             ("D12", test_d12),
+            ("HYPERLINK", test_hyperlink_switches),
         ):
             try:
                 found = fn(cli, folder)
