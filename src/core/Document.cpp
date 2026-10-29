@@ -1660,6 +1660,16 @@ static void forEachFieldRun(const Document &doc,
                         if (fn(block, run, &run))
                             return;
                     }
+                    // Nested tables are only one level (NestedCell holds runs).
+                    // Walk them in document order so seq/xref see those fields.
+                    for (const auto &nestedRow : cell.nested) {
+                        for (const auto &nestedCell : nestedRow) {
+                            for (const auto &run : nestedCell.runs) {
+                                if (fn(block, run, &run))
+                                    return;
+                            }
+                        }
+                    }
                 }
             }
         }

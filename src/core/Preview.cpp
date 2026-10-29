@@ -973,6 +973,15 @@ int DocumentLayout::displayPage(int physical) const
     return qMax(1, physical);
 }
 
+qreal DocumentLayout::pageContentOffsetMm(const Document &doc, int physicalPage) const
+{
+    if (!doc.page.gutterMirror || !(doc.page.gutterMm > 0))
+        return 0;
+    if (displayPage(physicalPage) % 2 != 0)
+        return 0;
+    return -doc.page.gutterMm;
+}
+
 static bool blockUsesTextLayout(const QString &type)
 {
     return type != QLatin1String("table") && type != QLatin1String("image") && type != QLatin1String("shape")
@@ -1061,12 +1070,16 @@ HitResult DocumentLayout::hitTest(const Document &doc, int page, QPointF posInPa
 {
     HitResult h;
     h.page = page;
+    // Callers pass painted-page coordinates. The even-page gutter mirror is a
+    // paint-time translation, so undo it once before any layout-space test.
+    const qreal dx = mmToPx(pageContentOffsetMm(doc, page), zoom);
+    const QPointF at(posInPage.x() - dx, posInPage.y());
     for (const auto &lb : blocks) {
         if (lb.page != page)
             continue;
         if (lb.type == QLatin1String("table")) {
             for (const auto &c : lb.cells) {
-                if (c.rect.contains(posInPage)) {
+                if (c.rect.contains(at)) {
                     h.ok = true;
                     h.id = lb.id;
                     h.row = c.row;
@@ -1076,21 +1089,21 @@ HitResult DocumentLayout::hitTest(const Document &doc, int page, QPointF posInPa
                         QString t;
                         for (const auto &r : b->table[h.row][h.col].runs)
                             t += r.text;
-                        h.offset = qBound(0, int(t.size() * (posInPage.x() - c.rect.left()) / qMax(1.0, c.rect.width())),
+                        h.offset = qBound(0, int(t.size() * (at.x() - c.rect.left()) / qMax(1.0, c.rect.width())),
                                           t.size());
                     }
                     return h;
                 }
             }
         }
-        if (lb.rect.contains(posInPage) || (posInPage.y() >= lb.rect.top() && posInPage.y() <= lb.rect.bottom())) {
+        if (lb.rect.contains(at) || (at.y() >= lb.rect.top() && at.y() <= lb.rect.bottom())) {
             h.ok = true;
             h.id = lb.id;
             const Block *b = doc.findBlock(lb.id);
             if (b && blockUsesTextLayout(lb.type) && lb.rect.width() > 0) {
                 const BlockTextLayout btl = blockTextLayout(doc, *b, laidTextInput(*this, lb));
                 const bool vert = verticalWriting(doc, *b);
-                const QPointF layoutPt = vert ? verticalMap(posInPage, lb.rect.center(), true) : posInPage;
+                const QPointF layoutPt = vert ? verticalMap(at, lb.rect.center(), true) : at;
                 const qreal originX = lb.rect.left() + lb.markerWidth;
                 const qreal originY = lb.rect.top() - lb.layoutY0;
                 const qreal localX = layoutPt.x() - originX;
@@ -1118,7 +1131,7 @@ HitResult DocumentLayout::hitTest(const Document &doc, int page, QPointF posInPa
                 h.offset = qBound(0, btl.toModel(disp), btl.modelLength);
             } else {
                 const QString t = b ? b->plainText() : QString();
-                const qreal x = posInPage.x() - lb.rect.left() - lb.markerWidth;
+                const qreal x = at.x() - lb.rect.left() - lb.markerWidth;
                 if (!t.isEmpty() && lb.rect.width() > 0)
                     h.offset = qBound(0, int(t.size() * x / qMax(1.0, lb.rect.width() - lb.markerWidth)), t.size());
             }
@@ -2924,9 +2937,9 @@ void paintPage(QPainter *p, const Document &doc, const DocumentLayout &lay, int 
     for (const auto &m : markers) {
         if (!gutterDone && m.artifactPass != 0) {
             gutterDone = true;
-            const int shownEarly = lay.displayPage(page);
-            if (doc.page.gutterMirror && shownEarly % 2 == 0 && doc.page.gutterMm > 0)
-                p->translate(-mmToPx(doc.page.gutterMm, lay.zoom), 0);
+            const qreal gutterDx = mmToPx(lay.pageContentOffsetMm(doc, page), lay.zoom);
+            if (gutterDx != 0)
+                p->translate(gutterDx, 0);
         }
         const Block *bp = m.blockId.isEmpty() ? nullptr : doc.findBlock(m.blockId);
         const LaidBlock *lb = bp ? laidFragment(ordered, m) : nullptr;
