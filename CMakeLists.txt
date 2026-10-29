@@ -479,8 +479,10 @@ set_tests_properties(pdf_check_selftest PROPERTIES LABELS "playbook" WORKING_DIR
 
 # Wave 26 paint judges. png_probe.py is stdlib-only and does not need the CLI.
 add_test(NAME wave26_png_probe COMMAND "${Python3_EXECUTABLE}" "${CMAKE_SOURCE_DIR}/qa/png_probe.py" --self-test)
+# playbook so scripts/qa-all.sh and CircleCI (-L playbook|…) run these judges.
+# wave26 stays so `ctest -R wave26` / `-L wave26` still select them.
 set_tests_properties(wave26_png_probe PROPERTIES
-    LABELS "wave26"
+    LABELS "playbook;wave26"
     WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}"
     TIMEOUT 30
 )
@@ -489,7 +491,7 @@ foreach(_w26_check d4 d5 d6)
         "${Python3_EXECUTABLE}" "${CMAKE_SOURCE_DIR}/qa/wave26-paint.py"
         --check "${_w26_check}" --cli "${AIOFFICE_CLI}")
     set_tests_properties("wave26_${_w26_check}" PROPERTIES
-        LABELS "wave26"
+        LABELS "playbook;wave26"
         WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}"
         TIMEOUT 180
     )
