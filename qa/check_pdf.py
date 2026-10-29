@@ -491,6 +491,7 @@ WAVE25_PLAYBOOKS = (
     "wave25-d21-note-copies.json",
     "wave25-d22-nested-list.json",
     "wave25-d23-cell-span.json",
+    "wave25-d23-span-limit.json",
 )
 
 _PDF_NAMED_ESCAPES = {

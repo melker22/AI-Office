@@ -1,0 +1,12 @@
+{
+  "pdf": "build/linux/wave25-d23-span-limit.pdf",
+  "verapdf": {
+    "1b": {"compliant": true},
+    "ua1": {"compliant": true}
+  },
+  "qpdf": {
+    "no_part_fallback": true,
+    "struct_types": ["Table", "TR", "TH", "TD"]
+  },
+  "cell_spans": {"col_span": 2, "row_span": 2}
+}

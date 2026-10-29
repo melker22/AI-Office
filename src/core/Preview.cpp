@@ -2011,8 +2011,10 @@ static QVector<PdfTagMarker> pdfTagMarkersForPage(const Document &doc, const Doc
                 m.col = g.col;
                 m.headerCell = b.headerRow && g.row == 0;
                 if (g.row >= 0 && g.row < b.table.size() && g.col >= 0 && g.col < b.table[g.row].size()) {
-                    m.colSpan = qMax(1, b.table[g.row][g.col].colSpan);
-                    m.rowSpan = qMax(1, b.table[g.row][g.col].rowSpan);
+                    const int colsLeft = qMax(1, b.table[g.row].size() - g.col);
+                    const int rowsLeft = qMax(1, b.table.size() - g.row);
+                    m.colSpan = qBound(1, b.table[g.row][g.col].colSpan, colsLeft);
+                    m.rowSpan = qBound(1, b.table[g.row][g.col].rowSpan, rowsLeft);
                 }
                 m.clip = g.rect.adjusted(-3, -3, 3, 3);
                 out.push_back(m);
