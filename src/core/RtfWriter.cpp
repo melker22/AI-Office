@@ -934,14 +934,19 @@ struct RtfOut {
                     const Block &li = blocks[i];
                     const int ilvl = qBound(0, (li.level > 0 ? li.level : 1) - 1, 8);
                     QString inner = paraProps(li) + QStringLiteral("\\ls%1\\ilvl%2 ").arg(ls).arg(ilvl);
+                    QString marker;
                     if (check) {
                         const QChar box(li.checked ? 0x2611 : 0x2610);
-                        inner += QStringLiteral("{\\*\\aiocheck %1}{\\listtext %2\\tab}")
-                                     .arg(li.checked ? 1 : 0)
-                                     .arg(escapeText(QString(box)));
+                        inner += QStringLiteral("{\\*\\aiocheck %1}").arg(li.checked ? 1 : 0);
+                        marker = QStringLiteral("{\\listtext %1\\tab}").arg(escapeText(QString(box)));
                     }
-                    inner += vanishWrap(li, emitMarkedRuns(li.id, li.runs, defaultFont, defaultSizeHalfPt));
-                    inner += commentSuffix(li) + QStringLiteral("\\par\n");
+                    // A hidden item hides its marker too: the checkbox \\listtext goes
+                    // inside the \\v group, and a hidden paragraph mark (\\v\\par)
+                    // makes Word drop the list number or bullet.
+                    const bool hidden = textVanished(li);
+                    inner += vanishWrap(li, marker + emitMarkedRuns(li.id, li.runs, defaultFont, defaultSizeHalfPt));
+                    inner += commentSuffix(li)
+                        + (hidden ? QStringLiteral("\\v\\par\\v0\n") : QStringLiteral("\\par\n"));
                     body += inner;
                     ++i;
                 }

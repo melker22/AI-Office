@@ -618,11 +618,32 @@ def test_d7(cli: Path, folder: Path) -> list[str]:
                         "hide_if": "0",
                         "runs": [{"text": "Visivel"}],
                     },
+                    {
+                        "id": "liHid",
+                        "type": "list-item",
+                        "list_kind": "checkbox",
+                        "level": 1,
+                        "section_hidden": True,
+                        "runs": [{"text": "TarefaOculta"}],
+                    },
                 ],
             },
         },
     ]
     save, rtf, doc = roundtrip(cli, steps, folder, "d7.rtf")
+    # A hidden list item hides its marker too: the checkbox \listtext sits in
+    # the \v group and the paragraph mark is hidden, so Word draws no bullet.
+    item = re.search(r"\\ls\d+\\ilvl\d+ .*?TarefaOculta.*?\\par", rtf, re.S)
+    if not item:
+        errors.append("D7: hidden list item not found in RTF")
+    else:
+        seg = item.group(0)
+        v_at = seg.find("{\\v ")
+        lt_at = seg.find("{\\listtext")
+        if v_at < 0 or lt_at < 0 or lt_at < v_at:
+            errors.append(f"D7: hidden list item marker is outside \\v: {seg!r}")
+        if not seg.endswith("\\v\\par"):
+            errors.append(f"D7: hidden list item paragraph mark is not hidden: {seg!r}")
     check_balanced(rtf, "D7", errors)
     warns = warnings_of(save)
     for block_id in ("pHid", "pExpr"):
