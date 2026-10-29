@@ -131,7 +131,7 @@ Camadas: `JSON+MCP+GUI` · `JSON+MCP` · `só JSON` · `infra`.
 | Recorte, flip e sombra de imagem | Writer | WG 26.2 cap. 11 | JSON+MCP |
 | Formas (rect/ellipse/line) | Writer | WG 26.2 cap. 11 | JSON+MCP |
 | Gráfico de barras | Writer | WG 26.2 cap. 11 | JSON+MCP |
-| QR no texto | Writer | WG 26.2 cap. 11 | JSON+MCP. **Onda 24 entregue (A-odf-10):** `encodeQr` corrige o nível ECC do payload (versão 1, nível L) e grava os módulos de dados antes de travar as áreas de formato/timing, para a informação de formato não ser sobrescrita; suporte a byte mode ampliado até a versão 10. QA roda `zbar` para confirmar que o símbolo gerado é decodificável |
+| QR no texto | Writer | WG 26.2 cap. 11 | JSON+MCP. **Onda 24 entregue (A-odf-10):** `encodeQr` usa byte mode até a versão 10, com correção nível M. Os módulos de função são reservados antes dos dados. A máscara é a de menor penalidade entre as oito. O juiz `zbarimg` confirma que o símbolo é decodificável |
 | Equação numerada | Writer | WG 26.2 cap. 17 | JSON+MCP |
 | Formulário no texto | Writer | WG 26.2 cap. 13 | JSON+MCP |
 | Numeração de capítulos e linhas | Writer | WG 26.2 cap. 6 | JSON+MCP |

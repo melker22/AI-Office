@@ -2,7 +2,7 @@ version: 1
 name: wave25-rtf-epub-pdf
 description: >
   Onda 25 — fidelidade RTF, EPUB e PDF (auditoria 2026-10). Spec: docs/waves/wave25-rtf-epub-pdf-fidelity.md.
-  Executor Grok Build (Cursor a 94%: não usada). Regras L22–L25 em todo prompt. Push/PR pré-aprovados;
+  Executor Grok Build (Cursor a 94%: não usada). Regras L22, L25–L27 em todo prompt. Push/PR pré-aprovados;
   o orquestrador roda o gate de merge.
 args:
   opus_audit:
@@ -20,7 +20,7 @@ nodes:
     model: claude-sonnet-5
     effort: medium
     prompt: |
-      REGRAS (L22–L25): faça tudo você mesmo, neste turno; NÃO use skills nem subagentes nem tarefas em
+      REGRAS (L22, L25–L27): faça tudo você mesmo, neste turno; NÃO use skills nem subagentes nem tarefas em
       segundo plano; nunca submeta saída provisória; NÃO use `git stash` (é compartilhado entre worktrees);
       a CI roda como root e com outra glibc (teste não depende de privilégio nem de LD_PRELOAD herdado).
       Projeto AI Office Writer. Mantenha docs/LESSONS.md e .cursor/rules/lessons.mdc. Não altere código.
@@ -34,13 +34,13 @@ nodes:
          acrescente evidência e incremente; padrão novo → lição nova com regra VERIFICÁVEL. Sem evidência
          (link de thread/commit) não entra.
       4. Registre também estas lições, com as evidências indicadas:
-         - L23: nó Claude não usa skills, subagentes nem tarefas em segundo plano, e não submete saída
+         - L25: nó Claude não usa skills, subagentes nem tarefas em segundo plano, e não submete saída
            "provisória". Evidência: Fleet wave24 (Run 4712f7db), em que review-pass submeteu issues:0
            "provisório" e fix-pass submeteu qa_green:false "provisório"; Fleet audit (Run 6fda0b72).
-         - L24: nó de agente não roda build completo do zero; o QA longo é do gate de comando ou de um build
+         - L26: nó de agente não roda build completo do zero; o QA longo é do gate de comando ou de um build
            aquecido. Evidência: Fleet wave24-finish (Run a41c009a), em que o stabilize estourou o tempo de um
            comando.
-         - L25: ninguém usa `git stash`, porque o stash é compartilhado entre worktrees. Evidência: um pop no
+         - L27: ninguém usa `git stash`, porque o stash é compartilhado entre worktrees. Evidência: um pop no
            checkout principal pegou o stash de um agente que trabalhava no worktree do PR #15.
       5. Reescreva o checklist de .cursor/rules/lessons.mdc (máx. 15 itens) e atualize "Última PR processada".
       6. Commit `docs: update lessons from PR #N` em inglês, sem push. Submeta commit =
@@ -65,7 +65,7 @@ nodes:
       Leia docs/waves/wave25-rtf-epub-pdf-fidelity.md (decisões FECHADAS), os achados citados em
       docs/audit/module-sweep.md e docs/audit/coderabbit-pr11.json, docs/ORCHESTRATION.md e o checklist de
       .cursor/rules/lessons.mdc.
-      REGRAS (L22–L25): faça tudo você mesmo, neste turno; NÃO use skills nem subagentes nem tarefas em
+      REGRAS (L22, L25–L27): faça tudo você mesmo, neste turno; NÃO use skills nem subagentes nem tarefas em
       segundo plano; nunca submeta saída provisória; NÃO use `git stash` (é compartilhado entre worktrees);
       a CI roda como root e com outra glibc (teste não depende de privilégio nem de LD_PRELOAD herdado).
       Só src/core/RtfWriter.{h,cpp}, a tabela de LCID compartilhada (crie src/core/RtfLang.{h,cpp} se precisar;
@@ -89,7 +89,7 @@ nodes:
       Leia docs/waves/wave25-rtf-epub-pdf-fidelity.md (decisões FECHADAS), os achados citados em
       docs/audit/module-sweep.md e docs/audit/coderabbit-pr11.json, docs/ORCHESTRATION.md e o checklist de
       .cursor/rules/lessons.mdc.
-      REGRAS (L22–L25): faça tudo você mesmo, neste turno; NÃO use skills nem subagentes nem tarefas em
+      REGRAS (L22, L25–L27): faça tudo você mesmo, neste turno; NÃO use skills nem subagentes nem tarefas em
       segundo plano; nunca submeta saída provisória; NÃO use `git stash` (é compartilhado entre worktrees);
       a CI roda como root e com outra glibc (teste não depende de privilégio nem de LD_PRELOAD herdado).
       Só src/core/RtfReader.{h,cpp}, docs/mcp-tools.md e qa/. Use a tabela de LCID compartilhada da T1
@@ -113,7 +113,7 @@ nodes:
       Leia docs/waves/wave25-rtf-epub-pdf-fidelity.md (decisões FECHADAS), os achados citados em
       docs/audit/module-sweep.md e docs/audit/coderabbit-pr11.json, docs/ORCHESTRATION.md e o checklist de
       .cursor/rules/lessons.mdc.
-      REGRAS (L22–L25): faça tudo você mesmo, neste turno; NÃO use skills nem subagentes nem tarefas em
+      REGRAS (L22, L25–L27): faça tudo você mesmo, neste turno; NÃO use skills nem subagentes nem tarefas em
       segundo plano; nunca submeta saída provisória; NÃO use `git stash` (é compartilhado entre worktrees);
       a CI roda como root e com outra glibc (teste não depende de privilégio nem de LD_PRELOAD herdado).
       Só src/core/Epub.{h,cpp}, src/core/Xhtml.{h,cpp}, docs/mcp-tools.md e qa/. O epubcheck continua 0/0.
@@ -134,7 +134,7 @@ nodes:
       Leia docs/waves/wave25-rtf-epub-pdf-fidelity.md (decisões FECHADAS), os achados citados em
       docs/audit/module-sweep.md e docs/audit/coderabbit-pr11.json, docs/ORCHESTRATION.md e o checklist de
       .cursor/rules/lessons.mdc.
-      REGRAS (L22–L25): faça tudo você mesmo, neste turno; NÃO use skills nem subagentes nem tarefas em
+      REGRAS (L22, L25–L27): faça tudo você mesmo, neste turno; NÃO use skills nem subagentes nem tarefas em
       segundo plano; nunca submeta saída provisória; NÃO use `git stash` (é compartilhado entre worktrees);
       a CI roda como root e com outra glibc (teste não depende de privilégio nem de LD_PRELOAD herdado).
       Só src/core/PdfPostProcess.{h,cpp} (e o mínimo em Preview para passar spans de célula/página ao
@@ -151,7 +151,7 @@ nodes:
     needs: [t1-rtf-writer, t2-rtf-reader, t3-epub, t4-pdf]
     effort: medium
     prompt: |
-      REGRAS (L22–L25): faça tudo você mesmo, neste turno; NÃO use skills nem subagentes nem tarefas em
+      REGRAS (L22, L25–L27): faça tudo você mesmo, neste turno; NÃO use skills nem subagentes nem tarefas em
       segundo plano; nunca submeta saída provisória; NÃO use `git stash` (é compartilhado entre worktrees);
       a CI roda como root e com outra glibc (teste não depende de privilégio nem de LD_PRELOAD herdado).
       Neste worktree, faça `git merge` dos commits EXATOS, nesta ordem:
@@ -177,14 +177,14 @@ nodes:
     effort: high
     needs: [build-1]
     prompt: |
-      REGRAS (L22–L25): faça tudo você mesmo, neste turno; NÃO use skills nem subagentes nem tarefas em
+      REGRAS (L22, L25–L27): faça tudo você mesmo, neste turno; NÃO use skills nem subagentes nem tarefas em
       segundo plano; nunca submeta saída provisória; NÃO use `git stash` (é compartilhado entre worktrees);
       a CI roda como root e com outra glibc (teste não depende de privilégio nem de LD_PRELOAD herdado).
       Projeto AI Office Writer, worktree integrado da onda 25. Leia docs/waves/wave25-rtf-epub-pdf-fidelity.md
       (critério de pronto) e o checklist de lições. Faça tudo neste turno, sem subagentes em segundo plano.
       Rode `scripts/qa-all.sh --gui --interop --pdf --formats`. Corrija o CÓDIGO (não testes nem
       expectativas) até passar. Confirme: qa/audit/ não tem mais nenhum playbook desta onda (só os das
-      ondas 24–26, se houver); cada decisão D1–D17 tem um expect que falharia sem ela (liste no summary
+      ondas 24–26, se houver); cada decisão D1–D23 tem um expect que falharia sem ela (liste no summary
       decisão → arquivo de teste); qa/check_mcp_stdio.py passa. Decisão que pareça impossível → PARE e
       reporte "PRECISA OPUS: ..." com evidência. Commit em inglês, sem push. Submeta commit/qa_green/summary.
     success_output: qa_green
@@ -210,7 +210,7 @@ nodes:
         effort: high
         session: continue
         prompt: |
-          REGRAS (L22–L25): faça tudo você mesmo, neste turno; NÃO use skills nem subagentes nem tarefas em
+          REGRAS (L22, L25–L27): faça tudo você mesmo, neste turno; NÃO use skills nem subagentes nem tarefas em
           segundo plano; nunca submeta saída provisória; NÃO use `git stash` (é compartilhado entre worktrees);
           a CI roda como root e com outra glibc (teste não depende de privilégio nem de LD_PRELOAD herdado).
           Você é o Tech Lead. PRIMEIRO verifique no diff cada item de .cursor/rules/lessons.mdc. Depois
@@ -223,7 +223,7 @@ nodes:
           nada. Só defeitos reais. Faça tudo neste turno. Submeta issues e findings ("arquivo:linha —
           defeito — correção sugerida").
         followup_prompt: |
-          REGRAS (L22–L25): faça tudo você mesmo, neste turno; NÃO use skills nem subagentes nem tarefas em
+          REGRAS (L22, L25–L27): faça tudo você mesmo, neste turno; NÃO use skills nem subagentes nem tarefas em
           segundo plano; nunca submeta saída provisória; NÃO use `git stash` (é compartilhado entre worktrees);
           a CI roda como root e com outra glibc (teste não depende de privilégio nem de LD_PRELOAD herdado).
           Houve correção. Verifique de novo o checklist de lições e `git diff main...HEAD`, rode
@@ -238,7 +238,7 @@ nodes:
         needs: [review-pass]
         effort: high
         prompt: |
-          REGRAS (L22–L25): faça tudo você mesmo, neste turno; NÃO use skills nem subagentes nem tarefas em
+          REGRAS (L22, L25–L27): faça tudo você mesmo, neste turno; NÃO use skills nem subagentes nem tarefas em
           segundo plano; nunca submeta saída provisória; NÃO use `git stash` (é compartilhado entre worktrees);
           a CI roda como root e com outra glibc (teste não depende de privilégio nem de LD_PRELOAD herdado).
           Projeto AI Office Writer (spec: docs/waves/wave25-rtf-epub-pdf-fidelity.md; checklist .cursor/rules/lessons.mdc).
@@ -256,7 +256,7 @@ nodes:
     model: claude-sonnet-5
     effort: high
     prompt: |
-      REGRAS (L22–L25): faça tudo você mesmo, neste turno; NÃO use skills nem subagentes nem tarefas em
+      REGRAS (L22, L25–L27): faça tudo você mesmo, neste turno; NÃO use skills nem subagentes nem tarefas em
       segundo plano; nunca submeta saída provisória; NÃO use `git stash` (é compartilhado entre worktrees);
       a CI roda como root e com outra glibc (teste não depende de privilégio nem de LD_PRELOAD herdado).
       Três passadas não zeraram os findings. Descarte os que não são defeitos (com motivo), faça UMA
@@ -282,7 +282,7 @@ nodes:
     model: claude-opus-5-5
     effort: high
     prompt: |
-      REGRAS (L22–L25): faça tudo você mesmo, neste turno; NÃO use skills nem subagentes nem tarefas em
+      REGRAS (L22, L25–L27): faça tudo você mesmo, neste turno; NÃO use skills nem subagentes nem tarefas em
       segundo plano; nunca submeta saída provisória; NÃO use `git stash` (é compartilhado entre worktrees);
       a CI roda como root e com outra glibc (teste não depende de privilégio nem de LD_PRELOAD herdado).
       Auditoria final de `git diff main...HEAD` contra docs/waves/wave25-rtf-epub-pdf-fidelity.md (foco: D4/D6/D8 RTF,
@@ -302,7 +302,7 @@ nodes:
     needs: [qa-final]
     effort: medium
     prompt: |
-      REGRAS (L22–L25): faça tudo você mesmo, neste turno; NÃO use skills nem subagentes nem tarefas em
+      REGRAS (L22, L25–L27): faça tudo você mesmo, neste turno; NÃO use skills nem subagentes nem tarefas em
       segundo plano; nunca submeta saída provisória; NÃO use `git stash` (é compartilhado entre worktrees);
       a CI roda como root e com outra glibc (teste não depende de privilégio nem de LD_PRELOAD herdado).
       Atualize só estes arquivos e commit `docs: ...` em inglês, sem push:
@@ -322,7 +322,7 @@ nodes:
     model: claude-sonnet-5
     effort: low
     prompt: |
-      REGRAS (L22–L25): faça tudo você mesmo, neste turno; NÃO use skills nem subagentes nem tarefas em
+      REGRAS (L22, L25–L27): faça tudo você mesmo, neste turno; NÃO use skills nem subagentes nem tarefas em
       segundo plano; nunca submeta saída provisória; NÃO use `git stash` (é compartilhado entre worktrees);
       a CI roda como root e com outra glibc (teste não depende de privilégio nem de LD_PRELOAD herdado).
       Sincronize o Notion com o repositório (regra: documentação sempre atualizada). Tools MCP do
@@ -339,7 +339,7 @@ nodes:
     model: claude-sonnet-5
     effort: medium
     prompt: |
-      REGRAS (L22–L25): faça tudo você mesmo, neste turno; NÃO use skills nem subagentes nem tarefas em
+      REGRAS (L22, L25–L27): faça tudo você mesmo, neste turno; NÃO use skills nem subagentes nem tarefas em
       segundo plano; nunca submeta saída provisória; NÃO use `git stash` (é compartilhado entre worktrees);
       a CI roda como root e com outra glibc (teste não depende de privilégio nem de LD_PRELOAD herdado).
       Push deste branch para origin (nunca main) e PR para `main` em melker22/AI-Office via tool MCP do

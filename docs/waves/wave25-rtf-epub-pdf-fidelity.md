@@ -70,7 +70,7 @@ Os itens abaixo estão provados em `docs/audit/module-sweep.md` (ids A-rtf-*, A-
 | D24 | **Juízes**: cada decisão tem um teste que falha antes da correção, com prefixo `qa/wave25-`. O epubcheck continua com 0 erros e 0 avisos, e o veraPDF PDF/UA-1 e o PDF/A-1b continuam conformes. O RTF faz ida e volta pelo nosso import e, com `--interop`, pelo LibreOffice. Testes desabilitados que citam a onda 25 são reabilitados. |
 | D25 | Não regredir as ondas 12–24. |
 
-## Regras de execução (lições L22–L25)
+## Regras de execução (lições L22, L25–L27)
 
 - **CI:** a CI roda como root e com outra glibc. Nenhum teste depende de privilégio nem de `LD_PRELOAD` herdado.
 - **Nós Claude:** não usam skills nem subagentes e nunca submetem uma saída provisória.
@@ -83,7 +83,7 @@ O Grok Build voltou. A Cursor está a 94% (modelos) e não é usada nesta onda.
 
 | Nó | Executor | Itens |
 |---|---|---|
-| `lessons` | Sonnet | PRs #13–#15 + lições L23–L25 |
+| `lessons` | Sonnet | PRs #13–#15 + lições L25–L27 |
 | `t1-rtf-writer` | Grok Build 4.7 | D1 (writer), D3, D4 (writer), D5 (writer), D6 (writer), D7, D8 (writer), D9, D11, D12 |
 | `t2-rtf-reader` | Grok Build 4.7 | D1 (reader), D2, D4 (reader), D5 (reader), D6 (reader), D8 (reader), D10 |
 | `t3-epub` | Grok Build 4.7 | D13–D19 |
