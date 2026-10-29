@@ -56,10 +56,10 @@ def load_token(path: Path = TOKEN_FILE) -> str:
     env = os.environ.get("GITHUB_TOKEN") or os.environ.get("GH_TOKEN")
     if env:
         return env.strip()
-    if not path.exists():
-        return ""
     try:
         mode = stat.S_IMODE(path.stat().st_mode)
+    except FileNotFoundError:
+        return ""  # no token file: anonymous polling (no exists() check, no race with stat())
     except OSError as exc:
         raise TokenError(f"cannot read {path}: {exc}") from exc
     if mode & 0o077:
@@ -373,7 +373,10 @@ class Watcher:
             if confirmed != head:
                 continue
             ci = ci_state(statuses, check_runs)
-            cr, detail = cr_state(head, since, reviews, comments)
+            try:
+                cr, detail = cr_state(head, since, reviews, comments)
+            except (AttributeError, KeyError, TypeError, ValueError):
+                return None  # a malformed review/comment item or timestamp: fetch_failed
             return Snapshot(head, ci, cr, detail)
         return None
 
@@ -883,6 +886,12 @@ def self_test() -> int:
             tf.chmod(0o600)
             check("private token file read", load_token(tf) == "abc")
             check("missing token file", load_token(Path(tmp) / "none") == "")
+
+            class _Vanishing:  # the file disappears between any check and stat(): still "no token"
+                def stat(self):
+                    raise FileNotFoundError(2, "No such file or directory", "token")
+
+            check("token file vanishing before stat()", load_token(_Vanishing()) == "")
         finally:
             for k, v in saved.items():
                 if v is not None:
@@ -893,9 +902,6 @@ def self_test() -> int:
 
         def __init__(self, op: str) -> None:
             self.op = op
-
-        def exists(self) -> bool:
-            return True
 
         def stat(self):
             if self.op == "stat":
@@ -985,6 +991,15 @@ def self_test() -> int:
                 return {}
             if self.kind == "checks-missing" and path.endswith("/check-runs"):
                 return {}
+            if self.kind == "review-item" and path == "/pulls/7/reviews":
+                return ["not a review"]
+            if self.kind == "review-date" and path == "/pulls/7/reviews":
+                return [{"user": BOT_USER, "commit_id": self.HEAD, "state": "COMMENTED", "submitted_at": "soon",
+                         "body": "**Actionable comments posted: 0**"}]
+            if self.kind == "comment-item" and path == "/issues/7/comments":
+                return [None]
+            if self.kind == "comment-date" and path == "/issues/7/comments":
+                return [{"user": BOT_USER, "created_at": "later", "updated_at": "later", "body": "x"}]
             return super().body(url)
 
     def watch_bad(kind: str) -> tuple[int, list[dict]]:
@@ -1000,7 +1015,8 @@ def self_test() -> int:
 
     for kind in ("head-type", "sha-type", "missing-head", "no-date", "naive-date", "commit-shape",
                  "status-body", "checks-body", "statuses-type", "checks-type", "statuses-null",
-                 "checks-null", "statuses-missing", "checks-missing"):
+                 "checks-null", "statuses-missing", "checks-missing",
+                 "review-item", "review-date", "comment-item", "comment-date"):
         try:
             code, lines = watch_bad(kind)
             check(f"bad shape {kind} is fetch_failed",
