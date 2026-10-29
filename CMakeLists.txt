@@ -335,10 +335,16 @@ set_tests_properties(wave26_d8_seq_order PROPERTIES
     TIMEOUT 180
     WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}"
 )
-
 add_test(NAME wave26_d1_run_height COMMAND "${CMAKE_COMMAND}" -E env AIOFFICE_HEADLESS=1 QT_QPA_PLATFORM=offscreen
     "${Python3_EXECUTABLE}" "${CMAKE_SOURCE_DIR}/qa/wave26-d1-run-height.py" --cli "${AIOFFICE_CLI}")
 set_tests_properties(wave26_d1_run_height PROPERTIES
+    LABELS "playbook"
+    TIMEOUT 180
+    WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}"
+)
+add_test(NAME wave26_d5_toc_selection COMMAND "${CMAKE_COMMAND}" -E env AIOFFICE_HEADLESS=1 QT_QPA_PLATFORM=offscreen
+    "${Python3_EXECUTABLE}" "${CMAKE_SOURCE_DIR}/qa/wave26-d5-toc-selection.py" --cli "${AIOFFICE_CLI}")
+set_tests_properties(wave26_d5_toc_selection PROPERTIES
     LABELS "playbook"
     TIMEOUT 180
     WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}"

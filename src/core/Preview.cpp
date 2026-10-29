@@ -2872,10 +2872,19 @@ static void paintTextMarker(QPainter *p, const Document &doc, const DocumentLayo
         p->drawRect(lb.rect.adjusted(-2, -1, 2, 1));
     }
     const QPointF origin(lb.rect.left() + lb.markerWidth, lb.rect.top() - lb.layoutY0);
-    // tocEntry >= 0 is one marker per TOC run. Only the first paints the selection
-    // so overlapping clips do not stack the selection color.
-    if (chrome && m.tocEntry <= 0 && selId == lb.id && selEnd > selStart)
-        paintLineSelection(p, btl, origin, selStart, selEnd, &lb);
+    // tocEntry >= 0 is one marker per TOC run. textFrom/textTo are display
+    // offsets; paintLineSelection takes model offsets and converts them.
+    // Other markers (tocEntry < 0) keep the full model range.
+    if (chrome && selId == lb.id && selEnd > selStart) {
+        int paintStart = selStart;
+        int paintEnd = selEnd;
+        if (m.tocEntry >= 0) {
+            paintStart = qMax(paintStart, btl.toModel(m.textFrom));
+            paintEnd = qMin(paintEnd, btl.toModel(m.textTo));
+        }
+        if (paintStart < paintEnd)
+            paintLineSelection(p, btl, origin, paintStart, paintEnd, &lb);
+    }
     if (!whole) {
         if (m.paintSlice == 2 && btl.dropLines > 0 && !btl.dropLetter.isEmpty()) {
             p->setFont(btl.dropFont);
