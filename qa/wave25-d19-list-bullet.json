@@ -1,0 +1,21 @@
+{
+  "calls": [
+    {"tool": "document_new", "args": {"title": "Wave25 D19", "force": true}},
+    {"tool": "insert_blocks", "args": {"after_id": "start", "blocks": [
+      {"id": "lb1", "type": "list-item", "list_kind": "bullet", "level": 1, "list_bullet": "★", "lang": "pt-PT", "runs": [{"text": "Estrela"}]},
+      {"id": "lb2", "type": "list-item", "list_kind": "bullet", "level": 1, "list_bullet": "+", "runs": [{"text": "Mais"}]}
+    ]}},
+    {"tool": "document_save", "args": {"path": "/tmp/wave25-d19-list-bullet.epub"}, "expect": {
+      "ok": true,
+      "format": "epub",
+      "chapters": 1
+    }}
+  ],
+  "wave25": {
+    "checker": "epub",
+    "decision": "D19",
+    "epubcheck": {"errors": 0, "warnings": 0},
+    "list_markers": ["★", "+"],
+    "text_contains": ["Estrela", "Mais"]
+  }
+}

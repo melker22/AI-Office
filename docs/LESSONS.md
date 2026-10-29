@@ -5,7 +5,29 @@
 > verificável para a onda N+1. **Só entra lição com evidência** (thread de review, commit ou incidente).
 > O checklist curto que executores e revisores aplicam está em `.cursor/rules/lessons.mdc`.
 
-Última PR processada: **#13** (onda 23 — integridade, I/O hostil e transporte stdio do MCP). 15 threads
+Última PR processada: **#15** (onda 24 — fidelidade de ida-e-volta DOCX/ODT e QR decodificável). 7
+threads inline em duas rodadas de CodeRabbit (todas endereçadas), mais 2 achados fora do diff no corpo
+da 2ª revisão — ambos nitpick de precisão de comentário/doc, nenhum corrigido: comentário do CMake dizia
+que os testes `wave17` ficavam fora do `qa-all` padrão por causa do label `wave24`, quando o filtro
+`-L 'playbook|roundtrip|wave24'` já casa pelo label `roundtrip`
+(https://github.com/melker22/AI-Office/pull/15#pullrequestreview-5681108253, não corrigido); e a nota de
+auditoria de `qa/check_qr.py` citava o pacote Nix `zbar` em vez do executável `zbarimg` que o script
+chama (mesmo review, não corrigido). Reforçou L7 (três arquivos de doc — `docs/AI_HANDOFF.md`,
+`docs/audit/fix-plan.md`, `docs/waves/wave24-docx-odt-fidelity.md` — ainda diziam nível de ECC QR "L" com
+o código entregando nível "M", um regex `hex6` inexistente em vez do laço de `docxHexColor`, e `bidi` só
+RTL para `"1"`/`"true"` quando `bidiIsOn` também aceita vazio e `"on"`, mais o D10 da wave 24 omitindo a
+dedução por contenção de intervalo além do match exato — todos corrigidos nos commits `c83b9c8`..`ac25f6e`:
+https://github.com/melker22/AI-Office/pull/15#discussion_r4396808595,
+https://github.com/melker22/AI-Office/pull/15#discussion_r4396808602,
+https://github.com/melker22/AI-Office/pull/15#discussion_r4396808609) e abriu a lição nova L24 (geração de
+id novo a partir do tamanho de uma coleção que dedup pode encolher). Também registradas, por incidente de
+Fleet (não de PR): L25 (nó Claude não usa skills/subagentes/tarefas em segundo plano e não submete saída
+"provisória" — Fleet wave24 Run `4712f7db`, Fleet audit Run `6fda0b72`), L26 (nó de agente não roda build
+completo do zero — Fleet wave24-finish Run `a41c009a`) e L27 (ninguém usa `git stash`, compartilhada entre
+worktrees — pop no checkout principal pegou a stash de um agente no worktree do PR #15). Formato:
+`L<n> — regra` · onde falhou (evidência) · ocorrências.
+
+Antes disso, **PR #13** (onda 23 — integridade, I/O hostil e transporte stdio do MCP). 15 threads
 inline em três rodadas de CodeRabbit, mais 8 achados fora do diff no corpo das revisões (PR #13
 pullrequestreview-5642604443/5642650466/5642889711/5643127751/5643779721) e um nitpick trivial não corrigido
 (canvas.xhtml, pullrequestreview-5643827857). Reforçou L3 (`priorRuns` de revisão de formatação e remapeamento
@@ -131,9 +153,36 @@ Formato: `L<n> — regra` · onde falhou (evidência) · ocorrências.
   substituição, quando o código novo planeja todos os hits primeiro e usa `revisionAcceptsReplacement`; D10
   descrevia uma realimentação de layout que o código não faz; D5 omitia `undo`/`redo`/`checkpoint`/`restore`
   da lista que `toolForbiddenInBatch` já proibia
-  (https://github.com/melker22/AI-Office/pull/13#pullrequestreview-5642889711, corrigido em `fecf1fc`). · 5
+  (https://github.com/melker22/AI-Office/pull/13#pullrequestreview-5642889711, corrigido em `fecf1fc`). PR
+  #15: `docs/AI_HANDOFF.md`, `docs/audit/fix-plan.md` e `docs/waves/wave24-docx-odt-fidelity.md` diziam
+  que o encoder QR usa nível de ECC "L" quando o código entrega nível "M" e reserva os padrões de função
+  antes de escrever os módulos de dado
+  (https://github.com/melker22/AI-Office/pull/15#discussion_r4396808595); `fix-plan.md` também descrevia a
+  validação de `w:color` como um regex `hex6` inexistente em vez do laço de `docxHexColor`, e `bidi` como
+  RTL só para `"1"`/`"true"` quando `bidiIsOn` também aceita vazio e `"on"`
+  (https://github.com/melker22/AI-Office/pull/15#discussion_r4396808602); e o D10 da wave 24 descrevia só a
+  dedução por match exato `(block_id, kind, start, end)`, omitindo que `Docx.cpp` também descarta uma
+  revisão nativa cujo intervalo está contido numa revisão JSON do mesmo bloco/tipo
+  (https://github.com/melker22/AI-Office/pull/15#discussion_r4396808609) — todos corrigidos nos commits
+  `c83b9c8`..`ac25f6e`; e um nitpick trivial não corrigido na mesma PR: o comentário do CMake sobre os
+  ctests `wave17` e a nota de auditoria citando `zbar` em vez de `zbarimg`
+  (https://github.com/melker22/AI-Office/pull/15#pullrequestreview-5681108253). · 6
 - **L8 — Portabilidade de compilador.** Forward declaration com a mesma tag (`struct`/`class`) da
   definição. · PR #6 (MSVC C4099). · 1
+- **L24 — Id novo nunca vem do tamanho atual de uma coleção; aloque acima do maior sufixo numérico
+  em uso, inclusive ids vindos de JSON.** `tamanho+1` (ou qualquer derivação de `size()`) como gerador de id colide assim que a
+  coleção encolhe por dedup/remoção entre a alocação de dois ids do mesmo tipo — e colide de novo com um id
+  importado de fonte externa (JSON) que já ocupava um número alto. · PR #15: `loadDocx` dava a toda marca
+  nativa de revisão (`w:ins`/`w:del`/`w:rPrChange`) o id
+  `QStringLiteral("rev%1").arg(doc.revisions.size() + 1)` em três pontos idênticos (delete, format, insert);
+  como `flushP` removia revisões deduplicadas com `removeAt` entre uma marca e a próxima, `doc.revisions.size()`
+  diminuía e o próximo id gerado colidia com um id de revisão nativa ou de JSON (ex.: `rev7`) já existente,
+  fazendo accept/reject por id agir na revisão errada ou nas duas, e o re-export escrever o mesmo `w:id` em
+  dois `w:ins`/`w:del` diferentes
+  (https://github.com/melker22/AI-Office/pull/15#discussion_r4396808630); corrigido com `nextPrefixedId`
+  (via `nextRevisionId`), que aloca acima do maior sufixo numérico já em uso, ids de JSON inclusos (commit `a718d3e`), com teste
+  prévio cobrindo o caso (`qa/wave24-docx-d10-revision-ids.json`, commit `c83b9c8`, ids `rev1`/`rev2`/`rev7`
+  mais marcas nativas parcialmente deduplicadas). · 1
 
 ## Testes
 
@@ -286,3 +335,20 @@ Formato: `L<n> — regra` · onde falhou (evidência) · ocorrências.
   essa evidência. · PR #7 `.cockpit/fleets/task.yaml` não instruía a busca no arquivo
   (https://github.com/melker22/AI-Office/pull/7#discussion_r4331347131, corrigido em `1ae66dc` e
   replicado na instrução deste nó). · 1
+- **L25 — Nó Claude não usa skills, subagentes nem tarefas em segundo plano, e nunca submete saída
+  "provisória".** Um nó que roda uma etapa incompleta e ainda assim preenche o `output_contract` como se a
+  etapa tivesse terminado (ex.: `issues: 0` sem ter revisado nada, `qa_green: false` como resposta
+  definitiva em vez de rodar a correção e tentar de novo) corrompe a decisão dos nós seguintes do DAG, que
+  não têm como distinguir "revisado e limpo" de "não revisado". · Fleet wave24 (Run `4712f7db`):
+  `review-pass` submeteu `issues: 0` "provisório" e `fix-pass` submeteu `qa_green: false` "provisório";
+  Fleet audit (Run `6fda0b72`). · 2
+- **L26 — Nó de agente não roda build completo do zero.** O tempo de QA longo é do gate de comando
+  (timeout do nó) ou de um build já aquecido (cache/`ccache`/árvore de build reaproveitada); um nó que
+  decide recompilar tudo do zero gasta o próprio orçamento de tempo só na compilação e nunca chega a
+  rodar o QA que deveria reportar. · Fleet wave24-finish (Run `a41c009a`): o nó `stabilize` estourou o
+  tempo de um comando com um build completo do zero. · 1
+- **L27 — Ninguém usa `git stash`.** A stash é compartilhada entre `main` e todos os worktrees; `stash
+  pop`/`stash apply` sem filtro explícito pode restaurar o WIP de outro agente no checkout errado,
+  destruindo ou misturando trabalho que não é seu. Use um commit WIP na própria branch/worktree, nunca a
+  stash global. · Um `pop` no checkout principal recolheu a stash de um agente que trabalhava no worktree
+  do PR #15. · 1

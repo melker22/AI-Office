@@ -1,0 +1,24 @@
+[
+  {"tool": "document_open", "args": {"path": "qa/fixtures/wave25-rtf-d10-column-word.rtf"}, "expect": {
+    "ok": true,
+    "document.body.0.type": "paragraph",
+    "document.body.0.runs.0.text": "Antes",
+    "document.body.1.type": "break",
+    "document.body.1.break_kind": "column",
+    "document.body.2.type": "paragraph",
+    "document.body.2.runs.0.text": "Depois",
+    "document.body.3.type": "paragraph",
+    "document.body.3.runs.0.text": "Meio",
+    "document.body.4.type": "break",
+    "document.body.4.break_kind": "column",
+    "document.body.5.type": "paragraph",
+    "document.body.5.runs.0.text": "Fim"
+  }},
+  {"tool": "document_open", "args": {"path": "qa/fixtures/wave25-rtf-d10-column-lo.rtf"}, "expect": {
+    "ok": true,
+    "document.body.0.runs.0.text": "Antes",
+    "document.body.1.type": "break",
+    "document.body.1.break_kind": "column",
+    "document.body.2.runs.0.text": "Depois"
+  }}
+]

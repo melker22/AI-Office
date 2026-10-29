@@ -2010,6 +2010,12 @@ static QVector<PdfTagMarker> pdfTagMarkersForPage(const Document &doc, const Doc
                 m.row = g.row;
                 m.col = g.col;
                 m.headerCell = b.headerRow && g.row == 0;
+                if (g.row >= 0 && g.row < b.table.size() && g.col >= 0 && g.col < b.table[g.row].size()) {
+                    const int colsLeft = qMax(1, b.table[g.row].size() - g.col);
+                    const int rowsLeft = qMax(1, b.table.size() - g.row);
+                    m.colSpan = qBound(1, b.table[g.row][g.col].colSpan, colsLeft);
+                    m.rowSpan = qBound(1, b.table[g.row][g.col].rowSpan, rowsLeft);
+                }
                 m.clip = g.rect.adjusted(-3, -3, 3, 3);
                 out.push_back(m);
             }
@@ -3150,11 +3156,14 @@ bool exportNativePdf(const Document &doc, const QString &path, QString *error, b
     // The same marker list paintPage clips with. Booklet halves share a physical page
     // (doc page 0 here) and keep the page-level fallback.
     QVector<QVector<PdfTagMarker>> perPageMarkers(physPageDocPage.size());
+    const int pagesPerCopy = qMax(1, physPageDocPage.size() / nCopies);
     for (int phys = 0; phys < physPageDocPage.size(); ++phys) {
         const int docPage = physPageDocPage[phys];
-        if (docPage < 1)
-            continue; // booklet halves: ambiguous mapping, skip fine-grained tagging for this page
-        perPageMarkers[phys] = pdfTagMarkersForPage(doc, lay, docPage);
+        if (docPage >= 1)
+            perPageMarkers[phys] = pdfTagMarkersForPage(doc, lay, docPage);
+        const int copyIndex = phys / pagesPerCopy;
+        for (PdfTagMarker &marker : perPageMarkers[phys])
+            marker.copyIndex = copyIndex;
     }
     QString tagErr;
     if (!pdfPostProcessTagStructure(staged, perPageMarkers, documentLanguage(doc), doc.readingOrder, &tagErr)) {

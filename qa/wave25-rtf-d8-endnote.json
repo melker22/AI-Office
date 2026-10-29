@@ -1,0 +1,42 @@
+[
+  {"tool": "document_open", "args": {"path": "qa/fixtures/wave25-rtf-d8-endnote-word.rtf"}, "expect": {
+    "ok": true,
+    "document.body.0.runs.0.text": "Veja",
+    "document.body.0.runs.1.text": "1",
+    "document.body.0.runs.1.superscript": true,
+    "document.body.0.runs.1.note_id": "en1",
+    "document.body.1.type": "endnote",
+    "document.body.1.id": "en1",
+    "document.body.1.runs.0.text": "Nota ",
+    "document.body.1.runs.0.size_pt": 10,
+    "document.body.1.runs.1.text": "final",
+    "document.body.1.runs.1.bold": true,
+    "document.body.1.runs.2.text": ".",
+    "document.body.2.runs.0.text": "Rodape",
+    "document.body.2.runs.1.note_id": "fn1",
+    "document.body.3.type": "footnote",
+    "document.body.3.id": "fn1",
+    "document.body.3.runs.0.text": "So nota.",
+    "document.body.4.runs.0.text": "Mais",
+    "document.body.4.runs.1.note_id": "en2",
+    "document.body.5.type": "endnote",
+    "document.body.5.id": "en2",
+    "document.body.5.runs.0.text": "Nota ",
+    "document.body.5.runs.1.text": "aninhada",
+    "document.body.5.runs.1.bold": true,
+    "document.body.5.runs.2.text": "."
+  }},
+  {"tool": "document_open", "args": {"path": "qa/fixtures/wave25-rtf-d8-endnote-lo.rtf"}, "expect": {
+    "ok": true,
+    "document.body.0.runs.0.text": "Veja",
+    "document.body.0.runs.1.note_id": "en1",
+    "document.body.1.type": "endnote",
+    "document.body.1.id": "en1",
+    "document.body.1.runs.0.text": "Nota ",
+    "document.body.1.runs.1.text": "final",
+    "document.body.1.runs.1.bold": true,
+    "document.body.2.runs.1.note_id": "fn1",
+    "document.body.3.type": "footnote",
+    "document.body.3.runs.0.text": "So nota."
+  }}
+]

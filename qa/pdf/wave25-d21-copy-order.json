@@ -1,0 +1,9 @@
+{
+  "pdf": "build/linux/wave25-d21-copy-order.pdf",
+  "verapdf": {
+    "1b": {"compliant": true},
+    "ua1": {"compliant": true}
+  },
+  "qpdf": {"no_part_fallback": true, "struct_types": ["P"]},
+  "copy_reading_order": {"copies": 2, "mcids_per_copy": [2, 0, 1]}
+}

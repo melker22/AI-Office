@@ -1,8 +1,11 @@
 #include "core/RtfWriter.h"
 
 #include "core/Document.h"
-
+#include "core/FieldExpr.h"
+#include "core/RtfLang.h"
 #include "core/Zip.h"
+
+#include <algorithm>
 
 #include <QBuffer>
 #include <QFile>
@@ -32,6 +35,8 @@ struct RtfOut {
     int nextListId = 1;
     QMap<QString, QString> bookmarkExportNames;
     QMap<QString, int> seqShown;
+    QSet<QString> consumedImages;
+    QMap<QString, QStringList> cellPlaceholders;
     int defaultFont = 0;
     int defaultSizeHalfPt = 24;
 
@@ -88,24 +93,16 @@ struct RtfOut {
         return ok;
     }
 
-    int langLcid(const QString &lang)
+    int langCode(const QString &lang)
     {
         if (lang.isEmpty())
             return 0;
-        const QString l = lang.toLower();
-        if (l.startsWith(QStringLiteral("pt")))
-            return 2070;
-        if (l.startsWith(QStringLiteral("en")))
-            return 1033;
-        if (l.startsWith(QStringLiteral("de")))
-            return 1031;
-        if (l.startsWith(QStringLiteral("fr")))
-            return 1036;
-        if (l.startsWith(QStringLiteral("es")))
-            return 1034;
-        if (l.startsWith(QStringLiteral("ar")))
-            return 1025;
-        return 1033;
+        const int lc = rtfLcidForTag(lang);
+        if (lc <= 0) {
+            warnOnce(QStringLiteral("RTF export: unknown language \"%1\" written without \\lang").arg(lang));
+            return 0;
+        }
+        return lc;
     }
 
     QString exportedBookmarkName(const QString &id)
@@ -210,7 +207,7 @@ struct RtfOut {
         if (hi > 0)
             p += QStringLiteral("\\highlight%1").arg(hi);
         if (!r.lang.isEmpty()) {
-            const int lc = langLcid(r.lang);
+            const int lc = langCode(r.lang);
             if (lc > 0)
                 p += QStringLiteral("\\lang%1").arg(lc);
         }
@@ -254,21 +251,25 @@ struct RtfOut {
             instr = QStringLiteral(" TIME ");
             return true;
         }
+        if (r.field == QLatin1String("word_count")) {
+            instr = QStringLiteral(" NUMWORDS ");
+            return true;
+        }
         if (r.field == QLatin1String("merge") || r.field == QLatin1String("mail_merge")) {
-            instr = QStringLiteral(" MERGEFIELD %1 ").arg(r.fieldArg);
+            instr = QStringLiteral(" MERGEFIELD %1 ").arg(quoteFieldArg(r.fieldArg));
             return true;
         }
         if (r.field == QLatin1String("var") || r.field == QLatin1String("variable")
             || r.field == QLatin1String("custom")) {
-            instr = QStringLiteral(" DOCVARIABLE %1 ").arg(r.fieldArg);
+            instr = QStringLiteral(" DOCVARIABLE %1 ").arg(quoteFieldArg(r.fieldArg));
             return true;
         }
         if (r.field == QLatin1String("input")) {
-            instr = QStringLiteral(" FILLIN \"%1\" ").arg(r.fieldArg);
+            instr = QStringLiteral(" FILLIN %1 ").arg(quoteFieldArg(r.fieldArg));
             return true;
         }
         if (r.field == QLatin1String("xref")) {
-            const QString target = bm(r.fieldArg);
+            const QString target = quoteFieldArg(bm(r.fieldArg));
             if (r.xrefKind == QLatin1String("page"))
                 instr = QStringLiteral(" PAGEREF %1 ").arg(target);
             else
@@ -284,14 +285,41 @@ struct RtfOut {
                 fmt = QStringLiteral("ROMAN");
             else if (format == QLatin1String("alpha"))
                 fmt = QStringLiteral("ALPHABETIC");
-            instr = QStringLiteral(" SEQ %1 \\* %2 ").arg(name, fmt);
+            instr = QStringLiteral(" SEQ %1 \\* %2 ").arg(quoteFieldArg(name), fmt);
             return true;
         }
         if (!r.link.isEmpty()) {
-            instr = QStringLiteral(" HYPERLINK \"%1\" ").arg(r.link);
+            // A local target is the \l switch. Anything else is the URL, and a
+            // later import skips \o / \t / \m / \n before that URL.
+            if (r.link.startsWith(QLatin1Char('#'))) {
+                // Same token marksFor writes on \bkmkstart. No bookmark is
+                // emitted when that target was never declared.
+                instr = QStringLiteral(" HYPERLINK \\l %1 ").arg(quoteFieldArg(bm(r.link.mid(1))));
+            } else
+                instr = QStringLiteral(" HYPERLINK %1 ").arg(quoteFieldArg(r.link));
             return true;
         }
         return false;
+    }
+
+    // Field arguments are quoted. \\ { } " are escaped inside the quotes.
+    // Controls (below 0x20, and DEL) are stripped before RTF escaping.
+    static QString quoteFieldArg(const QString &raw)
+    {
+        QString s;
+        s.reserve(raw.size() + 8);
+        s += QLatin1Char('"');
+        for (const QChar c : raw) {
+            const char16_t u = c.unicode();
+            if (u < 0x20 || u == 0x7f)
+                continue;
+            if (c == QLatin1Char('\\') || c == QLatin1Char('{') || c == QLatin1Char('}')
+                || c == QLatin1Char('"'))
+                s += QLatin1Char('\\');
+            s += c;
+        }
+        s += QLatin1Char('"');
+        return s;
     }
 
     QString fieldResult(const TextRun &r)
@@ -306,16 +334,21 @@ struct RtfOut {
         return runDisplayText(*doc, r);
     }
 
-    QString emitRun(const TextRun &r, int defFont, int defSizeHalfPt)
+    QString emitRun(const TextRun &r, int defFont, int defSizeHalfPt, bool inNote = false)
     {
         QString out;
-        if (!r.noteId.isEmpty()) {
+        if (!r.noteId.isEmpty() && !inNote) {
             const Block *nb = doc->findBlock(r.noteId);
             if (nb) {
                 QString body;
                 for (const auto &nr : nb->runs)
-                    body += escapeText(nr.text);
-                out += QStringLiteral("{\\footnote{\\pard\\plain %1\\par}}").arg(body);
+                    body += emitRun(nr, defFont, defSizeHalfPt, true);
+                out += QStringLiteral("{\\footnote");
+                if (nb->type == QLatin1String("endnote"))
+                    out += QStringLiteral("\\ftnalt");
+                // \\chftn is the note reference. The reader synthesizes the marker
+                // in the host, so the body must not also contain a visible number.
+                out += QStringLiteral("{\\pard\\plain \\chftn %1\\par}}").arg(body);
             }
             return out;
         }
@@ -375,13 +408,15 @@ struct RtfOut {
     QString paraProps(const Block &b, bool inTable = false)
     {
         // \\pard drops paragraph properties inherited from the previous paragraph
-        // (list, outline level, heading spacing) before \\intbl.
-        QString p = inTable ? QStringLiteral("\\pard\\intbl") : QStringLiteral("\\pard");
+        // (list, outline level, heading spacing) before \\intbl. \\plain drops
+        // character properties, including \\lang: an unknown or empty language
+        // must not keep the previous paragraph's LCID (wave 25 D1).
+        QString p = inTable ? QStringLiteral("\\pard\\intbl\\plain") : QStringLiteral("\\pard\\plain");
         p += paraAlign(b);
         if (b.dir == QLatin1String("rtl"))
             p += QStringLiteral("\\rtlpar");
         if (!b.lang.isEmpty()) {
-            const int lc = langLcid(b.lang);
+            const int lc = langCode(b.lang);
             if (lc > 0)
                 p += QStringLiteral("\\lang%1").arg(lc);
         }
@@ -398,14 +433,125 @@ struct RtfOut {
         return p + QLatin1Char(' ');
     }
 
-    QString bookmarksWrap(const QString &blockId, const QString &inner)
+    bool textVanished(const Block &b) const
     {
-        QString out = inner;
+        if (b.sectionHidden)
+            return true;
+        return blockHiddenByExpr(*doc, b, 1, 1);
+    }
+
+    QString vanishWrap(const Block &b, const QString &inner)
+    {
+        if (!textVanished(b))
+            return inner;
+        warnOnce(QStringLiteral("RTF export: hidden text in block %1 is published with \\v (not redacted)")
+                     .arg(b.id));
+        if (inner.isEmpty())
+            return inner;
+        return QStringLiteral("{\\v ") + inner + QLatin1Char('}');
+    }
+
+    struct BmMark {
+        int offset = 0;
+        QString name;
+    };
+
+    QVector<BmMark> marksFor(const QString &blockId)
+    {
+        QVector<BmMark> marks;
+        if (blockId.isEmpty())
+            return marks;
         for (const auto &bm : doc->bookmarks) {
             if (bm.blockId != blockId)
                 continue;
-            const QString name = escapeBookmarkName(exportedBookmarkName(bm.name.isEmpty() ? bm.id : bm.name));
-            out = QStringLiteral("{\\*\\bkmkstart %1}%2{\\*\\bkmkend %3}").arg(name, out, name);
+            BmMark mark;
+            mark.offset = qMax(0, bm.offset);
+            mark.name = escapeBookmarkName(exportedBookmarkName(bm.name.isEmpty() ? bm.id : bm.name));
+            marks.push_back(mark);
+        }
+        std::sort(marks.begin(), marks.end(), [](const BmMark &a, const BmMark &b) {
+            if (a.offset != b.offset)
+                return a.offset < b.offset;
+            return a.name < b.name;
+        });
+        return marks;
+    }
+
+    static QString emitBookmark(const QString &name)
+    {
+        return QStringLiteral("{\\*\\bkmkstart %1}{\\*\\bkmkend %1}").arg(name);
+    }
+
+    int displayedLen(const TextRun &r)
+    {
+        if (!r.noteId.isEmpty())
+            return r.text.size();
+        if (r.field == QLatin1String("seq")) {
+            const QJsonObject jo = fieldArgObject(r);
+            const QString name = jo.value(QStringLiteral("name")).toString();
+            const QString format = jo.value(QStringLiteral("format")).toString(QStringLiteral("arabic"));
+            const int n = seqShown.value(name, 0) + 1;
+            return formatPageNumber(n, format).size();
+        }
+        if (!r.field.isEmpty())
+            return runDisplayText(*doc, r).size();
+        if (!r.link.isEmpty())
+            return (r.text.isEmpty() ? r.link : r.text).size();
+        return r.text.size();
+    }
+
+    static bool atomicRun(const TextRun &r)
+    {
+        return !r.noteId.isEmpty() || !r.field.isEmpty() || !r.link.isEmpty();
+    }
+
+    // Bookmarks are a point. Start and end sit together at Bookmark::offset,
+    // measured in plain text. A mark that lands inside a field stays on the
+    // field boundary so the field group is not split.
+    QString emitMarkedRuns(const QString &blockId, const QVector<TextRun> &runs, int defFont, int defSizeHalfPt)
+    {
+        const QVector<BmMark> marks = marksFor(blockId);
+        QString out;
+        int cursor = 0;
+        int mi = 0;
+        auto emitDue = [&](int upto) {
+            while (mi < marks.size() && marks.at(mi).offset <= upto) {
+                out += emitBookmark(marks.at(mi).name);
+                ++mi;
+            }
+        };
+        for (const TextRun &r : runs) {
+            if (atomicRun(r)) {
+                const int len = displayedLen(r);
+                emitDue(cursor + qMax(0, len) - 1);
+                out += emitRun(r, defFont, defSizeHalfPt);
+                cursor += qMax(0, len);
+                continue;
+            }
+            const QString text = r.text;
+            int local = 0;
+            while (local <= text.size()) {
+                emitDue(cursor);
+                if (local >= text.size())
+                    break;
+                int next = text.size();
+                if (mi < marks.size() && marks.at(mi).offset > cursor) {
+                    const int rel = marks.at(mi).offset - cursor;
+                    if (rel < text.size() - local)
+                        next = local + rel;
+                }
+                if (next <= local)
+                    break;
+                TextRun slice = r;
+                slice.text = text.mid(local, next - local);
+                out += emitRun(slice, defFont, defSizeHalfPt);
+                cursor += next - local;
+                local = next;
+            }
+        }
+        while (mi < marks.size()) {
+            out += emitBookmark(marks.at(mi).name);
+            ++mi;
         }
         return out;
     }
@@ -592,17 +738,31 @@ struct RtfOut {
         // \levelnfc 0 is decimal; 23 is a bullet.
         QString t = QStringLiteral("{\\*\\listtable");
         for (auto it = listKindToId.cbegin(); it != listKindToId.cend(); ++it) {
-            const bool numbered = it.key() != QLatin1String("bullet");
+            const QString key = it.key();
+            const bool check = key == QLatin1String("checkbox") || key == QLatin1String("task");
+            const bool numbered = !check && key != QLatin1String("bullet");
             const QString id = QString::number(it.value());
             const int nfc = numbered ? 0 : 23;
-            t += QStringLiteral("{\\list\\listtemplateid") + id
-                + QStringLiteral("{\\listlevel\\levelnfc") + QString::number(nfc)
-                + QStringLiteral("\\leveljc0\\levelstartat1");
-            if (numbered)
-                t += QStringLiteral("{\\leveltext\\'02\\'00.;}{\\levelnumbers\\'01;}");
-            else
-                t += QStringLiteral("{\\leveltext\\'01\\u-3913 ?;}{\\levelnumbers;}");
-            t += QStringLiteral("}\\listid") + id + QLatin1Char('}');
+            // Nine levels so \\ilvl round-trips. The reader ignores a level past the table.
+            t += QStringLiteral("{\\list\\listtemplateid") + id;
+            if (check) {
+                const QString kind = key == QLatin1String("task") ? QStringLiteral("task")
+                                                                   : QStringLiteral("checkbox");
+                t += QStringLiteral("{\\*\\aiolistkind ") + kind + QLatin1Char('}');
+            }
+            for (int level = 0; level < 9; ++level) {
+                Q_UNUSED(level);
+                t += QStringLiteral("{\\listlevel\\levelnfc") + QString::number(nfc)
+                    + QStringLiteral("\\leveljc0\\levelstartat1");
+                if (numbered)
+                    t += QStringLiteral("{\\leveltext\\'02\\'00.;}{\\levelnumbers\\'01;}");
+                else if (check)
+                    t += QStringLiteral("{\\leveltext\\'01\\u9744?;}{\\levelnumbers;}");
+                else
+                    t += QStringLiteral("{\\leveltext\\'01\\u-3913 ?;}{\\levelnumbers;}");
+                t += QLatin1Char('}');
+            }
+            t += QStringLiteral("\\listid") + id + QLatin1Char('}');
         }
         t += QLatin1Char('}');
         t += QStringLiteral("{\\*\\listoverridetable");
@@ -624,9 +784,25 @@ struct RtfOut {
         // column, not a cell boundary.
         QVector<int> cellBoundaries;
         int acc = 0;
-        const int colW = cols > 0 ? 9000 / cols : 9000;
-        for (int c = 0; c < cols; ++c) {
-            acc += colW;
+        QVector<int> widths;
+        const bool given = !b.colWidthsMm.isEmpty();
+        if (!given) {
+            const int colW = cols > 0 ? 9000 / cols : 9000;
+            for (int c = 0; c < cols; ++c)
+                widths.append(qMax(1, colW));
+        } else {
+            // A column past the end of a short width list, or with a width of
+            // 0 mm or less, gets the even default, not a one-twip sliver.
+            const int fallback = qMax(1, cols > 0 ? 9000 / cols : 9000);
+            for (int c = 0; c < cols; ++c) {
+                int tw = fallback;
+                if (c < b.colWidthsMm.size() && b.colWidthsMm.at(c) > 0)
+                    tw = qRound(b.colWidthsMm.at(c) * kTwipsPerMm / 10.0);
+                widths.append(qMax(1, tw));
+            }
+        }
+        for (int tw : widths) {
+            acc += tw;
             cellBoundaries.append(acc);
         }
         for (const auto &row : b.table) {
@@ -636,8 +812,18 @@ struct RtfOut {
             for (int cx : cellBoundaries)
                 rowDef += QStringLiteral("\\cellx%1").arg(cx);
             QString cells;
+            int colIdx = 0;
             for (const auto &cell : row) {
-                cells += paraProps(b, true) + emitRuns(cell.runs, defaultFont, defaultSizeHalfPt) + QStringLiteral("\\cell ");
+                QString inner = emitRuns(cell.runs, defaultFont, defaultSizeHalfPt);
+                const QString key = b.id + QLatin1Char('\n') + QString::number(rowIdx)
+                    + QLatin1Char('\n') + QString::number(colIdx);
+                for (const QString &label : cellPlaceholders.value(key)) {
+                    TextRun extra;
+                    extra.text = label;
+                    inner += emitRun(extra, defaultFont, defaultSizeHalfPt);
+                }
+                cells += paraProps(b, true) + vanishWrap(b, inner) + QStringLiteral("\\cell ");
+                ++colIdx;
             }
             out += rowDef + cells + QStringLiteral("\\row\n");
             ++rowIdx;
@@ -645,8 +831,78 @@ struct RtfOut {
         return out;
     }
 
+    static bool parseCellAnchor(const QString &anchor, QString &tableId, int &row, int &col)
+    {
+        const QString a = anchor.trimmed();
+        const int c1 = a.indexOf(QLatin1Char(':'));
+        const int c2 = c1 >= 0 ? a.indexOf(QLatin1Char(':'), c1 + 1) : -1;
+        if (c1 <= 0 || c2 <= c1 || a.indexOf(QLatin1Char(':'), c2 + 1) >= 0)
+            return false;
+        const QString rowText = a.mid(c1 + 1, c2 - c1 - 1);
+        const QString colText = a.mid(c2 + 1);
+        bool okRow = false;
+        bool okCol = false;
+        row = rowText.toInt(&okRow);
+        col = colText.toInt(&okCol);
+        if (!okRow || !okCol || row < 0 || col < 0 || rowText.isEmpty() || colText.isEmpty())
+            return false;
+        tableId = a.left(c1);
+        if (tableId.isEmpty() || !tableId.at(0).isLetter())
+            return false;
+        for (const QChar ch : tableId) {
+            if (!ch.isLetterOrNumber() && ch != QLatin1Char('_'))
+                return false;
+        }
+        return true;
+    }
+
+    static QString imageLabel(const Block &b)
+    {
+        QString name = b.altText.trimmed();
+        if (name.isEmpty())
+            name = QFileInfo(b.imagePath).fileName();
+        if (name.isEmpty())
+            name = QStringLiteral("imagem");
+        return QStringLiteral("[imagem: %1]").arg(name);
+    }
+
+    void absorbCellImages()
+    {
+        consumedImages.clear();
+        cellPlaceholders.clear();
+        QHash<QString, const Block *> tables;
+        for (const Block &candidate : doc->body) {
+            if (candidate.type == QLatin1String("table") && !candidate.id.isEmpty() && !tables.contains(candidate.id))
+                tables.insert(candidate.id, &candidate);
+        }
+        for (const Block &img : doc->body) {
+            if (img.type != QLatin1String("image"))
+                continue;
+            QString tableId;
+            int row = 0;
+            int col = 0;
+            if (!parseCellAnchor(img.anchor, tableId, row, col))
+                continue;
+            const Block *table = tables.value(tableId, nullptr);
+            const bool hit = table && row < table->table.size() && col < table->table.at(row).size();
+            const QString label = imageLabel(img);
+            if (!hit) {
+                warnOnce(QStringLiteral(
+                             "RTF export: image %1 anchor does not match a table cell; written as \\pict")
+                             .arg(img.id));
+                continue;
+            }
+            const QString key = tableId + QLatin1Char('\n') + QString::number(row) + QLatin1Char('\n')
+                + QString::number(col);
+            cellPlaceholders[key].append(label);
+            consumedImages.insert(img.id);
+            warnOnce(QStringLiteral("RTF export: image %1 in a table cell replaced with %2").arg(img.id, label));
+        }
+    }
+
     QString bodyText()
     {
+        absorbCellImages();
         QString body;
         const auto &blocks = doc->body;
         for (int i = 0; i < blocks.size(); ++i) {
@@ -660,21 +916,38 @@ struct RtfOut {
             }
             if (b.type == QLatin1String("break")) {
                 if (b.breakKind == QLatin1String("column"))
-                    body += QStringLiteral("\\column\\par\n");
+                    body += QStringLiteral("\\column");
                 else
-                    body += QStringLiteral("\\page\\par\n");
+                    body += QStringLiteral("\\page");
+                const QString note = commentSuffix(b);
+                if (!note.isEmpty())
+                    body += QStringLiteral("\\pard\\plain ") + note;
+                body += QStringLiteral("\\par\n");
                 continue;
             }
             if (b.type == QLatin1String("list-item")) {
                 const QString kind = b.listKind;
                 const int ls = listIdForKind(kind);
+                const bool check = kind == QLatin1String("checkbox") || kind == QLatin1String("task");
                 while (i < blocks.size() && blocks[i].type == QLatin1String("list-item")
                        && blocks[i].listKind == kind) {
                     const Block &li = blocks[i];
-                    QString inner = paraProps(li) + QStringLiteral("\\ls%1 ").arg(ls)
-                        + emitRuns(li.runs, defaultFont, defaultSizeHalfPt) + commentSuffix(li)
-                        + QStringLiteral("\\par\n");
-                    body += bookmarksWrap(li.id, inner);
+                    const int ilvl = qBound(0, (li.level > 0 ? li.level : 1) - 1, 8);
+                    QString inner = paraProps(li) + QStringLiteral("\\ls%1\\ilvl%2 ").arg(ls).arg(ilvl);
+                    QString marker;
+                    if (check) {
+                        const QChar box(li.checked ? 0x2611 : 0x2610);
+                        inner += QStringLiteral("{\\*\\aiocheck %1}").arg(li.checked ? 1 : 0);
+                        marker = QStringLiteral("{\\listtext %1\\tab}").arg(escapeText(QString(box)));
+                    }
+                    // A hidden item hides its marker too: the checkbox \\listtext goes
+                    // inside the \\v group, and a hidden paragraph mark (\\v\\par)
+                    // makes Word drop the list number or bullet.
+                    const bool hidden = textVanished(li);
+                    inner += vanishWrap(li, marker + emitMarkedRuns(li.id, li.runs, defaultFont, defaultSizeHalfPt));
+                    inner += commentSuffix(li)
+                        + (hidden ? QStringLiteral("\\v\\par\\v0\n") : QStringLiteral("\\par\n"));
+                    body += inner;
                     ++i;
                 }
                 --i;
@@ -683,10 +956,17 @@ struct RtfOut {
             if (b.type == QLatin1String("table")) {
                 // \\pard resets \\intbl. A closing \\par here becomes an empty
                 // paragraph on import, and each round trip adds another one.
-                body += emitTable(b) + QStringLiteral("\\pard\n");
+                body += emitTable(b);
+                const QString note = commentSuffix(b);
+                if (!note.isEmpty())
+                    body += QStringLiteral("\\pard\\plain ") + note + QStringLiteral("\\par\n");
+                else
+                    body += QStringLiteral("\\pard\n");
                 continue;
             }
             if (b.type == QLatin1String("image")) {
+                if (consumedImages.contains(b.id))
+                    continue;
                 body += paraProps(b) + pictPng(b) + commentSuffix(b) + QStringLiteral("\\par\n");
                 continue;
             }
@@ -701,10 +981,14 @@ struct RtfOut {
                     inner += QStringLiteral("\\s%1 ").arg(slot);
                 // RTF outline levels are 0-based. The reader maps that back to Heading N.
                 inner += QStringLiteral("\\outlinelevel%1 ").arg(level - 1);
-                inner += QStringLiteral("\\sb240\\sa120 ");
+                if (b.spaceBeforePt < 0)
+                    inner += QStringLiteral("\\sb240 ");
+                if (b.spaceAfterPt < 0)
+                    inner += QStringLiteral("\\sa120 ");
             }
-            inner += emitRuns(b.runs, defaultFont, defaultSizeHalfPt) + commentSuffix(b) + QStringLiteral("\\par\n");
-            body += bookmarksWrap(b.id, inner);
+            inner += vanishWrap(b, emitMarkedRuns(b.id, b.runs, defaultFont, defaultSizeHalfPt));
+            inner += commentSuffix(b) + QStringLiteral("\\par\n");
+            body += inner;
         }
         if (!doc->revisions.isEmpty())
             warnOnce(QStringLiteral("RTF export: tracked revisions exported as plain text"));

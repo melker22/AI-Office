@@ -1,0 +1,67 @@
+{
+  "calls": [
+    {"tool": "document_new", "args": {"title": "Wave25 D13", "force": true}},
+    {"tool": "insert_blocks", "args": {"after_id": "start", "blocks": [
+      {"id": "pRefs", "type": "paragraph", "lang": "pt-PT", "runs": [
+        {"text": "OPEN-VIS ", "note_id": "fnVis"},
+        {"text": "SECRET-REF", "note_id": "fnHid", "hidden": true},
+        {"text": "SHOWIF-REF", "note_id": "fnShow", "show_if": "offvar"},
+        {"text": "SECRET-MIX", "note_id": "fnMix", "hidden": true},
+        {"text": "OPEN-REF", "note_id": "fnMix"}
+      ]},
+      {"id": "pBoth", "type": "paragraph", "runs": [
+        {"text": "BOTH-REF", "note_id": "fnBoth"}
+      ]},
+      {"id": "pSec", "type": "paragraph", "section_hidden": true, "runs": [
+        {"text": "SEC-REF", "note_id": "fnSec"}
+      ]},
+      {"id": "pExpr", "type": "paragraph", "hide_if": "1", "runs": [
+        {"text": "EXPR-REF", "note_id": "fnExpr"}
+      ]},
+      {"id": "hSecond", "type": "heading", "level": 1, "runs": [{"text": "Second Chapter"}]},
+      {"id": "pKeep", "type": "paragraph", "runs": [
+        {"text": "KEEP-REF", "note_id": "fnKeep"}
+      ]},
+      {"id": "fnVis", "type": "footnote", "runs": [
+        {"text": "VISIBLE-BODY "},
+        {"text": "IN", "note_id": "fnInner"},
+        {"text": "KP", "note_id": "fnKeep"}
+      ]},
+      {"id": "fnHid", "type": "footnote", "runs": [{"text": "HIDDEN-BODY"}]},
+      {"id": "fnShow", "type": "footnote", "runs": [{"text": "SHOWIF-BODY"}]},
+      {"id": "fnMix", "type": "footnote", "runs": [{"text": "MIXED-BODY"}]},
+      {"id": "fnBoth", "type": "footnote", "runs": [{"text": "BOTH-BODY"}]},
+      {"id": "fnSec", "type": "footnote", "runs": [{"text": "SEC-BODY"}]},
+      {"id": "fnExpr", "type": "endnote", "runs": [{"text": "EXPR-BODY"}]},
+      {"id": "enOrphan", "type": "endnote", "runs": [{"text": "ORPHAN-ZETA"}]},
+      {"id": "fnLoose", "type": "footnote", "runs": [{"text": "ORPHAN-FOOT"}]},
+      {"id": "fnInner", "type": "footnote", "runs": [
+        {"text": "INNER-BODY "},
+        {"text": "DP", "note_id": "fnDeep"}
+      ]},
+      {"id": "fnDeep", "type": "endnote", "runs": [{"text": "DEEP-BODY R&D <x>"}]},
+      {"id": "fnKeep", "type": "footnote", "runs": [{"text": "KEEP-BODY"}]}
+    ]}},
+    {"tool": "document_save", "args": {"path": "/tmp/wave25-d13-notes.epub"}, "expect": {
+      "ok": true,
+      "format": "epub",
+      "chapters": 2,
+      "warnings": [
+        "EPUB export: note enOrphan has no reference",
+        "EPUB export: note fnLoose has no reference"
+      ]
+    }}
+  ],
+  "wave25": {
+    "checker": "epub",
+    "decision": "D13",
+    "epubcheck": {"errors": 0, "warnings": 0},
+    "text_contains": ["VISIBLE-BODY", "MIXED-BODY", "BOTH-BODY", "OPEN-REF", "BOTH-REF", "ORPHAN-ZETA", "ORPHAN-FOOT", "INNER-BODY", "DEEP-BODY", "KEEP-BODY"],
+    "text_absent": ["HIDDEN-BODY", "SHOWIF-BODY", "SEC-BODY", "EXPR-BODY", "SECRET-REF", "SHOWIF-REF", "SECRET-MIX", "SEC-REF", "EXPR-REF"],
+    "aside_text_order": ["VISIBLE-BODY", "MIXED-BODY", "BOTH-BODY", "INNER-BODY", "DEEP-BODY", "KEEP-BODY", "ORPHAN-ZETA", "ORPHAN-FOOT"],
+    "chapter_text": [
+      {"href_contains": "c1.xhtml", "contains": ["INNER-BODY", "DEEP-BODY R&D <x>"], "absent": ["KEEP-BODY"]},
+      {"href_contains": "c2.xhtml", "contains": ["KEEP-BODY", "ORPHAN-ZETA"], "absent": ["DEEP-BODY", "INNER-BODY"]}
+    ]
+  }
+}

@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+import inspect
 import json
 import os
 import re
@@ -23,8 +24,15 @@ EPUBCHECK_TIMEOUT = 120
 TOOL_TIMEOUT = 60
 
 
+def spawn_env(env: dict[str, str] | None = None) -> dict[str, str]:
+    """Child environment. Drop inherited LD_PRELOAD so a test interposer cannot leak in."""
+    out = dict(os.environ if env is None else env)
+    out.pop("LD_PRELOAD", None)
+    return out
+
+
 def headless_env() -> dict[str, str]:
-    env = os.environ.copy()
+    env = spawn_env()
     env["AIOFFICE_HEADLESS"] = "1"
     env["QT_QPA_PLATFORM"] = "offscreen"
     return env
@@ -44,7 +52,7 @@ def run_cmd(
             text=True,
             timeout=timeout,
             cwd=cwd or REPO,
-            env=env or os.environ.copy(),
+            env=spawn_env(env),
             check=False,
         )
     except subprocess.TimeoutExpired as exc:
@@ -397,6 +405,10 @@ def check_structure(epub: Path, exp: dict[str, Any]) -> list[str]:
         if isinstance(required, str) and required and required not in bundle:
             errors.append(f"text must be present: {required!r}")
 
+    for absent in exp.get("text_absent") or []:
+        if isinstance(absent, str) and absent and absent in bundle:
+            errors.append(f"text must be absent: {absent!r}")
+
     th_min = int(exp.get("table_th_min", 0))
     if th_min > 0:
         th_count = len(re.findall(r"<th\b", bundle_lower))
@@ -598,7 +610,402 @@ def write_nav_list_epub(path: Path, nav_name: str, nav_inner: str, chapter_inner
         zf.writestr("OEBPS/content.opf", opf)
 
 
-def self_test() -> int:
+XML_LANG = "{http://www.w3.org/XML/1998/namespace}lang"
+
+
+_CONTENT_MEDIA = {"application/xhtml+xml", "text/html"}
+
+
+def _manifest_items(zf: zipfile.ZipFile) -> list[dict[str, Any]]:
+    """Manifest items from the OPF named by container.xml.
+
+    Classification uses media-type and properties, not the filename. A missing or
+    unreadable OPF, or a href that is not in the package, is an error.
+    """
+    names = {_zip_name_key(n): n for n in zf.namelist()}
+    items: list[dict[str, Any]] = []
+    for opf in _opf_names(zf):
+        try:
+            root = ET.fromstring(zf.read(opf))
+        except ET.ParseError as exc:
+            raise ValueError(f"{opf}: OPF is not well-formed ({exc})") from exc
+        for item in root.iter():
+            if _local_tag(item.tag) != "item":
+                continue
+            href = _resolve_opf_href(opf, item.get("href") or "")
+            if not href:
+                raise ValueError(f"{opf}: manifest item has no href")
+            real = names.get(href)
+            if real is None:
+                raise ValueError(f"{opf}: manifest href {href!r} is not in the package")
+            media = (item.get("media-type") or "").split(";", 1)[0].strip().lower()
+            if not media:
+                raise ValueError(f"{opf}: manifest item {href!r} has no media-type")
+            items.append(
+                {
+                    "name": real,
+                    "href": href,
+                    "media_type": media,
+                    "properties": (item.get("properties") or "").split(),
+                }
+            )
+    return items
+
+
+def content_roots(epub: Path) -> list[ET.Element]:
+    """Content documents: manifest items whose media-type is XHTML or HTML, except properties=nav."""
+    roots: list[ET.Element] = []
+    with zipfile.ZipFile(epub) as zf:
+        content = [
+            item
+            for item in _manifest_items(zf)
+            if item["media_type"] in _CONTENT_MEDIA and "nav" not in item["properties"]
+        ]
+        if not content:
+            raise ValueError("OPF manifest has no content document")
+        for item in content:
+            try:
+                roots.append(ET.fromstring(zf.read(item["name"])))
+            except ET.ParseError as exc:
+                raise ValueError(f"{item['name']}: not well-formed XML ({exc})") from exc
+    return roots
+
+
+def style_css(epub: Path) -> str:
+    with zipfile.ZipFile(epub) as zf:
+        sheets = [item for item in _manifest_items(zf) if item["media_type"] == "text/css"]
+        if not sheets:
+            raise ValueError("OPF manifest has no text/css stylesheet")
+        return "\n".join(zf.read(item["name"]).decode("utf-8") for item in sheets)
+
+
+def element_text(el: ET.Element) -> str:
+    return "".join(el.itertext())
+
+
+def node_matches(el: ET.Element, spec: dict[str, Any]) -> bool:
+    if spec.get("tag") and _local_tag(el.tag) != spec["tag"]:
+        return False
+    if "id" in spec and (el.get("id") or "") != spec["id"]:
+        return False
+    if "class" in spec and spec["class"] not in (el.get("class") or "").split():
+        return False
+    if "dir" in spec and (el.get("dir") or "") != spec["dir"]:
+        return False
+    if "xml_lang" in spec and (el.get(XML_LANG) or "") != spec["xml_lang"]:
+        return False
+    if "lang" in spec and (el.get("lang") or "") != spec["lang"]:
+        return False
+    if "href_contains" in spec and spec["href_contains"] not in (el.get("href") or ""):
+        return False
+    if "text" in spec and spec["text"] not in element_text(el):
+        return False
+    return True
+
+
+def missing_nodes(roots: list[ET.Element], specs: list[Any]) -> list[str]:
+    errors: list[str] = []
+    for spec in specs:
+        if not isinstance(spec, dict):
+            errors.append(f"node spec must be an object, got {spec!r}")
+            continue
+        found = False
+        for root in roots:
+            for el in root.iter():
+                if node_matches(el, spec):
+                    found = True
+                    break
+            if found:
+                break
+        if not found:
+            errors.append(f"missing element {spec}")
+    return errors
+
+
+def css_rule_has(css: str, selector: str, snippet: str) -> bool:
+    for match in re.finditer(r"([^{}]+)\{([^{}]*)\}", css):
+        selectors = [part.strip() for part in match.group(1).split(",")]
+        if selector in selectors and snippet in match.group(2):
+            return True
+    return False
+
+
+def marker_errors(styles: list[str], markers: list[Any]) -> list[str]:
+    """Each marker must be a CSS string list-style-type with one trailing space inside the quotes."""
+    errors: list[str] = []
+    for marker in markers:
+        if not isinstance(marker, str):
+            errors.append(f"list marker must be a string, got {marker!r}")
+            continue
+        want = f'list-style-type: "{marker} "'
+        if not any(want in style for style in styles):
+            errors.append(f"missing list marker {want!r}")
+    return errors
+
+
+def li_styles(roots: list[ET.Element]) -> list[str]:
+    styles: list[str] = []
+    for root in roots:
+        for el in root.iter():
+            if _local_tag(el.tag) == "li":
+                styles.append(el.get("style") or "")
+    return styles
+
+
+def play_json(cli: Path, playbook: Path) -> dict[str, Any]:
+    proc = run_cmd(
+        [str(cli), "play", str(playbook)],
+        timeout=DEFAULT_TIMEOUT,
+        env=headless_env(),
+    )
+    raw = proc.stdout.strip()
+    if not raw:
+        raise SystemExit(f"play failed ({proc.returncode}): {proc.stderr.strip() or 'empty stdout'}")
+    try:
+        out = json.loads(raw)
+    except json.JSONDecodeError as exc:
+        raise SystemExit(f"play bad JSON: {exc}\n{raw[:400]}") from exc
+    if not isinstance(out, dict):
+        raise SystemExit(f"play result is not an object: {raw[:400]}")
+    return out
+
+
+def rewrite_save_path(playbook: dict[str, Any], epub: Path) -> dict[str, Any]:
+    data = json.loads(json.dumps(playbook))
+    calls = data.get("calls")
+    if not isinstance(calls, list):
+        raise SystemExit("wave25 playbook needs a calls array")
+    found = False
+    for step in calls:
+        if isinstance(step, dict) and step.get("tool") == "document_save":
+            args = step.setdefault("args", {})
+            if not isinstance(args, dict):
+                raise SystemExit("document_save args must be an object")
+            args["path"] = str(epub)
+            found = True
+    if not found:
+        raise SystemExit("wave25 playbook has no document_save step")
+    return data
+
+
+def unexpected_hrefs(roots: list[ET.Element], needles: list[Any]) -> list[str]:
+    """href_absent: no content-document href may contain the needle (broken fragments)."""
+    hrefs: list[str] = []
+    for root in roots:
+        for el in root.iter():
+            href = el.get("href") or ""
+            if href:
+                hrefs.append(href)
+    errors: list[str] = []
+    for needle in needles:
+        if not isinstance(needle, str) or not needle:
+            errors.append(f"href_absent entry must be a non-empty string, got {needle!r}")
+            continue
+        hit = next((href for href in hrefs if needle in href), "")
+        if hit:
+            errors.append(f"unexpected href containing {needle!r}: {hit!r}")
+    return errors
+
+
+def chapter_text_errors(epub: Path, specs: list[Any]) -> list[str]:
+    """Match chapter text by the manifest href of one content document."""
+    errors: list[str] = []
+    if not isinstance(specs, list) or not specs:
+        return ["chapter_text must be a non-empty list"]
+    with zipfile.ZipFile(epub) as zf:
+        items = [
+            item
+            for item in _manifest_items(zf)
+            if item["media_type"] in _CONTENT_MEDIA and "nav" not in item["properties"]
+        ]
+        files: list[tuple[str, str]] = []
+        for item in items:
+            href = item.get("href") or ""
+            # Compare element text, not serialized XHTML: a note with "&" is
+            # "&amp;" in the file.
+            try:
+                root = ET.fromstring(zf.read(item["name"]))
+            except ET.ParseError as exc:
+                errors.append(f"chapter file {href!r} is not well-formed XML: {exc}")
+                continue
+            files.append((href, "".join(root.itertext())))
+    for spec in specs:
+        if not isinstance(spec, dict):
+            errors.append(f"chapter_text entry must be an object, got {spec!r}")
+            continue
+        needle = spec.get("href_contains") or ""
+        if not isinstance(needle, str) or not needle:
+            errors.append(f"chapter_text href_contains must be a non-empty string, got {needle!r}")
+            continue
+        matches = [text for href, text in files if needle in href]
+        if len(matches) != 1:
+            errors.append(f"chapter file {needle!r} matched {len(matches)}")
+            continue
+        text = matches[0]
+        for snippet in spec.get("contains") or []:
+            if not isinstance(snippet, str) or not snippet or snippet not in text:
+                errors.append(f"{needle} missing {snippet!r}")
+        for snippet in spec.get("absent") or []:
+            if isinstance(snippet, str) and snippet and snippet in text:
+                errors.append(f"{needle} should not contain {snippet!r}")
+    return errors
+
+
+def check_wave25_package(epub: Path, spec: dict[str, Any]) -> list[str]:
+    errors = check_expectations(epub, spec)
+    roots = content_roots(epub)
+    errors.extend(missing_nodes(roots, spec.get("nodes") or []))
+    errors.extend(unexpected_hrefs(roots, spec.get("href_absent") or []))
+    errors.extend(marker_errors(li_styles(roots), spec.get("list_markers") or []))
+    if "chapter_text" in spec:
+        errors.extend(chapter_text_errors(epub, spec.get("chapter_text")))
+    css = style_css(epub)
+    for rule in spec.get("css_rules") or []:
+        if not isinstance(rule, dict):
+            errors.append(f"css rule spec must be an object, got {rule!r}")
+            continue
+        selector = rule.get("selector") or ""
+        snippet = rule.get("contains") or ""
+        if not selector or not snippet or not css_rule_has(css, selector, snippet):
+            errors.append(f"missing CSS rule {selector!r} containing {snippet!r}")
+    return errors
+
+
+EPUB_WAVE25 = {f"D{n}" for n in range(13, 20)}
+
+
+def epub_wave25_spec(playbook: object) -> dict[str, Any] | None:
+    """EPUB wave 25 checks declare checker=epub. Other qa/wave25-*.json files belong to other decisions."""
+    if not isinstance(playbook, dict):
+        return None
+    spec = playbook.get("wave25")
+    if not isinstance(spec, dict) or spec.get("checker") != "epub":
+        return None
+    return spec
+
+
+# SystemExit is BaseException. epubcheck raises it when the validator is missing,
+# and that must fail the decision instead of aborting the rest of the suite.
+_PACKAGE_ERRORS = (OSError, zipfile.BadZipFile, ET.ParseError, ValueError, SystemExit)
+
+
+def finish_wave25_decision(decision: str, action) -> tuple[bool, str]:
+    """Run one decision's package check. A read failure fails that decision only."""
+    try:
+        errors = action()
+    except _PACKAGE_ERRORS as exc:
+        return False, f"FAIL {decision}: cannot read EPUB ({exc})"
+    if not isinstance(errors, list):
+        return False, f"FAIL {decision}: checker returned {errors!r}"
+    if errors:
+        detail = "\n".join(f"  {err}" for err in errors)
+        return False, f"FAIL {decision}:\n{detail}"
+    return True, f"ok   {decision}"
+
+
+def wave25_validator_exit_errors() -> list[str]:
+    """A validator SystemExit must fail one decision and still run the next."""
+    ran: list[str] = []
+
+    def first() -> list[str]:
+        ran.append("first")
+        raise SystemExit("epubcheck not found")
+
+    def second() -> list[str]:
+        ran.append("second")
+        return []
+
+    try:
+        first_ok, _first_msg = finish_wave25_decision("D13", first)
+        second_ok, _second_msg = finish_wave25_decision("D16", second)
+    except SystemExit as exc:
+        return [f"validator SystemExit aborted the suite ({exc}); ran={ran}"]
+    if first_ok or not second_ok or ran != ["first", "second"]:
+        return [
+            "a validator SystemExit must fail that decision and still run the next "
+            f"(ran={ran}, first_ok={first_ok}, second_ok={second_ok})"
+        ]
+    return []
+
+
+def epub_cli_wiring_errors() -> list[str]:
+    """self_test must forward the CLI it was given, and ctest must pass that path."""
+    errors: list[str] = []
+    source = inspect.getsource(self_test)
+    if '"build"' in source and "aioffice-cli" in source:
+        errors.append("epub self_test still falls back to the build/linux CLI")
+    if "run_wave25_suite(cli)" not in source:
+        errors.append("epub self_test does not pass cli into run_wave25_suite")
+    cmake = (REPO / "CMakeLists.txt").read_text(encoding="utf-8")
+    start = cmake.find("add_test(NAME epub_check_selftest")
+    end = cmake.find("set_tests_properties(epub_check_selftest", start)
+    if start < 0 or end < 0:
+        errors.append("epub_check_selftest CMake block not found")
+    elif '--cli "${AIOFFICE_CLI}"' not in cmake[start:end]:
+        errors.append('epub_check_selftest does not pass --cli "${AIOFFICE_CLI}"')
+    return errors
+
+
+def run_wave25_suite(cli: Path) -> bool:
+    books = sorted((REPO / "qa").glob("wave25-*.json"))
+    if not books:
+        print("FAIL wave25: no qa/wave25-*.json playbooks")
+        return False
+    if not cli.is_file():
+        print(f"FAIL wave25: missing cli {cli}")
+        return False
+    ok = True
+    seen: set[str] = set()
+    for playbook_path in books:
+        try:
+            playbook = json.loads(playbook_path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError) as exc:
+            print(f"FAIL {playbook_path.name}: {exc}")
+            ok = False
+            continue
+        spec = epub_wave25_spec(playbook)
+        if spec is None:
+            continue
+        decision = spec.get("decision")
+        if not isinstance(decision, str) or decision not in EPUB_WAVE25:
+            print(f"FAIL {playbook_path.name}: checker epub needs decision D13–D19")
+            ok = False
+            continue
+        if decision in seen:
+            print(f"FAIL {playbook_path.name}: duplicate decision {decision}")
+            ok = False
+            continue
+        seen.add(decision)
+        with tempfile.TemporaryDirectory(prefix="wave25-epub-") as tmp:
+            epub = Path(tmp) / "book.epub"
+            rewritten = rewrite_save_path(playbook, epub)
+            script = Path(tmp) / "play.json"
+            script.write_text(json.dumps(rewritten, ensure_ascii=False), encoding="utf-8")
+            try:
+                result = play_json(cli, script)
+            except SystemExit as exc:
+                print(f"FAIL {decision}: {exc}")
+                ok = False
+                continue
+            if not result.get("ok"):
+                print(f"FAIL {decision}: {result.get('error', result)}")
+                ok = False
+                continue
+            passed, message = finish_wave25_decision(
+                decision, lambda: check_wave25_package(epub, spec)
+            )
+            print(message)
+            if not passed:
+                ok = False
+                continue
+    missing = EPUB_WAVE25 - seen
+    if missing:
+        print("FAIL wave25: missing EPUB decisions " + ", ".join(sorted(missing)))
+        ok = False
+    return ok
+
+
+def self_test(cli: Path) -> int:
     ok = True
 
     sample = (
@@ -795,6 +1202,112 @@ def self_test() -> int:
     else:
         print("ok   ToolDispatch document_save description")
 
+    if marker_errors(["list-style-type: disc"], ["★"]):
+        print("ok   list marker check rejects a disc list")
+    else:
+        print("FAIL list marker check should reject a disc list")
+        ok = False
+    if marker_errors(['list-style-type: "★ "'], ["★"]):
+        print("FAIL list marker check should accept a quoted star")
+        ok = False
+    else:
+        print("ok   list marker check accepts a quoted star")
+    bare = ET.fromstring('<p xmlns="http://www.w3.org/1999/xhtml">עברית</p>')
+    if not missing_nodes([bare], [{"tag": "p", "text": "עברית", "dir": "rtl"}]):
+        print("FAIL dir:auto check should fail when the paragraph has no dir")
+        ok = False
+    else:
+        print("ok   dir:auto check fails without dir")
+
+    if epub_wave25_spec({"wave25": {"decision": "D1"}}) is not None:
+        print("FAIL a wave25 playbook without checker=epub should be skipped")
+        ok = False
+    else:
+        print("ok   non-epub wave25 playbook skipped")
+    if epub_wave25_spec({"wave25": {"checker": "epub", "decision": "D13"}}) is None:
+        print("FAIL checker=epub should select the playbook")
+        ok = False
+    else:
+        print("ok   checker=epub selects the playbook")
+
+    with tempfile.TemporaryDirectory(prefix="aioffice-epub-manifest-") as tmp:
+        classified = Path(tmp) / "classified.epub"
+        container = (
+            '<?xml version="1.0"?>\n'
+            '<container version="1.0" xmlns="urn:oasis:names:tc:opendocument:xmlns:container">'
+            '<rootfiles><rootfile full-path="OEBPS/content.opf" media-type="application/oebps-package+xml"/>'
+            "</rootfiles></container>"
+        )
+        opf = (
+            '<?xml version="1.0"?>\n'
+            '<package xmlns="http://www.idpf.org/2007/opf" version="3.0"><manifest>'
+            '<item id="decoy" href="chapter.xhtml" media-type="image/png"/>'
+            '<item id="nav" href="nav.xhtml" media-type="application/xhtml+xml" properties="nav"/>'
+            '<item id="body" href="notes.bin" media-type="application/xhtml+xml"/>'
+            '<item id="css" href="style.css" media-type="text/css"/>'
+            "</manifest></package>"
+        )
+        body = (
+            '<?xml version="1.0"?><html xmlns="http://www.w3.org/1999/xhtml">'
+            '<body><p id="real">REAL</p></body></html>'
+        )
+        decoy = (
+            '<?xml version="1.0"?><html xmlns="http://www.w3.org/1999/xhtml">'
+            '<body><p id="decoy">DECOY</p></body></html>'
+        )
+        nav = (
+            '<?xml version="1.0"?><html xmlns="http://www.w3.org/1999/xhtml">'
+            "<body><nav><p>NAV</p></nav></body></html>"
+        )
+        with zipfile.ZipFile(classified, "w") as zf:
+            zf.writestr("META-INF/container.xml", container)
+            zf.writestr("OEBPS/content.opf", opf)
+            zf.writestr("OEBPS/chapter.xhtml", decoy)
+            zf.writestr("OEBPS/nav.xhtml", nav)
+            zf.writestr("OEBPS/notes.bin", body)
+            zf.writestr("OEBPS/style.css", ".sReal { color: #010203; }\n")
+        try:
+            roots = content_roots(classified)
+            texts = [element_text(root) for root in roots]
+            css = style_css(classified)
+        except (OSError, zipfile.BadZipFile, ET.ParseError, ValueError) as exc:
+            print(f"FAIL manifest classification: {exc}")
+            ok = False
+        else:
+            if texts != ["REAL"] or "color: #010203" not in css:
+                print(f"FAIL manifest classification used a name heuristic: {texts!r}")
+                ok = False
+            else:
+                print("ok   manifest media-type selects content and css")
+        broken = Path(tmp) / "broken.epub"
+        with zipfile.ZipFile(broken, "w") as zf:
+            zf.writestr("META-INF/container.xml", container)
+            zf.writestr("OEBPS/content.opf", "<package><manifest>")
+        try:
+            content_roots(broken)
+        except ValueError:
+            print("ok   unparseable OPF fails content classification")
+        else:
+            print("FAIL unparseable OPF should fail content classification")
+            ok = False
+
+    exit_errors = wave25_validator_exit_errors()
+    if exit_errors:
+        print("FAIL self-test wave25 validator exit: " + "; ".join(exit_errors))
+        ok = False
+    else:
+        print("ok   wave25 suite continues after a validator SystemExit")
+
+    wiring = epub_cli_wiring_errors()
+    if wiring:
+        print("FAIL self-test cli wiring: " + "; ".join(wiring))
+        ok = False
+    else:
+        print("ok   epub self-test uses the passed CLI")
+
+    if not run_wave25_suite(cli):
+        ok = False
+
     return 0 if ok else 1
 
 
@@ -805,11 +1318,14 @@ def main() -> int:
     parser.add_argument("--expect", type=Path, help="expectations .epub.json (default: playbook stem + .epub.json)")
     parser.add_argument("--epub", type=Path, help="existing EPUB (with --skip-play)")
     parser.add_argument("--self-test", action="store_true")
+    parser.add_argument("--wave25-only", action="store_true", help="run qa/wave25-*.json EPUB checks")
     parser.add_argument("--skip-play", action="store_true")
     args = parser.parse_args()
 
     if args.self_test:
-        return self_test()
+        return self_test(args.cli.resolve())
+    if args.wave25_only:
+        return 0 if run_wave25_suite(args.cli.resolve()) else 1
 
     if not args.playbook and not args.epub:
         raise SystemExit("usage: check_epub.py --playbook … | --epub … --expect … | --self-test")

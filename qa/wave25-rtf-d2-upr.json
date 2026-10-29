@@ -1,0 +1,15 @@
+[
+  {"tool": "document_open", "args": {"path": "qa/fixtures/wave25-rtf-d2-upr-word.rtf"}, "expect": {
+    "ok": true,
+    "document.body.0.runs.0.text": "XREALYSOANSIZ",
+    "document.body.1.runs.0.text": "AFIRSTB",
+    "document.body.2.runs.0.text": "caf\u00e9"
+  }},
+  {"tool": "document_open", "args": {"path": "qa/fixtures/wave25-rtf-d2-upr-lo.rtf"}, "expect": {
+    "ok": true,
+    "document.meta.title": "Titulo LO",
+    "document.meta.author": "Libre",
+    "document.body.0.runs.0.text": "XREALYSOANSIZ",
+    "document.body.1.runs.0.text": "AFIRSTB"
+  }}
+]

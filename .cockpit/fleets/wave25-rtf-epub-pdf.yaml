@@ -1,0 +1,366 @@
+version: 1
+name: wave25-rtf-epub-pdf
+description: >
+  Onda 25 — fidelidade RTF, EPUB e PDF (auditoria 2026-10). Spec: docs/waves/wave25-rtf-epub-pdf-fidelity.md.
+  Executor Grok Build (Cursor a 94%: não usada). Regras L22, L25–L27 em todo prompt. Push/PR pré-aprovados;
+  o orquestrador roda o gate de merge.
+args:
+  opus_audit:
+    default: "false"
+    description: "true = auditoria final do Opus antes do PR"
+defaults:
+  agent: grok
+  model: grok-4.7
+  approval: full-access
+max_parallel: 4
+nodes:
+  lessons:
+    title: Lições dos PRs anteriores (Sonnet)
+    agent: claude
+    model: claude-sonnet-5
+    effort: medium
+    prompt: |
+      REGRAS (L22, L25–L27): faça tudo você mesmo, neste turno; NÃO use skills nem subagentes nem tarefas em
+      segundo plano; nunca submeta saída provisória; NÃO use `git stash` (é compartilhado entre worktrees);
+      a CI roda como root e com outra glibc (teste não depende de privilégio nem de LD_PRELOAD herdado).
+      Projeto AI Office Writer. Mantenha docs/LESSONS.md e .cursor/rules/lessons.mdc. Não altere código.
+      Faça tudo neste turno, sem subagentes em segundo plano.
+      1. Veja em docs/LESSONS.md a linha "Última PR processada". Liste os PRs mergeados depois dela em
+         melker22/AI-Office (tool MCP do GitHub; `gh` não existe). Nenhum novo → não mude nada.
+      2. Para cada PR novo, leia as threads do CodeRabbit (pull_request_read get_review_comments), o CORPO
+         das revisões (outside-diff, "<Severity> comments: N") e as entradas em docs/AI_HANDOFF.md e
+         docs/AI_HANDOFF_ARCHIVE.md.
+      3. Defeito real que chegou ao CodeRabbit ou exigiu intervenção: instância de lição existente →
+         acrescente evidência e incremente; padrão novo → lição nova com regra VERIFICÁVEL. Sem evidência
+         (link de thread/commit) não entra.
+      4. Registre também estas lições, com as evidências indicadas:
+         - L25: nó Claude não usa skills, subagentes nem tarefas em segundo plano, e não submete saída
+           "provisória". Evidência: Fleet wave24 (Run 4712f7db), em que review-pass submeteu issues:0
+           "provisório" e fix-pass submeteu qa_green:false "provisório"; Fleet audit (Run 6fda0b72).
+         - L26: nó de agente não roda build completo do zero; o QA longo é do gate de comando ou de um build
+           aquecido. Evidência: Fleet wave24-finish (Run a41c009a), em que o stabilize estourou o tempo de um
+           comando.
+         - L27: ninguém usa `git stash`, porque o stash é compartilhado entre worktrees. Evidência: um pop no
+           checkout principal pegou o stash de um agente que trabalhava no worktree do PR #15.
+      5. Reescreva o checklist de .cursor/rules/lessons.mdc (máx. 15 itens) e atualize "Última PR processada".
+      6. Commit `docs: update lessons from PR #N` em inglês, sem push. Submeta commit =
+         `git rev-parse HEAD` (mesmo sem mudanças), qa_green = true, summary.
+    success_output: qa_green
+    output_contract: &executor_contract
+      type: object
+      required: [commit, qa_green, summary]
+      properties:
+        commit: { type: string, pattern: "^[0-9a-f]{40}$" }
+        qa_green: { type: boolean }
+        blocker: { type: string }
+        summary: { type: string }
+
+  t1-rtf-writer:
+    title: T1 RTF writer (Grok Build)
+    needs: [lessons]
+    effort: high
+    workspace: isolated
+    prompt: |
+      Projeto AI Office Writer (C++20/Qt 6). PRIMEIRO: `git merge {{needs.lessons.output.commit}}`.
+      Leia docs/waves/wave25-rtf-epub-pdf-fidelity.md (decisões FECHADAS), os achados citados em
+      docs/audit/module-sweep.md e docs/audit/coderabbit-pr11.json, docs/ORCHESTRATION.md e o checklist de
+      .cursor/rules/lessons.mdc.
+      REGRAS (L22, L25–L27): faça tudo você mesmo, neste turno; NÃO use skills nem subagentes nem tarefas em
+      segundo plano; nunca submeta saída provisória; NÃO use `git stash` (é compartilhado entre worktrees);
+      a CI roda como root e com outra glibc (teste não depende de privilégio nem de LD_PRELOAD herdado).
+      Só src/core/RtfWriter.{h,cpp}, a tabela de LCID compartilhada (crie src/core/RtfLang.{h,cpp} se precisar;
+      a T2 a usa no reader — combine pelo nome `rtfLcidForTag`/`rtfTagForLcid`), docs/mcp-tools.md e qa/.
+      NÃO mexa no reader RTF (T2), em Epub/Xhtml (T3) nem em PdfPostProcess (T4).
+      Decisões: D1 (writer + a tabela compartilhada), D3, D4 (writer), D5 (writer), D6 (writer + sanitização do
+      \\fldinst), D7, D8 (writer), D9, D11, D12.
+      Para cada decisão: primeiro um teste que FALHA hoje (qa/wave25-*.json ligado ao ctest, ou checker),
+      depois a correção. Compile só o alvo do CLI (`cmake --preset linux` e `cmake --build --preset linux
+      --target aioffice_cli`; no worktree isolado o primeiro build desse alvo é inevitável, nunca o projeto
+      inteiro) e rode `ctest --test-dir build/linux -R 'wave25|rtf_check|epub_check|pdf_check'` (inclui os juízes
+      de formato). Uma checagem de ida e volta que depende da outra metade do RTF (reader na T1, writer na
+      T2) pode falhar antes da integração: liste-a no summary, sem contorná-la; o gate `build-1` roda a
+      suíte RTF inteira depois de integrar T1 e T2. Qualquer outra falha bloqueia qa_green. O QA completo é do gate `build-1`, não deste
+      nó (L26). Commits em inglês (fix:/test:), sem push. Submeta commit = `git rev-parse HEAD`, qa_green, summary (decisão → teste → commit).
+    success_output: qa_green
+    output_contract: *executor_contract
+
+  t2-rtf-reader:
+    title: T2 RTF reader (Grok Build)
+    needs: [lessons]
+    effort: high
+    workspace: isolated
+    prompt: |
+      Projeto AI Office Writer (C++20/Qt 6). PRIMEIRO: `git merge {{needs.lessons.output.commit}}`.
+      Leia docs/waves/wave25-rtf-epub-pdf-fidelity.md (decisões FECHADAS), os achados citados em
+      docs/audit/module-sweep.md e docs/audit/coderabbit-pr11.json, docs/ORCHESTRATION.md e o checklist de
+      .cursor/rules/lessons.mdc.
+      REGRAS (L22, L25–L27): faça tudo você mesmo, neste turno; NÃO use skills nem subagentes nem tarefas em
+      segundo plano; nunca submeta saída provisória; NÃO use `git stash` (é compartilhado entre worktrees);
+      a CI roda como root e com outra glibc (teste não depende de privilégio nem de LD_PRELOAD herdado).
+      Só src/core/RtfReader.{h,cpp}, docs/mcp-tools.md e qa/. Use a tabela de LCID compartilhada da T1
+      (`rtfLcidForTag`/`rtfTagForLcid` em src/core/RtfLang.{h,cpp}); se ela ainda não existir no seu worktree,
+      crie-a com exatamente essas assinaturas e o conteúdo da D1 (a integração junta as duas).
+      Decisões: D1 (reader), D2, D4 (reader: destinos privados aiolistkind/aiocheck), D5 (reader), D6 (reader),
+      D8 (reader: \\ftnalt → endnote), D10. Fixtures RTF escritas à mão (estilo Word e LibreOffice).
+      Para cada decisão: primeiro um teste que FALHA hoje (qa/wave25-*.json ligado ao ctest, ou checker),
+      depois a correção. Compile só o alvo do CLI (`cmake --preset linux` e `cmake --build --preset linux
+      --target aioffice_cli`; no worktree isolado o primeiro build desse alvo é inevitável, nunca o projeto
+      inteiro) e rode `ctest --test-dir build/linux -R 'wave25|rtf_check|epub_check|pdf_check'` (inclui os juízes
+      de formato). Uma checagem de ida e volta que depende da outra metade do RTF (reader na T1, writer na
+      T2) pode falhar antes da integração: liste-a no summary, sem contorná-la; o gate `build-1` roda a
+      suíte RTF inteira depois de integrar T1 e T2. Qualquer outra falha bloqueia qa_green. O QA completo é do gate `build-1`, não deste
+      nó (L26). Commits em inglês (fix:/test:), sem push. Submeta commit = `git rev-parse HEAD`, qa_green, summary (decisão → teste → commit).
+    success_output: qa_green
+    output_contract: *executor_contract
+
+  t3-epub:
+    title: T3 EPUB (Grok Build)
+    needs: [lessons]
+    effort: high
+    workspace: isolated
+    prompt: |
+      Projeto AI Office Writer (C++20/Qt 6). PRIMEIRO: `git merge {{needs.lessons.output.commit}}`.
+      Leia docs/waves/wave25-rtf-epub-pdf-fidelity.md (decisões FECHADAS), os achados citados em
+      docs/audit/module-sweep.md e docs/audit/coderabbit-pr11.json, docs/ORCHESTRATION.md e o checklist de
+      .cursor/rules/lessons.mdc.
+      REGRAS (L22, L25–L27): faça tudo você mesmo, neste turno; NÃO use skills nem subagentes nem tarefas em
+      segundo plano; nunca submeta saída provisória; NÃO use `git stash` (é compartilhado entre worktrees);
+      a CI roda como root e com outra glibc (teste não depende de privilégio nem de LD_PRELOAD herdado).
+      Só src/core/Epub.{h,cpp}, src/core/Xhtml.{h,cpp}, docs/mcp-tools.md e qa/. O epubcheck continua 0/0.
+      Decisões: D13–D19.
+      Para cada decisão: primeiro um teste que FALHA hoje (qa/wave25-*.json ligado ao ctest, ou checker),
+      depois a correção. Compile só o alvo do CLI (`cmake --preset linux` e `cmake --build --preset linux
+      --target aioffice_cli`; no worktree isolado o primeiro build desse alvo é inevitável, nunca o projeto
+      inteiro) e rode `ctest --test-dir build/linux -R 'wave25|rtf_check|epub_check|pdf_check'` (inclui os juízes
+      de formato). O QA completo é do gate `build-1`, não deste
+      nó (L26). Commits em inglês (fix:/test:), sem push. Submeta commit = `git rev-parse HEAD`, qa_green, summary (decisão → teste → commit).
+    success_output: qa_green
+    output_contract: *executor_contract
+
+  t4-pdf:
+    title: T4 PDF (Grok Build)
+    needs: [lessons]
+    effort: high
+    workspace: isolated
+    prompt: |
+      Projeto AI Office Writer (C++20/Qt 6). PRIMEIRO: `git merge {{needs.lessons.output.commit}}`.
+      Leia docs/waves/wave25-rtf-epub-pdf-fidelity.md (decisões FECHADAS), os achados citados em
+      docs/audit/module-sweep.md e docs/audit/coderabbit-pr11.json, docs/ORCHESTRATION.md e o checklist de
+      .cursor/rules/lessons.mdc.
+      REGRAS (L22, L25–L27): faça tudo você mesmo, neste turno; NÃO use skills nem subagentes nem tarefas em
+      segundo plano; nunca submeta saída provisória; NÃO use `git stash` (é compartilhado entre worktrees);
+      a CI roda como root e com outra glibc (teste não depende de privilégio nem de LD_PRELOAD herdado).
+      Só src/core/PdfPostProcess.{h,cpp} (e o mínimo em Preview para passar spans de célula/página ao
+      marcador de tags), docs/mcp-tools.md e qa/. veraPDF PDF/UA-1 e PDF/A-1b continuam conformes.
+      Decisões: D20–D23.
+      Para cada decisão: primeiro um teste que FALHA hoje (qa/wave25-*.json ligado ao ctest, ou checker),
+      depois a correção. Compile só o alvo do CLI (`cmake --preset linux` e `cmake --build --preset linux
+      --target aioffice_cli`; no worktree isolado o primeiro build desse alvo é inevitável, nunca o projeto
+      inteiro) e rode `ctest --test-dir build/linux -R 'wave25|rtf_check|epub_check|pdf_check'` (inclui os juízes
+      de formato). O QA completo é do gate `build-1`, não deste
+      nó (L26). Commits em inglês (fix:/test:), sem push. Submeta commit = `git rev-parse HEAD`, qa_green, summary (decisão → teste → commit).
+    success_output: qa_green
+    output_contract: *executor_contract
+
+  integrate-1:
+    title: Integrar T1–T4 (Grok Build)
+    needs: [t1-rtf-writer, t2-rtf-reader, t3-epub, t4-pdf]
+    effort: medium
+    prompt: |
+      REGRAS (L22, L25–L27): faça tudo você mesmo, neste turno; NÃO use skills nem subagentes nem tarefas em
+      segundo plano; nunca submeta saída provisória; NÃO use `git stash` (é compartilhado entre worktrees);
+      a CI roda como root e com outra glibc (teste não depende de privilégio nem de LD_PRELOAD herdado).
+      Neste worktree, faça `git merge` dos commits EXATOS, nesta ordem:
+      {{needs.t1-rtf-writer.output.commit}}, {{needs.t2-rtf-reader.output.commit}},
+      {{needs.t3-epub.output.commit}}, {{needs.t4-pdf.output.commit}}.
+      Conflitos esperados: src/core/RtfLang.{h,cpp} (T1 e T2 podem ter criado o mesmo arquivo — una numa só
+      versão com o conteúdo da D1), CMakeLists.txt, docs/mcp-tools.md e AI_HANDOFF: mantenha TODAS as adições.
+      Compile só o CLI (`cmake --build --preset linux --target aioffice_cli`) e rode os testes wave25
+      (`ctest --test-dir build/linux -R wave25`); o QA completo é do gate seguinte. Corrija só quebras de
+      merge, commit. Submeta commit = HEAD após os merges, qa_green (true se o CLI compila e os wave25
+      passam), summary.
+    success_output: qa_green
+    output_contract: *executor_contract
+
+  build-1:
+    type: gate
+    gate: command
+    needs: [integrate-1, lessons, t1-rtf-writer, t2-rtf-reader, t3-epub, t4-pdf]
+    run: scripts/fleet-verify-merged.sh 6 && scripts/qa-all.sh --gui --interop --pdf --formats
+
+  t5-regress:
+    title: T5 regressão completa (Grok Build)
+    effort: high
+    needs: [build-1]
+    prompt: |
+      REGRAS (L22, L25–L27): faça tudo você mesmo, neste turno; NÃO use skills nem subagentes nem tarefas em
+      segundo plano; nunca submeta saída provisória; NÃO use `git stash` (é compartilhado entre worktrees);
+      a CI roda como root e com outra glibc (teste não depende de privilégio nem de LD_PRELOAD herdado).
+      Projeto AI Office Writer, worktree integrado da onda 25. Leia docs/waves/wave25-rtf-epub-pdf-fidelity.md
+      (critério de pronto) e o checklist de lições. Faça tudo neste turno, sem subagentes em segundo plano.
+      Rode `scripts/qa-all.sh --gui --interop --pdf --formats`. Corrija o CÓDIGO (não testes nem
+      expectativas) até passar. Confirme: qa/audit/ não tem mais nenhum playbook desta onda (só os das
+      ondas 24–26, se houver); cada decisão D1–D23 tem um expect que falharia sem ela (liste no summary
+      decisão → arquivo de teste); qa/check_mcp_stdio.py passa. Decisão que pareça impossível → PARE e
+      reporte "PRECISA OPUS: ..." com evidência. Commit em inglês, sem push. Submeta commit/qa_green/summary.
+    success_output: qa_green
+    output_contract: *executor_contract
+
+  qa-full:
+    type: gate
+    gate: command
+    needs: [t5-regress]
+    run: scripts/fleet-verify-merged.sh 1 && scripts/qa-all.sh --gui --interop --pdf --formats
+
+  review:
+    type: loop
+    needs: [qa-full]
+    max_iterations: 3
+    on_exhausted: review-adjudication
+    until:
+      run: scripts/fleet-verify-merged.sh 1 && test "{{needs.review-pass.output.issues}}" -eq 0
+    nodes:
+      review-pass:
+        agent: claude
+        model: claude-sonnet-5
+        effort: high
+        session: continue
+        prompt: |
+          REGRAS (L22, L25–L27): faça tudo você mesmo, neste turno; NÃO use skills nem subagentes nem tarefas em
+          segundo plano; nunca submeta saída provisória; NÃO use `git stash` (é compartilhado entre worktrees);
+          a CI roda como root e com outra glibc (teste não depende de privilégio nem de LD_PRELOAD herdado).
+          Você é o Tech Lead. PRIMEIRO verifique no diff cada item de .cursor/rules/lessons.mdc. Depois
+          revise `git diff main...HEAD` contra docs/waves/wave25-rtf-epub-pdf-fidelity.md (D1–D25, critério de pronto).
+          Para cada decisão, confirme que o comportamento existe E que um teste falharia sem ele. Procure:
+          perda em ida e volta RTF (língua, listas/checkbox, campos, notas/endnotes, bookmarks, larguras);
+          RTF malformado gerado (\\fldinst sem escape, grupos desbalanceados); EPUB que o epubcheck reprova ou
+          com texto perdido (notas, estilos, dir); PDF não conforme (veraPDF), estrutura errada em listas/
+          tabelas/cópias; teste que depende de root/glibc (L22); regressões das ondas 12–24. Rode `scripts/qa-all.sh --gui --interop --pdf --formats`. Não corrija
+          nada. Só defeitos reais. Faça tudo neste turno. Submeta issues e findings ("arquivo:linha —
+          defeito — correção sugerida").
+        followup_prompt: |
+          REGRAS (L22, L25–L27): faça tudo você mesmo, neste turno; NÃO use skills nem subagentes nem tarefas em
+          segundo plano; nunca submeta saída provisória; NÃO use `git stash` (é compartilhado entre worktrees);
+          a CI roda como root e com outra glibc (teste não depende de privilégio nem de LD_PRELOAD herdado).
+          Houve correção. Verifique de novo o checklist de lições e `git diff main...HEAD`, rode
+          `scripts/qa-all.sh --gui --interop --pdf --formats` e submeta só os findings que continuam ou surgiram.
+        output_contract:
+          type: object
+          required: [issues, findings]
+          properties:
+            issues: { type: integer, minimum: 0 }
+            findings: { type: array, items: { type: string } }
+      fix-pass:
+        needs: [review-pass]
+        effort: high
+        prompt: |
+          REGRAS (L22, L25–L27): faça tudo você mesmo, neste turno; NÃO use skills nem subagentes nem tarefas em
+          segundo plano; nunca submeta saída provisória; NÃO use `git stash` (é compartilhado entre worktrees);
+          a CI roda como root e com outra glibc (teste não depende de privilégio nem de LD_PRELOAD herdado).
+          Projeto AI Office Writer (spec: docs/waves/wave25-rtf-epub-pdf-fidelity.md; checklist .cursor/rules/lessons.mdc).
+          Findings: {{needs.review-pass.output.findings}}
+          Lista vazia → não altere nada. Senão corrija (com teste que falha antes), rode
+          `scripts/qa-all.sh --gui --interop --pdf --formats` e commit `fix: ...` em inglês, sem push.
+          Submeta commit = `git rev-parse HEAD`, qa_green, summary.
+        success_output: qa_green
+        output_contract: *executor_contract
+
+  review-adjudication:
+    title: Adjudicação final (Sonnet)
+    needs: [review]
+    agent: claude
+    model: claude-sonnet-5
+    effort: high
+    prompt: |
+      REGRAS (L22, L25–L27): faça tudo você mesmo, neste turno; NÃO use skills nem subagentes nem tarefas em
+      segundo plano; nunca submeta saída provisória; NÃO use `git stash` (é compartilhado entre worktrees);
+      a CI roda como root e com outra glibc (teste não depende de privilégio nem de LD_PRELOAD herdado).
+      Três passadas não zeraram os findings. Descarte os que não são defeitos (com motivo), faça UMA
+      correção direta dos reais (com teste e commit), rode `scripts/qa-all.sh --gui --interop --pdf
+      --formats` e pare. Nunca pergunte a um humano. Submeta commit = `git rev-parse HEAD` e resolved =
+      true só se nenhum defeito real ficou aberto.
+    success_output: resolved
+    output_contract:
+      type: object
+      required: [verdict, resolved, accepted, dismissed, commit]
+      properties:
+        verdict: { type: string, enum: [resolved, failed] }
+        resolved: { type: boolean }
+        accepted: { type: array, items: { type: string } }
+        dismissed: { type: array, items: { type: string } }
+        commit: { type: string, pattern: "^[0-9a-f]{40}$" }
+
+  opus-audit:
+    title: Auditoria Opus (opcional)
+    needs: [review-adjudication]
+    enabled: "{{args.opus_audit}}"
+    agent: claude
+    model: claude-opus-5-5
+    effort: high
+    prompt: |
+      REGRAS (L22, L25–L27): faça tudo você mesmo, neste turno; NÃO use skills nem subagentes nem tarefas em
+      segundo plano; nunca submeta saída provisória; NÃO use `git stash` (é compartilhado entre worktrees);
+      a CI roda como root e com outra glibc (teste não depende de privilégio nem de LD_PRELOAD herdado).
+      Auditoria final de `git diff main...HEAD` contra docs/waves/wave25-rtf-epub-pdf-fidelity.md (foco: D4/D6/D8 RTF,
+      D13/D16 notas e campos no EPUB, D21–D23 estrutura PDF). Corrija só o crítico, commit.
+      Submeta commit/qa_green/summary.
+    success_output: qa_green
+    output_contract: *executor_contract
+
+  qa-final:
+    type: gate
+    gate: command
+    needs: [opus-audit, review-adjudication, t5-regress]
+    run: scripts/fleet-verify-merged.sh 1 && scripts/qa-all.sh --gui --interop --pdf --formats
+
+  handoff:
+    title: Handoff + catálogo (Composer)
+    needs: [qa-final]
+    effort: medium
+    prompt: |
+      REGRAS (L22, L25–L27): faça tudo você mesmo, neste turno; NÃO use skills nem subagentes nem tarefas em
+      segundo plano; nunca submeta saída provisória; NÃO use `git stash` (é compartilhado entre worktrees);
+      a CI roda como root e com outra glibc (teste não depende de privilégio nem de LD_PRELOAD herdado).
+      Atualize só estes arquivos e commit `docs: ...` em inglês, sem push:
+      - docs/AI_HANDOFF.md: entrada nova no topo ("Fleet wave25 — Grok Build/Sonnet"), com o
+        resultado REAL de `scripts/qa-all.sh --gui --interop --pdf --formats` (rode-o) e
+        `git log main..HEAD --oneline` (hashes reais; não cite o hash do próprio commit).
+      - docs/audit/fix-plan.md: marque a onda 25 como entregue, item por item (corrigido / adiado com motivo).
+      - docs/WRITER_FEATURE_CATALOG.md: "RTF nativo", "Exportação EPUB" e "PDF/UA" conforme o entregue.
+      Submeta commit/qa_green/summary. Resumo da revisão: {{needs.review.report}}
+    success_output: qa_green
+    output_contract: *executor_contract
+
+  notion-sync:
+    title: Sincronizar Notion (Sonnet)
+    needs: [handoff]
+    agent: claude
+    model: claude-sonnet-5
+    effort: low
+    prompt: |
+      REGRAS (L22, L25–L27): faça tudo você mesmo, neste turno; NÃO use skills nem subagentes nem tarefas em
+      segundo plano; nunca submeta saída provisória; NÃO use `git stash` (é compartilhado entre worktrees);
+      a CI roda como root e com outra glibc (teste não depende de privilégio nem de LD_PRELOAD herdado).
+      Sincronize o Notion com o repositório (regra: documentação sempre atualizada). Tools MCP do
+      Notion; NÃO altere código; NÃO apague nem arquive páginas; nunca cole segredos. Fontes:
+      docs/audit/fix-plan.md, topo de docs/AI_HANDOFF.md, docs/waves/wave25-rtf-epub-pdf-fidelity.md, docs/LESSONS.md.
+      Notion: hub 3cb46a79156b819daef5ea9d7c41385a; board collection://f3cc11ed-9e5e-4389-b49a-ca98f98dda62;
+      snapshot 3cb46a79156b8117a87fc72cd190f8c6. Atualize a seção "Auditoria 2026-10" do hub (onda 25
+      entregue: o que foi corrigido), "Última sync" e o snapshot. Reporte as mudanças.
+
+  open-pr:
+    title: Push + PR (Sonnet)
+    needs: [notion-sync]
+    agent: claude
+    model: claude-sonnet-5
+    effort: medium
+    prompt: |
+      REGRAS (L22, L25–L27): faça tudo você mesmo, neste turno; NÃO use skills nem subagentes nem tarefas em
+      segundo plano; nunca submeta saída provisória; NÃO use `git stash` (é compartilhado entre worktrees);
+      a CI roda como root e com outra glibc (teste não depende de privilégio nem de LD_PRELOAD herdado).
+      Push deste branch para origin (nunca main) e PR para `main` em melker22/AI-Office via tool MCP do
+      GitHub (push/PR pré-aprovados pelo utilizador). Título em inglês
+      `fix: wave 25 — RTF, EPUB and PDF fidelity`. Corpo: resumo de
+      docs/waves/wave25-rtf-epub-pdf-fidelity.md (diagnóstico + decisões), a lista de ids da auditoria corrigidos, test
+      plan e o handoff: {{needs.handoff.report}}. NÃO faça merge (o orquestrador roda o gate). Não
+      reescreva commits. Reporte a URL e o número do PR.

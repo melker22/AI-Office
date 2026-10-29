@@ -1,0 +1,11 @@
+{
+  "pdf": "build/linux/wave25-d20-utf16.pdf",
+  "verapdf": {
+    "1b": {"compliant": true},
+    "ua1": {"compliant": true}
+  },
+  "qpdf": {"no_part_fallback": true, "struct_types": ["Figure"]},
+  "utf16_literals": [
+    {"key": "/Alt", "text": "A(\r\n\t\b\f)\\B"}
+  ]
+}

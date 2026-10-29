@@ -192,6 +192,13 @@ foreach(_pb IN LISTS _aio_playbooks)
     if(_pb_name MATCHES "^wave24-")
         continue()
     endif()
+    # Wave 25 PDF playbooks (D20-D23) are played by pdf_check_selftest
+    # (qa/check_pdf.py run_wave25_suite), which writes the PDF to a private
+    # temp path. Played here they would write to build/linux, which a
+    # linux-debug or Windows build does not have.
+    if(_pb_name MATCHES "^wave25-d2[0-3]-")
+        continue()
+    endif()
     add_test(NAME "playbook_${_pb_name}" COMMAND aioffice_cli play "${_pb}")
     set_tests_properties("playbook_${_pb_name}" PROPERTIES
         LABELS "playbook"
@@ -452,7 +459,7 @@ foreach(_pdf_pb IN LISTS _aio_pdf_playbooks)
         WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}"
     )
 endforeach()
-add_test(NAME pdf_check_selftest COMMAND "${Python3_EXECUTABLE}" "${CMAKE_SOURCE_DIR}/qa/check_pdf.py" --self-test)
+add_test(NAME pdf_check_selftest COMMAND "${Python3_EXECUTABLE}" "${CMAKE_SOURCE_DIR}/qa/check_pdf.py" --self-test --cli "${AIOFFICE_CLI}")
 set_tests_properties(pdf_check_selftest PROPERTIES LABELS "playbook" WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}")
 
 if(EXISTS "${CMAKE_SOURCE_DIR}/qa/wave20-rtf-out.json"
@@ -492,7 +499,7 @@ foreach(_epub_pb IN LISTS _aio_epub_playbooks)
         WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}"
     )
 endforeach()
-add_test(NAME epub_check_selftest COMMAND "${Python3_EXECUTABLE}" "${CMAKE_SOURCE_DIR}/qa/check_epub.py" --self-test)
+add_test(NAME epub_check_selftest COMMAND "${Python3_EXECUTABLE}" "${CMAKE_SOURCE_DIR}/qa/check_epub.py" --self-test --cli "${AIOFFICE_CLI}")
 set_tests_properties(epub_check_selftest PROPERTIES LABELS "playbook" WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}")
 
 file(GLOB _aio_rtf_playbooks CONFIGURE_DEPENDS "${CMAKE_SOURCE_DIR}/qa/wave20-rtf-*.json")
@@ -529,7 +536,7 @@ foreach(_rtf_fx IN LISTS _aio_rtf_fixtures)
         WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}"
     )
 endforeach()
-add_test(NAME rtf_check_selftest COMMAND "${Python3_EXECUTABLE}" "${CMAKE_SOURCE_DIR}/qa/check_rtf.py" --self-test)
+add_test(NAME rtf_check_selftest COMMAND "${Python3_EXECUTABLE}" "${CMAKE_SOURCE_DIR}/qa/check_rtf.py" --self-test --cli "${AIOFFICE_CLI}")
 set_tests_properties(rtf_check_selftest PROPERTIES LABELS "playbook" WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}")
 
 add_test(NAME rtf_footnote_scale COMMAND "${CMAKE_COMMAND}" -E env AIOFFICE_HEADLESS=1 QT_QPA_PLATFORM=offscreen

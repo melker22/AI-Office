@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+import inspect
 import json
 import os
 import re
@@ -23,6 +24,8 @@ TOOL_TIMEOUT = 60
 
 def headless_env() -> dict[str, str]:
     env = os.environ.copy()
+    # A test interposer must not reach the CLI (CI's glibc is not this process's).
+    env.pop("LD_PRELOAD", None)
     env["AIOFFICE_HEADLESS"] = "1"
     env["QT_QPA_PLATFORM"] = "offscreen"
     return env
@@ -483,8 +486,698 @@ def check_expectations(
     return errors
 
 
-def self_test() -> int:
+WAVE25_PLAYBOOKS = (
+    "wave25-d20-utf16.json",
+    "wave25-d21-copies.json",
+    "wave25-d21-note-copies.json",
+    "wave25-d21-note-collide.json",
+    "wave25-d21-copy-order.json",
+    "wave25-d22-nested-list.json",
+    "wave25-d22-list-order.json",
+    "wave25-d23-cell-span.json",
+    "wave25-d23-span-limit.json",
+)
+
+_PDF_NAMED_ESCAPES = {
+    ord("n"): 0x0A,
+    ord("r"): 0x0D,
+    ord("t"): 0x09,
+    ord("b"): 0x08,
+    ord("f"): 0x0C,
+    ord("("): ord("("),
+    ord(")"): ord(")"),
+    ord("\\"): ord("\\"),
+}
+_PDF_RAW_CONTROLS = (0x0A, 0x0D, 0x09, 0x08, 0x0C)
+
+
+class PdfLiteral:
+    def __init__(self, decoded: bytes, raw_controls: list[int]) -> None:
+        self.decoded = decoded
+        self.raw_controls = raw_controls
+
+
+def parse_pdf_literal(data: bytes, open_at: int) -> tuple[PdfLiteral, int]:
+    """Parse a PDF literal string starting at '('. PDF end-of-line inside the
+    literal is normalized to LF, which is what corrupts an unescaped UTF-16 CR."""
+    i = open_at + 1
+    out = bytearray()
+    raw_controls: list[int] = []
+    depth = 1
+    while i < len(data) and depth:
+        c = data[i]
+        if c == ord("\\"):
+            i += 1
+            if i >= len(data):
+                break
+            e = data[i]
+            mapped = _PDF_NAMED_ESCAPES.get(e)
+            if mapped is not None:
+                out.append(mapped)
+                i += 1
+            elif e in b"01234567":
+                octdigits = bytearray((e,))
+                i += 1
+                for _ in range(2):
+                    if i < len(data) and data[i] in b"01234567":
+                        octdigits.append(data[i])
+                        i += 1
+                    else:
+                        break
+                out.append(int(bytes(octdigits), 8) & 0xFF)
+            elif e in (0x0A, 0x0D):
+                if e == 0x0D and i + 1 < len(data) and data[i + 1] == 0x0A:
+                    i += 2
+                else:
+                    i += 1
+            else:
+                out.append(e)
+                i += 1
+            continue
+        if c == ord("("):
+            depth += 1
+            out.append(c)
+            i += 1
+            continue
+        if c == ord(")"):
+            depth -= 1
+            if depth == 0:
+                return PdfLiteral(bytes(out), raw_controls), i + 1
+            out.append(c)
+            i += 1
+            continue
+        if c in _PDF_RAW_CONTROLS:
+            raw_controls.append(c)
+        if c == 0x0D:
+            if i + 1 < len(data) and data[i + 1] == 0x0A:
+                i += 2
+            else:
+                i += 1
+            out.append(0x0A)
+            continue
+        if c == 0x0A:
+            out.append(0x0A)
+            i += 1
+            continue
+        out.append(c)
+        i += 1
+    return PdfLiteral(bytes(out), raw_controls), i
+
+
+def iter_pdf_literals(data: bytes, key: bytes) -> list[PdfLiteral]:
+    found: list[PdfLiteral] = []
+    start = 0
+    while True:
+        at = data.find(key, start)
+        if at < 0:
+            return found
+        j = at + len(key)
+        while j < len(data) and data[j] in b" \t\r\n":
+            j += 1
+        if j < len(data) and data[j] == ord("("):
+            lit, end = parse_pdf_literal(data, j)
+            found.append(lit)
+            start = end
+        else:
+            start = at + len(key)
+
+
+def utf16_pdf_text(decoded: bytes) -> str | None:
+    if len(decoded) < 2 or decoded[:2] != b"\xfe\xff":
+        return None
+    body = decoded[2:]
+    if len(body) % 2:
+        return None
+    try:
+        return body.decode("utf-16-be")
+    except UnicodeDecodeError:
+        return None
+
+
+def qpdf_objects(data: dict[str, Any]) -> dict[str, Any]:
+    qpdf = data.get("qpdf")
+    if isinstance(qpdf, list):
+        for item in qpdf:
+            if isinstance(item, dict) and isinstance(item.get("objects"), dict):
+                return item["objects"]
+    objects = data.get("objects")
+    if isinstance(objects, dict):
+        return objects
+    return {}
+
+
+def _obj_dict(obj: Any) -> dict[str, Any]:
+    if not isinstance(obj, dict):
+        return {}
+    value = obj.get("value")
+    if isinstance(value, dict):
+        return value
+    return obj
+
+
+def _norm_ref(ref: str) -> str:
+    ref = ref.strip()
+    if ref.startswith("obj:"):
+        ref = ref[4:]
+    return ref
+
+
+def _ref_of(value: Any) -> str | None:
+    if isinstance(value, str) and value.endswith(" R"):
+        return _norm_ref(value)
+    if isinstance(value, dict):
+        inner = value.get("object") or value.get("ref")
+        if isinstance(inner, str) and inner.endswith(" R"):
+            return _norm_ref(inner)
+    return None
+
+
+def _name_of(value: Any) -> str:
+    if isinstance(value, str):
+        return value if value.startswith("/") else f"/{value}"
+    if isinstance(value, dict):
+        inner = value.get("name")
+        if isinstance(inner, str):
+            return inner if inner.startswith("/") else f"/{inner}"
+    return ""
+
+
+def _lookup_object(objects: dict[str, Any], ref: str) -> dict[str, Any]:
+    want = _norm_ref(ref)
+    for key, obj in objects.items():
+        if _norm_ref(str(key)) == want:
+            return _obj_dict(obj)
+    return {}
+
+
+def _struct_elems(objects: dict[str, Any]) -> list[dict[str, Any]]:
+    elems: list[dict[str, Any]] = []
+    for obj in objects.values():
+        body = _obj_dict(obj)
+        if _name_of(body.get("/S") or body.get("S")):
+            elems.append(body)
+    return elems
+
+
+def _as_list(value: Any) -> list[Any]:
+    if value is None:
+        return []
+    if isinstance(value, list):
+        return value
+    return [value]
+
+
+def _mcr_pages(elem: dict[str, Any], objects: dict[str, Any], seen: set[int]) -> set[str]:
+    pages: set[str] = set()
+    marker = id(elem)
+    if marker in seen:
+        return pages
+    seen.add(marker)
+    for kid in _as_list(elem.get("/K") if "/K" in elem else elem.get("K")):
+        if isinstance(kid, dict):
+            pg = _ref_of(kid.get("/Pg") or kid.get("Pg"))
+            if pg:
+                pages.add(pg)
+            if _name_of(kid.get("/S") or kid.get("S")):
+                pages |= _mcr_pages(kid, objects, seen)
+            continue
+        ref = _ref_of(kid)
+        if ref:
+            child = _lookup_object(objects, ref)
+            if child:
+                pages |= _mcr_pages(child, objects, seen)
+    return pages
+
+
+def _min_mcid(elem: dict[str, Any], objects: dict[str, Any], seen: set[int]) -> int | None:
+    """Smallest MCID under a structure element (its first painted content)."""
+    marker = id(elem)
+    if marker in seen:
+        return None
+    seen.add(marker)
+    best: int | None = None
+    for kid in _as_list(elem.get("/K") if "/K" in elem else elem.get("K")):
+        got: int | None = None
+        if isinstance(kid, int) and not isinstance(kid, bool):
+            got = kid
+        elif isinstance(kid, dict) and not _ref_of(kid):
+            mcid = kid.get("/MCID") if "/MCID" in kid else kid.get("MCID")
+            if isinstance(mcid, int) and not isinstance(mcid, bool):
+                got = mcid
+            elif _name_of(kid.get("/S") or kid.get("S")):
+                got = _min_mcid(kid, objects, seen)
+        else:
+            ref = _ref_of(kid)
+            if ref:
+                child = _lookup_object(objects, ref)
+                if child:
+                    got = _min_mcid(child, objects, seen)
+        if got is not None and (best is None or got < best):
+            best = got
+    return best
+
+
+def _attr_dicts(elem: dict[str, Any]) -> list[dict[str, Any]]:
+    raw = elem.get("/A") if "/A" in elem else elem.get("A")
+    out: list[dict[str, Any]] = []
+    for item in _as_list(raw):
+        if isinstance(item, dict):
+            ref = _ref_of(item)
+            if ref:
+                continue
+            out.append(item)
+    return out
+
+
+def _int_attr(attrs: dict[str, Any], name: str) -> int | None:
+    value = attrs.get(name)
+    if value is None and name.startswith("/"):
+        value = attrs.get(name[1:])
+    if isinstance(value, bool) or value is None:
+        return None
+    if isinstance(value, int):
+        return value
+    if isinstance(value, float) and value.is_integer():
+        return int(value)
+    if isinstance(value, str) and value.isdigit():
+        return int(value)
+    return None
+
+
+def _pdf_string(value: Any) -> str | None:
+    if isinstance(value, str):
+        return value
+    if isinstance(value, dict):
+        for key in ("string", "text", "value"):
+            inner = value.get(key)
+            if isinstance(inner, str):
+                return inner
+    return None
+
+
+def _page_obj_num(ref: str) -> int | None:
+    token = ref.split()
+    if not token or not token[0].isdigit():
+        return None
+    return int(token[0])
+
+
+def _document_kids(objects: dict[str, Any]) -> list[dict[str, Any]]:
+    """Children of /Document in /K order. The writer inlines those dictionaries."""
+    kids: list[dict[str, Any]] = []
+    for elem in _struct_elems(objects):
+        if _name_of(elem.get("/S") or elem.get("S")) != "/Document":
+            continue
+        for kid in _as_list(elem.get("/K") if "/K" in elem else elem.get("K")):
+            if isinstance(kid, dict) and _name_of(kid.get("/S") or kid.get("S")):
+                kids.append(kid)
+                continue
+            ref = _ref_of(kid)
+            if not ref:
+                continue
+            child = _lookup_object(objects, ref)
+            if child:
+                kids.append(child)
+        if kids:
+            return kids
+    return kids
+
+
+def copy_reading_order_rows(objects: dict[str, Any]) -> tuple[list[tuple[str, int]], str | None]:
+    """(/Pg ref, first MCID) for each direct /Document child, in tree order."""
+    rows: list[tuple[str, int]] = []
+    for kid in _document_kids(objects):
+        page = _ref_of(kid.get("/Pg") if "/Pg" in kid else kid.get("Pg"))
+        if not page:
+            pages = _mcr_pages(kid, objects, set())
+            page = next(iter(pages)) if len(pages) == 1 else None
+        mcid = _min_mcid(kid, objects, set())
+        if not page or mcid is None:
+            return [], "copy_reading_order: a /Document child has no /Pg or MCID"
+        rows.append((page, mcid))
+    return rows, None
+
+
+def copy_reading_order_errors_from_rows(
+    rows: list[tuple[str, int]], spec: dict[str, Any]
+) -> list[str]:
+    """Each copy is one /Pg run. Copy 0's run is entirely before copy 1.
+
+    Within a copy, MCIDs follow reading_order and then document order. The
+    fixture lists that sequence in mcids_per_copy (paint order is not enough:
+    the promoted block keeps the higher MCID and must come first).
+    """
+    try:
+        copies = int(spec.get("copies"))
+    except (TypeError, ValueError):
+        return ["copy_reading_order: copies must be an integer"]
+    want = spec.get("mcids_per_copy")
+    if copies < 2 or not isinstance(want, list) or not want:
+        return ["copy_reading_order: need copies >= 2 and a non-empty mcids_per_copy"]
+    if not all(isinstance(item, int) and not isinstance(item, bool) for item in want):
+        return ["copy_reading_order: mcids_per_copy must be integers"]
+    if len(rows) != copies * len(want):
+        return [
+            f"copy_reading_order: {len(rows)} /Document children, "
+            f"expected {copies * len(want)}"
+        ]
+    groups: list[tuple[str, list[int]]] = []
+    for page, mcid in rows:
+        if groups and groups[-1][0] == page:
+            groups[-1][1].append(mcid)
+        else:
+            groups.append((page, [mcid]))
+    if len(groups) != copies:
+        seen = [page for page, _mcids in groups]
+        return [
+            f"copy_reading_order: {len(groups)} /Pg runs {seen}, expected {copies} "
+            "(one copy's structure was split by the next copy)"
+        ]
+    errors: list[str] = []
+    nums: list[int] = []
+    for page, mcids in groups:
+        num = _page_obj_num(page)
+        if num is None:
+            errors.append(f"copy_reading_order: bad /Pg {page!r}")
+            continue
+        nums.append(num)
+        if mcids != want:
+            errors.append(f"copy_reading_order: /Pg {page} MCIDs {mcids} != {want}")
+    if len(nums) == copies and (len(set(nums)) != copies or nums != sorted(nums)):
+        errors.append(f"copy_reading_order: copy pages are not in order {nums}")
+    return errors
+
+
+def copy_reading_order_errors(objects: dict[str, Any], spec: dict[str, Any]) -> list[str]:
+    rows, err = copy_reading_order_rows(objects)
+    if err:
+        return [err]
+    return copy_reading_order_errors_from_rows(rows, spec)
+
+
+def note_id_errors(elems: list[dict[str, Any]], want: list[Any]) -> list[str]:
+    """/Note /ID values, one per copy. Missing or duplicate ids fail."""
+    if not isinstance(want, list) or not want or not all(isinstance(item, str) and item for item in want):
+        return ["note_ids: expected a non-empty list of strings"]
+    got: list[str] = []
+    notes = 0
+    errors: list[str] = []
+    for elem in elems:
+        if _name_of(elem.get("/S") or elem.get("S")) != "/Note":
+            continue
+        notes += 1
+        raw = elem.get("/ID") if "/ID" in elem else elem.get("ID")
+        text = _pdf_string(raw)
+        if not text:
+            errors.append(f"note_ids: /Note missing a readable /ID ({raw!r})")
+            continue
+        got.append(text)
+    dupes = sorted({item for item in got if got.count(item) > 1})
+    if dupes:
+        errors.append(f"note_ids: duplicate /ID {dupes!r}")
+    if notes == 0:
+        errors.append("note_ids: no /Note elements")
+    elif sorted(got) != sorted(want):
+        errors.append(f"note_ids: got {got!r}, expected {want!r}")
+    return errors
+
+
+def check_wave25_extra(pdf: Path, exp: dict[str, Any]) -> list[str]:
+    errors: list[str] = []
+    literals = exp.get("utf16_literals")
+    if isinstance(literals, list):
+        data = pdf.read_bytes()
+        for spec in literals:
+            if not isinstance(spec, dict):
+                errors.append("utf16_literals: entry must be an object")
+                continue
+            key = str(spec.get("key") or "")
+            want = spec.get("text")
+            if not key.startswith("/") or not isinstance(want, str):
+                errors.append(f"utf16_literals: bad entry {spec!r}")
+                continue
+            matches = iter_pdf_literals(data, key.encode("ascii"))
+            ok = False
+            seen: list[str | None] = []
+            for lit in matches:
+                got = utf16_pdf_text(lit.decoded)
+                seen.append(got)
+                if got == want and not lit.raw_controls:
+                    ok = True
+                    break
+                if got == want and lit.raw_controls:
+                    codes = ", ".join(f"0x{b:02X}" for b in lit.raw_controls)
+                    errors.append(f"{key} round-trips but still contains raw controls ({codes})")
+            if not ok and not any(err.startswith(key) for err in errors):
+                errors.append(f"{key}: expected {want!r}, found {seen!r}")
+
+    needs_objects = any(
+        k in exp for k in ("copies_structure", "nested_list", "cell_spans", "note_ids", "copy_reading_order")
+    )
+    objects: dict[str, Any] = {}
+    elems: list[dict[str, Any]] = []
+    if needs_objects:
+        objects = qpdf_objects(qpdf_json(pdf))
+        elems = _struct_elems(objects)
+        if not elems:
+            errors.append("qpdf: no structure elements in the object map")
+
+    copies = exp.get("copies_structure")
+    if isinstance(copies, dict) and elems:
+        role = _name_of(str(copies.get("role") or "P"))
+        try:
+            min_count = int(copies.get("min_count"))
+            distinct = int(copies.get("distinct_pages"))
+        except (TypeError, ValueError):
+            errors.append("copies_structure: min_count and distinct_pages must be integers")
+        else:
+            chosen = [e for e in elems if _name_of(e.get("/S") or e.get("S")) == role]
+            if len(chosen) < min_count:
+                errors.append(f"copies: /{role[1:]} count {len(chosen)} < {min_count}")
+            pages: set[str] = set()
+            for elem in chosen:
+                owned = _mcr_pages(elem, objects, set())
+                if len(owned) != 1:
+                    errors.append(
+                        f"copies: one /{role[1:]} covers pages {sorted(owned) or ['none']} "
+                        "(page copies were merged)"
+                    )
+                pages |= owned
+            if len(pages) < distinct:
+                errors.append(f"copies: structure covers {len(pages)} page(s), expected {distinct}")
+
+    nested = exp.get("nested_list")
+    if isinstance(nested, dict) and elems:
+        try:
+            min_l = int(nested.get("min_l"))
+        except (TypeError, ValueError):
+            errors.append("nested_list: min_l must be an integer")
+            min_l = 2
+        lists = [e for e in elems if _name_of(e.get("/S") or e.get("S")) == "/L"]
+        if len(lists) < min_l:
+            errors.append(f"nested list: /L count {len(lists)} < {min_l}")
+        inner = False
+        for li in elems:
+            if _name_of(li.get("/S") or li.get("S")) != "/LI":
+                continue
+            for kid in _as_list(li.get("/K") if "/K" in li else li.get("K")):
+                child: dict[str, Any] | None = None
+                if isinstance(kid, dict) and _name_of(kid.get("/S") or kid.get("S")):
+                    child = kid
+                else:
+                    ref = _ref_of(kid)
+                    if ref:
+                        child = _lookup_object(objects, ref)
+                if child and _name_of(child.get("/S") or child.get("S")) == "/L":
+                    inner = True
+        if not inner:
+            errors.append("nested list: no /LI contains an inner /L")
+        if nested.get("roots_in_order"):
+            # Root lists under /Document must follow the page order of their
+            # first content (single-page fixture: MCIDs grow in paint order).
+            docs = [e for e in elems if _name_of(e.get("/S") or e.get("S")) == "/Document"]
+            firsts: list[int] = []
+            for doc_elem in docs[:1]:
+                for kid in _as_list(doc_elem.get("/K") if "/K" in doc_elem else doc_elem.get("K")):
+                    ref = _ref_of(kid)
+                    child = _lookup_object(objects, ref) if ref else (kid if isinstance(kid, dict) else None)
+                    if not child or _name_of(child.get("/S") or child.get("S")) != "/L":
+                        continue
+                    first = _min_mcid(child, objects, set())
+                    if first is not None:
+                        firsts.append(first)
+            if len(firsts) < 2:
+                errors.append(f"nested list: expected 2+ root /L under /Document, saw {len(firsts)}")
+            elif firsts != sorted(firsts):
+                errors.append(f"nested list: root /L out of document order (first MCIDs {firsts})")
+
+    spans = exp.get("cell_spans")
+    if isinstance(spans, dict) and elems:
+        try:
+            want_col = int(spans.get("col_span"))
+            want_row = int(spans.get("row_span"))
+        except (TypeError, ValueError):
+            errors.append("cell_spans: col_span and row_span must be integers")
+        else:
+            got_col = False
+            got_row = False
+            for elem in elems:
+                role = _name_of(elem.get("/S") or elem.get("S"))
+                if role not in ("/TD", "/TH"):
+                    continue
+                for attrs in _attr_dicts(elem):
+                    owner = _name_of(attrs.get("/O") or attrs.get("O"))
+                    col = _int_attr(attrs, "/ColSpan")
+                    row = _int_attr(attrs, "/RowSpan")
+                    if col == want_col:
+                        got_col = True
+                        if owner != "/Table":
+                            errors.append(f"cell span: /ColSpan {col} owner is {owner or 'missing'}, expected /Table")
+                    if row == want_row:
+                        got_row = True
+                        if owner != "/Table":
+                            errors.append(f"cell span: /RowSpan {row} owner is {owner or 'missing'}, expected /Table")
+            if not got_col:
+                errors.append(f"cell span: no TD/TH /A has /ColSpan {want_col}")
+            if not got_row:
+                errors.append(f"cell span: no TD/TH /A has /RowSpan {want_row}")
+
+    if "note_ids" in exp:
+        if not elems:
+            errors.append("note_ids: no structure elements")
+        else:
+            errors.extend(note_id_errors(elems, exp.get("note_ids")))
+
+    order = exp.get("copy_reading_order")
+    if isinstance(order, dict):
+        if not objects:
+            errors.append("copy_reading_order: no structure objects")
+        else:
+            errors.extend(copy_reading_order_errors(objects, order))
+    return errors
+
+
+def run_wave25_suite(cli: Path) -> int:
+    """Export each qa/wave25-*.json playbook and judge the PDF. Expectations live in
+    qa/pdf/ so the ctest playbook glob does not try to play them."""
+    missing = [name for name in WAVE25_PLAYBOOKS if not (REPO / "qa" / name).is_file()]
+    if missing:
+        print("FAIL wave25 playbooks missing: " + ", ".join(missing))
+        return 1
+    if not cli.is_file():
+        print(f"FAIL wave25: missing cli {cli}")
+        return 1
+    failed = False
+    for name in WAVE25_PLAYBOOKS:
+        playbook = REPO / "qa" / name
+        expect_path = REPO / "qa" / "pdf" / name
+        if not expect_path.is_file():
+            print(f"FAIL {name}: missing expectations {expect_path}")
+            failed = True
+            continue
+        try:
+            exp = load_expectations(expect_path)
+        except SystemExit as exc:
+            print(f"FAIL {name}: {exc}")
+            failed = True
+            continue
+        with tempfile.TemporaryDirectory(prefix="wave25-") as tmp:
+            dest = Path(tmp) / "out.pdf"
+            calls = json.loads(playbook.read_text(encoding="utf-8"))
+            wrote = False
+            if isinstance(calls, list):
+                for call in calls:
+                    if isinstance(call, dict) and call.get("tool") == "document_export_pdf":
+                        args = call.setdefault("args", {})
+                        if isinstance(args, dict):
+                            args["path"] = str(dest)
+                            wrote = True
+            if not wrote:
+                print(f"FAIL {name}: playbook has no document_export_pdf")
+                failed = True
+                continue
+            staged = Path(tmp) / "play.json"
+            staged.write_text(json.dumps(calls), encoding="utf-8")
+            try:
+                warnings = play(cli, staged)
+                errors = check_expectations(dest, exp, warnings, cli)
+                errors.extend(check_wave25_extra(dest, exp))
+            except SystemExit as exc:
+                print(f"FAIL {name}: {exc}")
+                failed = True
+                continue
+            if errors:
+                failed = True
+                for err in errors:
+                    print(f"FAIL {name}: {err}")
+            else:
+                print(f"ok   {name}")
+    return 1 if failed else 0
+
+
+def pdf_cli_wiring_errors() -> list[str]:
+    """self_test must take the CLI and pass it on; ctest must pass that path."""
+    errors: list[str] = []
+    source = inspect.getsource(self_test)
+    if "build/linux/aioffice-cli" in source:
+        errors.append("pdf self_test still uses build/linux/aioffice-cli")
+    if "run_wave25_suite(cli)" not in source:
+        errors.append("pdf self_test does not pass cli into run_wave25_suite")
+    if not source.startswith("def self_test(cli:"):
+        errors.append("pdf self_test does not take the cli path")
+    main_source = inspect.getsource(main)
+    if "self_test(args.cli)" not in main_source:
+        errors.append("pdf main does not pass args.cli into self_test")
+    cmake = (REPO / "CMakeLists.txt").read_text(encoding="utf-8")
+    start = cmake.find("add_test(NAME pdf_check_selftest")
+    end = cmake.find("set_tests_properties(pdf_check_selftest", start)
+    if start < 0 or end < 0:
+        errors.append("pdf_check_selftest CMake block not found")
+    elif '--cli "${AIOFFICE_CLI}"' not in cmake[start:end]:
+        errors.append('pdf_check_selftest does not pass --cli "${AIOFFICE_CLI}"')
+    return errors
+
+
+def self_test(cli: Path) -> int:
     ok = True
+
+    wiring = pdf_cli_wiring_errors()
+    if wiring:
+        print("FAIL self-test cli wiring: " + "; ".join(wiring))
+        ok = False
+    else:
+        print("ok   pdf self-test uses the passed CLI")
+
+    dup = note_id_errors(
+        [{"/S": "/Note", "/ID": "fn1"}, {"/S": "/Note", "/ID": "fn1"}],
+        ["fn1", "fn1-c1"],
+    )
+    if not dup:
+        print("FAIL self-test note_ids duplicate must fail")
+        ok = False
+    else:
+        print("ok   note_ids duplicate fails")
+    missing = note_id_errors([{"/S": "/P", "/ID": "fn1"}], ["fn1"])
+    if not missing:
+        print("FAIL self-test note_ids with no /Note must fail")
+        ok = False
+    else:
+        print("ok   note_ids with no /Note fails")
+    blank = note_id_errors([{"/S": "/Note"}], ["fn1"])
+    if not blank:
+        print("FAIL self-test note_ids missing /ID must fail")
+        ok = False
+    else:
+        print("ok   note_ids missing /ID fails")
+    good = note_id_errors(
+        [{"/S": "/Note", "/ID": "fn1-c1"}, {"/S": "/Note", "/ID": "fn1"}],
+        ["fn1", "fn1-c1"],
+    )
+    if good:
+        print(f"FAIL self-test note_ids exact match: {good}")
+        ok = False
+    else:
+        print("ok   note_ids exact match")
 
     sample_pass = """<validationReports><validationReport isCompliant="true"></validationReport></validationReports>"""
     c, f = parse_verapdf_xml(sample_pass)
@@ -586,6 +1279,54 @@ def self_test() -> int:
     else:
         print("ok   document_child_types fail case (P,P != Figure,P)")
 
+    raw_cr = b"/Alt (\xfe\xff\x00\r)"
+    lits = iter_pdf_literals(raw_cr, b"/Alt")
+    if len(lits) != 1 or 0x0D not in lits[0].raw_controls or utf16_pdf_text(lits[0].decoded) == "\r":
+        print(f"FAIL self-test raw CR in a UTF-16 literal must not count as escaped: {lits!r}")
+        ok = False
+    else:
+        print("ok   raw CR inside a PDF literal is a control, not an escape")
+    # Each control is its own UTF-16BE code unit: a 0x00 high byte plus the
+    # escaped low byte. Consecutive escapes without the high byte are not "\r\n\t\b\f".
+    escaped = b"/Alt (\xfe\xff\x00\\r\x00\\n\x00\\t\x00\\b\x00\\f)"
+    elits = iter_pdf_literals(escaped, b"/Alt")
+    if (
+        len(elits) != 1
+        or elits[0].raw_controls
+        or utf16_pdf_text(elits[0].decoded) != "\r\n\t\b\f"
+    ):
+        got = utf16_pdf_text(elits[0].decoded) if elits else None
+        print(f"FAIL self-test named escapes: got {got!r} controls={elits[0].raw_controls if elits else None}")
+        ok = False
+    else:
+        print("ok   named \r \n \t \b \f escapes decode")
+
+    # The copy-order judge must reject a reading_order pass that emits every
+    # copy's promoted block before the rest of copy 0. MCIDs 2,0,1 are the
+    # fixture: the promoted block was painted last.
+    split = [
+        ("13 0 R", 2),
+        ("19 0 R", 2),
+        ("13 0 R", 0),
+        ("13 0 R", 1),
+        ("19 0 R", 0),
+        ("19 0 R", 1),
+    ]
+    whole = [("13 0 R", 2), ("13 0 R", 0), ("13 0 R", 1), ("19 0 R", 2), ("19 0 R", 0), ("19 0 R", 1)]
+    spec = {"copies": 2, "mcids_per_copy": [2, 0, 1]}
+    if not copy_reading_order_errors_from_rows(split, spec):
+        print("FAIL self-test copy_reading_order accepted an interleaved copy")
+        ok = False
+    elif copy_reading_order_errors_from_rows(whole, spec):
+        print("FAIL self-test copy_reading_order rejected a complete copy:", 
+              copy_reading_order_errors_from_rows(whole, spec))
+        ok = False
+    else:
+        print("ok   copy_reading_order rejects a split copy")
+
+    if run_wave25_suite(cli) != 0:
+        ok = False
+
     return 0 if ok else 1
 
 
@@ -595,11 +1336,14 @@ def main() -> int:
     parser.add_argument("--playbook", type=Path, help="qa/wave19-pdf-*.json playbook")
     parser.add_argument("--expect", type=Path, help="expectations .pdf.json (default: playbook + .pdf.json)")
     parser.add_argument("--self-test", action="store_true", help="unit checks for parsers and schema")
+    parser.add_argument("--wave25", action="store_true", help="run qa/wave25 PDF structure checks")
     parser.add_argument("--skip-play", action="store_true", help="only validate an existing PDF")
     args = parser.parse_args()
 
     if args.self_test:
-        return self_test()
+        return self_test(args.cli)
+    if args.wave25:
+        return run_wave25_suite(args.cli.resolve())
 
     if not args.playbook:
         raise SystemExit("usage: check_pdf.py --playbook qa/wave19-pdf-….json [--expect …] | --self-test")
@@ -622,6 +1366,7 @@ def main() -> int:
         raise SystemExit(f"PDF not found after play: {pdf}")
 
     errors = check_expectations(pdf, exp, play_warnings, cli)
+    errors.extend(check_wave25_extra(pdf, exp))
     if errors:
         for err in errors:
             print(f"FAIL {err}")

@@ -1,0 +1,155 @@
+version: 1
+name: wave24-finish
+description: >
+  Fechamento da onda 24 (DOCX/ODT + QR) a partir do branch integrado da Run 4712f7db. A revisão daquela
+  Run falhou porque o Sonnet disparou skills/subagentes em segundo plano e submeteu saídas "provisórias".
+  Todos os nós aqui proíbem isso. Executor: Sonnet (Grok Build fora do ar; Cursor a 92% da cota).
+  Push/PR pré-aprovados (ask_05e099babed7); o orquestrador roda o gate de merge.
+defaults:
+  agent: claude
+  model: claude-sonnet-5
+  effort: high
+  approval: full-access
+max_parallel: 1
+nodes:
+  stabilize:
+    title: Estabilizar QA no HEAD integrado (Sonnet)
+    prompt: |
+      REGRAS DESTE NÓ: faça todo o trabalho você mesmo, neste turno. NÃO use skills (code-review ou
+      qualquer outra), NÃO crie subagentes nem tarefas em segundo plano. Só submeta a saída estruturada
+      quando tiver o resultado FINAL; uma saída "provisória" falha o nó.
+      Projeto AI Office Writer, branch integrado da onda 24 (spec docs/waves/wave24-docx-odt-fidelity.md;
+      checklist .cursor/rules/lessons.mdc). Rode `scripts/qa-all.sh --gui --interop --pdf --formats`. Se
+      algo falhar, corrija o CÓDIGO (nunca afrouxe testes nem expectativas) e repita até ficar verde.
+      Confira também `git log -3`: o último commit veio de um fix-pass marcado como provisório — verifique
+      que ele está completo e coerente. Commits em inglês, sem push. Submeta commit = `git rev-parse HEAD`,
+      qa_green (true só com a suíte inteira verde), summary.
+    success_output: qa_green
+    output_contract: &executor_contract
+      type: object
+      required: [commit, qa_green, summary]
+      properties:
+        commit: { type: string, pattern: "^[0-9a-f]{40}$" }
+        qa_green: { type: boolean }
+        blocker: { type: string }
+        summary: { type: string }
+
+  qa-start:
+    type: gate
+    gate: command
+    needs: [stabilize]
+    run: scripts/fleet-verify-merged.sh 1 && scripts/qa-all.sh --gui --interop --pdf --formats
+
+  review:
+    type: loop
+    needs: [qa-start]
+    max_iterations: 3
+    on_exhausted: review-adjudication
+    until:
+      run: scripts/fleet-verify-merged.sh 1 && test "{{needs.review-pass.output.issues}}" -eq 0
+    nodes:
+      review-pass:
+        session: continue
+        prompt: |
+          REGRAS DESTE NÓ: faça a revisão você mesmo, lendo o diff, neste turno. NÃO use skills (code-review
+          ou qualquer outra), NÃO crie subagentes nem tarefas em segundo plano. Submeta só o resultado FINAL;
+          nunca "provisório".
+          Você é o Tech Lead. PRIMEIRO verifique no diff cada item de .cursor/rules/lessons.mdc. Depois revise
+          `git diff main...HEAD` contra docs/waves/wave24-docx-odt-fidelity.md (D1–D19 e critério de pronto):
+          cada decisão existe E tem um teste que falharia sem ela. Procure: perda em ida e volta DOCX/ODT
+          (formatação de run, listas por tipo, tabelas aninhadas/mescladas, legendas, notas, página, metadados,
+          revisões); XML inválido gerado (controle, atributos sem escape, ids de bookmark repetidos); QR que o
+          zbarimg não decodifica; teste que depende de root/glibc (L22); regressões das ondas 12–23. Rode
+          `scripts/qa-all.sh --gui --interop --pdf --formats`. Não corrija nada. Só defeitos reais. Submeta
+          issues e findings ("arquivo:linha — defeito — correção sugerida").
+        followup_prompt: |
+          Houve correção. Mesmas REGRAS (sem skills, sem subagentes, nada provisório). Verifique de novo o
+          checklist e `git diff main...HEAD`, rode `scripts/qa-all.sh --gui --interop --pdf --formats` e submeta
+          só os findings que continuam ou surgiram.
+        output_contract:
+          type: object
+          required: [issues, findings]
+          properties:
+            issues: { type: integer, minimum: 0 }
+            findings: { type: array, items: { type: string } }
+      fix-pass:
+        needs: [review-pass]
+        prompt: |
+          REGRAS DESTE NÓ: corrija você mesmo, neste turno. NÃO use skills, NÃO crie subagentes nem tarefas em
+          segundo plano. Submeta só o resultado FINAL; uma saída "provisória" falha o nó.
+          Projeto AI Office Writer (spec docs/waves/wave24-docx-odt-fidelity.md; checklist
+          .cursor/rules/lessons.mdc). Findings: {{needs.review-pass.output.findings}}
+          Lista vazia → não altere nada e submeta o HEAD atual com qa_green true. Senão corrija cada finding
+          com um teste que falha antes, rode `scripts/qa-all.sh --gui --interop --pdf --formats` até verde e
+          commit `fix: ...` em inglês, sem push. Submeta commit = `git rev-parse HEAD`, qa_green, summary.
+        success_output: qa_green
+        output_contract: *executor_contract
+
+  review-adjudication:
+    title: Adjudicação final (Sonnet)
+    needs: [review]
+    prompt: |
+      REGRAS: tudo neste turno, sem skills, sem subagentes, nada provisório.
+      Três passadas não zeraram os findings. Descarte os que não são defeitos (com motivo), faça UMA correção
+      direta dos reais (com teste e commit), rode `scripts/qa-all.sh --gui --interop --pdf --formats` e pare.
+      Nunca pergunte a um humano. Submeta commit = `git rev-parse HEAD` e resolved = true só se nenhum
+      defeito real ficou aberto.
+    success_output: resolved
+    output_contract:
+      type: object
+      required: [verdict, resolved, accepted, dismissed, commit]
+      properties:
+        verdict: { type: string, enum: [resolved, failed] }
+        resolved: { type: boolean }
+        accepted: { type: array, items: { type: string } }
+        dismissed: { type: array, items: { type: string } }
+        commit: { type: string, pattern: "^[0-9a-f]{40}$" }
+
+  qa-final:
+    type: gate
+    gate: command
+    needs: [review-adjudication, stabilize]
+    run: scripts/fleet-verify-merged.sh 1 && scripts/qa-all.sh --gui --interop --pdf --formats
+
+  handoff:
+    title: Handoff + catálogo (Sonnet)
+    needs: [qa-final]
+    effort: low
+    prompt: |
+      REGRAS: tudo neste turno, sem skills, sem subagentes, nada provisório.
+      Atualize só estes arquivos e commit `docs: ...` em inglês, sem push:
+      - docs/AI_HANDOFF.md: entrada nova no topo ("Fleet wave24 — Cursor Grok/Composer/Sonnet"), com o
+        resultado REAL de `scripts/qa-all.sh --gui --interop --pdf --formats` (rode-o) e
+        `git log main..HEAD --oneline` (hashes reais; não cite o hash do próprio commit). Registre que o Grok
+        Build ficou fora do ar e os executores foram Cursor Grok 4.7 e depois Sonnet.
+      - docs/audit/fix-plan.md: marque a onda 24 como entregue, item por item (corrigido / adiado com motivo).
+      - docs/WRITER_FEATURE_CATALOG.md: "Exportação/Importação DOCX e ODT" e "QR code" conforme o entregue.
+      Submeta commit/qa_green/summary. Resumo da revisão: {{needs.review.report}}
+    success_output: qa_green
+    output_contract: *executor_contract
+
+  notion-sync:
+    title: Sincronizar Notion (Sonnet)
+    needs: [handoff]
+    effort: low
+    prompt: |
+      REGRAS: tudo neste turno, sem skills, sem subagentes.
+      Sincronize o Notion com o repositório (regra: documentação sempre atualizada). Tools MCP do Notion; NÃO
+      altere código; NÃO apague nem arquive páginas; nunca cole segredos. Fontes: docs/audit/fix-plan.md,
+      topo de docs/AI_HANDOFF.md, docs/waves/wave24-docx-odt-fidelity.md, docs/LESSONS.md. Notion: hub
+      3cb46a79156b819daef5ea9d7c41385a; board collection://f3cc11ed-9e5e-4389-b49a-ca98f98dda62; snapshot
+      3cb46a79156b8117a87fc72cd190f8c6. Atualize a seção "Auditoria 2026-10" do hub (onda 24 entregue),
+      alinhe as linhas do board de DOCX/ODT e QR ao estado real, "Última sync" e o snapshot. Reporte.
+
+  open-pr:
+    title: Push + PR (Sonnet)
+    needs: [notion-sync]
+    effort: medium
+    prompt: |
+      REGRAS: tudo neste turno, sem skills, sem subagentes.
+      Push deste branch para origin (nunca main) e PR para `main` em melker22/AI-Office via tool MCP do GitHub
+      (push/PR pré-aprovados). Título em inglês
+      `fix: wave 24 — DOCX/ODT round-trip fidelity and decodable QR codes`. Corpo: resumo de
+      docs/waves/wave24-docx-odt-fidelity.md (diagnóstico + decisões), ids da auditoria corrigidos, test plan
+      e o handoff: {{needs.handoff.report}}. NÃO faça merge (o orquestrador roda o gate). Não reescreva
+      commits. Reporte a URL e o número do PR.

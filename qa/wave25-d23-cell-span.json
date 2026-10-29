@@ -1,0 +1,9 @@
+[
+  {"tool": "document_new", "args": {"title": "Wave25 D23", "force": true}},
+  {"tool": "apply_paragraph_format", "args": {"id": "p1", "lang": "pt-PT"}},
+  {"tool": "insert_at_caret", "args": {"id": "p1", "text": "Before the table"}},
+  {"tool": "insert_table", "args": {"after_id": "end", "rows": 3, "cols": 2, "header": true, "header_texts": ["Span", "Hidden"], "cells": ["A", "B", "C", "D"]}},
+  {"tool": "merge_cells", "args": {"id": "t1", "row": 0, "col": 0, "col_span": 2, "row_span": 1}},
+  {"tool": "merge_cells", "args": {"id": "t1", "row": 1, "col": 0, "col_span": 1, "row_span": 2}},
+  {"tool": "document_export_pdf", "args": {"path": "build/linux/wave25-d23-cell-span.pdf", "pdfa": true, "ua": true}}
+]
