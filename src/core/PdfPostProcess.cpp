@@ -999,6 +999,28 @@ bool pdfPostProcessTagStructure(const QString &path, const QVector<QVector<PdfTa
     // PDF QA reads each child's /S from that array.
     QVector<QByteArray> docKidBodies;
 
+    // /Note /ID must be unique (PDF/UA-1). Copy 0 keeps the block id; a later
+    // copy gets "<id>-c<copy>", with a further "-<n>" when that string is
+    // already some note's block id or an id given to another copy.
+    QSet<QString> noteBlockIds;
+    for (const ClipOut &c : flat) {
+        if (c.marker.role == PdfTagRole::Note && !c.marker.blockId.isEmpty())
+            noteBlockIds.insert(c.marker.blockId);
+    }
+    QSet<QString> usedNoteIds;
+    auto noteIdFor = [&](const PdfTagMarker &m) {
+        if (m.copyIndex <= 0) {
+            usedNoteIds.insert(m.blockId);
+            return m.blockId;
+        }
+        const QString base = m.blockId + QStringLiteral("-c%1").arg(m.copyIndex);
+        QString id = base;
+        for (int n = 2; noteBlockIds.contains(id) || usedNoteIds.contains(id); ++n)
+            id = base + QStringLiteral("-%1").arg(n);
+        usedNoteIds.insert(id);
+        return id;
+    };
+
     auto emitSimple = [&](const StructKey &key) {
         const QVector<int> idx = clipsOf(key);
         const PdfTagMarker &m = flat[idx[0]].marker;
@@ -1011,10 +1033,7 @@ bool pdfPostProcessTagStructure(const QString &path, const QVector<QVector<PdfTa
         if (m.role == PdfTagRole::Figure && !m.alt.isEmpty())
             body += " /Alt (" + pdfUtf16String(m.alt) + ")";
         if (m.role == PdfTagRole::Note && !m.blockId.isEmpty()) {
-            QString noteId = m.blockId;
-            if (m.copyIndex > 0)
-                noteId += QStringLiteral("-c%1").arg(m.copyIndex);
-            body += " /ID (" + pdfAsciiString(noteId) + ")";
+            body += " /ID (" + pdfAsciiString(noteIdFor(m)) + ")";
         }
         body += " /K " + written.first + " >>";
         defineElem(elem, body);

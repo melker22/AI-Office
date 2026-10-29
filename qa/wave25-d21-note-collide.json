@@ -1,0 +1,12 @@
+[
+  {"tool": "document_new", "args": {"title": "Wave25 note id collision", "force": true}},
+  {"tool": "insert_blocks", "args": {"after_id": "start", "blocks": [
+    {"id": "pNote", "type": "paragraph", "lang": "pt-PT", "runs": [
+      {"text": "See ", "note_id": "fn1"},
+      {"text": "and ", "note_id": "fn1-c1"}
+    ]},
+    {"id": "fn1", "type": "footnote", "runs": [{"text": "First note"}]},
+    {"id": "fn1-c1", "type": "footnote", "runs": [{"text": "Second note"}]}
+  ]}},
+  {"tool": "document_export_pdf", "args": {"path": "build/linux/wave25-d21-note-collide.pdf", "pdfa": true, "ua": true, "copies": 2}}
+]

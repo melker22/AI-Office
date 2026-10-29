@@ -490,6 +490,7 @@ WAVE25_PLAYBOOKS = (
     "wave25-d20-utf16.json",
     "wave25-d21-copies.json",
     "wave25-d21-note-copies.json",
+    "wave25-d21-note-collide.json",
     "wave25-d22-nested-list.json",
     "wave25-d22-list-order.json",
     "wave25-d23-cell-span.json",
@@ -790,6 +791,9 @@ def note_id_errors(elems: list[dict[str, Any]], want: list[Any]) -> list[str]:
             errors.append(f"note_ids: /Note missing a readable /ID ({raw!r})")
             continue
         got.append(text)
+    dupes = sorted({item for item in got if got.count(item) > 1})
+    if dupes:
+        errors.append(f"note_ids: duplicate /ID {dupes!r}")
     if notes == 0:
         errors.append("note_ids: no /Note elements")
     elif sorted(got) != sorted(want):
