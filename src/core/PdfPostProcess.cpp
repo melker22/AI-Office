@@ -624,6 +624,26 @@ bool pdfPostProcessAddExtras(const QString &path, const QVector<PdfCommentAnnot>
     return u.finish(path, error);
 }
 
+struct CoveredCellKey {
+    int copyIndex = 0;
+    QString blockId;
+    int row = 0;
+    int col = 0;
+
+    bool operator==(const CoveredCellKey &other) const
+    {
+        return copyIndex == other.copyIndex && blockId == other.blockId && row == other.row && col == other.col;
+    }
+};
+
+inline size_t qHash(const CoveredCellKey &key, size_t seed = 0) noexcept
+{
+    seed = ::qHash(key.copyIndex, seed);
+    seed = ::qHash(key.blockId, seed);
+    seed = ::qHash(key.row, seed);
+    return ::qHash(key.col, seed);
+}
+
 bool pdfPostProcessTagStructure(const QString &path, const QVector<QVector<PdfTagMarker>> &perPageMarkers,
                                  const QString &docLang, const QStringList &readingOrder, QString *error)
 {
@@ -659,22 +679,27 @@ bool pdfPostProcessTagStructure(const QString &path, const QVector<QVector<PdfTa
 
     // A cell painted inside another cell's ColSpan/RowSpan is not its own TD/TH.
     // The anchor keeps the span attributes; this clip is marked /Artifact.
+    // The covered coordinates are the same set the old scan walked, built once.
+    QSet<CoveredCellKey> coveredCells;
+    for (const auto &page : perPageMarkers) {
+        for (const PdfTagMarker &o : page) {
+            if (o.role != PdfTagRole::TableCell)
+                continue;
+            const int cs = qMax(1, o.colSpan);
+            const int rs = qMax(1, o.rowSpan);
+            for (int dr = 0; dr < rs; ++dr) {
+                for (int dc = 0; dc < cs; ++dc) {
+                    if (dr == 0 && dc == 0)
+                        continue;
+                    coveredCells.insert(CoveredCellKey{o.copyIndex, o.blockId, o.row + dr, o.col + dc});
+                }
+            }
+        }
+    }
     auto cellCoveredBySpan = [&](const PdfTagMarker &m) {
         if (m.role != PdfTagRole::TableCell)
             return false;
-        for (const auto &page : perPageMarkers) {
-            for (const PdfTagMarker &o : page) {
-                if (o.role != PdfTagRole::TableCell || o.blockId != m.blockId || o.copyIndex != m.copyIndex)
-                    continue;
-                if (o.row == m.row && o.col == m.col)
-                    continue;
-                const int cs = qMax(1, o.colSpan);
-                const int rs = qMax(1, o.rowSpan);
-                if (m.row >= o.row && m.row < o.row + rs && m.col >= o.col && m.col < o.col + cs)
-                    return true;
-            }
-        }
-        return false;
+        return coveredCells.contains(CoveredCellKey{m.copyIndex, m.blockId, m.row, m.col});
     };
 
     const int structRootNum = u.reserveObj();
