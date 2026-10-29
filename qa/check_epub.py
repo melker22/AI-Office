@@ -1323,7 +1323,7 @@ def main() -> int:
     args = parser.parse_args()
 
     if args.self_test:
-        return self_test(args.cli)
+        return self_test(args.cli.resolve())
     if args.wave25_only:
         return 0 if run_wave25_suite(args.cli.resolve()) else 1
 
