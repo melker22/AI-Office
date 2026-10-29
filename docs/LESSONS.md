@@ -5,7 +5,73 @@
 > verificável para a onda N+1. **Só entra lição com evidência** (thread de review, commit ou incidente).
 > O checklist curto que executores e revisores aplicam está em `.cursor/rules/lessons.mdc`.
 
-Última PR processada: **#15** (onda 24 — fidelidade de ida-e-volta DOCX/ODT e QR decodificável). 7
+Última PR processada: **#17** (onda 25 — fidelidade RTF/EPUB/PDF). 33 threads inline, todos corrigidos,
+mais 6 achados fora do diff em 5 revisões — as 39 ocorrências foram corrigidas, nenhum nitpick ficou
+pendente nesta PR. Reforçou L6 (sintaxe RTF real): `HYPERLINK` perdia o alvo por não pular os switches
+`\o`/`\t`/`\m`/`\n` antes dele
+(https://github.com/melker22/AI-Office/pull/17#discussion_r4407576899, corrigido em `122179d`); a
+correção seguinte ainda perdia o `\l` quando havia URL e `\l` juntos
+(https://github.com/melker22/AI-Office/pull/17#discussion_r4407777966, corrigido em `fd3f6bf0`); e a
+escrita de volta citava o nome crú do alvo local em vez do nome de bookmark normalizado por `bm()`
+(https://github.com/melker22/AI-Office/pull/17#discussion_r4409259849, corrigido em `4377fc1`) — três
+rodadas da mesma função de hyperlink. Mais no `RtfWriter`: coluna sem largura herdava 1 twip em vez de
+um valor usável (https://github.com/melker22/AI-Office/pull/17#pullrequestreview-5691749401, corrigido
+em `a4f5647`, commit que também cobriu o `col_widths_mm` zero/negativo da revisão seguinte,
+https://github.com/melker22/AI-Office/pull/17#pullrequestreview-5694970421); e um item de lista oculto
+por `\v` só escondia o texto, deixando o marcador `\listtext`/caixa de seleção visível
+(https://github.com/melker22/AI-Office/pull/17#pullrequestreview-5693983450, corrigido em `07fcf6e`).
+Reforçou L11 (ambiente hermético, sem caminho fixo de build do desenvolvedor): os autotestes de RTF,
+EPUB e PDF da onda 25 chamavam a suíte sem repassar o `--cli` recebido, caindo num `build/linux`
+hardcoded
+(https://github.com/melker22/AI-Office/pull/17#discussion_r4407576885, corrigido em `d0d649f`;
+https://github.com/melker22/AI-Office/pull/17#discussion_r4408490311, corrigido em `773dead`;
+https://github.com/melker22/AI-Office/pull/17#discussion_r4408490304, corrigido em `9c6ae89`;
+https://github.com/melker22/AI-Office/pull/17#discussion_r4409259834, corrigido em `3ef16ae`); e um
+playbook que o CTest também roda direto, sem o rewrite de caminho temporário da suíte, dependia do mesmo
+`build/linux` fixo e falhava num build `linux-debug`/Windows limpo
+(https://github.com/melker22/AI-Office/pull/17#discussion_r4409010083, corrigido em `4df7899`). Reforçou
+L24 (id derivado colide com id existente): com notas `fn1` e `fn1-c1`, o sufixo `-cN` de cópia do PDF
+produzia o mesmo `/Note /ID` para a segunda cópia de `fn1` e a primeira de `fn1-c1`
+(https://github.com/melker22/AI-Office/pull/17#discussion_r4408490330, corrigido em `66a2053`, reaberto
+e corrigido de novo em `ef1517d` quando o primeiro fix ainda colidia com um id de bloco que já parecia um
+id de cópia: https://github.com/melker22/AI-Office/pull/17#discussion_r4408864387). Outros ~19 achados
+(link de página EPUB para fragmento inexistente, nota referenciada só por outra nota caindo como órfã,
+performance de `cellCoveredBySpan`, ordem dos `/L` raiz do PDF, `SystemExit` do validador EPUB
+interrompendo o laço de checagem, lacunas de prosa em `docs/mcp-tools.md`/
+`docs/WRITER_FEATURE_CATALOG.md`/`.cursor/rules/lessons.mdc`) foram corrigidos sem abrir padrão novo.
+
+Antes dela, **PR #16** (guarda de uso resiste a reinícios do Cockpit; gate aceita revisão do CodeRabbit
+sem status) — 6 threads inline, todos corrigidos no commit `d178478`. Reforçou L18 (gate de merge só
+decide "limpo" com evidência completa e corrente): a checagem de identidade do bot aceitava qualquer
+login com prefixo `coderabbit` em vez do bot exato
+(https://github.com/melker22/AI-Office/pull/16#discussion_r4406774015); uma resposta de comando ("Review
+finished") sem status nem objeto de revisão virava prova de revisão completa, mesmo sob rate-limit
+(https://github.com/melker22/AI-Office/pull/16#discussion_r4406774021); a frescor da resposta comparava
+com a data do commit em vez do SHA revisado exato, então editar uma resposta antiga também passava
+(https://github.com/melker22/AI-Office/pull/16#discussion_r4406774028); e o fallback de resposta se
+aplicava mesmo quando o status já dizia "Review paused", mascarando esse pendente
+(https://github.com/melker22/AI-Office/pull/16#discussion_r4406774035). Reforçou as lições novas L28 e
+L29 (abertas na PR #14 anterior, abaixo), com evidência deste PR sobre o mesmo `usage-guard.py`: o scan
+reatribuía um timestamp novo a cada verificação em vez de reusar o marcador pendente da mesma
+interrupção, retentando uma falha lenta em todo ciclo
+(https://github.com/melker22/AI-Office/pull/16#discussion_r4406774042, corrigido no mesmo commit); e o
+aviso de revisão manual sempre citava "limite de uso renovado" mesmo quando a causa era um reinício do
+Cockpit (https://github.com/melker22/AI-Office/pull/16#discussion_r4406774052, corrigido no mesmo
+commit).
+
+Antes dela, **PR #14** (guarda de uso espera limite e retoma trabalho parado, primeira versão do
+`usage-guard.py`) — 24 threads inline em várias rodadas, mais 6 achados fora do diff em 4 revisões,
+todos corrigidos. Abriu as lições novas L28 (condição agregada sobre um grupo exige todos os membros) e
+L29 (pureza de `--dry-run` e reuso de marcador): `once --dry-run` marcava um marcador de retomada como
+concluído mesmo sem retomar de fato, suprimindo o scan real por até 7 dias
+(https://github.com/melker22/AI-Office/pull/14#pullrequestreview-5669475245, corrigido em `f92f9b0`); a
+mesma revisão apontou que o resume disparava ao existir qualquer nó limitado por uso, não ao passar o
+reset de todos os nós limitados do Run (mesmo link, mesmo commit); e a revisão seguinte apontou que um
+nó reconhecido como limitado por uso mas com reset nulo/inválido escapava do `max(...)` e liberava o
+resume mesmo assim
+(https://github.com/melker22/AI-Office/pull/14#pullrequestreview-5677842045, corrigido em `04efa55`).
+
+Antes disso, **PR #15** (onda 24 — fidelidade de ida-e-volta DOCX/ODT e QR decodificável). 7
 threads inline em duas rodadas de CodeRabbit (todas endereçadas), mais 2 achados fora do diff no corpo
 da 2ª revisão — ambos nitpick de precisão de comentário/doc, nenhum corrigido: comentário do CMake dizia
 que os testes `wave17` ficavam fora do `qa-all` padrão por causa do label `wave24`, quando o filtro
@@ -131,7 +197,23 @@ Formato: `L<n> — regra` · onde falhou (evidência) · ocorrências.
   rodada (https://github.com/melker22/AI-Office/pull/9#discussion_r4338510203,
   https://github.com/melker22/AI-Office/pull/9#discussion_r4338510227,
   https://github.com/melker22/AI-Office/pull/9#discussion_r4339255905); corrigidos em `90c3f5f`/`6dcc356`.
-  · 3
+  PR #17 (onda 25): `finishField()` do `RtfReader` perdia o alvo de `HYPERLINK \l "bookmark"` por não
+  pular os switches `\o`/`\t`/`\m`/`\n` que o Word grava antes dele
+  (https://github.com/melker22/AI-Office/pull/17#discussion_r4407576899, corrigido em `122179d`); a
+  correção seguinte ainda perdia o `\l` quando a mesma `HYPERLINK` também tinha URL, escrevendo só a URL
+  (https://github.com/melker22/AI-Office/pull/17#discussion_r4407777966, corrigido em `fd3f6bf0`); e o
+  `RtfWriter` citava o nome crú do alvo local em vez do nome de bookmark normalizado por `bm()`, perdendo
+  o link quando a normalização muda o nome
+  (https://github.com/melker22/AI-Office/pull/17#discussion_r4409259849, corrigido em `4377fc1`) — três
+  rodadas sucessivas da mesma função de hyperlink. Mais no `RtfWriter`: uma coluna sem largura declarada
+  herdava 1 twip (ilegível) em vez do fallback uniforme já usado para colunas além da lista
+  (https://github.com/melker22/AI-Office/pull/17#pullrequestreview-5691749401, corrigido em `a4f5647`,
+  que também cobriu `col_widths_mm` zero/negativo apontado na revisão seguinte,
+  https://github.com/melker22/AI-Office/pull/17#pullrequestreview-5694970421); e um item de lista oculto
+  por `\v` só escondia o texto do item, deixando visível o marcador `\listtext`/caixa de seleção que vem
+  antes do `\v`
+  (https://github.com/melker22/AI-Office/pull/17#pullrequestreview-5693983450, corrigido em `07fcf6e`).
+  · 4
 - **L15 — Caminho especial de desenho reusa o layout já shapeado, nunca redesenha substring plano.**
   Quando um requisito extra (span de idioma, marcação) exige tratar um trecho do texto à parte, desenhe
   os glyph runs que o `QTextLayout`/`QTextLine` já calculou para aquele trecho; reshapear um substring
@@ -182,7 +264,14 @@ Formato: `L<n> — regra` · onde falhou (evidência) · ocorrências.
   (https://github.com/melker22/AI-Office/pull/15#discussion_r4396808630); corrigido com `nextPrefixedId`
   (via `nextRevisionId`), que aloca acima do maior sufixo numérico já em uso, ids de JSON inclusos (commit `a718d3e`), com teste
   prévio cobrindo o caso (`qa/wave24-docx-d10-revision-ids.json`, commit `c83b9c8`, ids `rev1`/`rev2`/`rev7`
-  mais marcas nativas parcialmente deduplicadas). · 1
+  mais marcas nativas parcialmente deduplicadas). PR #17 (onda 25): o id derivado por cópia do PDF
+  (`-cN` anexado ao id de bloco para a nota de rodapé de cada cópia extra) colidia quando o documento já
+  tinha notas `fn1` e `fn1-c1` — a segunda cópia de `fn1` e a primeira cópia de `fn1-c1` recebiam o mesmo
+  `/Note /ID`
+  (https://github.com/melker22/AI-Office/pull/17#discussion_r4408490330, corrigido em `66a2053`); o
+  primeiro fix ainda colidia quando um id de bloco já tinha a forma de um id de cópia de outra nota,
+  reaberto e corrigido exigindo que `note_ids` falhe também em duplicata
+  (https://github.com/melker22/AI-Office/pull/17#discussion_r4408864387, corrigido em `ef1517d`). · 2
 
 ## Testes
 
@@ -207,7 +296,17 @@ Formato: `L<n> — regra` · onde falhou (evidência) · ocorrências.
   corrigido exigindo que o interposer registre uma publicação no destino
   (https://github.com/melker22/AI-Office/pull/13#discussion_r4370637434, corrigido em `9e74fdc`). · 4
 - **L11 — Ambiente hermético.** Tudo que a CI usa vem do Nix (fontes, Python, soffice opcional); nada
-  do sistema do desenvolvedor. Teste com `nix-shell --pure`. · PR #3 fontes; PR #4 `python3`. · 2
+  do sistema do desenvolvedor. Teste com `nix-shell --pure`. · PR #3 fontes; PR #4 `python3`. PR #17
+  (onda 25): os autotestes (`--self-test`) de RTF, EPUB e PDF chamavam a suíte da onda sem repassar o
+  `--cli` que o CTest lhes passava, caindo num `build/linux` fixo que não existe num build
+  `linux-debug`/Windows
+  (https://github.com/melker22/AI-Office/pull/17#discussion_r4407576885, corrigido em `d0d649f`;
+  https://github.com/melker22/AI-Office/pull/17#discussion_r4408490311, corrigido em `773dead`;
+  https://github.com/melker22/AI-Office/pull/17#discussion_r4408490304, corrigido em `9c6ae89`;
+  https://github.com/melker22/AI-Office/pull/17#discussion_r4409259834, corrigido em `3ef16ae`); e um
+  playbook de teste que o CTest também roda direto (sem o rewrite de caminho temporário da suíte)
+  dependia do mesmo `build/linux` fixo
+  (https://github.com/melker22/AI-Office/pull/17#discussion_r4409010083, corrigido em `4df7899`). · 3
 - **L21 — Diretório de trabalho compartilhado entre execuções usa lock com caminho estável e controlado
   pelo dono, nunca um caminho fixo em `/tmp` nem uma variável de ambiente que varia por processo.** Um
   caminho fixo em `/tmp` é alvo de symlink/TOCTOU por outro usuário local; um lock derivado de
@@ -328,7 +427,20 @@ Formato: `L<n> — regra` · onde falhou (evidência) · ocorrências.
   abertos cujo branch contém o commit HEAD mas cujo próprio head é outro commit — um PR irmão inflava a
   contagem de "revisões pendentes" do PR correto
   (https://github.com/melker22/AI-Office/pull/13#discussion_r4370637439); corrigidos juntos, escopando o
-  caminho "sem revisão" a reviews cujo `commit_id` é exatamente o head deste PR (`b67e915`/`fecf1fc`). · 11
+  caminho "sem revisão" a reviews cujo `commit_id` é exatamente o head deste PR (`b67e915`/`fecf1fc`).
+  PR #16: a checagem de identidade do bot do CodeRabbit aceitava qualquer login com prefixo
+  `coderabbit`, não o bot exato
+  (https://github.com/melker22/AI-Office/pull/16#discussion_r4406774015); uma resposta de comando
+  ("Review finished"/"Already reviewed the last commit") sem status nem objeto de revisão virava prova
+  de revisão completa, mesmo quando esse texto aparece por rate-limit sem revisão de fato
+  (https://github.com/melker22/AI-Office/pull/16#discussion_r4406774021); a checagem de frescor dessa
+  resposta comparava com a data de commit do HEAD em vez do SHA revisado exato, então editar uma
+  resposta antiga (`updated_at`) também passava como evidência fresca
+  (https://github.com/melker22/AI-Office/pull/16#discussion_r4406774028); e o fallback de resposta se
+  aplicava mesmo quando já havia um status CodeRabbit dizendo "Review paused", mascarando esse pendente
+  como limpo
+  (https://github.com/melker22/AI-Office/pull/16#discussion_r4406774035); corrigidos todos no mesmo
+  commit `d178478`. · 12
 - **L17 — O nó `lessons` lê handoff atual E arquivo antes de avançar o marcador.** Se a entrada de
   handoff de um PR ainda não processado já foi movida para `AI_HANDOFF_ARCHIVE.md`, ler só
   `AI_HANDOFF.md` perde o registro de intervenção e o Passo 4 marca esse PR como processado sem revisitar
@@ -352,3 +464,30 @@ Formato: `L<n> — regra` · onde falhou (evidência) · ocorrências.
   destruindo ou misturando trabalho que não é seu. Use um commit WIP na própria branch/worktree, nunca a
   stash global. · Um `pop` no checkout principal recolheu a stash de um agente que trabalhava no worktree
   do PR #15. · 1
+- **L28 — Uma condição sobre um grupo de itens (nós interrompidos, réplicas, markers) só vale quando
+  TODOS os membros a satisfazem — nunca quando algum membro a satisfaz; e um membro com dado
+  ausente/inválido não libera a condição por omissão.** Um `any()`/existência basta para "há um item
+  limitado", mas "pode retomar"/"pode concluir" exige "todos os itens satisfazem", incluindo os que o
+  código não sabe avaliar. · PR #14 (`scripts/usage-guard.py`): `fleet resume` disparava ao existir
+  QUALQUER nó interrompido por limite de uso no Run, sem esperar o reset de TODOS os nós limitados —
+  um Run com dois nós de reset diferente retomava no primeiro reset, antes do segundo
+  (https://github.com/melker22/AI-Office/pull/14#pullrequestreview-5669475245, corrigido em `f92f9b0`); e
+  um nó reconhecido como limitado por uso mas cujo reset é nulo/não interpretável escapava do
+  `max(... if t)` porque a comprehension descarta o `None`, liberando o resume mesmo com esse nó ainda
+  potencialmente limitado
+  (https://github.com/melker22/AI-Office/pull/14#pullrequestreview-5677842045, corrigido em `04efa55`).
+  · 1
+- **L29 — `--dry-run`/simulação nunca persiste estado real (audite todo caminho de escrita, não só o
+  óbvio); e um marcador de evento pendente (retry/warning/done) é reaproveitado para a MESMA
+  interrupção, nunca recriado com timestamp novo a cada verificação.** Recriar o marcador a cada scan
+  retenta uma falha lenta em todo ciclo, atrasando itens não relacionados; e uma simulação que grava o
+  marcador como concluído suprime o scan real do mesmo evento pelo período inteiro de dedupe. · PR #14
+  (`scripts/usage-guard.py`): `once --dry-run` encontrava um Run com loop limitado por uso vencido,
+  simulava o resume com sucesso e ainda assim marcava o marcador do hook como concluído, deixando o Run
+  pausado de verdade e suprimindo o próximo scan normal pela janela de dedupe de 7 dias
+  (https://github.com/melker22/AI-Office/pull/14#pullrequestreview-5669475245, corrigido em `f92f9b0`);
+  PR #16: `add_marker()` atribuía um timestamp novo à mesma interrupção em cada scan em vez de reusar o
+  marcador pendente existente, então uma falha repetida de `fleet resume` reexecutava a cada ciclo em
+  vez de esperar o intervalo de retry
+  (https://github.com/melker22/AI-Office/pull/16#discussion_r4406774042, corrigido no commit `d178478`).
+  · 2
