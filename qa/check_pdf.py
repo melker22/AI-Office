@@ -23,6 +23,8 @@ TOOL_TIMEOUT = 60
 
 def headless_env() -> dict[str, str]:
     env = os.environ.copy()
+    # A test interposer must not reach the CLI (CI's glibc is not this process's).
+    env.pop("LD_PRELOAD", None)
     env["AIOFFICE_HEADLESS"] = "1"
     env["QT_QPA_PLATFORM"] = "offscreen"
     return env
@@ -486,6 +488,7 @@ def check_expectations(
 WAVE25_PLAYBOOKS = (
     "wave25-d20-utf16.json",
     "wave25-d21-copies.json",
+    "wave25-d21-note-copies.json",
     "wave25-d22-nested-list.json",
     "wave25-d23-cell-span.json",
 )
@@ -728,6 +731,41 @@ def _int_attr(attrs: dict[str, Any], name: str) -> int | None:
     return None
 
 
+def _pdf_string(value: Any) -> str | None:
+    if isinstance(value, str):
+        return value
+    if isinstance(value, dict):
+        for key in ("string", "text", "value"):
+            inner = value.get(key)
+            if isinstance(inner, str):
+                return inner
+    return None
+
+
+def note_id_errors(elems: list[dict[str, Any]], want: list[Any]) -> list[str]:
+    """/Note /ID values, one per copy. Missing or duplicate ids fail."""
+    if not isinstance(want, list) or not want or not all(isinstance(item, str) and item for item in want):
+        return ["note_ids: expected a non-empty list of strings"]
+    got: list[str] = []
+    notes = 0
+    errors: list[str] = []
+    for elem in elems:
+        if _name_of(elem.get("/S") or elem.get("S")) != "/Note":
+            continue
+        notes += 1
+        raw = elem.get("/ID") if "/ID" in elem else elem.get("ID")
+        text = _pdf_string(raw)
+        if not text:
+            errors.append(f"note_ids: /Note missing a readable /ID ({raw!r})")
+            continue
+        got.append(text)
+    if notes == 0:
+        errors.append("note_ids: no /Note elements")
+    elif sorted(got) != sorted(want):
+        errors.append(f"note_ids: got {got!r}, expected {want!r}")
+    return errors
+
+
 def check_wave25_extra(pdf: Path, exp: dict[str, Any]) -> list[str]:
     errors: list[str] = []
     literals = exp.get("utf16_literals")
@@ -757,7 +795,7 @@ def check_wave25_extra(pdf: Path, exp: dict[str, Any]) -> list[str]:
             if not ok and not any(err.startswith(key) for err in errors):
                 errors.append(f"{key}: expected {want!r}, found {seen!r}")
 
-    needs_objects = any(k in exp for k in ("copies_structure", "nested_list", "cell_spans"))
+    needs_objects = any(k in exp for k in ("copies_structure", "nested_list", "cell_spans", "note_ids"))
     objects: dict[str, Any] = {}
     elems: list[dict[str, Any]] = []
     if needs_objects:
@@ -847,6 +885,12 @@ def check_wave25_extra(pdf: Path, exp: dict[str, Any]) -> list[str]:
                 errors.append(f"cell span: no TD/TH /A has /ColSpan {want_col}")
             if not got_row:
                 errors.append(f"cell span: no TD/TH /A has /RowSpan {want_row}")
+
+    if "note_ids" in exp:
+        if not elems:
+            errors.append("note_ids: no structure elements")
+        else:
+            errors.extend(note_id_errors(elems, exp.get("note_ids")))
     return errors
 
 
@@ -910,6 +954,37 @@ def run_wave25_suite(cli: Path) -> int:
 
 def self_test() -> int:
     ok = True
+
+    dup = note_id_errors(
+        [{"/S": "/Note", "/ID": "fn1"}, {"/S": "/Note", "/ID": "fn1"}],
+        ["fn1", "fn1-c1"],
+    )
+    if not dup:
+        print("FAIL self-test note_ids duplicate must fail")
+        ok = False
+    else:
+        print("ok   note_ids duplicate fails")
+    missing = note_id_errors([{"/S": "/P", "/ID": "fn1"}], ["fn1"])
+    if not missing:
+        print("FAIL self-test note_ids with no /Note must fail")
+        ok = False
+    else:
+        print("ok   note_ids with no /Note fails")
+    blank = note_id_errors([{"/S": "/Note"}], ["fn1"])
+    if not blank:
+        print("FAIL self-test note_ids missing /ID must fail")
+        ok = False
+    else:
+        print("ok   note_ids missing /ID fails")
+    good = note_id_errors(
+        [{"/S": "/Note", "/ID": "fn1-c1"}, {"/S": "/Note", "/ID": "fn1"}],
+        ["fn1", "fn1-c1"],
+    )
+    if good:
+        print(f"FAIL self-test note_ids exact match: {good}")
+        ok = False
+    else:
+        print("ok   note_ids exact match")
 
     sample_pass = """<validationReports><validationReport isCompliant="true"></validationReport></validationReports>"""
     c, f = parse_verapdf_xml(sample_pass)
@@ -1075,6 +1150,7 @@ def main() -> int:
         raise SystemExit(f"PDF not found after play: {pdf}")
 
     errors = check_expectations(pdf, exp, play_warnings, cli)
+    errors.extend(check_wave25_extra(pdf, exp))
     if errors:
         for err in errors:
             print(f"FAIL {err}")

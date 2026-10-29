@@ -1,0 +1,9 @@
+{
+  "pdf": "build/linux/wave25-d21-note-copies.pdf",
+  "verapdf": {
+    "1b": {"compliant": true},
+    "ua1": {"compliant": true}
+  },
+  "qpdf": {"no_part_fallback": true},
+  "note_ids": ["fn1", "fn1-c1"]
+}

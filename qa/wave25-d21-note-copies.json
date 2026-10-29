@@ -1,0 +1,10 @@
+[
+  {"tool": "document_new", "args": {"title": "Wave25 note copies", "force": true}},
+  {"tool": "insert_blocks", "args": {"after_id": "start", "blocks": [
+    {"id": "pNote", "type": "paragraph", "lang": "pt-PT", "runs": [
+      {"text": "See ", "note_id": "fn1"}
+    ]},
+    {"id": "fn1", "type": "footnote", "runs": [{"text": "Note body"}]}
+  ]}},
+  {"tool": "document_export_pdf", "args": {"path": "build/linux/wave25-d21-note-copies.pdf", "pdfa": true, "ua": true, "copies": 2}}
+]

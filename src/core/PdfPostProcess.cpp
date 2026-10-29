@@ -1010,8 +1010,12 @@ bool pdfPostProcessTagStructure(const QString &path, const QVector<QVector<PdfTa
             body += " /Pg " + QByteArray::number(written.second) + " 0 R";
         if (m.role == PdfTagRole::Figure && !m.alt.isEmpty())
             body += " /Alt (" + pdfUtf16String(m.alt) + ")";
-        if (m.role == PdfTagRole::Note && !m.blockId.isEmpty())
-            body += " /ID (" + pdfAsciiString(m.blockId) + ")";
+        if (m.role == PdfTagRole::Note && !m.blockId.isEmpty()) {
+            QString noteId = m.blockId;
+            if (m.copyIndex > 0)
+                noteId += QStringLiteral("-c%1").arg(m.copyIndex);
+            body += " /ID (" + pdfAsciiString(noteId) + ")";
+        }
         body += " /K " + written.first + " >>";
         defineElem(elem, body);
         docKidBodies.push_back(body);
