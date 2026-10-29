@@ -823,6 +823,15 @@ def test_hyperlink_switches(cli: Path, folder: Path) -> list[str]:
     if ("site", "https://x") not in run_links(before):
         errors.append(f"HYPERLINK switches before URL: {run_links(before)!r}")
 
+    both = import_rtf(
+        cli,
+        folder,
+        "hl-both.rtf",
+        '{\\field{\\*\\fldinst HYPERLINK "https://x/doc" \\l "sec2"}{\\fldrslt doc}}\\par\n',
+    )
+    if ("doc", "https://x/doc#sec2") not in run_links(both):
+        errors.append(f"HYPERLINK URL with \\\\l location: {run_links(both)!r}")
+
     steps = [
         {"tool": "document_new", "args": {"title": "wave25 hyperlink", "force": True}},
         {
@@ -932,6 +941,8 @@ def test_d12(cli: Path, folder: Path) -> list[str]:
     partial = tables[2].get("col_widths_mm") or []
     if len(partial) != 2 or num_close(partial[0], float(partial[1]), 0.02):
         errors.append(f"D12: a short width list fell back to equal columns: {partial!r}")
+    elif not num_close(partial[0], 20, 0.001) or float(partial[1]) < 10:
+        errors.append(f"D12: the column past a short width list is not usable: {partial!r}")
     # 20mm = 1134 twips, 30mm = 1701 twips. cellx is the cumulative right edge.
     err = need(rtf, "\\cellx1134", "D12")
     if err:

@@ -305,9 +305,10 @@ QString hyperlinkTarget(const QString &s, int i)
             sawUrl = true;
         }
     }
-    if (url.isEmpty() && !location.isEmpty())
-        return QLatin1Char('#') + location;
-    return url;
+    if (location.isEmpty())
+        return url;
+    // \l with a URL is a location inside that target: url#location.
+    return url + QLatin1Char('#') + location;
 }
 
 QString readFieldToken(const QString &s, int &i)

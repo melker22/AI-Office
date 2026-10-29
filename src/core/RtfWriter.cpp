@@ -789,8 +789,11 @@ struct RtfOut {
             for (int c = 0; c < cols; ++c)
                 widths.append(qMax(1, colW));
         } else {
+            // A column past the end of a short width list gets the even default,
+            // not a one-twip sliver.
+            const int fallback = qMax(1, cols > 0 ? 9000 / cols : 9000);
             for (int c = 0; c < cols; ++c) {
-                int tw = 1;
+                int tw = fallback;
                 if (c < b.colWidthsMm.size())
                     tw = qRound(b.colWidthsMm.at(c) * kTwipsPerMm / 10.0);
                 widths.append(qMax(1, tw));
@@ -865,6 +868,11 @@ struct RtfOut {
     {
         consumedImages.clear();
         cellPlaceholders.clear();
+        QHash<QString, const Block *> tables;
+        for (const Block &candidate : doc->body) {
+            if (candidate.type == QLatin1String("table") && !candidate.id.isEmpty() && !tables.contains(candidate.id))
+                tables.insert(candidate.id, &candidate);
+        }
         for (const Block &img : doc->body) {
             if (img.type != QLatin1String("image"))
                 continue;
@@ -873,13 +881,7 @@ struct RtfOut {
             int col = 0;
             if (!parseCellAnchor(img.anchor, tableId, row, col))
                 continue;
-            const Block *table = nullptr;
-            for (const Block &candidate : doc->body) {
-                if (candidate.type == QLatin1String("table") && candidate.id == tableId) {
-                    table = &candidate;
-                    break;
-                }
-            }
+            const Block *table = tables.value(tableId, nullptr);
             const bool hit = table && row < table->table.size() && col < table->table.at(row).size();
             const QString label = imageLabel(img);
             if (!hit) {
