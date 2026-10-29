@@ -306,6 +306,20 @@ def summary_reviewed(issue_comments: list | None, head: str) -> bool:
     return False
 
 
+_REVIEW_HEADER = re.compile(r"(?m)^\**Actionable comments posted:\s*\d+")
+
+
+def is_head_review(r: dict, head: str) -> bool:
+    """A real CodeRabbit review of `head`: by the bot, on the SHA, with its review header in the body.
+
+    A bot reply inside a review thread is also a review object on the current head, but with an empty
+    body (PR #18, c7b7e07: four such replies while the head review itself was rate limited). It says
+    nothing about the head commit.
+    """
+    return (is_coderabbit_bot(r.get("user")) and r.get("commit_id") == head
+            and bool(_REVIEW_HEADER.search(r.get("body") or "")))
+
+
 def evaluate(pr_number: int, pr: dict, statuses: list, comments: list, reviews: list,
              commit_date: str, since: str | None, refetch,
              issue_comments: list | None = None, head_pr_count: int = 1) -> tuple[int, list[str]]:
@@ -320,7 +334,7 @@ def evaluate(pr_number: int, pr: dict, statuses: list, comments: list, reviews: 
     # CodeRabbit sometimes reviews a commit without setting a commit status. The only accepted proof is
     # then a review object by the CodeRabbit bot itself (exact identity) on the head SHA. Its "Review
     # finished" replies are not proof: they can appear without a review (e.g. rate limited) and name no SHA.
-    head_reviewed = any(is_coderabbit_bot(r.get("user")) and r.get("commit_id") == head for r in reviews)
+    head_reviewed = any(is_head_review(r, head) for r in reviews)
     # With nothing to post, an incremental review leaves no review object; CodeRabbit's summary comment
     # then records the reviewed SHA in a machine marker (see summary_reviewed).
     summary_covered = summary_reviewed(issue_comments, head)
@@ -354,10 +368,7 @@ def evaluate(pr_number: int, pr: dict, statuses: list, comments: list, reviews: 
             f"inline comment {c['path']}:{c.get('line') or c.get('original_line')} {c['html_url']}"
         )
 
-    on_head = [
-        r for r in reviews
-        if is_coderabbit_bot(r.get("user")) and r.get("commit_id") == head
-    ]
+    on_head = [r for r in reviews if is_head_review(r, head)]
     cr_desc = next((x.get("description") or "" for x in statuses if x.get("context") == "CodeRabbit"), "")
     if not on_head and not pending:
         # With nothing to say, CodeRabbit finishes an incremental review without posting a review object:
@@ -567,6 +578,9 @@ def self_test() -> int:
     other_kind = dict(covered, body=covered["body"].replace('"kind":"reviewed"', '"kind":"skipped"'))
     res = evaluate(10, pr(), ci_only, [], [], "2026-10-21T20:00:00Z", None, lambda: pr(), [other_kind])
     check("marker with another kind is pending", res[0] == 2, "\n".join(res[1]))
+    thread_reply = dict(quiet_review, body="")       # a bot reply in a review thread, on the head SHA
+    code, text, n = run(pr(), ci_only, reviews=[thread_reply])
+    check("a bot thread reply on the head is not a head review", code == 2, text)
     impostor = dict(quiet_review, user={"login": "coderabbitai-fan", "type": "User"})
     code, text, n = run(pr(), ci_only, reviews=[impostor])
     check("a review by a look-alike account is not proof", code == 2, text)

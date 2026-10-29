@@ -182,6 +182,7 @@ def ci_state(statuses: list[dict], check_runs: list[dict]) -> str:
     return "success"
 
 
+_REVIEW_HEADER = re.compile(r"(?m)^\**Actionable comments posted:\s*\d+")
 _COVERAGE_RE = re.compile(r"(?m)^<!-- final_review_risk_coverage:(\{[^\n]*?\}) -->$")
 
 
@@ -224,6 +225,8 @@ def cr_state(head: str, since: datetime, reviews: list[dict], comments: list[dic
     for r in reviews:
         if not (is_bot(r.get("user")) and r.get("commit_id") == head):
             continue
+        if not _REVIEW_HEADER.search(r.get("body") or ""):
+            continue  # a bot reply inside a review thread (empty body), not a review of the head
         sub = r.get("submitted_at")
         if sub and iso(sub) <= since:
             continue  # an older review of this SHA, from before the request being watched
@@ -484,10 +487,11 @@ def self_test() -> int:
     # State functions.
     since = iso("2026-10-29T10:00:00Z")
     head = _FakeGitHub.HEAD
-    check("review on head", cr_state(head, since, [{"user": BOT_USER, "commit_id": head}], [])[0] == "reviewed")
-    old_rev = {"user": BOT_USER, "commit_id": head, "submitted_at": "2026-10-29T09:30:00Z"}
+    check("review on head", cr_state(head, since, [{"user": BOT_USER, "commit_id": head, "body": "**Actionable comments posted: 0**"}], [])[0] == "reviewed")
+    check("thread reply on head is not a review", cr_state(head, since, [{"user": BOT_USER, "commit_id": head, "body": ""}], [])[0] == "pending")
+    old_rev = {"user": BOT_USER, "commit_id": head, "submitted_at": "2026-10-29T09:30:00Z", "body": "**Actionable comments posted: 0**"}
     check("review before since", cr_state(head, since, [old_rev], [])[0] == "pending")
-    new_rev = {"user": BOT_USER, "commit_id": head, "submitted_at": "2026-10-29T10:01:00Z"}
+    new_rev = {"user": BOT_USER, "commit_id": head, "submitted_at": "2026-10-29T10:01:00Z", "body": "**Actionable comments posted: 0**"}
     check("review after since", cr_state(head, since, [old_rev, new_rev], [])[0] == "reviewed")
     check("review on old head", cr_state(head, since, [{"user": BOT_USER, "commit_id": "b" * 40}], [])[0] == "pending")
     lookalike = {"login": BOT, "type": "User"}
@@ -563,7 +567,7 @@ def self_test() -> int:
         return code, [json.loads(l) for l in buf.getvalue().splitlines()], gh, http
 
     def add_review(gh: _FakeGitHub) -> None:
-        gh.reviews.append({"id": 1, "user": BOT_USER, "commit_id": gh.HEAD, "submitted_at": "2026-10-29T10:10:00Z"})
+        gh.reviews.append({"id": 1, "user": BOT_USER, "commit_id": gh.HEAD, "submitted_at": "2026-10-29T10:10:00Z", "body": "**Actionable comments posted: 0**"})
 
     def ci_ok(gh: _FakeGitHub) -> None:
         gh.statuses.insert(0, {"context": "ci/circleci", "state": "success"})
