@@ -207,7 +207,10 @@ def summary_covers(comment: dict, head: str) -> bool:
     return False
 
 
-_RATE_NOTICE = re.compile(r"(?im)^(?:>\s*)*#+\s*rate limit exceeded\b|rate limited by coderabbit\.ai")
+# The bot's own whole-line marker in front of its "Rate limit exceeded" notice. Prose that merely mentions
+# rate limits (the walkthrough of a PR about rate limits, for one) does not match.
+_RATE_NOTICE = re.compile(r"(?m)^<!-- This is an auto-generated comment: rate limited by coderabbit\.ai -->$")
+_REPLY_MARK = "<!-- This is an auto-generated reply by CodeRabbit -->"
 _WAIT = re.compile(r"(?i)wait\s+\**\s*([0-9][^*\n]{0,40}?)\s*\**\s+before")
 
 
@@ -246,7 +249,7 @@ def cr_state(head: str, since: datetime, reviews: list[dict], comments: list[dic
         if edited and iso(edited) > since and summary_rate_limited(body):
             events.append((iso(edited), "rate_limited", f"summary {c.get('html_url')}{summary_wait(body)}"))
         created = c.get("created_at")
-        if created and iso(created) > since:
+        if created and iso(created) > since and _REPLY_MARK in body:  # only command replies
             outcome = reply_outcome(body)
             if outcome:
                 events.append((iso(created), outcome, f"reply {c.get('html_url')}"))
@@ -322,12 +325,12 @@ def done(s: Snapshot, until: str) -> bool:
     return until == "cr" or s.ci != "pending"
 
 
-def notify(task: str, line: str) -> None:
+def notify(task: str, line: str, timeout: float = 60) -> None:
     cockpit = os.environ.get("AIO_COCKPIT") or str(Path.home() / ".agi-tools" / "bin" / "cockpit")
     try:
         subprocess.run([cockpit, "task", "send", task, "--stdin"], input=f"pr-watch: {line}\n",
-                       text=True, check=False, capture_output=True)
-    except OSError as exc:  # Cockpit CLI missing: the watch result still stands
+                       text=True, check=False, capture_output=True, timeout=timeout)
+    except (OSError, subprocess.SubprocessError) as exc:  # CLI missing or hung: the result still stands
         print(f"pr-watch: could not notify task {task}: {exc}", file=sys.stderr)
 
 
@@ -496,11 +499,11 @@ def self_test() -> int:
     check("review on old head", cr_state(head, since, [{"user": BOT_USER, "commit_id": "b" * 40}], [])[0] == "pending")
     lookalike = {"login": BOT, "type": "User"}
     check("look-alike user", cr_state(head, since, [{"user": lookalike, "commit_id": head}], [])[0] == "pending")
-    old = {"user": BOT_USER, "created_at": "2026-10-29T09:00:00Z", "body": "Review finished."}
+    old = {"user": BOT_USER, "created_at": "2026-10-29T09:00:00Z", "body": _REPLY_MARK + "\nReview finished."}
     check("reply before trigger", cr_state(head, since, [], [old])[0] == "pending")
-    fin = {"user": BOT_USER, "created_at": "2026-10-29T10:05:00Z", "body": "Review finished."}
+    fin = {"user": BOT_USER, "created_at": "2026-10-29T10:05:00Z", "body": _REPLY_MARK + "\nReview finished."}
     check("finished, no review", cr_state(head, since, [], [fin])[0] == "no_review")
-    rl = {"user": BOT_USER, "created_at": "2026-10-29T10:06:00Z", "body": "Review rate limited."}
+    rl = {"user": BOT_USER, "created_at": "2026-10-29T10:06:00Z", "body": _REPLY_MARK + "\nReview rate limited."}
     check("newest reply wins", cr_state(head, since, [], [fin, rl])[0] == "rate_limited")
     note = ("\n\n> Note: CodeRabbit is an incremental review system and does not re-review already reviewed "
             "commits. This command is applicable only when automatic reviews are paused.\n")
@@ -533,13 +536,17 @@ def self_test() -> int:
     check("rate limit in an edited summary", st == "rate_limited" and "26 minutes and 15 seconds" in det, (st, det))
     check("old rate-limit summary ignored",
           cr_state(head, since, [], [dict(rl_summary, updated_at="2026-10-29T09:00:00Z")])[0] == "pending")
-    later_fin = {"user": BOT_USER, "created_at": "2026-10-29T10:30:00Z", "body": "Review finished.", "html_url": "f"}
+    later_fin = {"user": BOT_USER, "created_at": "2026-10-29T10:30:00Z", "body": _REPLY_MARK + "\nReview finished.", "html_url": "f"}
     check("a later reply beats an older rate-limit summary",
           cr_state(head, since, [], [rl_summary, later_fin])[0] == "no_review")
     check("a later rate-limit summary beats an older reply",
           cr_state(head, since, [], [dict(rl_summary, updated_at="2026-10-29T10:40:00Z"), later_fin])[0] == "rate_limited")
     check("review on head beats a rate-limit summary",
           cr_state(head, since, [new_rev], [rl_summary])[0] == "reviewed")
+    plain = {"user": BOT_USER, "created_at": "2026-10-29T10:50:00Z", "body": "Review finished. Rate limited.", "html_url": "p"}
+    check("a bot comment that is not a command reply is ignored", cr_state(head, since, [], [plain])[0] == "pending")
+    prose = dict(rl_summary, body="<!-- walkthrough_start -->\n> ## Rate limit exceeded\nThe watcher handles rate limited replies.")
+    check("rate-limit prose without the marker is ignored", cr_state(head, since, [], [prose])[0] == "pending")
     check("ci none", ci_state([], []) == "pending")
     check("ci coderabbit ignored", ci_state([{"context": "CodeRabbit", "state": "success"}], []) == "pending")
     check("ci newest status", ci_state([{"context": "ci", "state": "success"},
@@ -590,7 +597,7 @@ def self_test() -> int:
 
     def reply_finished(gh: _FakeGitHub) -> None:
         gh.comments.append({"user": BOT_USER, "created_at": "2026-10-29T10:30:00Z",
-                            "body": "Review finished.", "html_url": "u"})
+                            "body": _REPLY_MARK + "\nReview finished.", "html_url": "u"})
 
     code, lines, _, _ = scenario([reply_finished], [])
     check("exit on reply-only", code == 0 and lines[-1]["cr"] == "no_review", lines)
@@ -725,6 +732,24 @@ def self_test() -> int:
             os.environ.pop("AIO_COCKPIT", None)
         else:
             os.environ["AIO_COCKPIT"] = saved_c
+
+    # A hung Cockpit CLI times out without breaking the watch.
+    import tempfile as _tf
+    with _tf.TemporaryDirectory() as tmpd:
+        hang = Path(tmpd) / "cockpit"
+        hang.write_text("#!/bin/sh\nsleep 5\n")
+        hang.chmod(0o700)
+        saved_h = os.environ.get("AIO_COCKPIT")
+        os.environ["AIO_COCKPIT"] = str(hang)
+        try:
+            with contextlib.redirect_stderr(io.StringIO()) as err2:
+                notify("t2", "{}", timeout=0.3)
+            check("hung Cockpit CLI times out", "could not notify task t2" in err2.getvalue(), err2.getvalue())
+        finally:
+            if saved_h is None:
+                os.environ.pop("AIO_COCKPIT", None)
+            else:
+                os.environ["AIO_COCKPIT"] = saved_h
 
     # Token file must be private.
     import tempfile
