@@ -555,3 +555,13 @@ set_tests_properties(rtf_footnote_flush PROPERTIES
     TIMEOUT 90
     WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}"
 )
+
+# Wave 26 D1–D3. The PNG helper is qa/png_probe.py (stdlib only). D3's own
+# limit is 10s; the ctest budget covers the other judges plus that timeout.
+add_test(NAME wave26_text COMMAND "${CMAKE_COMMAND}" -E env AIOFFICE_HEADLESS=1 QT_QPA_PLATFORM=offscreen
+    "${Python3_EXECUTABLE}" "${CMAKE_SOURCE_DIR}/qa/wave26-text.py" --cli "${AIOFFICE_CLI}")
+set_tests_properties(wave26_text PROPERTIES
+    LABELS "playbook"
+    TIMEOUT 180
+    WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}"
+)
