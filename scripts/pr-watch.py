@@ -17,7 +17,7 @@ final state. `--notify-task <id>` also sends it to a Cockpit task.
 
 Polling is cheap: every request carries the ETag of the previous answer
 (If-None-Match), and a 304 does not count against GitHub's rate limit.
-Without a token a 304 still counts, so the interval is 420 s (at least six
+Without a token a 304 still counts, so the interval is 540 s (at least seven
 requests per poll, 60 requests per hour shared by the whole IP); with a read-only token (GITHUB_TOKEN / GH_TOKEN or
 ~/.config/aio-pr-watch/token, mode 600) it is 30 s (5000 per hour).
 
@@ -28,6 +28,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import math
 import os
 import re
 import stat
@@ -57,10 +58,16 @@ def load_token(path: Path = TOKEN_FILE) -> str:
         return env.strip()
     if not path.exists():
         return ""
-    mode = stat.S_IMODE(path.stat().st_mode)
+    try:
+        mode = stat.S_IMODE(path.stat().st_mode)
+    except OSError as exc:
+        raise TokenError(f"cannot read {path}: {exc}") from exc
     if mode & 0o077:
         raise TokenError(f"{path} is readable by others (mode {mode:o}); run chmod 600 {path}")
-    return path.read_text(encoding="utf-8").strip()
+    try:
+        return path.read_text(encoding="utf-8").strip()
+    except OSError as exc:
+        raise TokenError(f"cannot read {path}: {exc}") from exc
 
 
 @dataclass
@@ -232,8 +239,9 @@ def cr_state(head: str, since: datetime, reviews: list[dict], comments: list[dic
         if not _REVIEW_HEADER.search(r.get("body") or ""):
             continue  # a bot reply inside a review thread (empty body), not a review of the head
         sub = r.get("submitted_at")
-        if sub and iso(sub) <= since:
-            continue  # an older review of this SHA, from before the request being watched
+        # Drafts have no submitted_at; PENDING is not a finished review. Both used to count.
+        if not sub or r.get("state") == "PENDING" or iso(sub) <= since:
+            continue
         return "reviewed", f"review {r.get('id')} at {sub}"
     for c in comments:  # the summary is edited in place: its updated_at says when it was refreshed
         ts = c.get("updated_at") or c.get("created_at")
@@ -277,6 +285,50 @@ def reply_outcome(body: str) -> str:
     return ""
 
 
+def _head_sha(resp: Response) -> str | None:
+    if resp.status not in (200, 304) or not isinstance(resp.body, dict):
+        return None
+    head = resp.body.get("head")
+    if not isinstance(head, dict):
+        return None
+    sha = head.get("sha")
+    if not isinstance(sha, str):
+        return None
+    return sha
+
+
+def _committed_at(resp: Response) -> datetime | None:
+    """Committer timestamp, or None when the payload is not an aware ISO time."""
+    if resp.status not in (200, 304) or not isinstance(resp.body, dict):
+        return None
+    commit = resp.body.get("commit")
+    if not isinstance(commit, dict):
+        return None
+    committer = commit.get("committer")
+    if not isinstance(committer, dict):
+        return None
+    date = committer.get("date")
+    if not isinstance(date, str):
+        return None
+    try:
+        when = iso(date)
+    except ValueError:
+        return None
+    if when.tzinfo is None:  # cannot be ordered against an aware `since`
+        return None
+    return when
+
+
+def _dict_list(resp: Response, key: str) -> list[dict] | None:
+    """`key` must be a list of dicts. Missing, null, or any other shape is a failed fetch."""
+    if resp.status not in (200, 304) or not isinstance(resp.body, dict) or key not in resp.body:
+        return None
+    items = resp.body[key]
+    if not isinstance(items, list) or any(not isinstance(item, dict) for item in items):
+        return None
+    return items
+
+
 class Watcher:
     def __init__(self, http: Http, repo: str, pr: int, since: datetime | None):
         self.http = http
@@ -297,25 +349,33 @@ class Watcher:
             page += 1
 
     def snapshot(self) -> Snapshot | None:
-        pr = self.http.get(f"{self.api}/pulls/{self.pr}")
-        if pr.status not in (200, 304) or not isinstance(pr.body, dict):
-            return None
-        head = pr.body["head"]["sha"]
-        commit = self.http.get(f"{self.api}/commits/{head}")
-        if commit.status not in (200, 304) or not isinstance(commit.body, dict):
-            return None
-        committed = iso(commit.body["commit"]["committer"]["date"])
-        since = max(committed, self.since) if self.since else committed
-        status = self.http.get(f"{self.api}/commits/{head}/status?per_page={PER_PAGE}")
-        checks = self.http.get(f"{self.api}/commits/{head}/check-runs?per_page={PER_PAGE}")
-        reviews = self._list(f"/pulls/{self.pr}/reviews")
-        comments = self._list(f"/issues/{self.pr}/comments")
-        if (status.status not in (200, 304) or checks.status not in (200, 304)
-                or reviews is None or comments is None):
-            return None
-        ci = ci_state(status.body.get("statuses") or [], checks.body.get("check_runs") or [])
-        cr, detail = cr_state(head, since, reviews, comments)
-        return Snapshot(head, ci, cr, detail)
+        # The head can move while CI and reviews are collected. Re-read the PR and, when
+        # the SHA changed, collect again (at most three times) so the result is not for a stale head.
+        for _ in range(3):
+            head = _head_sha(self.http.get(f"{self.api}/pulls/{self.pr}"))
+            if head is None:
+                return None
+            committed = _committed_at(self.http.get(f"{self.api}/commits/{head}"))
+            if committed is None:
+                return None
+            since = max(committed, self.since) if self.since else committed
+            statuses = _dict_list(self.http.get(
+                f"{self.api}/commits/{head}/status?per_page={PER_PAGE}"), "statuses")
+            check_runs = _dict_list(self.http.get(
+                f"{self.api}/commits/{head}/check-runs?per_page={PER_PAGE}"), "check_runs")
+            reviews = self._list(f"/pulls/{self.pr}/reviews")
+            comments = self._list(f"/issues/{self.pr}/comments")
+            if statuses is None or check_runs is None or reviews is None or comments is None:
+                return None
+            confirmed = _head_sha(self.http.get(f"{self.api}/pulls/{self.pr}"))
+            if confirmed is None:
+                return None
+            if confirmed != head:
+                continue
+            ci = ci_state(statuses, check_runs)
+            cr, detail = cr_state(head, since, reviews, comments)
+            return Snapshot(head, ci, cr, detail)
+        return None
 
 
 def done(s: Snapshot, until: str) -> bool:
@@ -337,10 +397,10 @@ def notify(task: str, line: str, timeout: float = 60) -> None:
 
 def run(args: argparse.Namespace, http: Http, sleep: Callable[[float], None] = time.sleep,
         clock: Callable[[], float] = time.monotonic, out=sys.stdout) -> int:
-    # At least six requests per poll (more when reviews or comments span pages).
-    # Without a token a 304 still counts against the 60/h anonymous quota, so
-    # poll every 7 min (about 51 requests per hour); with a token, every 30 s.
-    interval = args.interval or (30 if http.token else 420)
+    # Seven requests per poll: PR, commit, status, checks, reviews, comments, then the PR
+    # again. Without a token a 304 still counts against the 60/h anonymous quota, so
+    # poll every 9 min (about 47 requests per hour); with a token, every 30 s.
+    interval = args.interval or (30 if http.token else 540)
     since = iso(args.since) if args.since else None
     watcher = Watcher(http, args.repo, args.pr, since)
     start = clock()
@@ -409,6 +469,12 @@ def main(argv: list[str] | None = None, http: Http | None = None,
             print(f"pr-watch: --since needs an ISO time with a zone, e.g. 2026-10-29T09:00:00Z (got {args.since!r})",
                   file=sys.stderr)
             return 3
+    # 0 is legal: --interval 0 means the default poll, --timeout 0 means one poll then stop.
+    for flag in ("interval", "timeout"):
+        value = getattr(args, flag)
+        if not math.isfinite(value) or value < 0:
+            print(f"pr-watch: --{flag} must be a finite number >= 0 (got {value!r})", file=sys.stderr)
+            return 3
     if http is None:
         try:
             http = Http(load_token())
@@ -447,7 +513,7 @@ class _FakeGitHub:
         path = url.split("/repos/o/r", 1)[1].split("?", 1)[0]
         if path == "/pulls/7":
             return {"head": {"sha": self.HEAD}}
-        if path == f"/commits/{self.HEAD}":
+        if path.startswith("/commits/") and path.count("/") == 2:  # any SHA, not only the current head
             return {"commit": {"committer": {"date": "2026-10-29T10:00:00Z"}}}
         if path.endswith("/status"):
             return {"statuses": self.statuses}
@@ -491,7 +557,14 @@ def self_test() -> int:
     # State functions.
     since = iso("2026-10-29T10:00:00Z")
     head = _FakeGitHub.HEAD
-    check("review on head", cr_state(head, since, [{"user": BOT_USER, "commit_id": head, "body": "**Actionable comments posted: 0**"}], [])[0] == "reviewed")
+    check("review on head", cr_state(head, since, [{"user": BOT_USER, "commit_id": head, "state": "COMMENTED",
+                                                    "submitted_at": "2026-10-29T10:05:00Z",
+                                                    "body": "**Actionable comments posted: 0**"}], [])[0] == "reviewed")
+    unsent = {"user": BOT_USER, "commit_id": head, "state": "COMMENTED", "body": "**Actionable comments posted: 0**"}
+    check("review without submitted_at", cr_state(head, since, [unsent], [])[0] == "pending")
+    check("review with null submitted_at", cr_state(head, since, [dict(unsent, submitted_at=None)], [])[0] == "pending")
+    check("pending review is not submitted",
+          cr_state(head, since, [dict(unsent, submitted_at="2026-10-29T10:05:00Z", state="PENDING")], [])[0] == "pending")
     check("thread reply on head is not a review", cr_state(head, since, [{"user": BOT_USER, "commit_id": head, "body": ""}], [])[0] == "pending")
     old_rev = {"user": BOT_USER, "commit_id": head, "submitted_at": "2026-10-29T09:30:00Z", "body": "**Actionable comments posted: 0**"}
     check("review before since", cr_state(head, since, [old_rev], [])[0] == "pending")
@@ -656,8 +729,26 @@ def self_test() -> int:
                         sleep=lambda s: None, clock=lambda: 0.0, out=io.StringIO())
         check(f"--since {bad!r} rejected", code == 3, code)
 
-    # Default intervals: 30 s with a token, 420 s without (304 still counts).
-    for tok, want in (("t", 30), ("", 420)):
+    # Negative, NaN and infinite durations are rejected before any request. 0 stays legal.
+    class _Explode(_FakeGitHub):
+        def __call__(self, req):
+            raise RuntimeError(f"request before validation: {req.full_url}")
+
+    for flag, bad in (("--interval", "-1"), ("--interval", "nan"), ("--interval", "inf"),
+                      ("--interval", "-inf"), ("--timeout", "-5"), ("--timeout", "nan"),
+                      ("--timeout", "inf"), ("--timeout", "-inf")):
+        try:
+            with contextlib.redirect_stderr(io.StringIO()) as err:
+                code = main(["7", "--repo", "o/r", f"{flag}={bad}"], http=Http("", opener=_Explode()),
+                            sleep=lambda s: None, clock=lambda: 0.0, out=io.StringIO())
+            text = err.getvalue()
+            check(f"{flag} {bad} rejected before any request",
+                  code == 3 and flag in text and "finite" in text, (code, text))
+        except Exception as exc:
+            check(f"{flag} {bad} rejected before any request", False, exc)
+
+    # Default intervals: 30 s with a token, 540 s without (304 still counts).
+    for tok, want in (("t", 30), ("", 540)):
         gh = _FakeGitHub()
         waits2: list[float] = []
         clock2 = [0.0]
@@ -669,6 +760,20 @@ def self_test() -> int:
         main(["7", "--repo", "o/r", "--timeout", "1000"], http=Http(tok, opener=gh), sleep=sl,
              clock=lambda clock2=clock2: clock2[0], out=io.StringIO())
         check(f"interval token={bool(tok)}", waits2 and waits2[0] == want, waits2[:2])
+
+    # Explicit 0 keeps that default (it is not a rejected duration).
+    for tok, want in (("t", 30), ("", 540)):
+        gh = _FakeGitHub()
+        waits0: list[float] = []
+        clock0 = [0.0]
+
+        def sl0(sec: float, waits0=waits0, clock0=clock0) -> None:
+            waits0.append(sec)
+            clock0[0] += sec
+
+        main(["7", "--repo", "o/r", "--timeout", "1000", "--interval", "0"], http=Http(tok, opener=gh),
+             sleep=sl0, clock=lambda clock0=clock0: clock0[0], out=io.StringIO())
+        check(f"interval 0 token={bool(tok)}", waits0 and waits0[0] == want, waits0[:2])
 
     # Retry-After (secondary limit) wins when it is later than X-RateLimit-Reset.
     class _Secondary(_FakeGitHub):
@@ -782,6 +887,181 @@ def self_test() -> int:
             for k, v in saved.items():
                 if v is not None:
                     os.environ[k] = v
+
+    class _BrokenPath:
+        """Stand-in path: exists, while stat() or read_text() raises OSError."""
+
+        def __init__(self, op: str) -> None:
+            self.op = op
+
+        def exists(self) -> bool:
+            return True
+
+        def stat(self):
+            if self.op == "stat":
+                raise OSError(13, "Permission denied", "token")
+
+            class _Stat:
+                st_mode = 0o100600
+
+            return _Stat()
+
+        def read_text(self, encoding: str = "utf-8") -> str:
+            raise OSError(13, "Permission denied", "token")
+
+    # An environment token is returned before the path is touched, so these checks
+    # clear both names (and restore them). The planted values make a missing clear fail.
+    saved_tok = {k: os.environ.pop(k, None) for k in ("GITHUB_TOKEN", "GH_TOKEN")}
+    try:
+        os.environ["GITHUB_TOKEN"] = "from-env"
+        os.environ["GH_TOKEN"] = "from-gh"
+        os.environ.pop("GITHUB_TOKEN", None)
+        os.environ.pop("GH_TOKEN", None)
+        for op in ("stat", "read"):
+            try:
+                load_token(_BrokenPath(op))
+                check(f"token {op} OSError is TokenError", False, "no error")
+            except TokenError as exc:
+                check(f"token {op} OSError is TokenError", "Permission denied" in str(exc), exc)
+            except OSError as exc:
+                check(f"token {op} OSError is TokenError", False, f"raw {exc}")
+
+        with tempfile.TemporaryDirectory() as tmp2:
+            folder = Path(tmp2) / "token-dir"
+            folder.mkdir()
+            folder.chmod(0o700)
+            try:
+                load_token(folder)
+                check("token directory is TokenError", False, "no error")
+            except TokenError as exc:
+                check("token directory is TokenError", "Is a directory" in str(exc), exc)
+            except OSError as exc:
+                check("token directory is TokenError", False, f"raw {exc}")
+    finally:
+        os.environ.pop("GITHUB_TOKEN", None)
+        os.environ.pop("GH_TOKEN", None)
+        for k, v in saved_tok.items():
+            if v is not None:
+                os.environ[k] = v
+
+    # A bad nested payload is fetch_failed, never an exception.
+    class _Shaped(_FakeGitHub):
+        def __init__(self, kind: str) -> None:
+            super().__init__()
+            self.kind = kind
+            if kind == "naive-date":
+                self.reviews.append({"id": 1, "user": BOT_USER, "commit_id": self.HEAD, "state": "COMMENTED",
+                                     "submitted_at": "2026-10-29T10:10:00Z",
+                                     "body": "**Actionable comments posted: 0**"})
+
+        def body(self, url: str) -> Any:
+            path = url.split("/repos/o/r", 1)[1].split("?", 1)[0]
+            commit = path.startswith("/commits/") and path.count("/") == 2
+            if self.kind == "head-type" and path == "/pulls/7":
+                return {"head": "nope"}
+            if self.kind == "sha-type" and path == "/pulls/7":
+                return {"head": {"sha": 123}}
+            if self.kind == "missing-head" and path == "/pulls/7":
+                return {}
+            if self.kind == "no-date" and commit:
+                return {"commit": {"committer": {"date": "yesterday"}}}
+            if self.kind == "naive-date" and commit:
+                return {"commit": {"committer": {"date": "2026-10-29T10:00:00"}}}
+            if self.kind == "commit-shape" and commit:
+                return {"commit": []}
+            if self.kind == "status-body" and path.endswith("/status"):
+                return []
+            if self.kind == "checks-body" and path.endswith("/check-runs"):
+                return []
+            if self.kind == "statuses-type" and path.endswith("/status"):
+                return {"statuses": ["pending"]}
+            if self.kind == "checks-type" and path.endswith("/check-runs"):
+                return {"check_runs": {"id": 1}}
+            if self.kind == "statuses-null" and path.endswith("/status"):
+                return {"statuses": None}
+            if self.kind == "checks-null" and path.endswith("/check-runs"):
+                return {"check_runs": None}
+            if self.kind == "statuses-missing" and path.endswith("/status"):
+                return {}
+            if self.kind == "checks-missing" and path.endswith("/check-runs"):
+                return {}
+            return super().body(url)
+
+    def watch_bad(kind: str) -> tuple[int, list[dict]]:
+        now = [0.0]
+
+        def sl(sec: float, now=now) -> None:
+            now[0] += 10
+
+        buf = io.StringIO()
+        code = main(["7", "--repo", "o/r", "--timeout", "15", "--interval", "5"],
+                    http=Http("", opener=_Shaped(kind)), sleep=sl, clock=lambda: now[0], out=buf)
+        return code, [json.loads(l) for l in buf.getvalue().splitlines()]
+
+    for kind in ("head-type", "sha-type", "missing-head", "no-date", "naive-date", "commit-shape",
+                 "status-body", "checks-body", "statuses-type", "checks-type", "statuses-null",
+                 "checks-null", "statuses-missing", "checks-missing"):
+        try:
+            code, lines = watch_bad(kind)
+            check(f"bad shape {kind} is fetch_failed",
+                  code == 2 and any(l.get("event") == "fetch_failed" for l in lines)
+                  and all("head" not in l for l in lines), lines)
+        except Exception as exc:
+            check(f"bad shape {kind} is fetch_failed", False, f"{type(exc).__name__}: {exc}")
+
+    # The head moved while CI and reviews were collected: report the new head, not the old one.
+    class _SwapHead(_FakeGitHub):
+        NEW = "b" * 40
+
+        def __init__(self) -> None:
+            super().__init__()
+            self.HEAD = "a" * 40
+
+        def body(self, url: str) -> Any:
+            path = url.split("/repos/o/r", 1)[1].split("?", 1)[0]
+            sha = path.split("/")[2] if path.startswith("/commits/") else ""
+            if path.endswith("/status") and sha == "a" * 40:
+                self.HEAD = self.NEW
+                return {"statuses": [{"context": "ci/circleci", "state": "failure"}]}
+            if path.endswith("/status") and sha == self.NEW:
+                return {"statuses": [{"context": "ci/circleci", "state": "success"}]}
+            return super().body(url)
+
+    gh = _SwapHead()
+    gh.reviews.append({"id": 9, "user": BOT_USER, "commit_id": _SwapHead.NEW, "state": "COMMENTED",
+                       "submitted_at": "2026-10-29T10:10:00Z", "body": "**Actionable comments posted: 0**"})
+    buf = io.StringIO()
+    code = main(["7", "--repo", "o/r", "--timeout", "100", "--interval", "10"], http=Http("", opener=gh),
+                sleep=lambda s: None, clock=lambda: 0.0, out=buf)
+    lines = [json.loads(l) for l in buf.getvalue().splitlines()]
+    check("head moved mid-poll reports the new head",
+          code == 0 and lines[-1]["head"] == "b" * 7 and lines[-1]["ci"] == "success"
+          and lines[-1]["cr"] == "reviewed", lines)
+
+    # Every re-read shows a new SHA. Three attempts, then fetch_failed — not a stale snapshot.
+    class _NeverStable(_FakeGitHub):
+        def __init__(self) -> None:
+            super().__init__()
+            self.n = 0
+
+        def body(self, url: str) -> Any:
+            path = url.split("/repos/o/r", 1)[1].split("?", 1)[0]
+            if path == "/pulls/7":
+                sha = f"{self.n % 16:x}" * 40
+                self.n += 1
+                return {"head": {"sha": sha}}
+            return super().body(url)
+
+    moving = _NeverStable()
+    http_m = Http("", opener=moving)
+    buf = io.StringIO()
+    code = main(["7", "--repo", "o/r", "--timeout", "0", "--interval", "5"], http=http_m,
+                sleep=lambda s: None, clock=lambda: 0.0, out=buf)
+    lines = [json.loads(l) for l in buf.getvalue().splitlines()]
+    # 3 attempts × (PR, commit, status, checks, reviews, comments, PR again) = 21.
+    check("changing head gives up",
+          code == 2 and bool(lines) and lines[0].get("event") == "fetch_failed" and "head" not in lines[0]
+          and http_m.requests == 21, (lines, http_m.requests))
 
     if failures:
         for f in failures:
