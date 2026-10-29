@@ -1492,9 +1492,8 @@ BlockTextLayout blockTextLayout(const Document &doc, const Block &b, const Block
             Piece pc;
             pc.text = prefix;
             pc.model = QVector<int>(prefix.size(), -1);
-            pc.format = live;
-            if (live)
-                pc.cf = runCharFormat(doc, b, runs.isEmpty() ? TextRun{} : runs.first(), in.zoom);
+            pc.format = true;
+            pc.cf = runCharFormat(doc, b, runs.isEmpty() ? TextRun{} : runs.first(), in.zoom);
             pieces.append(std::move(pc));
         }
     }
@@ -1515,9 +1514,10 @@ BlockTextLayout blockTextLayout(const Document &doc, const Block &b, const Block
             pc.model.append((M == 0) ? m0 : m0 + int((qint64(M) * d) / D));
         pc.hyphenate = true;
         pc.lang = r.lang.isEmpty() ? b.lang : r.lang;
-        pc.format = live;
-        if (live)
-            pc.cf = runCharFormat(doc, b, r, in.zoom);
+        // Measurement and painting share these ranges. A later run's font
+        // size has to change the measured line height, not only the paint.
+        pc.format = true;
+        pc.cf = runCharFormat(doc, b, r, in.zoom);
         pieces.append(std::move(pc));
     }
     out.modelLength = model;

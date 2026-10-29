@@ -47,7 +47,7 @@ struct CellGeom {
 struct DocumentLayout;
 
 // Inputs for blockTextLayout. paint=false reproduces measurement (page-1 fields,
-// no formats, empty text becomes a space). paint=true reproduces page painting.
+// empty text becomes a space). paint=true reproduces page painting.
 struct BlockTextInput {
     qreal width = 0;
     qreal zoom = 1;
