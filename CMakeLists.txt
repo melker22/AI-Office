@@ -313,6 +313,21 @@ set_tests_properties(wave23_lok PROPERTIES LABELS "playbook" TIMEOUT 60 WORKING_
 add_test(NAME wave23_cli COMMAND "${CMAKE_COMMAND}" -E env AIOFFICE_HEADLESS=1 QT_QPA_PLATFORM=offscreen
     "${Python3_EXECUTABLE}" "${CMAKE_SOURCE_DIR}/qa/check_wave23_cli.py" "${AIOFFICE_CLI}")
 set_tests_properties(wave23_cli PROPERTIES LABELS "playbook" TIMEOUT 60 WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}")
+# Wave 26 geometry (D7) and filepath (D8b). D8 is the JSON playbook above.
+add_test(NAME wave26_d7_gutter COMMAND "${CMAKE_COMMAND}" -E env AIOFFICE_HEADLESS=1 QT_QPA_PLATFORM=offscreen
+    "${Python3_EXECUTABLE}" "${CMAKE_SOURCE_DIR}/qa/wave26-d7-gutter.py" --cli "${AIOFFICE_CLI}")
+set_tests_properties(wave26_d7_gutter PROPERTIES
+    LABELS "playbook"
+    TIMEOUT 180
+    WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}"
+)
+add_test(NAME wave26_d8b_filepath COMMAND "${CMAKE_COMMAND}" -E env AIOFFICE_HEADLESS=1 QT_QPA_PLATFORM=offscreen
+    "${Python3_EXECUTABLE}" "${CMAKE_SOURCE_DIR}/qa/wave26-d8b-filepath.py" --cli "${AIOFFICE_CLI}")
+set_tests_properties(wave26_d8b_filepath PROPERTIES
+    LABELS "playbook"
+    TIMEOUT 180
+    WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}"
+)
 add_test(NAME pr_merge_gate_selftest COMMAND "${Python3_EXECUTABLE}" "${CMAKE_SOURCE_DIR}/scripts/pr-merge-gate.py" --self-test)
 set_tests_properties(pr_merge_gate_selftest PROPERTIES LABELS "playbook" WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}")
 add_test(NAME usage_guard_selftest COMMAND "${Python3_EXECUTABLE}" "${CMAKE_SOURCE_DIR}/scripts/usage-guard.py" --self-test)
