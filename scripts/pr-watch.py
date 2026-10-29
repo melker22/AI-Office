@@ -165,6 +165,30 @@ def ci_state(statuses: list[dict], check_runs: list[dict]) -> str:
     return "success"
 
 
+_COVERAGE_RE = re.compile(r"(?m)^<!-- final_review_risk_coverage:(\{[^\n]*?\}) -->$")
+
+
+def summary_covers(comment: dict, head: str) -> bool:
+    """The bot's PR summary marks `head` as reviewed (an incremental review with nothing to post).
+
+    Same rule as scripts/pr-merge-gate.py summary_reviewed: the bot itself, its summary comment
+    (`<!-- walkthrough_start -->`), a whole-line marker naming the full head SHA, kind "reviewed".
+    """
+    if not is_bot(comment.get("user")):
+        return False
+    body = comment.get("body") or ""
+    if "<!-- walkthrough_start -->" not in body:
+        return False
+    for m in _COVERAGE_RE.finditer(body):
+        try:
+            data = json.loads(m.group(1))
+        except ValueError:
+            continue
+        if isinstance(data, dict) and data.get("kind") == "reviewed" and data.get("coveredCommitId") == head:
+            return True
+    return False
+
+
 def cr_state(head: str, since: datetime, reviews: list[dict], comments: list[dict]) -> tuple[str, str]:
     for r in reviews:
         if not (is_bot(r.get("user")) and r.get("commit_id") == head):
@@ -173,6 +197,10 @@ def cr_state(head: str, since: datetime, reviews: list[dict], comments: list[dic
         if sub and iso(sub) <= since:
             continue  # an older review of this SHA, from before the request being watched
         return "reviewed", f"review {r.get('id')} at {sub}"
+    for c in comments:  # the summary is edited in place: its updated_at says when it was refreshed
+        ts = c.get("updated_at") or c.get("created_at")
+        if ts and iso(ts) > since and summary_covers(c, head):
+            return "reviewed", f"summary marks {head[:7]} reviewed ({c.get('html_url')})"
     replies = [
         c for c in comments
         if is_bot(c.get("user")) and c.get("created_at") and iso(c["created_at"]) > since
@@ -435,6 +463,17 @@ def self_test() -> int:
     check("rate limited", reply_outcome(reply("Review rate limited.")) == "rate_limited")
     trig = {"user": BOT_USER, "created_at": "2026-10-29T10:07:00Z", "body": reply("Review triggered.")}
     check("triggered after finished stays pending", cr_state(head, since, [], [trig])[0] == "pending")
+    summary_body = ("<!-- walkthrough_start -->\n<!-- final_review_risk_coverage:{\"sourceCommitId\":\"%s\","
+                    "\"coveredCommitId\":\"%s\",\"kind\":\"reviewed\"} -->\n" % (head, head))
+    summary = {"user": BOT_USER, "created_at": "2026-10-28T00:00:00Z", "updated_at": "2026-10-29T10:20:00Z",
+               "body": summary_body}
+    check("summary marker on head", cr_state(head, since, [], [summary])[0] == "reviewed")
+    stale = dict(summary, updated_at="2026-10-29T09:00:00Z")
+    check("summary refreshed before since", cr_state(head, since, [], [stale])[0] == "pending")
+    other = dict(summary, body=summary_body.replace(head, "b" * 40))
+    check("summary marker for another SHA", cr_state(head, since, [], [other])[0] == "pending")
+    not_summary = dict(summary, body=summary_body.replace("<!-- walkthrough_start -->\n", ""))
+    check("marker outside the summary", cr_state(head, since, [], [not_summary])[0] == "pending")
     check("ci none", ci_state([], []) == "pending")
     check("ci coderabbit ignored", ci_state([{"context": "CodeRabbit", "state": "success"}], []) == "pending")
     check("ci newest status", ci_state([{"context": "ci", "state": "success"},

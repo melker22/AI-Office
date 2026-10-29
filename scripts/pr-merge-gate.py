@@ -279,6 +279,33 @@ def is_coderabbit_bot(user: dict | None) -> bool:
     return user.get("type") == "Bot" and user.get("login") == "coderabbitai[bot]"
 
 
+_COVERAGE_RE = re.compile(r"(?m)^<!-- final_review_risk_coverage:(\{[^\n]*?\}) -->$")
+
+
+def summary_reviewed(issue_comments: list | None, head: str) -> bool:
+    """CodeRabbit's own PR summary marks the head SHA as reviewed (incremental review with nothing to post).
+
+    Accepted only from the bot itself, only inside its summary comment (the one carrying
+    `<!-- walkthrough_start -->`), only as a whole-line HTML-comment marker whose JSON names the full
+    head SHA as coveredCommitId with kind "reviewed". Review bodies and inline findings are not issue
+    comments, so quoted text there cannot satisfy it.
+    """
+    for c in issue_comments or []:
+        if not is_coderabbit_bot(c.get("user")):
+            continue
+        body = c.get("body") or ""
+        if "<!-- walkthrough_start -->" not in body:
+            continue
+        for m in _COVERAGE_RE.finditer(body):
+            try:
+                data = json.loads(m.group(1))
+            except ValueError:
+                continue
+            if isinstance(data, dict) and data.get("kind") == "reviewed" and data.get("coveredCommitId") == head:
+                return True
+    return False
+
+
 def evaluate(pr_number: int, pr: dict, statuses: list, comments: list, reviews: list,
              commit_date: str, since: str | None, refetch,
              issue_comments: list | None = None, head_pr_count: int = 1) -> tuple[int, list[str]]:
@@ -294,10 +321,16 @@ def evaluate(pr_number: int, pr: dict, statuses: list, comments: list, reviews: 
     # then a review object by the CodeRabbit bot itself (exact identity) on the head SHA. Its "Review
     # finished" replies are not proof: they can appear without a review (e.g. rate limited) and name no SHA.
     head_reviewed = any(is_coderabbit_bot(r.get("user")) and r.get("commit_id") == head for r in reviews)
+    # With nothing to post, an incremental review leaves no review object; CodeRabbit's summary comment
+    # then records the reviewed SHA in a machine marker (see summary_reviewed).
+    summary_covered = summary_reviewed(issue_comments, head)
     for ctx in ("ci/circleci: build-and-test", "CodeRabbit"):
         state = st.get(ctx)
         if ctx == "CodeRabbit" and state is None and head_reviewed:
             lines.append("note: CodeRabbit set no commit status, but it reviewed the head commit")
+            continue
+        if ctx == "CodeRabbit" and state is None and summary_covered:
+            lines.append("note: CodeRabbit set no commit status; its summary marks the head commit as reviewed")
             continue
         if state in (None, "pending"):
             pending = True
@@ -331,7 +364,10 @@ def evaluate(pr_number: int, pr: dict, statuses: list, comments: list, reviews: 
         # its status is success / "Review completed". "Review paused" (or anything else) is still pending.
         # The commit status is per commit, not per PR: if another open PR has the same head, the
         # "Review completed" may belong to that PR, so it proves nothing about this one.
-        if st.get("CodeRabbit") == "success" and cr_desc.startswith("Review completed") and head_pr_count > 1:
+        if summary_covered:
+            # The summary is this PR's own comment, so it settles even a head shared by several PRs.
+            lines.append("note: CodeRabbit's summary marks the head commit as reviewed (nothing to report)")
+        elif st.get("CodeRabbit") == "success" and cr_desc.startswith("Review completed") and head_pr_count > 1:
             pending = True
             lines.append(f"PENDING head commit is shared by {head_pr_count} open PRs; 'Review completed' "
                          "cannot be attributed to this one (push a commit or wait for a review object)")
@@ -504,6 +540,33 @@ def self_test() -> int:
                  "created_at": "2026-10-21T21:00:00Z", "updated_at": "2026-10-21T21:05:00Z"}]
     res = evaluate(10, pr(), ci_only, [], [], "2026-10-21T20:00:00Z", None, lambda: pr(), finished)
     check("a 'Review finished' reply without a head review is not proof (pending)", res[0] == 2, "\n".join(res[1]))
+    # CodeRabbit's summary comment (real body from PR #17) marks the reviewed SHA when an incremental
+    # review has nothing to post. Only the bot's summary, whole-line marker, exact head SHA, kind reviewed.
+    real = json.loads((Path(__file__).resolve().parent.parent / "qa" / "fixtures" / "coderabbit"
+                       / "pr17-summary.json").read_text(encoding="utf-8"))
+    real_sha = "60657aa7ebeeac6b6607669049a8350a4fb07d13"
+    head_sha = pr()["head"]["sha"]
+    covered = dict(real, body=real["body"].replace(real_sha, head_sha))
+    res = evaluate(10, pr(), ci_only, [], [], "2026-10-21T20:00:00Z", None, lambda: pr(), [covered])
+    check("summary marker covering the head is clean", res[0] == 0 and "summary marks" in "\n".join(res[1]),
+          "\n".join(res[1]))
+    res = evaluate(10, pr(), ci_only, [], [], "2026-10-21T20:00:00Z", None, lambda: pr(), [real])
+    check("summary marker for another SHA is pending", res[0] == 2, "\n".join(res[1]))
+    res = evaluate(10, pr(), completed, [], [], "2026-10-21T20:00:00Z", None, lambda: pr(), [covered], 2)
+    check("summary marker settles a head shared by two open PRs", res[0] == 0, "\n".join(res[1]))
+    fake_user = dict(covered, user={"login": "coderabbitai-fan", "type": "User"})
+    res = evaluate(10, pr(), ci_only, [], [], "2026-10-21T20:00:00Z", None, lambda: pr(), [fake_user])
+    check("summary marker from a look-alike account is pending", res[0] == 2, "\n".join(res[1]))
+    marker = next(l for l in covered["body"].splitlines() if l.startswith("<!-- final_review_risk_coverage:"))
+    quoted = dict(covered, body="Review finished.\n" + marker)          # not the summary comment
+    res = evaluate(10, pr(), ci_only, [], [], "2026-10-21T20:00:00Z", None, lambda: pr(), [quoted])
+    check("marker outside the summary comment is pending", res[0] == 2, "\n".join(res[1]))
+    inline_marker = dict(covered, body=covered["body"].replace(marker, "text " + marker))
+    res = evaluate(10, pr(), ci_only, [], [], "2026-10-21T20:00:00Z", None, lambda: pr(), [inline_marker])
+    check("marker not on its own line is pending", res[0] == 2, "\n".join(res[1]))
+    other_kind = dict(covered, body=covered["body"].replace('"kind":"reviewed"', '"kind":"skipped"'))
+    res = evaluate(10, pr(), ci_only, [], [], "2026-10-21T20:00:00Z", None, lambda: pr(), [other_kind])
+    check("marker with another kind is pending", res[0] == 2, "\n".join(res[1]))
     impostor = dict(quiet_review, user={"login": "coderabbitai-fan", "type": "User"})
     code, text, n = run(pr(), ci_only, reviews=[impostor])
     check("a review by a look-alike account is not proof", code == 2, text)
