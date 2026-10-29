@@ -213,6 +213,42 @@ def main() -> int:
         if xref != caption:
             errors.append(f"category reference {xref!r} is not the caption seq {caption!r}")
 
+        # Without a caption seq, a category reference names the table's category ordinal, never a
+        # seq that lives inside one of its cells (nested or not).
+        steps2: list[dict[str, Any]] = [
+            {"tool": "document_new", "args": {"title": "Wave26 seq fallback", "force": True}},
+            {"tool": "insert_field", "args": {"id": "p1", "offset": 0, "kind": "seq", "arg": SEQ}},
+            {
+                "tool": "insert_blocks",
+                "args": {
+                    "after_id": "p1",
+                    "blocks": [
+                        {
+                            "id": "t2",
+                            "type": "table",
+                            "header": False,
+                            "rows": [[{"runs": [{"text": "cell"}],
+                                       "nested": [[{"runs": [{"field": "seq", "field_arg": SEQ_ARG}]}]]}]],
+                        },
+                        {
+                            "id": "pXref2",
+                            "type": "paragraph",
+                            "runs": [{"field": "xref", "field_arg": "t2", "xref_kind": "category_number"}],
+                        },
+                    ],
+                },
+            },
+            {"tool": "document_get", "args": {}},
+        ]
+        results2 = play(cli, steps2, tmp)
+        body2 = (results2[3].get("document") or {}).get("body") or []
+        xref2 = [r for b2 in body2 if b2.get("id") == "pXref2" for r in (b2.get("runs") or [])
+                 if r.get("field") == "xref"]
+        shown2 = str((xref2[0].get("text") if xref2 else "") or "")
+        print(f"fallback xref={shown2!r}")
+        if shown2 != "1":
+            errors.append(f"category reference to a caption-less table shows {shown2!r}, not its ordinal '1'")
+
     if errors:
         print("wave26 seq order FAIL", file=sys.stderr)
         for err in errors:
