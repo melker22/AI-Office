@@ -169,8 +169,8 @@ Formato: `L<n> — regra` · onde falhou (evidência) · ocorrências.
   (https://github.com/melker22/AI-Office/pull/15#pullrequestreview-5681108253). · 6
 - **L8 — Portabilidade de compilador.** Forward declaration com a mesma tag (`struct`/`class`) da
   definição. · PR #6 (MSVC C4099). · 1
-- **L24 — Id novo nunca vem do tamanho atual de uma coleção; aloque de um contador que varre todos os
-  ids já em uso.** `tamanho+1` (ou qualquer derivação de `size()`) como gerador de id colide assim que a
+- **L24 — Id novo nunca vem do tamanho atual de uma coleção; aloque acima do maior sufixo numérico
+  em uso, inclusive ids vindos de JSON.** `tamanho+1` (ou qualquer derivação de `size()`) como gerador de id colide assim que a
   coleção encolhe por dedup/remoção entre a alocação de dois ids do mesmo tipo — e colide de novo com um id
   importado de fonte externa (JSON) que já ocupava um número alto. · PR #15: `loadDocx` dava a toda marca
   nativa de revisão (`w:ins`/`w:del`/`w:rPrChange`) o id
@@ -179,8 +179,8 @@ Formato: `L<n> — regra` · onde falhou (evidência) · ocorrências.
   diminuía e o próximo id gerado colidia com um id de revisão nativa ou de JSON (ex.: `rev7`) já existente,
   fazendo accept/reject por id agir na revisão errada ou nas duas, e o re-export escrever o mesmo `w:id` em
   dois `w:ins`/`w:del` diferentes
-  (https://github.com/melker22/AI-Office/pull/15#discussion_r4396808630); corrigido com um `nextRevisionId()`
-  compartilhado que aloca acima do maior número já usado, ids de JSON inclusos (commit `a718d3e`), com teste
+  (https://github.com/melker22/AI-Office/pull/15#discussion_r4396808630); corrigido com `nextPrefixedId`
+  (via `nextRevisionId`), que aloca acima do maior sufixo numérico já em uso, ids de JSON inclusos (commit `a718d3e`), com teste
   prévio cobrindo o caso (`qa/wave24-docx-d10-revision-ids.json`, commit `c83b9c8`, ids `rev1`/`rev2`/`rev7`
   mais marcas nativas parcialmente deduplicadas). · 1
 
