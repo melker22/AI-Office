@@ -247,6 +247,11 @@ struct RtfOut {
             instr = QStringLiteral(" FILENAME ");
             return true;
         }
+        if (r.field == QLatin1String("filepath") || r.field == QLatin1String("file_path")
+            || r.field == QLatin1String("path")) {
+            instr = QStringLiteral(" FILENAME \\p ");
+            return true;
+        }
         if (r.field == QLatin1String("time")) {
             instr = QStringLiteral(" TIME ");
             return true;

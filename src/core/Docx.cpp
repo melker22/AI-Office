@@ -467,6 +467,9 @@ bool nativeWordField(const TextRun &r, DocxOut &o, QString &instr)
         instr = QStringLiteral(" AUTHOR ");
     else if (r.field == QLatin1String("filename") || r.field == QLatin1String("file_name"))
         instr = QStringLiteral(" FILENAME ");
+    else if (r.field == QLatin1String("filepath") || r.field == QLatin1String("file_path")
+             || r.field == QLatin1String("path"))
+        instr = QStringLiteral(" FILENAME \\p ");
     else if (r.field == QLatin1String("word_count"))
         instr = QStringLiteral(" NUMWORDS ");
     else if (r.field == QLatin1String("xref")) {
@@ -638,6 +641,24 @@ bool parseSeqField(const QString &instr, TextRun &fr)
     fr.field = QStringLiteral("seq");
     fr.fieldArg = QString::fromUtf8(QJsonDocument(o).toJson(QJsonDocument::Compact));
     return true;
+}
+
+// A Word switch is \X not followed by another letter (\p, not \path).
+bool wordFieldSwitch(const QString &instr, QChar letter)
+{
+    const QChar want = letter.toUpper();
+    for (int i = 0; i + 1 < instr.size(); ++i) {
+        if (instr.at(i) != QLatin1Char('\\'))
+            continue;
+        if (instr.at(i + 1).toUpper() != want)
+            continue;
+        if (i + 2 >= instr.size())
+            return true;
+        const QChar next = instr.at(i + 2);
+        if (next.isSpace() || next == QLatin1Char('\\'))
+            return true;
+    }
+    return false;
 }
 
 QString firstFieldToken(const QString &instr)
@@ -2378,7 +2399,8 @@ bool loadDocx(const QByteArray &zipData, Document &doc, QString *error)
                 else if (instr.contains(QLatin1String("AUTHOR")))
                     fr.field = QStringLiteral("author");
                 else if (instr.contains(QLatin1String("FILENAME")))
-                    fr.field = QStringLiteral("filename");
+                    fr.field = wordFieldSwitch(instrRaw, QLatin1Char('p')) ? QStringLiteral("filepath")
+                                                                           : QStringLiteral("filename");
                 else if (instr.contains(QLatin1String("MERGEFIELD"))) {
                     fr.field = QStringLiteral("merge");
                     fr.fieldArg = instrRaw.section(QLatin1Char(' '), 1, 1);

@@ -120,6 +120,10 @@ struct DocumentLayout {
     bool caretMove(const Document &doc, const QString &id, int offset, const QString &move, int *outOffset) const;
     int pageOf(const QString &id) const;
     int displayPage(int physical) const;
+    // Horizontal shift of painted page content, in millimetres. Even pages with
+    // gutter_mirror move left by gutterMm (negative). Odd pages and a zero
+    // gutter stay at 0. Paint applies it; hitTest undoes it.
+    qreal pageContentOffsetMm(const Document &doc, int physicalPage) const;
 };
 
 void paintPage(QPainter *p, const Document &doc, const DocumentLayout &lay, int page,

@@ -1769,7 +1769,9 @@ QJsonObject Session::caretGeometry(const QJsonObject &args)
     auto r = ok();
     const double z = lay.zoom > 0 ? lay.zoom : 1;
     r[QStringLiteral("page")] = c.page;
-    r[QStringLiteral("x_mm")] = double(c.rect.left()) * 25.4 / 96.0 / z;
+    // caret() is layout space. The painted page shifts even mirrored pages.
+    const double dxMm = lay.pageContentOffsetMm(doc_, c.page);
+    r[QStringLiteral("x_mm")] = double(c.rect.left()) * 25.4 / 96.0 / z + dxMm;
     r[QStringLiteral("y_mm")] = double(c.rect.top()) * 25.4 / 96.0 / z;
     r[QStringLiteral("line")] = c.line;
     r[QStringLiteral("rtl")] = c.rtl;

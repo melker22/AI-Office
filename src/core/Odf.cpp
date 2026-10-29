@@ -380,6 +380,9 @@ QString emitSpan(SpanCounter &sc, const TextRun &r, const Document &doc)
             inner = QStringLiteral("<text:author-name>%1</text:author-name>").arg(xmlEscape(txt));
         else if (r.field == QLatin1String("filename") || r.field == QLatin1String("file_name"))
             inner = QStringLiteral("<text:file-name>%1</text:file-name>").arg(xmlEscape(txt));
+        else if (r.field == QLatin1String("filepath") || r.field == QLatin1String("file_path")
+                 || r.field == QLatin1String("path"))
+            inner = QStringLiteral("<text:file-name text:display=\"full\">%1</text:file-name>").arg(xmlEscape(txt));
         else if (r.field == QLatin1String("word_count"))
             inner = QStringLiteral("<text:word-count>%1</text:word-count>").arg(xmlEscape(txt));
         else if (r.field == QLatin1String("if")) {
@@ -2041,8 +2044,12 @@ bool loadOdt(const QByteArray &zipData, Document &doc, QString *error)
                     spanRun.field = QStringLiteral("title");
                 else if (n == QLatin1String("author-name"))
                     spanRun.field = QStringLiteral("author");
-                else if (n == QLatin1String("file-name"))
-                    spanRun.field = QStringLiteral("filename");
+                else if (n == QLatin1String("file-name")) {
+                    const QString display = attrs.value(QStringLiteral("text:display")).toString();
+                    spanRun.field = display.compare(QLatin1String("full"), Qt::CaseInsensitive) == 0
+                        ? QStringLiteral("filepath")
+                        : QStringLiteral("filename");
+                }
                 else if (n == QLatin1String("word-count"))
                     spanRun.field = QStringLiteral("word_count");
                 else if (n == QLatin1String("conditional-text")) {
