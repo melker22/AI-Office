@@ -1682,6 +1682,22 @@ QJsonObject Session::pagePreview(const QJsonObject &args)
     const QJsonValue pageV = args.value(QStringLiteral("page"));
     const bool hasFrom = args.contains(QStringLiteral("from"));
     const bool hasTo = args.contains(QStringLiteral("to"));
+    QString selId;
+    int selStart = -1;
+    int selEnd = -1;
+    // A caret (equal offsets) is not a painted range. Passing it would wash the
+    // active table cell, which page_preview did not do before line selection.
+    if (sel_.anchorId == sel_.focusId && !sel_.anchorId.isEmpty()) {
+        const int a = qMin(sel_.anchorOff, sel_.focusOff);
+        const int b = qMax(sel_.anchorOff, sel_.focusOff);
+        if (b > a) {
+            selId = sel_.focusId;
+            selStart = a;
+            selEnd = b;
+        }
+    }
+    const int selRow = sel_.tableRow;
+    const int selCol = sel_.tableCol;
     if (hasFrom || hasTo) {
         DocumentLayout lay;
         lay.relayout(doc_, zoom);
@@ -1695,7 +1711,7 @@ QJsonObject Session::pagePreview(const QJsonObject &args)
             return fail(QStringLiteral("to must be >= from"));
         QJsonArray pages;
         for (int p = from; p <= to; ++p) {
-            const QByteArray png = renderPagePng(doc_, p, zoom);
+            const QByteArray png = renderPagePng(doc_, p, zoom, selId, selStart, selEnd, selRow, selCol);
             QJsonObject o;
             o[QStringLiteral("page")] = p;
             o[QStringLiteral("png_base64")] = QString::fromLatin1(png.toBase64());
@@ -1714,7 +1730,7 @@ QJsonObject Session::pagePreview(const QJsonObject &args)
         lay.relayout(doc_, zoom);
         QJsonArray pages;
         for (int p = 1; p <= lay.pages; ++p) {
-            const QByteArray png = renderPagePng(doc_, p, zoom);
+            const QByteArray png = renderPagePng(doc_, p, zoom, selId, selStart, selEnd, selRow, selCol);
             QJsonObject o;
             o[QStringLiteral("page")] = p;
             o[QStringLiteral("png_base64")] = QString::fromLatin1(png.toBase64());
@@ -1727,8 +1743,8 @@ QJsonObject Session::pagePreview(const QJsonObject &args)
         return r;
     }
     const int page = pageV.toInt(1);
-    const auto prev = renderPage(doc_, page, zoom);
-    QByteArray png = renderPagePng(doc_, page, zoom);
+    const auto prev = renderPage(doc_, page, zoom, selId, selStart, selEnd, selRow, selCol);
+    QByteArray png = renderPagePng(doc_, page, zoom, selId, selStart, selEnd, selRow, selCol);
     DocumentLayout lay;
     lay.relayout(doc_, zoom);
     auto r = ok();

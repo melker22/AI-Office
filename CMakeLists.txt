@@ -462,6 +462,24 @@ endforeach()
 add_test(NAME pdf_check_selftest COMMAND "${Python3_EXECUTABLE}" "${CMAKE_SOURCE_DIR}/qa/check_pdf.py" --self-test --cli "${AIOFFICE_CLI}")
 set_tests_properties(pdf_check_selftest PROPERTIES LABELS "playbook" WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}")
 
+# Wave 26 paint judges. png_probe.py is stdlib-only and does not need the CLI.
+add_test(NAME wave26_png_probe COMMAND "${Python3_EXECUTABLE}" "${CMAKE_SOURCE_DIR}/qa/png_probe.py" --self-test)
+set_tests_properties(wave26_png_probe PROPERTIES
+    LABELS "wave26"
+    WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}"
+    TIMEOUT 30
+)
+foreach(_w26_check d4 d5 d6)
+    add_test(NAME "wave26_${_w26_check}" COMMAND "${CMAKE_COMMAND}" -E env AIOFFICE_HEADLESS=1 QT_QPA_PLATFORM=offscreen
+        "${Python3_EXECUTABLE}" "${CMAKE_SOURCE_DIR}/qa/wave26-paint.py"
+        --check "${_w26_check}" --cli "${AIOFFICE_CLI}")
+    set_tests_properties("wave26_${_w26_check}" PROPERTIES
+        LABELS "wave26"
+        WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}"
+        TIMEOUT 180
+    )
+endforeach()
+
 if(EXISTS "${CMAKE_SOURCE_DIR}/qa/wave20-rtf-out.json"
    AND EXISTS "${CMAKE_SOURCE_DIR}/qa/wave20-rtf-out.rtf.json")
     add_test(NAME rtf_wave20_rtf_out COMMAND "${CMAKE_COMMAND}" -E env AIOFFICE_HEADLESS=1 QT_QPA_PLATFORM=offscreen

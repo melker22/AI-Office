@@ -1,21 +1,27 @@
 #!/usr/bin/env python3
 """Decode PNG bytes with the Python standard library (zlib + struct).
 
-Wave 26 layout judges share this helper. It has no dependency beyond the
-standard library, so a Nix shell does not need a new image package. Another
-wave-26 task may edit this file; keep the public functions stable:
+Wave 26 layout and paint judges share this helper. It has no dependency beyond
+the standard library, so a Nix shell does not need a new image package.
+
+Public functions:
 
 - decode_png(data) -> (width, height, rgba)
 - find_color_bbox(width, height, rgba, rgb, tolerance, region=None) -> box | None
+- count_close / bbox_close: Euclidean RGB distance
+- count_where / bbox_where: predicate over RGBA
+- self_check() and self_test()
 
 rgba is row-major RGBA8 bytes, length width * height * 4.
 A box is (left, top, right, bottom) with right/bottom exclusive.
-tolerance is the maximum per-channel absolute difference.
+find_color_bbox tolerance is the maximum per-channel absolute difference.
+count_close / bbox_close tolerance is a Euclidean distance.
 """
 
 from __future__ import annotations
 
 import struct
+import sys
 import zlib
 
 _SIGNATURE = b"\x89PNG\r\n\x1a\n"
@@ -126,8 +132,9 @@ def _to_rgba(samples: bytes, width: int, height: int, color_type: int, palette: 
 
 def decode_png(data: bytes) -> tuple[int, int, bytes]:
     """Return width, height, and row-major RGBA8 bytes."""
-    if not data.startswith(_SIGNATURE):
+    if not isinstance(data, (bytes, bytearray)) or not bytes(data).startswith(_SIGNATURE):
         raise PngError("not a PNG")
+    data = bytes(data)
     offset = len(_SIGNATURE)
     width = height = bit_depth = color_type = interlace = None
     palette = b""
@@ -161,6 +168,8 @@ def decode_png(data: bytes) -> tuple[int, int, bytes]:
             break
     if width is None or height is None or bit_depth is None or color_type is None:
         raise PngError("PNG has no IHDR")
+    if not idat:
+        raise PngError("PNG is missing IDAT")
     if interlace:
         raise PngError("interlaced PNG is not supported")
     if bit_depth != 8:
@@ -225,6 +234,120 @@ def find_color_bbox(
     return left, top, right + 1, bottom + 1
 
 
+def _box(width: int, height: int, box: tuple[int, int, int, int] | None) -> tuple[int, int, int, int]:
+    if box is None:
+        return 0, 0, width, height
+    x0, y0, x1, y1 = box
+    return max(0, x0), max(0, y0), min(width, x1), min(height, y1)
+
+
+def count_close(
+    rgba: bytes,
+    width: int,
+    height: int,
+    rgb: tuple[int, int, int],
+    tol: float,
+    box: tuple[int, int, int, int] | None = None,
+) -> int:
+    """Count pixels whose RGB is within Euclidean `tol` of `rgb`."""
+    x0, y0, x1, y1 = _box(width, height, box)
+    if x1 <= x0 or y1 <= y0:
+        return 0
+    tol2 = tol * tol
+    tr, tg, tb = rgb
+    found = 0
+    for y in range(y0, y1):
+        row = y * width * 4
+        for x in range(x0, x1):
+            i = row + x * 4
+            dr = rgba[i] - tr
+            dg = rgba[i + 1] - tg
+            db = rgba[i + 2] - tb
+            if dr * dr + dg * dg + db * db <= tol2:
+                found += 1
+    return found
+
+
+def bbox_close(
+    rgba: bytes,
+    width: int,
+    height: int,
+    rgb: tuple[int, int, int],
+    tol: float,
+    box: tuple[int, int, int, int] | None = None,
+) -> tuple[int, int, int, int] | None:
+    """Inclusive-exclusive bbox of pixels within `tol` of `rgb`, or None."""
+    x0, y0, x1, y1 = _box(width, height, box)
+    tol2 = tol * tol
+    tr, tg, tb = rgb
+    minx, miny, maxx, maxy = width, height, -1, -1
+    for y in range(y0, y1):
+        row = y * width * 4
+        for x in range(x0, x1):
+            i = row + x * 4
+            dr = rgba[i] - tr
+            dg = rgba[i + 1] - tg
+            db = rgba[i + 2] - tb
+            if dr * dr + dg * dg + db * db <= tol2:
+                if x < minx:
+                    minx = x
+                if y < miny:
+                    miny = y
+                if x + 1 > maxx:
+                    maxx = x + 1
+                if y + 1 > maxy:
+                    maxy = y + 1
+    if maxx < 0:
+        return None
+    return minx, miny, maxx, maxy
+
+
+def count_where(
+    rgba: bytes,
+    width: int,
+    height: int,
+    pred,
+    box: tuple[int, int, int, int] | None = None,
+) -> int:
+    x0, y0, x1, y1 = _box(width, height, box)
+    found = 0
+    for y in range(y0, y1):
+        row = y * width * 4
+        for x in range(x0, x1):
+            i = row + x * 4
+            if pred(rgba[i], rgba[i + 1], rgba[i + 2], rgba[i + 3]):
+                found += 1
+    return found
+
+
+def bbox_where(
+    rgba: bytes,
+    width: int,
+    height: int,
+    pred,
+    box: tuple[int, int, int, int] | None = None,
+) -> tuple[int, int, int, int] | None:
+    x0, y0, x1, y1 = _box(width, height, box)
+    minx, miny, maxx, maxy = width, height, -1, -1
+    for y in range(y0, y1):
+        row = y * width * 4
+        for x in range(x0, x1):
+            i = row + x * 4
+            if not pred(rgba[i], rgba[i + 1], rgba[i + 2], rgba[i + 3]):
+                continue
+            if x < minx:
+                minx = x
+            if y < miny:
+                miny = y
+            if x + 1 > maxx:
+                maxx = x + 1
+            if y + 1 > maxy:
+                maxy = y + 1
+    if maxx < 0:
+        return None
+    return minx, miny, maxx, maxy
+
+
 def _chunk(tag: bytes, payload: bytes) -> bytes:
     crc = zlib.crc32(tag + payload) & 0xFFFFFFFF
     return struct.pack(">I", len(payload)) + tag + payload + struct.pack(">I", crc)
@@ -266,6 +389,13 @@ def encode_rgba_for_test(width: int, height: int, rgba: bytes, filter_type: int 
     return _SIGNATURE + _chunk(b"IHDR", ihdr) + _chunk(b"IDAT", zlib.compress(bytes(raw))) + _chunk(b"IEND", b"")
 
 
+def encode_rgba_png(width: int, height: int, rgba: bytes) -> bytes:
+    """Filter-0 RGBA PNG. Used by the paint self-test, not by the app."""
+    if len(rgba) != width * height * 4:
+        raise ValueError("rgba size does not match width*height")
+    return encode_rgba_for_test(width, height, rgba, 0)
+
+
 def self_check() -> None:
     pixels = bytes(
         [
@@ -288,6 +418,45 @@ def self_check() -> None:
         raise SystemExit("png_probe region self-check failed")
 
 
-if __name__ == "__main__":
+def self_test() -> None:
     self_check()
+    width, height = 3, 2
+    rgba = bytearray(width * height * 4)
+    # (0,0) red, (1,0) green, (2,0) blue, second row white / black / yellow.
+    pixels = [
+        (255, 0, 0, 255),
+        (0, 200, 0, 255),
+        (0, 0, 255, 255),
+        (255, 255, 255, 255),
+        (0, 0, 0, 255),
+        (255, 255, 0, 255),
+    ]
+    for i, (r, g, b, a) in enumerate(pixels):
+        rgba[i * 4 : i * 4 + 4] = bytes((r, g, b, a))
+    decoded_w, decoded_h, decoded = decode_png(encode_rgba_png(width, height, bytes(rgba)))
+    if (decoded_w, decoded_h, decoded) != (width, height, bytes(rgba)):
+        raise SystemExit("png round-trip mismatch")
+    # Sub filter on a 2-pixel RGB row: stored deltas, reconstructed absolute.
+    raw = bytes([1, 10, 20, 30, 5, 6, 7])
+    straight = _unfilter(raw, 1, 6, 3)
+    if straight != bytes((10, 20, 30, 15, 26, 37)):
+        raise SystemExit(f"sub filter mismatch: {list(straight)}")
+    reds = count_close(decoded, width, height, (255, 0, 0), 1)
+    if reds != 1:
+        raise SystemExit(f"expected 1 red pixel, got {reds}")
+    box = bbox_close(decoded, width, height, (0, 200, 0), 1)
+    if box != (1, 0, 2, 1):
+        raise SystemExit(f"green bbox {box}")
+    try:
+        decode_png(b"not a png")
+    except ValueError:
+        pass
+    else:
+        raise SystemExit("non-png was accepted")
     print("ok   png_probe")
+
+
+if __name__ == "__main__":
+    if len(sys.argv) > 1 and "--self-test" not in sys.argv[1:]:
+        raise SystemExit("usage: png_probe.py --self-test")
+    self_test()
