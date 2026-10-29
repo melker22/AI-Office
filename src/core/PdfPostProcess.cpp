@@ -1114,6 +1114,10 @@ bool pdfPostProcessTagStructure(const QString &path, const QVector<QVector<PdfTa
                 docKidBodies.push_back(listBody);
             return listNum;
         };
+        // A root is recorded when its list closes, so an orphan deeper list can
+        // close before the outer list that opened first. List indexes follow
+        // the order in which lists opened, which is document order.
+        std::sort(roots.begin(), roots.end());
         for (int root : roots)
             emitNodes(root, docElemNum);
     };

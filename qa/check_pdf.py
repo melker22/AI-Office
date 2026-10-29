@@ -491,6 +491,7 @@ WAVE25_PLAYBOOKS = (
     "wave25-d21-copies.json",
     "wave25-d21-note-copies.json",
     "wave25-d22-nested-list.json",
+    "wave25-d22-list-order.json",
     "wave25-d23-cell-span.json",
     "wave25-d23-span-limit.json",
 )
@@ -706,6 +707,34 @@ def _mcr_pages(elem: dict[str, Any], objects: dict[str, Any], seen: set[int]) ->
     return pages
 
 
+def _min_mcid(elem: dict[str, Any], objects: dict[str, Any], seen: set[int]) -> int | None:
+    """Smallest MCID under a structure element (its first painted content)."""
+    marker = id(elem)
+    if marker in seen:
+        return None
+    seen.add(marker)
+    best: int | None = None
+    for kid in _as_list(elem.get("/K") if "/K" in elem else elem.get("K")):
+        got: int | None = None
+        if isinstance(kid, int) and not isinstance(kid, bool):
+            got = kid
+        elif isinstance(kid, dict) and not _ref_of(kid):
+            mcid = kid.get("/MCID") if "/MCID" in kid else kid.get("MCID")
+            if isinstance(mcid, int) and not isinstance(mcid, bool):
+                got = mcid
+            elif _name_of(kid.get("/S") or kid.get("S")):
+                got = _min_mcid(kid, objects, seen)
+        else:
+            ref = _ref_of(kid)
+            if ref:
+                child = _lookup_object(objects, ref)
+                if child:
+                    got = _min_mcid(child, objects, seen)
+        if got is not None and (best is None or got < best):
+            best = got
+    return best
+
+
 def _attr_dicts(elem: dict[str, Any]) -> list[dict[str, Any]]:
     raw = elem.get("/A") if "/A" in elem else elem.get("A")
     out: list[dict[str, Any]] = []
@@ -856,6 +885,24 @@ def check_wave25_extra(pdf: Path, exp: dict[str, Any]) -> list[str]:
                     inner = True
         if not inner:
             errors.append("nested list: no /LI contains an inner /L")
+        if nested.get("roots_in_order"):
+            # Root lists under /Document must follow the page order of their
+            # first content (single-page fixture: MCIDs grow in paint order).
+            docs = [e for e in elems if _name_of(e.get("/S") or e.get("S")) == "/Document"]
+            firsts: list[int] = []
+            for doc_elem in docs[:1]:
+                for kid in _as_list(doc_elem.get("/K") if "/K" in doc_elem else doc_elem.get("K")):
+                    ref = _ref_of(kid)
+                    child = _lookup_object(objects, ref) if ref else (kid if isinstance(kid, dict) else None)
+                    if not child or _name_of(child.get("/S") or child.get("S")) != "/L":
+                        continue
+                    first = _min_mcid(child, objects, set())
+                    if first is not None:
+                        firsts.append(first)
+            if len(firsts) < 2:
+                errors.append(f"nested list: expected 2+ root /L under /Document, saw {len(firsts)}")
+            elif firsts != sorted(firsts):
+                errors.append(f"nested list: root /L out of document order (first MCIDs {firsts})")
 
     spans = exp.get("cell_spans")
     if isinstance(spans, dict) and elems:
