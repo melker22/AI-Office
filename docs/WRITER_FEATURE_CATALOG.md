@@ -1,6 +1,6 @@
 # Catálogo Writer — ideias do Guide, código nosso
 
-Espelho git do board **Roadmap para Produção** no Notion ([hub](https://app.notion.com/p/3cb46a79156b819daef5ea9d7c41385a)). Sync: **2026-10-28** (Fase IA **onda 24** entregue: fidelidade de round-trip DOCX/ODT — run props, página real em mm, tabela aninhada, legendas, revisão nativa, numbering, notas, listas, formas; QR gerado agora é decodificável; **Round-trip ODT/DOCX** sai de **Partial** para refletir a fidelidade entregue, limites honestos continuam listados na linha da feature). Totais: **200 Done**, **10 Partial**, **41 Todo** (contagens Notion podem estar desatualizadas até `notion-sync`). Coluna **Fase** = `IA` | `Humano` | `Infra` | `Fora`.
+Espelho git do board **Roadmap para Produção** no Notion ([hub](https://app.notion.com/p/3cb46a79156b819daef5ea9d7c41385a)). Sync: **2026-10-28** (Fase IA **onda 25** entregue: fidelidade de RTF nativo, exportação EPUB e PDF/UA — LCID, campos, notas, listas, estrutura PDF por cópia e células mescladas. A onda 24 continua entregue no round-trip DOCX/ODT e no QR decodificável). Totais: **200 Done**, **10 Partial**, **41 Todo** (contagens Notion podem estar desatualizadas até `notion-sync`). Coluna **Fase** = `IA` | `Humano` | `Infra` | `Fora`.
 
 Fonte citável: The Document Foundation — [LibreOffice Writer Guide 26.2](https://books.libreoffice.org/en/WG262/WG262.html). Atribuição e limites: [`ATTRIBUTION.md`](ATTRIBUTION.md).
 
@@ -168,7 +168,7 @@ Camadas: `JSON+MCP+GUI` · `JSON+MCP` · `só JSON` · `infra`.
 | Hifenação real (Knuth-Liang) | Writer | WG 26.2 cap. 4 | JSON+MCP |
 | Impressão: intervalo, cópias | Writer | WG 26.2 cap. 7 | JSON+MCP |
 | Comentários no PDF | Formats | WG 26.2 cap. 7 | JSON+MCP |
-| PDF/A e PDF etiquetado | Formats | WG 26.2 cap. 7 | JSON+MCP |
+| PDF/A e PDF etiquetado | Formats | WG 26.2 cap. 7 | JSON+MCP. **Onda 25 (PDF/UA) entregue:** `pdfUtf16String` escapa CR/LF/TAB/BS/FF além de `( ) \`; com `copies>1` a estrutura é por cópia de página; lista aninhada é `/L` dentro do `/LI` pai; célula mesclada leva `/ColSpan` e `/RowSpan`, e a célula coberta é `/Artifact`. PDF/UA-1 e PDF/A-1b continuam conformes no veraPDF (suíte wave 19 + `check_pdf.py --self-test`) |
 | Metadados XMP no PDF | Formats | WG 26.2 cap. 7 | JSON+MCP |
 | Incorporar fontes no PDF | Formats | WG 26.2 cap. 7 | JSON+MCP |
 | Ordem de leitura | Writer | WG 26.2 cap. 7 | JSON+MCP |
@@ -176,8 +176,8 @@ Camadas: `JSON+MCP+GUI` · `JSON+MCP` · `só JSON` · `infra`.
 | Suite de testes de round-trip | MCP | infra | JSON+MCP |
 | Texto condicional | Writer | WG 26.2 cap. 17 | JSON+MCP |
 | Legenda de figura numerada | Writer | WG 26.2 cap. 11 | JSON+MCP |
-| Exportação EPUB | Formats | WG 26.2 cap. 7 | JSON+MCP |
-| RTF nativo (import + export) | Formats | WG 26.2 cap. 1, 7 | JSON+MCP |
+| Exportação EPUB | Formats | WG 26.2 cap. 7 | JSON+MCP. **Onda 25 entregue:** nota órfã entra na seção de notas com aviso; nota cujas referências estão todas ocultas some junto com a noteref; o `aside` leva `lang` / `xml:lang` / `dir`; estilos de carácter viram classes CSS no mesmo espaço de `doc.styles`, com sufixo estável se o nome colidir; `page_number` / `page_count` saem vazios e `xref` de página vira link para o texto do alvo (os dois casos entram no aviso); `dir:auto` usa o primeiro carácter forte; `list_bullet` customizado vira `list-style-type`. epubcheck continua com 0 erros e 0 avisos |
+| RTF nativo (import + export) | Formats | WG 26.2 cap. 1, 7 | JSON+MCP. **Onda 25 entregue:** tabela LCID partilhada (pt-BR 1046, pt-PT 2070); `\upr` / `\ud`; espaçamento explícito de título, inclusive 0, vence o padrão; `\ilvl` e checkbox/task com `{\*\aiolistkind}` / `{\*\aiocheck}`; imagem em célula vira `[imagem: …]` com aviso (a célula não tem imagem); campos `REF` / `PAGEREF` / `SEQ` / `MERGEFIELD` / `DOCVARIABLE` / `FILLIN` / `NUMWORDS` com argumentos de `\fldinst` entre aspas e escapados; texto oculto com `\v` e aviso (não é redação); notas com formatação e endnote via `\ftnalt`; comentário em tabela ou quebra gera o mesmo aviso; `\column` sem parágrafo vazio; bookmark no offset; larguras de `colWidthsMm`. Ida e volta nativa e interop LibreOffice. **Continua de fora:** revisões, comentários e formas ainda saem como texto plano com aviso, não como marcação RTF nativa |
 
 ## Partial
 
@@ -201,6 +201,8 @@ Fase IA Writer **não** está encerrada: o board ainda tem Todos de chrome, pack
 **Onda 19 (PDF completo):** `pdfa: true` passa veraPDF PDF/A-1b; `ua: true` passa PDF/UA-1 na suíte `qa/wave19-pdf-*.json` (veraPDF + qpdf + pdffonts). Tagging via clips partilhados (`Preview.cpp` + `PdfPostProcess.cpp`): `/L`/`/LI`, `/Table`/`/TR`/`/TH`/`/TD` (cabeçalho repetido por página), `/Figure`+`/Alt`, `/Note`, `/TOC`/`/TOCI`, artifacts para chrome de página; comentários PDF compatíveis com UA/PDF/A; `/Lang` no catálogo e em spans; XMP completo (incl. `pdfaid`/`pdfuaid`) e espelho em `/Info`; fontes sempre embutidas (árabe/CJK na suíte). **Limites documentados** (`docs/mcp-tools.md`): lista/tabela aninhada em célula sem tags próprias; nota de rodapé sem âncora em célula.
 
 **Onda 20 (EPUB + RTF):** `document_save` com `.epub` gera EPUB 3 (`mimetype` stored primeiro, nav, capítulo por H1, CSS dos estilos, campos avaliados, `hide_if` omitido, formas/gráficos/QR rasterizados, metadados schema.org de acessibilidade); julgado com epubcheck **0 erros, 0 avisos** em `qa/wave20-epub*.json`. RTF nativo (`RtfReader`/`RtfWriter`): `.rtf` abre só pelo leitor nativo; export cobre parágrafo/carácter, listas, tabelas, notas, imagens, campos, marcadores; ida-e-volta própria + fixtures Word/LibreOffice + interop LibreOffice na gate `--formats --interop`. **Limites honestos entregues:** revisões, comentários de bloco e formas/molduras exportados em RTF como **texto plano**, com aviso único em `warnings[]` (`RTF export: tracked revisions…`, `block comments…`, `shapes/forms…`).
+
+**Onda 25 (fidelidade RTF, EPUB e PDF/UA):** ver as linhas **RTF nativo**, **Exportação EPUB** e **PDF/A e PDF etiquetado**. Juízes `qa/wave25-*`. O limite da onda 19 (lista ou tabela aninhada dentro de uma célula, sem tags próprias) não é o D22: D22 etiqueta o nível da lista no fluxo principal. Subsetting de fontes no PDF continua fora.
 
 - **Humano (chrome Tinta & Papel):** régua; stats GUI; zoom GUI; print preview; Navigator; paleta; atalhos; recents; status bar; modo leitura; split; foco/typewriter; inspector; balloons; DnD reorder; teclado só no canvas; Autocorrect lista GUI; underline ao escrever; impressão.
 - **Infra:** backup `~`; layout lazy; watch file; Hunspell Nix; Flatpak; CRDT; **DOC nativo (via soffice)**; assinatura; senha; crash recovery; autosave.

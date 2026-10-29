@@ -111,13 +111,68 @@ Executores: Cursor Grok 4.7 (nós iniciais T1/T2 DOCX import/export), depois Son
 
 **Próximo passo sugerido:** onda 25 (RTF/EPUB/PDF).
 
-## Onda 25 — Fidelidade RTF/EPUB/PDF
+## Onda 25 — Fidelidade RTF/EPUB/PDF — **entregue** (2026-10-28, branch `fleet/wave25-rtf-epub-pdf-d2126f2f`, HEAD de código `64521b4`)
 
-Itens:
+Gate: `scripts/qa-all.sh --gui --interop --pdf --formats` — 190/190 ctest pass, 0 falha. Tempo real do ctest 413.45 s. Build incremental do `build/linux` já existente. Interop LibreOffice ok (`docx→odt`, `odt→docx`, fields, `rtf our RTF→ODT / LO RTF→native`, wave24 docx export).
 
-- **RTF:** A-rtf-1, A-rtf-2, A-rtf-4..14, e do PR #11 a sanitização do `\fldinst` e as endnotes.
-- **EPUB:** A-epub-2..5, A-epub-7..10.
-- **PDF:** A-pdf-1..4 (escape de string, estrutura com cópias, listas aninhadas, ColSpan/RowSpan).
+Executores: Grok Build 4.7 (T1 RTF writer, T2 RTF reader, T3 EPUB, T4 PDF) e Sonnet (lições dos PRs #13–#15 e revisão). A revisão não achou defeito; não houve commit de correção depois de `64521b4`.
+
+### RTF
+
+| Id | Estado | Notas |
+|---|---|---|
+| A-rtf-1 | **Corrigido** | Tabela de LCID única no writer e no reader. pt-BR é 1046, pt-PT é 2070; tag sem região usa a variante principal. Língua desconhecida sai sem `\lang` e gera warning. |
+| A-rtf-2 | **Corrigido** | `\upr` lê o grupo `{\*\ud …}` (Unicode) e descarta o fallback ANSI. Sem `\ud`, usa o ANSI. |
+| A-rtf-4 | **Corrigido** | O espaçamento padrão de título (`\sb240\sa120`) só entra quando o bloco não tem espaçamento explícito. O valor explícito, inclusive 0, vence. |
+| A-rtf-5 | **Corrigido** | O writer emite `\ilvl`. |
+| A-rtf-6 | **Corrigido** | Checkbox/task saem como lista com ☐/☑ e os destinos `{\*\aiolistkind checkbox}` e `{\*\aiocheck 0\|1}`. O reader restaura o kind e o estado. |
+| A-rtf-7 | **Corrigido** | Imagem em célula vira `[imagem: <alt ou nome>]` com warning. Não é mais descartada em silêncio. O modelo de célula continua sem imagem. |
+| A-rtf-8 | **Corrigido** | `REF`, `PAGEREF`, `SEQ`, `MERGEFIELD`, `DOCVARIABLE`, `FILLIN` e `NUMWORDS` (`word_count`) são escritos e lidos como campos. |
+| A-rtf-9 | **Corrigido** | `hide_if` / `section_hidden` saem com `\v` e o export avisa o id. Não é redação. |
+| A-rtf-10 | **Corrigido** | O corpo da nota mantém a formatação de carácter. Endnote sai com `\ftnalt` e o reader mapeia de volta para `endnote`. |
+| A-rtf-11 | **Corrigido** | Comentário em tabela ou quebra gera o mesmo warning dos outros tipos de bloco. |
+| A-rtf-12 | **Corrigido** | `\column` vira quebra de coluna, sem parágrafo vazio extra. |
+| A-rtf-13 | **Corrigido** | `\bkmkstart` / `\bkmkend` ficam no `Bookmark::offset` do parágrafo. |
+| A-rtf-14 | **Corrigido** | Larguras vêm de `colWidthsMm` em twips. Colunas iguais só quando não há larguras. |
+| PR #11 — `\fldinst` | **Corrigido** | Argumentos do `\fldinst` vão entre aspas, com `\`, `{`, `}` e `"` escapados. Controles são removidos. Coberto por A-rtf-8 / D6. |
+| PR #11 — endnotes | **Corrigido** | Endnote não reabre como footnote. Coberto por A-rtf-10 / D8. |
+
+A-rtf-3 (escrita RTF que ignorava erro) já estava **Corrigido** na onda 23 e não entra nesta lista.
+
+### EPUB
+
+| Id | Estado | Notas |
+|---|---|---|
+| A-epub-2 | **Corrigido** | Nota sem referência (órfã) é emitida na seção de notas, com warning. |
+| A-epub-3 | **Corrigido** | O `aside` da nota recebe `lang` / `xml:lang` / `dir` do bloco da nota. |
+| A-epub-4 | **Corrigido** | Estilo de carácter vira classe CSS a partir do `charStyle`, no mesmo espaço dos estilos de parágrafo. |
+| A-epub-5 | **Corrigido** | `page_number` / `page_count` saem vazios. `xref` do tipo `page` vira link para o texto do alvo. As duas substituições entram no warning. |
+| A-epub-7 | **Corrigido** | Nota cujas referências estão todas ocultas é omitida, junto com a noteref. |
+| A-epub-8 | **Corrigido** | `dir:auto` usa a mesma detecção do primeiro carácter forte que o layout (`resolvedParagraphDirection`). |
+| A-epub-9 | **Corrigido** | Colisão de classe CSS ganha sufixo numérico estável. |
+| A-epub-10 | **Corrigido** | `list_bullet` customizado sai como `list-style-type: "<bullet> "`. |
+
+A-epub-1 e A-epub-6 já estavam **Corrigido** na onda 23.
+
+### PDF
+
+| Id | Estado | Notas |
+|---|---|---|
+| A-pdf-1 | **Corrigido** | `pdfUtf16String` escapa `\r` `\n` `\t` `\b` `\f`, além de `( ) \`. |
+| A-pdf-2 | **Corrigido** | Com `copies>1`, os elementos de estrutura são por cópia de página (chave página + bloco). |
+| A-pdf-3 | **Corrigido** | Lista aninhada é uma `/L` interna dentro do `/LI` pai, por nível. |
+| A-pdf-4 | **Corrigido** | Célula mesclada leva `/ColSpan` e `/RowSpan`. A célula coberta é `/Artifact`. |
+
+### QA (D24, D25)
+
+| Item | Estado | Notas |
+|---|---|---|
+| Juízes `qa/wave25-*` | **Corrigido** | Cada decisão D1–D23 tem teste com prefixo `qa/wave25-`. epubcheck 0 erros / 0 avisos; veraPDF PDF/UA-1 e PDF/A-1b continuam conformes. RTF faz ida e volta no import nativo e, com `--interop`, no LibreOffice. |
+| Regressão das ondas 12–24 | **Corrigido** | As ondas entram no mesmo `qa-all.sh`. 190/190 pass. |
+
+**Decisões:** nenhum item da onda 25 foi adiado. Revisões, comentários e formas em RTF continuam como texto plano com aviso (limite da onda 20; esta onda só passou a avisar também em tabela e quebra). Imagem em célula não virou imagem de verdade: o modelo não tem esse campo, e o entregue é o marcador com warning (D5). O backlog de GUI (Fase Humano) não foi tocado.
+
+**Próximo passo sugerido:** onda 26 (layout e preview).
 
 ## Onda 26 — Layout e preview
 

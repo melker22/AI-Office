@@ -8,6 +8,26 @@
 
 ---
 
+## 2026-10-28 — Fleet wave25 — Grok Build/Sonnet
+
+**Objective:** Close Fleet wave 25 (RTF, EPUB, and PDF fidelity). Update the handoff, fix-plan, and feature catalog to match what actually shipped. No push.
+
+**Done:**
+- Executors: **Grok Build 4.7** on T1 RTF writer, T2 RTF reader, T3 EPUB, and T4 PDF; **Sonnet** on lessons (PRs #13–#15) and on the review. The review found no defect, so this node does not add a code fix.
+- RTF: one LCID table for writer and reader (pt-BR 1046, not pt-PT); `\upr` keeps the `{\*\ud}` Unicode text; explicit heading spacing, including 0, wins over `\sb240\sa120`; `\ilvl` plus checkbox/task via `{\*\aiolistkind}` / `{\*\aiocheck}`; an image in a cell becomes `[imagem: …]` plus a warning (the cell model has no image); `REF` / `PAGEREF` / `SEQ` / `MERGEFIELD` / `DOCVARIABLE` / `FILLIN` / `NUMWORDS` round-trip with quoted, escaped `\fldinst` arguments; hidden text is `\v` plus a warning (not redaction); notes keep character formatting and endnotes use `\ftnalt`; comments on a table or break get the same warning as other blocks; `\column` is a column break with no extra empty paragraph; bookmarks sit at `Bookmark::offset`; column widths come from `colWidthsMm`.
+- EPUB: an orphan note is emitted with a warning; a note whose references are all hidden is omitted with the noteref; the note `aside` gets `lang` / `xml:lang` / `dir`; character styles become CSS classes in the same `doc.styles` namespace, with a stable suffix on collision; `page_number` / `page_count` are empty and a page `xref` links to the target text (both called out in the warning); `dir:auto` uses the first strong character; a custom `list_bullet` becomes `list-style-type`. epubcheck stays at 0 errors and 0 warnings.
+- PDF/UA: `pdfUtf16String` escapes CR/LF/TAB/BS/FF as well as `( ) \`; `copies>1` tags structure per page copy; a nested list is an inner `/L` inside the parent `/LI`; a merged cell gets `/ColSpan` / `/RowSpan` and the covered cell is an `/Artifact`. veraPDF PDF/UA-1 and PDF/A-1b stay compliant.
+- `scripts/qa-all.sh --gui --interop --pdf --formats` on this tree, incremental build of the existing `build/linux`: **190/190** ctest passed, **0** failed. Real ctest time **413.45 s**. Interop passed: `docx→odt`, `odt→docx`, fields (`odt` resave / `odt→docx` / `docx→odt`), `rtf our RTF→ODT / LO RTF→native`, and `wave24 docx export`.
+- `git log main..HEAD --oneline`: `64521b4` Merge wave 25 T4 PDF · `20a2e13` Merge wave 25 T3 EPUB · `de7699d` Merge wave 25 T2 RTF reader · `34d5308` Merge wave 25 T1 RTF writer · `bfcfcde` fix: escape PDF UTF-16 controls and tag copies, nested lists, and cell spans · `46b29f8` test: give each UTF-16 named escape its high byte · `71dfb6b` test: select wave 25 EPUB checks from the OPF manifest · `9f3d778` fix: read list-definition kinds and PAGEREF in RTF · `c8d80e9` fix: stop RTF language from leaking into the next paragraph · `3a43628` test: cover list-definition kind, PAGEREF, and nested endnotes · `140e33a` test: catch inherited RTF language and region aliases · `2316901` fix: write wave 25 RTF language, lists, fields, notes, and tables · `c5e0019` fix: honor EPUB note, style, page-field, direction, and list decisions · `454fe7d` fix: import wave 25 RTF lang, upr, lists, cells, fields, notes, columns · `32f3254` test: add wave 25 RTF writer judges · `205ec58` test: fail PDF checks for UTF-16 controls, copies, nested lists, and spans · `d9381e8` test: wave 25 RTF reader playbooks for lang, upr, lists, cells, fields, endnotes, columns · `8a9ca90` test: add wave 25 EPUB checks for notes, styles, fields, dir, and lists · `af48865` docs: update lessons from PR #15 · `926bf7b` docs: wave 25 spec and fleet (RTF, EPUB, PDF fidelity); keep the wave 24 finish fleet.
+
+**Decisions:** Onda 25 is fully delivered, no item deferred (see `docs/audit/fix-plan.md`). RTF revisions, comments, and shapes stay plain text with a warning (wave 20 limit; this wave only adds the missing table/break comment warning). GUI backlog (Fase Humano) untouched.
+
+**Next suggested step:** Onda 26 (layout and preview per `docs/audit/fix-plan.md`).
+
+**Commits:** this entry documents the code state at `64521b4` (see `git log main..HEAD` above). The docs commit that adds this entry is not listed there.
+
+---
+
 ## 2026-10-28 — Fleet wave24 — Cursor Grok/Composer/Sonnet
 
 **Objective:** Close Fleet wave 24 (DOCX/ODT round-trip fidelity, decodable QR). Update the handoff, fix-plan, and feature catalog to match what actually shipped. No push.
