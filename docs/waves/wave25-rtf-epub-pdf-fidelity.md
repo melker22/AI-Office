@@ -59,7 +59,7 @@ Os itens abaixo estão provados em `docs/audit/module-sweep.md` (ids A-rtf-*, A-
 | D13 | **Notas EPUB**: uma nota sem nenhuma referência (órfã) é emitida na seção de notas, com warning. Uma nota cujas referências estão todas ocultas é omitida, junto com a noteref (A-epub-2, A-epub-7). |
 | D14 | O **`aside`** de nota recebe `lang`/`xml:lang`/`dir` do bloco da nota (A-epub-3). |
 | D15 | **Estilos de caractere EPUB** viram classes CSS geradas a partir do `charStyle`, como os estilos de parágrafo (A-epub-4). |
-| D16 | **Campos de página no EPUB** (sem páginas): `page_number`/`page_count` saem vazios. `xref` do tipo `page` vira um link para o alvo, com o texto do alvo (título/legenda). As duas substituições entram no warning (A-epub-5). |
+| D16 | **Campos de página no EPUB** (sem páginas): `page_number`/`page_count` saem vazios. `xref` do tipo `page` com alvo no pacote vira um link para o alvo, com o texto do alvo (título/legenda); se o alvo falta ou está omitido, sai como texto simples, sem link. As duas substituições entram no warning (A-epub-5). |
 | D17 | **`dir:auto`** usa a mesma detecção do primeiro caractere forte que o layout usa (`resolvedParagraphDirection`) (A-epub-8). |
 | D18 | **Classes CSS únicas**: uma colisão recebe um sufixo numérico estável (A-epub-9). |
 | D19 | **`list_bullet` customizado** sai como `list-style-type: "<bullet> "` (A-epub-10). |

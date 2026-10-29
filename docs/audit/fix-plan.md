@@ -146,7 +146,7 @@ A-rtf-3 (escrita RTF que ignorava erro) já estava **Corrigido** na onda 23 e n�
 | A-epub-2 | **Corrigido** | Nota sem referência (órfã) é emitida na seção de notas, com warning. |
 | A-epub-3 | **Corrigido** | O `aside` da nota recebe `lang` / `xml:lang` / `dir` do bloco da nota. |
 | A-epub-4 | **Corrigido** | Estilo de carácter vira classe CSS a partir do `charStyle`, no mesmo espaço dos estilos de parágrafo. |
-| A-epub-5 | **Corrigido** | `page_number` / `page_count` saem vazios. `xref` do tipo `page` vira link para o texto do alvo. As duas substituições entram no warning. |
+| A-epub-5 | **Corrigido** | `page_number` / `page_count` saem vazios. `xref` do tipo `page` com alvo no pacote vira link para o texto do alvo; se o alvo falta ou está omitido, sai como texto simples, sem link. As duas substituições entram no warning. |
 | A-epub-7 | **Corrigido** | Nota cujas referências estão todas ocultas é omitida, junto com a noteref. |
 | A-epub-8 | **Corrigido** | `dir:auto` usa a mesma detecção do primeiro carácter forte que o layout (`resolvedParagraphDirection`). |
 | A-epub-9 | **Corrigido** | Colisão de classe CSS ganha sufixo numérico estável. |
