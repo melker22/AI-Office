@@ -178,8 +178,9 @@ def main() -> int:
             errors.append('odt export: missing text:file-name text:display="full"')
         if content.count("<text:file-name") < 2:
             errors.append("odt export: expected a file-name for filename and one for filepath")
-        if content.count('text:display="full"') != 1:
-            errors.append(f"odt export: display=full count {content.count('text:display=\"full\"')} != 1")
+        full_displays = content.count('text:display="full"')
+        if full_displays != 1:
+            errors.append(f"odt export: display=full count {full_displays} != 1")
         # Writer escapes the switch, so the file contains FILENAME \\p.
         if "FILENAME \\\\p" not in rtf_text:
             errors.append("rtf export: missing FILENAME \\\\p instruction")
