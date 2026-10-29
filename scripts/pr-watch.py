@@ -17,8 +17,8 @@ final state. `--notify-task <id>` also sends it to a Cockpit task.
 
 Polling is cheap: every request carries the ETag of the previous answer
 (If-None-Match), and a 304 does not count against GitHub's rate limit.
-Without a token the interval is 90 s (60 requests per hour, shared by the
-whole IP); with a read-only token (GITHUB_TOKEN / GH_TOKEN or
+Without a token a 304 still counts, so the interval is 420 s (at least six
+requests per poll, 60 requests per hour shared by the whole IP); with a read-only token (GITHUB_TOKEN / GH_TOKEN or
 ~/.config/aio-pr-watch/token, mode 600) it is 30 s (5000 per hour).
 
 Exit codes: 0 = something to act on (see the last line), 2 = timeout,
@@ -97,13 +97,15 @@ class Http:
                 self.cache[url] = (etag, body)
             return Response(200, body, dict(resp.headers))
         except urllib.error.HTTPError as exc:
-            hdrs = dict(exc.headers or {})
+            raw = exc.headers  # HTTPMessage: case-insensitive lookups
+            hget = (lambda k: raw.get(k)) if raw is not None else (lambda k: None)
+            hdrs = dict(raw or {})
             if exc.code == 304 and cached:
                 self.not_modified += 1
                 return Response(304, cached[1], hdrs)
-            if exc.code == 429 or (exc.code == 403 and hdrs.get("X-RateLimit-Remaining") == "0"):
+            if exc.code == 429 or (exc.code == 403 and hget("X-RateLimit-Remaining") == "0"):
                 try:
-                    self.rate_reset = float(hdrs.get("X-RateLimit-Reset") or 0)
+                    self.rate_reset = float(hget("X-RateLimit-Reset") or 0)
                 except ValueError:
                     self.rate_reset = 0.0
                 if not self.rate_reset:
@@ -165,8 +167,12 @@ def ci_state(statuses: list[dict], check_runs: list[dict]) -> str:
 
 def cr_state(head: str, since: datetime, reviews: list[dict], comments: list[dict]) -> tuple[str, str]:
     for r in reviews:
-        if is_bot(r.get("user")) and r.get("commit_id") == head:
-            return "reviewed", f"review {r.get('id')} at {r.get('submitted_at')}"
+        if not (is_bot(r.get("user")) and r.get("commit_id") == head):
+            continue
+        sub = r.get("submitted_at")
+        if sub and iso(sub) <= since:
+            continue  # an older review of this SHA, from before the request being watched
+        return "reviewed", f"review {r.get('id')} at {sub}"
     replies = [
         c for c in comments
         if is_bot(c.get("user")) and c.get("created_at") and iso(c["created_at"]) > since
@@ -252,7 +258,10 @@ def notify(task: str, line: str) -> None:
 
 def run(args: argparse.Namespace, http: Http, sleep: Callable[[float], None] = time.sleep,
         clock: Callable[[], float] = time.monotonic, out=sys.stdout) -> int:
-    interval = args.interval or (30 if http.token else 90)
+    # At least six requests per poll (more when reviews or comments span pages).
+    # Without a token a 304 still counts against the 60/h anonymous quota, so
+    # poll every 7 min (about 51 requests per hour); with a token, every 30 s.
+    interval = args.interval or (30 if http.token else 420)
     since = iso(args.since) if args.since else None
     watcher = Watcher(http, args.repo, args.pr, since)
     start = clock()
@@ -309,6 +318,15 @@ def main(argv: list[str] | None = None, http: Http | None = None,
     if args.pr is None:
         print("pr-watch: PR number required", file=sys.stderr)
         return 3
+    if args.since:
+        try:
+            parsed = iso(args.since)
+        except ValueError:
+            parsed = None
+        if parsed is None or parsed.tzinfo is None:
+            print(f"pr-watch: --since needs an ISO time with a zone, e.g. 2026-10-29T09:00:00Z (got {args.since!r})",
+                  file=sys.stderr)
+            return 3
     if http is None:
         try:
             http = Http(load_token())
@@ -371,6 +389,15 @@ class _FakeGitHub:
 BOT_USER = {"login": BOT, "type": "Bot"}
 
 
+def _lower_headers(reset: int):
+    """Rate-limit headers in lower case, as some proxies send them."""
+    from email.message import Message
+    m = Message()
+    m["x-ratelimit-remaining"] = "0"
+    m["x-ratelimit-reset"] = str(reset)
+    return m
+
+
 def self_test() -> int:
     import io
     failures: list[str] = []
@@ -383,6 +410,10 @@ def self_test() -> int:
     since = iso("2026-10-29T10:00:00Z")
     head = _FakeGitHub.HEAD
     check("review on head", cr_state(head, since, [{"user": BOT_USER, "commit_id": head}], [])[0] == "reviewed")
+    old_rev = {"user": BOT_USER, "commit_id": head, "submitted_at": "2026-10-29T09:30:00Z"}
+    check("review before since", cr_state(head, since, [old_rev], [])[0] == "pending")
+    new_rev = {"user": BOT_USER, "commit_id": head, "submitted_at": "2026-10-29T10:01:00Z"}
+    check("review after since", cr_state(head, since, [old_rev, new_rev], [])[0] == "reviewed")
     check("review on old head", cr_state(head, since, [{"user": BOT_USER, "commit_id": "b" * 40}], [])[0] == "pending")
     lookalike = {"login": BOT, "type": "User"}
     check("look-alike user", cr_state(head, since, [{"user": lookalike, "commit_id": head}], [])[0] == "pending")
@@ -431,7 +462,7 @@ def self_test() -> int:
         return code, [json.loads(l) for l in buf.getvalue().splitlines()], gh, http
 
     def add_review(gh: _FakeGitHub) -> None:
-        gh.reviews.append({"id": 1, "user": BOT_USER, "commit_id": gh.HEAD, "submitted_at": "x"})
+        gh.reviews.append({"id": 1, "user": BOT_USER, "commit_id": gh.HEAD, "submitted_at": "2026-10-29T10:10:00Z"})
 
     def ci_ok(gh: _FakeGitHub) -> None:
         gh.statuses.insert(0, {"context": "ci/circleci", "state": "success"})
@@ -472,8 +503,7 @@ def self_test() -> int:
             if self.limited:
                 self.limited -= 1
                 raise urllib.error.HTTPError(req.full_url, 403, "rate limited",
-                                             {"X-RateLimit-Remaining": "0",
-                                              "X-RateLimit-Reset": str(int(time.time()) + 300)}, None)
+                                             _lower_headers(int(time.time()) + 300), None)
             return super().__call__(req)
 
     gh = _Limited()
@@ -487,12 +517,35 @@ def self_test() -> int:
         now[0] += sec
 
     buf = io.StringIO()
-    code = main(["7", "--repo", "o/r"], http=http, sleep=rec_sleep, clock=lambda: now[0], out=buf)
+    code = main(["7", "--repo", "o/r", "--interval", "30"], http=http, sleep=rec_sleep,
+                clock=lambda: now[0], out=buf)
     lines = [json.loads(l) for l in buf.getvalue().splitlines()]
     fails = [l for l in lines if l.get("event") == "fetch_failed"]
     check("rate limit reported once", len(fails) == 1, lines)
     check("rate limit waits for reset", waits and waits[0] >= 250, waits)
     check("recovers after reset", code == 0 and lines[-1].get("cr") == "reviewed", lines)
+
+    # Bad --since values are rejected before any request.
+    for bad in ("ontem", "2026-10-29T09:00:00"):
+        import contextlib
+        with contextlib.redirect_stderr(io.StringIO()):
+            code = main(["7", "--repo", "o/r", "--since", bad], http=Http("", opener=_FakeGitHub()),
+                        sleep=lambda s: None, clock=lambda: 0.0, out=io.StringIO())
+        check(f"--since {bad!r} rejected", code == 3, code)
+
+    # Default intervals: 30 s with a token, 420 s without (304 still counts).
+    for tok, want in (("t", 30), ("", 420)):
+        gh = _FakeGitHub()
+        waits2: list[float] = []
+        clock2 = [0.0]
+
+        def sl(sec: float, waits2=waits2, clock2=clock2) -> None:
+            waits2.append(sec)
+            clock2[0] += sec
+
+        main(["7", "--repo", "o/r", "--timeout", "1000"], http=Http(tok, opener=gh), sleep=sl,
+             clock=lambda clock2=clock2: clock2[0], out=io.StringIO())
+        check(f"interval token={bool(tok)}", waits2 and waits2[0] == want, waits2[:2])
 
     # Token file must be private.
     import tempfile

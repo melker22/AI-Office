@@ -108,10 +108,25 @@ termina assim que há algo a fazer, e o término acorda o agente: revisão do bo
 (`cr=reviewed`), resposta "Review finished"/"Already reviewed" sem revisão (`cr=no_review` → peça
 `@coderabbitai full review`), "rate limited" (`cr=rate_limited` → peça de novo depois) ou CI vermelha
 (`ci=failure`). Com `--until all`, um resultado do CodeRabbit ainda espera a CI terminar. Cada consulta
-manda o ETag da anterior (`If-None-Match`); um 304 não gasta a cota. Sem token, o intervalo é 90 s (60
-req/h por IP); com um token de leitura em `~/.config/aio-pr-watch/token` (modo 600, também usado pelo
+manda o ETag da anterior (`If-None-Match`); com token, um 304 não gasta a cota. Sem token, o 304 conta e cada consulta faz pelo menos 6 requisições
+(mais com paginação), então o intervalo é 420 s (cerca de 51 de 60 req/h por IP); com um token de leitura em `~/.config/aio-pr-watch/token` (modo 600, também usado pelo
 gate), 30 s (5000 req/h). Um 403/429 de limite espera o `X-RateLimit-Reset`. Não substitui o gate: só diz
 quando rodá-lo.
+
+**Cota do CodeRabbit (plano Essentials):** o limite de revisões de PR é por hora, com janela móvel, e cai
+conforme as revisões de PR dos últimos 7 dias (0–29: 5/h; 30–39: 4/h; 40–49: 3/h; 50–59: 2/h; 60 ou mais:
+1/h, uma de cada vez). Cada push revisado, cada `@coderabbitai review` e cada `@coderabbitai full review`
+contam 1; um push que bate no limite conta 0. Regras:
+
+1. **Revisão local antes do push:** `coderabbit review --agent --base <base>` (CLI autenticado com a chave
+   agentic; a cota do CLI é separada da de PR). Corrija os achados reais antes de empurrar.
+2. **Uma revisão de PR por rodada:** junte todas as correções de uma rodada num push e peça revisão uma vez.
+   Não peça `review` logo depois de um push que já dispara a revisão automática.
+3. **`full review` só quando o bot respondeu sem revisar** (`cr=no_review`) e nada mais resolve.
+4. **Antes de pedir revisão,** comente `@coderabbitai rate limit` (não gasta revisão; o bot diz se há
+   revisão disponível e quando tentar de novo). Com `cr=rate_limited`, use essa resposta, não um palpite.
+5. **Um PR em revisão por vez:** ondas e PRs de ferramenta não disputam a mesma janela.
+6. **Consumo do período:** `coderabbit usage` (exige o login OAuth; com a chave agentic o relatório falha).
 
 Origem: no PR #9 o gate antigo contava só comentários inline e o merge saiu com 2 achados do corpo da
 revisão ("Outside diff range" — o GitHub não deixa postá-los inline). No PR #10 o gate já lia o corpo, mas
