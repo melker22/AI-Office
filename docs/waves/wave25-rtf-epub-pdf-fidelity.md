@@ -44,7 +44,7 @@ Os itens abaixo estão provados em `docs/audit/module-sweep.md` (ids A-rtf-*, A-
 
 | # | Decisão |
 |---|---|
-| D1 | **Tabela de LCID** única, usada pelo writer e pelo reader. Entradas: pt-BR 1046, pt-PT 2070, en-US 1033, en-GB 2057, es-ES 3082, es-MX 2058, fr-FR 1036, de-DE 1031, it-IT 1040, ar 1025, he 1037, ru 1049, zh-CN 2052, zh-TW 1028, ja 1041, ko 1042. A tag sem região usa a variante principal (`pt` → 1046, `en` → 1033). Uma língua desconhecida sai sem `\lang` e gera um warning. A ida e volta preserva a tag (A-rtf-1). |
+| D1 | **Tabela de LCID** única, usada pelo writer e pelo reader. Entradas: pt-BR 1046, pt-PT 2070, en-US 1033, en-GB 2057, es-ES 3082, es-MX 2058, fr-FR 1036, de-DE 1031, it-IT 1040, ar 1025, he 1037, ru 1049, zh-CN 2052, zh-TW 1028, ja 1041, ko 1042. A tag sem região usa a variante principal (`pt` → 1046, `en` → 1033). Uma língua desconhecida sai sem `\lang` e gera um warning. A ida e volta preserva as tags da tabela; uma tag fora dela (por exemplo bg-BG) sai sem `\lang`, com warning (A-rtf-1). |
 | D2 | **`\upr`**: o reader usa o conteúdo do `{\*\ud …}` (Unicode) e descarta o fallback ANSI. Sem `\ud`, usa o ANSI (A-rtf-2). |
 | D3 | **Títulos**: o espaçamento padrão de título (`\sb240\sa120`) só é escrito quando o bloco não tem espaçamento explícito. O valor explícito, inclusive 0, vence (A-rtf-4). |
 | D4 | **Listas RTF**: o writer escreve `\ilvl`. Checkbox/task saem como lista com marcador ☐/☑ (que outros leitores veem) e com os destinos privados `{\*\aiolistkind checkbox}` e `{\*\aiocheck 0\|1}` por item. O reader honra esses destinos e restaura o kind e o estado (A-rtf-5, A-rtf-6). |
