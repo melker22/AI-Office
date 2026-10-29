@@ -876,6 +876,50 @@ def epub_wave25_spec(playbook: object) -> dict[str, Any] | None:
     return spec
 
 
+# SystemExit is BaseException. epubcheck raises it when the validator is missing,
+# and that must fail the decision instead of aborting the rest of the suite.
+_PACKAGE_ERRORS = (OSError, zipfile.BadZipFile, ET.ParseError, ValueError, SystemExit)
+
+
+def finish_wave25_decision(decision: str, action) -> tuple[bool, str]:
+    """Run one decision's package check. A read failure fails that decision only."""
+    try:
+        errors = action()
+    except _PACKAGE_ERRORS as exc:
+        return False, f"FAIL {decision}: cannot read EPUB ({exc})"
+    if not isinstance(errors, list):
+        return False, f"FAIL {decision}: checker returned {errors!r}"
+    if errors:
+        detail = "\n".join(f"  {err}" for err in errors)
+        return False, f"FAIL {decision}:\n{detail}"
+    return True, f"ok   {decision}"
+
+
+def wave25_validator_exit_errors() -> list[str]:
+    """A validator SystemExit must fail one decision and still run the next."""
+    ran: list[str] = []
+
+    def first() -> list[str]:
+        ran.append("first")
+        raise SystemExit("epubcheck not found")
+
+    def second() -> list[str]:
+        ran.append("second")
+        return []
+
+    try:
+        first_ok, _first_msg = finish_wave25_decision("D13", first)
+        second_ok, _second_msg = finish_wave25_decision("D16", second)
+    except SystemExit as exc:
+        return [f"validator SystemExit aborted the suite ({exc}); ran={ran}"]
+    if first_ok or not second_ok or ran != ["first", "second"]:
+        return [
+            "a validator SystemExit must fail that decision and still run the next "
+            f"(ran={ran}, first_ok={first_ok}, second_ok={second_ok})"
+        ]
+    return []
+
+
 def run_wave25_suite(cli: Path) -> bool:
     books = sorted((REPO / "qa").glob("wave25-*.json"))
     if not books:
@@ -921,19 +965,13 @@ def run_wave25_suite(cli: Path) -> bool:
                 print(f"FAIL {decision}: {result.get('error', result)}")
                 ok = False
                 continue
-            try:
-                errors = check_wave25_package(epub, spec)
-            except (OSError, zipfile.BadZipFile, ET.ParseError, ValueError) as exc:
-                print(f"FAIL {decision}: cannot read EPUB ({exc})")
+            passed, message = finish_wave25_decision(
+                decision, lambda: check_wave25_package(epub, spec)
+            )
+            print(message)
+            if not passed:
                 ok = False
                 continue
-            if errors:
-                print(f"FAIL {decision}:")
-                for err in errors:
-                    print(f"  {err}")
-                ok = False
-                continue
-            print(f"ok   {decision}")
     missing = EPUB_WAVE25 - seen
     if missing:
         print("FAIL wave25: missing EPUB decisions " + ", ".join(sorted(missing)))
@@ -1226,6 +1264,13 @@ def self_test(cli: Path | None = None) -> int:
         else:
             print("FAIL unparseable OPF should fail content classification")
             ok = False
+
+    exit_errors = wave25_validator_exit_errors()
+    if exit_errors:
+        print("FAIL self-test wave25 validator exit: " + "; ".join(exit_errors))
+        ok = False
+    else:
+        print("ok   wave25 suite continues after a validator SystemExit")
 
     if not run_wave25_suite(cli or (REPO / "build" / "linux" / "aioffice-cli")):
         ok = False
