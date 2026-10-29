@@ -127,8 +127,10 @@ void paintPage(QPainter *p, const Document &doc, const DocumentLayout &lay, int 
                int selRow = -1, int selCol = -1, bool caretOn = false,
                int caretOff = 0);
 
-PreviewResult renderPage(const Document &doc, int page, double zoom);
-QByteArray renderPagePng(const Document &doc, int page, double zoom);
+PreviewResult renderPage(const Document &doc, int page, double zoom, const QString &selId = {},
+                         int selStart = -1, int selEnd = -1, int selRow = -1, int selCol = -1);
+QByteArray renderPagePng(const Document &doc, int page, double zoom, const QString &selId = {},
+                         int selStart = -1, int selEnd = -1, int selRow = -1, int selCol = -1);
 // PNG of one shape, chart, QR, or image, painted with the same figure painter as the page.
 QByteArray renderBlockPng(const Document &doc, const Block &block);
 bool exportNativePdf(const Document &doc, const QString &path, QString *error, bool pdfa = false,
