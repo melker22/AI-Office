@@ -212,7 +212,7 @@ def summary_covers(comment: dict, head: str) -> bool:
 _RATE_NOTICE = re.compile(r"(?m)^<!-- This is an auto-generated comment: rate limited by coderabbit\.ai -->$")
 _REPLY_MARK = "<!-- This is an auto-generated reply by CodeRabbit -->"
 _REPLY_MARK_RE = re.compile(r"(?m)^<!-- This is an auto-generated reply by CodeRabbit -->$")
-_WAIT = re.compile(r"(?i)(?:wait\s+\**\s*([0-9][^*\n]{0,40}?)\s*\**\s+before|available in\s+\**\s*([0-9][^*\n.]{0,40}))")
+_WAIT = re.compile(r"(?i)(?:wait\s+\**\s*([0-9][^*\n]{0,40}?)\s*\**\s+before|available in:?\s*\**\s*([0-9][^*\n.]{0,40}))")
 
 
 def summary_rate_limited(body: str) -> bool:
@@ -551,6 +551,9 @@ def self_test() -> int:
                   "> ## Review limit reached\n> \n> **Next included review available in 5 minutes.**\n")
     st2, det2 = cr_state(head, since, [], [dict(rl_summary, body=new_notice)])
     check("wait time from the 'available in' notice", st2 == "rate_limited" and "5 minutes" in det2, (st2, det2))
+    colon = new_notice.replace("available in 5 minutes", "available in: **12 minutes**")
+    st3, det3 = cr_state(head, since, [], [dict(rl_summary, body=colon)])
+    check("wait time from 'available in:'", st3 == "rate_limited" and "12 minutes" in det3, (st3, det3))
     plain = {"user": BOT_USER, "created_at": "2026-10-29T10:50:00Z", "body": "Review finished. Rate limited.", "html_url": "p"}
     check("a bot comment that is not a command reply is ignored", cr_state(head, since, [], [plain])[0] == "pending")
     prose = dict(rl_summary, body="<!-- walkthrough_start -->\n> ## Rate limit exceeded\nThe watcher handles rate limited replies.")
