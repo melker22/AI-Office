@@ -100,7 +100,35 @@ nas revisões do HEAD; `mergeable_state == clean` (relido antes do CLEAN). E **t
 bloqueiam) — do corpo de **qualquer** revisão do PR — de qualquer commit, não só do HEAD — precisa de
 um comentário humano no PR com `cr-ack <id> <commit da correção ou motivo>` (o id completo do marcador, que o gate imprime; prefixo não vale). Depois,
 as threads não resolvidas são conferidas com a tool MCP do GitHub (`pull_request_read get_review_comments`).
-Só então merge. Token opcional: `GITHUB_TOKEN`/`GH_TOKEN`. Quando o CodeRabbit revisa sem deixar status no commit, a única prova aceita é uma revisão publicada pelo próprio bot (`coderabbitai[bot]`) no SHA do HEAD. As respostas "Review finished"/"Already reviewed the last commit" não valem: podem sair sem revisão (ex.: limite de taxa) e não dizem qual SHA foi revisado — nesse caso confira à mão.
+Só então merge. Token opcional: `GITHUB_TOKEN`/`GH_TOKEN` ou `~/.config/aio-pr-watch/token`. Quando o CodeRabbit revisa sem deixar status no commit, a única prova aceita é uma revisão publicada pelo próprio bot (`coderabbitai[bot]`) no SHA do HEAD. As respostas "Review finished"/"Already reviewed the last commit" não valem: podem sair sem revisão (ex.: limite de taxa) e não dizem qual SHA foi revisado. Quando uma revisão incremental não tem nada a postar, o bot não cria revisão; a prova aceita é então o marcador do próprio resumo do PR (`<!-- final_review_risk_coverage:{…"coveredCommitId":"<SHA completo do HEAD>","kind":"reviewed"} -->`, numa linha própria, no comentário do bot que contém `<!-- walkthrough_start -->`). O gate e o `pr-watch` aceitam esse marcador; fora isso, confira à mão.
+
+**Esperar a CI e o CodeRabbit:** rode em segundo plano, depois de um push,
+`scripts/pr-watch.py <pr> [--until cr|all] [--notify-task <id>]` (o limite inferior é a data do commit do HEAD), e,
+depois de um `@coderabbitai review` sem push novo, `scripts/pr-watch.py <pr> --since <ISO do pedido> [--until cr|all]`
+(obrigatório: sem `--since`, uma resposta antiga sobre o mesmo commit contaria). O processo
+termina assim que há algo a fazer, e o término acorda o agente: revisão do bot no SHA do HEAD
+(`cr=reviewed`), resposta "Review finished"/"Already reviewed" sem revisão (`cr=no_review` → peça
+`@coderabbitai full review`), "rate limited" (`cr=rate_limited` → peça de novo depois) ou CI vermelha
+(`ci=failure`). Com `--until all`, um resultado do CodeRabbit ainda espera a CI terminar. Cada consulta
+manda o ETag da anterior (`If-None-Match`); com token, um 304 não gasta a cota. Sem token, o 304 conta e cada consulta faz pelo menos 7 requisições
+(a última relê o PR para não reportar um HEAD que mudou no meio; mais com paginação), então o intervalo é 540 s (cerca de 47 de 60 req/h por IP); com um token de leitura em `~/.config/aio-pr-watch/token` (modo 600, também usado pelo
+gate), 30 s (5000 req/h). Um 403/429 de limite espera o mais tarde entre o `Retry-After` (limite secundário) e o `X-RateLimit-Reset`; sem nenhum dos dois, 60 s. Um aviso de limite que o bot grava editando o resumo do PR (revisão automática) também vira `cr=rate_limited`, com o tempo de espera quando o aviso o informa. Não substitui o gate: só diz
+quando rodá-lo.
+
+**Cota do CodeRabbit (plano Essentials):** o limite de revisões de PR é por hora, com janela móvel, e cai
+conforme as revisões de PR dos últimos 7 dias (0–29: 5/h; 30–39: 4/h; 40–49: 3/h; 50–59: 2/h; 60 ou mais:
+1/h, uma de cada vez). Cada push revisado, cada `@coderabbitai review` e cada `@coderabbitai full review`
+contam 1; um push que bate no limite conta 0. Regras:
+
+1. **Revisão local antes do push:** `coderabbit review --agent --base <base>` (CLI autenticado com a chave
+   agentic; a cota do CLI é separada da de PR). Corrija os achados reais antes de empurrar.
+2. **Uma revisão de PR por rodada:** junte todas as correções de uma rodada num push e peça revisão uma vez.
+   Não peça `review` logo depois de um push que já dispara a revisão automática.
+3. **`full review` só quando o bot respondeu sem revisar** (`cr=no_review`) e nada mais resolve.
+4. **Antes de pedir revisão,** comente `@coderabbitai rate limit` (não gasta revisão; o bot diz se há
+   revisão disponível e quando tentar de novo). Com `cr=rate_limited`, use essa resposta, não um palpite.
+5. **Um PR em revisão por vez:** ondas e PRs de ferramenta não disputam a mesma janela.
+6. **Consumo do período:** `coderabbit usage` (exige o login OAuth; com a chave agentic o relatório falha).
 
 Origem: no PR #9 o gate antigo contava só comentários inline e o merge saiu com 2 achados do corpo da
 revisão ("Outside diff range" — o GitHub não deixa postá-los inline). No PR #10 o gate já lia o corpo, mas

@@ -351,6 +351,8 @@ set_tests_properties(wave26_d5_toc_selection PROPERTIES
 )
 add_test(NAME pr_merge_gate_selftest COMMAND "${Python3_EXECUTABLE}" "${CMAKE_SOURCE_DIR}/scripts/pr-merge-gate.py" --self-test)
 set_tests_properties(pr_merge_gate_selftest PROPERTIES LABELS "playbook" WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}")
+add_test(NAME pr_watch_selftest COMMAND "${Python3_EXECUTABLE}" "${CMAKE_SOURCE_DIR}/scripts/pr-watch.py" --self-test)
+set_tests_properties(pr_watch_selftest PROPERTIES LABELS "playbook" WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}")
 add_test(NAME usage_guard_selftest COMMAND "${Python3_EXECUTABLE}" "${CMAKE_SOURCE_DIR}/scripts/usage-guard.py" --self-test)
 set_tests_properties(usage_guard_selftest PROPERTIES LABELS "playbook" WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}")
 add_test(NAME fleet_verify_merged_selftest COMMAND bash "${CMAKE_SOURCE_DIR}/scripts/fleet-verify-merged.sh" --self-test)
