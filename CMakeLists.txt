@@ -192,6 +192,13 @@ foreach(_pb IN LISTS _aio_playbooks)
     if(_pb_name MATCHES "^wave24-")
         continue()
     endif()
+    # Wave 25 PDF playbooks (D20-D23) are played by pdf_check_selftest
+    # (qa/check_pdf.py run_wave25_suite), which writes the PDF to a private
+    # temp path. Played here they would write to build/linux, which a
+    # linux-debug or Windows build does not have.
+    if(_pb_name MATCHES "^wave25-d2[0-3]-")
+        continue()
+    endif()
     add_test(NAME "playbook_${_pb_name}" COMMAND aioffice_cli play "${_pb}")
     set_tests_properties("playbook_${_pb_name}" PROPERTIES
         LABELS "playbook"
