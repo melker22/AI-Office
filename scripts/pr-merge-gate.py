@@ -61,8 +61,21 @@ class RateLimited(Exception):
         self.detail = detail
 
 
+TOKEN_FILE = os.path.join(os.path.expanduser("~"), ".config", "aio-pr-watch", "token")
+
+
 def _token() -> str:
-    return os.environ.get("GITHUB_TOKEN") or os.environ.get("GH_TOKEN") or ""
+    """GITHUB_TOKEN / GH_TOKEN, else the private token file shared with pr-watch."""
+    env = os.environ.get("GITHUB_TOKEN") or os.environ.get("GH_TOKEN")
+    if env:
+        return env
+    try:
+        if os.stat(TOKEN_FILE).st_mode & 0o077:
+            return ""  # readable by others: ignored (pr-watch reports it)
+        with open(TOKEN_FILE, encoding="utf-8") as fh:
+            return fh.read().strip()
+    except OSError:
+        return ""
 
 
 def _is_rate_limit(code: int, headers, message: str) -> bool:

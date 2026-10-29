@@ -100,7 +100,18 @@ nas revisões do HEAD; `mergeable_state == clean` (relido antes do CLEAN). E **t
 bloqueiam) — do corpo de **qualquer** revisão do PR — de qualquer commit, não só do HEAD — precisa de
 um comentário humano no PR com `cr-ack <id> <commit da correção ou motivo>` (o id completo do marcador, que o gate imprime; prefixo não vale). Depois,
 as threads não resolvidas são conferidas com a tool MCP do GitHub (`pull_request_read get_review_comments`).
-Só então merge. Token opcional: `GITHUB_TOKEN`/`GH_TOKEN`. Quando o CodeRabbit revisa sem deixar status no commit, a única prova aceita é uma revisão publicada pelo próprio bot (`coderabbitai[bot]`) no SHA do HEAD. As respostas "Review finished"/"Already reviewed the last commit" não valem: podem sair sem revisão (ex.: limite de taxa) e não dizem qual SHA foi revisado — nesse caso confira à mão.
+Só então merge. Token opcional: `GITHUB_TOKEN`/`GH_TOKEN` ou `~/.config/aio-pr-watch/token`. Quando o CodeRabbit revisa sem deixar status no commit, a única prova aceita é uma revisão publicada pelo próprio bot (`coderabbitai[bot]`) no SHA do HEAD. As respostas "Review finished"/"Already reviewed the last commit" não valem: podem sair sem revisão (ex.: limite de taxa) e não dizem qual SHA foi revisado — nesse caso confira à mão.
+
+**Esperar a CI e o CodeRabbit:** depois de um push ou de um `@coderabbitai review`, rode em segundo plano
+`scripts/pr-watch.py <pr> [--since <ISO do pedido>] [--until cr|all] [--notify-task <id>]`. O processo
+termina assim que há algo a fazer, e o término acorda o agente: revisão do bot no SHA do HEAD
+(`cr=reviewed`), resposta "Review finished"/"Already reviewed" sem revisão (`cr=no_review` → peça
+`@coderabbitai full review`), "rate limited" (`cr=rate_limited` → peça de novo depois) ou CI vermelha
+(`ci=failure`). Com `--until all`, um resultado do CodeRabbit ainda espera a CI terminar. Cada consulta
+manda o ETag da anterior (`If-None-Match`); um 304 não gasta a cota. Sem token, o intervalo é 90 s (60
+req/h por IP); com um token de leitura em `~/.config/aio-pr-watch/token` (modo 600, também usado pelo
+gate), 30 s (5000 req/h). Um 403/429 de limite espera o `X-RateLimit-Reset`. Não substitui o gate: só diz
+quando rodá-lo.
 
 Origem: no PR #9 o gate antigo contava só comentários inline e o merge saiu com 2 achados do corpo da
 revisão ("Outside diff range" — o GitHub não deixa postá-los inline). No PR #10 o gate já lia o corpo, mas
