@@ -1649,10 +1649,9 @@ static void forEachFieldRun(const Document &doc,
             if (fn(block, run, &run))
                 return;
         }
-        for (const auto &run : block.captionRuns) {
-            if (fn(block, run, &run))
-                return;
-        }
+        // DOCX writes the nested w:tbl, then the caption paragraph. Seq numbers
+        // follow that order. NestedCell stores runs, not another table, so this
+        // is the only nested level.
         if (block.type == QLatin1String("table")) {
             for (const auto &row : block.table) {
                 for (const auto &cell : row) {
@@ -1660,8 +1659,6 @@ static void forEachFieldRun(const Document &doc,
                         if (fn(block, run, &run))
                             return;
                     }
-                    // Nested tables are only one level (NestedCell holds runs).
-                    // Walk them in document order so seq/xref see those fields.
                     for (const auto &nestedRow : cell.nested) {
                         for (const auto &nestedCell : nestedRow) {
                             for (const auto &run : nestedCell.runs) {
@@ -1672,6 +1669,10 @@ static void forEachFieldRun(const Document &doc,
                     }
                 }
             }
+        }
+        for (const auto &run : block.captionRuns) {
+            if (fn(block, run, &run))
+                return;
         }
     }
 }
@@ -1702,6 +1703,15 @@ static int seqNumberOfBlock(const Document &doc, const QString &blockId)
     const Block *target = doc.findBlock(blockId);
     if (!target)
         return 0;
+    // A category reference names the caption seq when the caption has one,
+    // even though that seq is numbered after the nested fields above.
+    for (const auto &run : target->captionRuns) {
+        if (run.field != QLatin1String("seq"))
+            continue;
+        const int n = seqOrdinal(doc, seqFieldName(run), &run);
+        if (n > 0)
+            return n;
+    }
     int found = 0;
     forEachFieldRun(doc, [&](const Block &block, const TextRun &run, const TextRun *ptr) {
         if (block.id != blockId || run.field != QLatin1String("seq"))
