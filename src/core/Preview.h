@@ -47,7 +47,7 @@ struct CellGeom {
 struct DocumentLayout;
 
 // Inputs for blockTextLayout. paint=false reproduces measurement (page-1 fields,
-// no formats, empty text becomes a space). paint=true reproduces page painting.
+// empty text becomes a space). paint=true reproduces page painting.
 struct BlockTextInput {
     qreal width = 0;
     qreal zoom = 1;
@@ -120,6 +120,10 @@ struct DocumentLayout {
     bool caretMove(const Document &doc, const QString &id, int offset, const QString &move, int *outOffset) const;
     int pageOf(const QString &id) const;
     int displayPage(int physical) const;
+    // Horizontal shift of painted page content, in millimetres. Even pages with
+    // gutter_mirror move left by gutterMm (negative). Odd pages and a zero
+    // gutter stay at 0. Paint applies it; hitTest undoes it.
+    qreal pageContentOffsetMm(const Document &doc, int physicalPage) const;
 };
 
 void paintPage(QPainter *p, const Document &doc, const DocumentLayout &lay, int page,
@@ -127,8 +131,10 @@ void paintPage(QPainter *p, const Document &doc, const DocumentLayout &lay, int 
                int selRow = -1, int selCol = -1, bool caretOn = false,
                int caretOff = 0);
 
-PreviewResult renderPage(const Document &doc, int page, double zoom);
-QByteArray renderPagePng(const Document &doc, int page, double zoom);
+PreviewResult renderPage(const Document &doc, int page, double zoom, const QString &selId = {},
+                         int selStart = -1, int selEnd = -1, int selRow = -1, int selCol = -1);
+QByteArray renderPagePng(const Document &doc, int page, double zoom, const QString &selId = {},
+                         int selStart = -1, int selEnd = -1, int selRow = -1, int selCol = -1);
 // PNG of one shape, chart, QR, or image, painted with the same figure painter as the page.
 QByteArray renderBlockPng(const Document &doc, const Block &block);
 bool exportNativePdf(const Document &doc, const QString &path, QString *error, bool pdfa = false,

@@ -263,8 +263,36 @@ static void hangRtlJustifiedTrailingSpace(QTextLayout &layout)
     }
 }
 
+// Qt's WrapAtWordBoundaryOrAnywhere consumes an entire overlong word before it
+// retries that line as WrapAnywhere. On a run with no break (a 100k-character
+// word) every line rescans the remainder, which is quadratic. When a short
+// probe is already wider than the measure, the retry is certain, and breaking
+// that line as WrapAnywhere matches the retry.
+static bool unbreakableRunExceedsLine(const QString &text, int from, qreal width, const QFontMetricsF &fm)
+{
+    if (width <= 0 || from < 0 || from >= text.size())
+        return false;
+    constexpr int kProbe = 256;
+    const int end = qMin(text.size(), from + kProbe);
+    int i = from;
+    for (; i < end; ++i) {
+        const QChar ch = text.at(i);
+        if (ch.isSpace() || ch == QChar::LineSeparator || ch == QChar::ParagraphSeparator
+            || ch == QChar(0x00AD) || ch == u'\n' || ch == u'\r' || ch == u'\t')
+            break;
+    }
+    if (i == from)
+        return false;
+    const qreal adv = fm.horizontalAdvance(text.mid(from, i - from));
+    return adv > width * 1.5 + 1.0;
+}
+
 qreal layoutLines(QTextLayout &layout, qreal width, qreal dropW, int dropLines)
 {
+    QTextOption opt = layout.textOption();
+    const bool preferWord = opt.wrapMode() == QTextOption::WrapAtWordBoundaryOrAnywhere;
+    const QFontMetricsF fm(layout.font());
+    const QString text = layout.text();
     layout.beginLayout();
     qreal y = 0;
     int lineNo = 0;
@@ -274,7 +302,17 @@ qreal layoutLines(QTextLayout &layout, qreal width, qreal dropW, int dropLines)
             break;
         const bool beside = dropLines > 0 && lineNo < dropLines;
         const qreal w = beside ? qMax(qreal(20), width - dropW) : width;
+        const int from = line.textStart();
+        const bool anywhere = preferWord && unbreakableRunExceedsLine(text, from, w, fm);
+        if (anywhere) {
+            opt.setWrapMode(QTextOption::WrapAnywhere);
+            layout.setTextOption(opt);
+        }
         line.setLineWidth(w);
+        if (anywhere) {
+            opt.setWrapMode(QTextOption::WrapAtWordBoundaryOrAnywhere);
+            layout.setTextOption(opt);
+        }
         line.setPosition(QPointF(beside ? dropW : 0, y));
         y += line.height();
         ++lineNo;
@@ -315,20 +353,73 @@ qreal cellPadPx(const TableCell &cell, qreal zoom)
     return 4 * zoom;
 }
 
+// Unformatted cell runs keep the historical cell face (Liberation Serif 10 pt).
+// Explicit font or size on the run still wins inside fontFor.
+static QVector<TextRun> runsWithCellDefaults(const QVector<TextRun> &runs)
+{
+    QVector<TextRun> out = runs;
+    if (out.isEmpty())
+        out.push_back(TextRun{});
+    for (TextRun &r : out) {
+        if (r.font.isEmpty())
+            r.font = QStringLiteral("Liberation Serif");
+        if (r.sizePt <= 0)
+            r.sizePt = 10;
+    }
+    return out;
+}
+
+// Cells are not paragraphs. A host block carries lang/dir so shaping matches,
+// and drops table alignment so text stays left, as the old cell painter did.
+static Block cellTextBlock(const Block &table)
+{
+    Block host;
+    host.type = QStringLiteral("paragraph");
+    host.style = QStringLiteral("Normal");
+    host.lang = table.lang;
+    host.dir = table.dir;
+    host.id = table.id;
+    return host;
+}
+
+struct NestedGeom {
+    qreal icw = 0;
+    qreal textW = 0;
+    QVector<qreal> rowH;
+};
+
+// One geometry for nested-cell measurement and painting. Text width is the
+// padded column minus a 2 px inset on each side (the +4 added to the row).
+static NestedGeom nestedGeom(const Document &doc, const Block &host, const TableCell &cell, qreal cw, qreal zoom)
+{
+    NestedGeom g;
+    const qreal pad = cellPadPx(cell, zoom);
+    const int cols = cell.nested.isEmpty() ? 1 : qMax(1, cell.nested.first().size());
+    g.icw = qMax(qreal(12), (cw - pad * 2) / cols);
+    g.textW = qMax(qreal(8), g.icw - 4);
+    for (const auto &nrow : cell.nested) {
+        qreal rh = 16 * zoom;
+        for (const auto &nc : nrow) {
+            const QVector<TextRun> runs = runsWithCellDefaults(nc.runs);
+            rh = qMax(rh, measureTextHeight(doc, host, runs, g.textW, zoom) + 4);
+        }
+        g.rowH.push_back(rh);
+    }
+    return g;
+}
+
 qreal measureNestedHeight(const Document &doc, const Block &b, const TableCell &cell, qreal cw, qreal zoom)
 {
     const qreal pad = cellPadPx(cell, zoom);
-    if (cell.nested.isEmpty())
-        return measureTextHeight(doc, b, cell.runs, qMax(qreal(12), cw - pad * 2), zoom) + pad * 2;
-    const int cols = cell.nested.first().size();
-    qreal h = 0;
-    const qreal icw = qMax(qreal(12), (cw - pad * 2) / qMax(1, cols));
-    for (const auto &nrow : cell.nested) {
-        qreal rh = 16 * zoom;
-        for (const auto &nc : nrow)
-            rh = qMax(rh, measureTextHeight(doc, b, nc.runs, icw - 4, zoom) + 4);
-        h += rh;
+    const Block host = cellTextBlock(b);
+    if (cell.nested.isEmpty()) {
+        const QVector<TextRun> runs = runsWithCellDefaults(cell.runs);
+        return measureTextHeight(doc, host, runs, qMax(qreal(12), cw - pad * 2), zoom) + pad * 2;
     }
+    const NestedGeom grid = nestedGeom(doc, host, cell, cw, zoom);
+    qreal h = 0;
+    for (qreal rh : grid.rowH)
+        h += rh;
     return h + pad * 2;
 }
 
@@ -882,6 +973,15 @@ int DocumentLayout::displayPage(int physical) const
     return qMax(1, physical);
 }
 
+qreal DocumentLayout::pageContentOffsetMm(const Document &doc, int physicalPage) const
+{
+    if (!doc.page.gutterMirror || !(doc.page.gutterMm > 0))
+        return 0;
+    if (displayPage(physicalPage) % 2 != 0)
+        return 0;
+    return -doc.page.gutterMm;
+}
+
 static bool blockUsesTextLayout(const QString &type)
 {
     return type != QLatin1String("table") && type != QLatin1String("image") && type != QLatin1String("shape")
@@ -970,12 +1070,16 @@ HitResult DocumentLayout::hitTest(const Document &doc, int page, QPointF posInPa
 {
     HitResult h;
     h.page = page;
+    // Callers pass painted-page coordinates. The even-page gutter mirror is a
+    // paint-time translation, so undo it once before any layout-space test.
+    const qreal dx = mmToPx(pageContentOffsetMm(doc, page), zoom);
+    const QPointF at(posInPage.x() - dx, posInPage.y());
     for (const auto &lb : blocks) {
         if (lb.page != page)
             continue;
         if (lb.type == QLatin1String("table")) {
             for (const auto &c : lb.cells) {
-                if (c.rect.contains(posInPage)) {
+                if (c.rect.contains(at)) {
                     h.ok = true;
                     h.id = lb.id;
                     h.row = c.row;
@@ -985,21 +1089,21 @@ HitResult DocumentLayout::hitTest(const Document &doc, int page, QPointF posInPa
                         QString t;
                         for (const auto &r : b->table[h.row][h.col].runs)
                             t += r.text;
-                        h.offset = qBound(0, int(t.size() * (posInPage.x() - c.rect.left()) / qMax(1.0, c.rect.width())),
+                        h.offset = qBound(0, int(t.size() * (at.x() - c.rect.left()) / qMax(1.0, c.rect.width())),
                                           t.size());
                     }
                     return h;
                 }
             }
         }
-        if (lb.rect.contains(posInPage) || (posInPage.y() >= lb.rect.top() && posInPage.y() <= lb.rect.bottom())) {
+        if (lb.rect.contains(at) || (at.y() >= lb.rect.top() && at.y() <= lb.rect.bottom())) {
             h.ok = true;
             h.id = lb.id;
             const Block *b = doc.findBlock(lb.id);
             if (b && blockUsesTextLayout(lb.type) && lb.rect.width() > 0) {
                 const BlockTextLayout btl = blockTextLayout(doc, *b, laidTextInput(*this, lb));
                 const bool vert = verticalWriting(doc, *b);
-                const QPointF layoutPt = vert ? verticalMap(posInPage, lb.rect.center(), true) : posInPage;
+                const QPointF layoutPt = vert ? verticalMap(at, lb.rect.center(), true) : at;
                 const qreal originX = lb.rect.left() + lb.markerWidth;
                 const qreal originY = lb.rect.top() - lb.layoutY0;
                 const qreal localX = layoutPt.x() - originX;
@@ -1027,7 +1131,7 @@ HitResult DocumentLayout::hitTest(const Document &doc, int page, QPointF posInPa
                 h.offset = qBound(0, btl.toModel(disp), btl.modelLength);
             } else {
                 const QString t = b ? b->plainText() : QString();
-                const qreal x = posInPage.x() - lb.rect.left() - lb.markerWidth;
+                const qreal x = at.x() - lb.rect.left() - lb.markerWidth;
                 if (!t.isEmpty() && lb.rect.width() > 0)
                     h.offset = qBound(0, int(t.size() * x / qMax(1.0, lb.rect.width() - lb.markerWidth)), t.size());
             }
@@ -1302,17 +1406,28 @@ static QMap<QString, QString> chapterLabels(const Document &doc)
     return chapNo;
 }
 
-static void prependSynthetic(QString &raw, QVector<int> &before, const QString &prefix)
+static QTextCharFormat runCharFormat(const Document &doc, const Block &b, const TextRun &r, double zoom)
 {
-    if (prefix.isEmpty())
-        return;
-    QVector<int> nb;
-    nb.reserve(prefix.size() + before.size());
-    for (int i = 0; i < prefix.size(); ++i)
-        nb.append(-1);
-    nb += before;
-    raw = prefix + raw;
-    before = nb;
+    QTextCharFormat cf;
+    cf.setFont(fontFor(doc, b, r, zoom));
+    if (r.strike)
+        cf.setFontStrikeOut(true);
+    if (r.superscript)
+        cf.setVerticalAlignment(QTextCharFormat::AlignSuperScript);
+    if (r.subscript)
+        cf.setVerticalAlignment(QTextCharFormat::AlignSubScript);
+    if (!r.color.isEmpty())
+        cf.setForeground(QColor(r.color));
+    else if (!r.charStyle.isEmpty()) {
+        if (const StyleDef *cs = styleNamed(doc, r.charStyle); cs && !cs->color.isEmpty())
+            cf.setForeground(QColor(cs->color));
+    } else if (!r.link.isEmpty())
+        cf.setForeground(QColor(QStringLiteral("#B5651D")));
+    if (!r.highlight.isEmpty())
+        cf.setBackground(QColor(r.highlight));
+    if (!r.link.isEmpty())
+        cf.setFontUnderline(true);
+    return cf;
 }
 
 int BlockTextLayout::toDisplay(int modelOffset) const
@@ -1348,69 +1463,123 @@ BlockTextLayout blockTextLayout(const Document &doc, const Block &b, const Block
     out.dropHeight = dc.height;
     out.dropFont = dc.font;
 
-    QString raw;
-    QVector<int> before;
+    struct Piece {
+        QString text;
+        QVector<int> model;
+        bool hyphenate = false;
+        QString lang;
+        bool format = false;
+        QTextCharFormat cf;
+    };
+
+    QVector<Piece> pieces;
     int model = 0;
     const bool live = in.paint && in.docLayout;
-    for (const auto &r : runs) {
-        const QString disp = live ? liveDisplayText(doc, r, in.fieldPage, in.pages, *in.docLayout, &r)
-                                  : runDisplayText(doc, r, in.fieldPage, in.pages, &r);
-        const int m0 = model;
-        model += r.text.size();
-        const int m1 = model;
-        const int D = disp.size();
-        const int M = qMax(0, m1 - m0);
-        for (int d = 0; d < D; ++d) {
-            const int at = (M == 0) ? m0 : m0 + int((qint64(M) * d) / D);
-            before.append(at);
-            raw += disp.at(d);
-        }
-    }
-    out.modelLength = model;
-
     QMap<QString, int> noteOrds;
-    if (in.paint && in.docLayout && doc.page.noteRestart)
+    if (live && doc.page.noteRestart)
         noteOrds = footnoteOrdinals(doc, *in.docLayout, in.physicalPage);
+
     if (in.paint) {
-        if (b.type == QLatin1String("footnote") && noteOrds.contains(b.id))
-            prependSynthetic(raw, before, QString::number(noteOrds.value(b.id)) + QStringLiteral("  "));
+        QString prefix;
         if (b.type == QLatin1String("heading")) {
             const QMap<QString, QString> chap = chapterLabels(doc);
             if (chap.contains(b.id))
-                prependSynthetic(raw, before, chap.value(b.id) + QStringLiteral("  "));
+                prefix += chap.value(b.id) + QStringLiteral("  ");
+        }
+        if (b.type == QLatin1String("footnote") && noteOrds.contains(b.id))
+            prefix += QString::number(noteOrds.value(b.id)) + QStringLiteral("  ");
+        if (!prefix.isEmpty()) {
+            Piece pc;
+            pc.text = prefix;
+            pc.model = QVector<int>(prefix.size(), -1);
+            pc.format = true;
+            pc.cf = runCharFormat(doc, b, runs.isEmpty() ? TextRun{} : runs.first(), in.zoom);
+            pieces.append(std::move(pc));
         }
     }
 
+    for (const auto &r : runs) {
+        QString disp = live ? liveDisplayText(doc, r, in.fieldPage, in.pages, *in.docLayout, &r)
+                            : runDisplayText(doc, r, in.fieldPage, in.pages, &r);
+        if (live && !r.noteId.isEmpty() && doc.page.noteRestart && noteOrds.contains(r.noteId))
+            disp = QString::number(noteOrds.value(r.noteId));
+        const int m0 = model;
+        model += r.text.size();
+        const int D = disp.size();
+        const int M = qMax(0, model - m0);
+        Piece pc;
+        pc.text = disp;
+        pc.model.reserve(D);
+        for (int d = 0; d < D; ++d)
+            pc.model.append((M == 0) ? m0 : m0 + int((qint64(M) * d) / D));
+        pc.hyphenate = true;
+        pc.lang = r.lang.isEmpty() ? b.lang : r.lang;
+        // Measurement and painting share these ranges. A later run's font
+        // size has to change the measured line height, not only the paint.
+        pc.format = true;
+        pc.cf = runCharFormat(doc, b, r, in.zoom);
+        pieces.append(std::move(pc));
+    }
+    out.modelLength = model;
+
+    int rawSize = 0;
+    for (const Piece &pc : pieces)
+        rawSize += pc.text.size();
     int skip = 0;
     if (!in.paint) {
-        if (dc.lines > 0 && dc.skip > 0 && dc.skip <= raw.size())
+        if (dc.lines > 0 && dc.skip > 0 && dc.skip <= rawSize)
             skip = dc.skip;
     } else if (dc.lines > 0) {
         skip = dc.skip;
     }
     if (skip > 0) {
-        const int s = qMin(skip, raw.size());
-        raw = raw.mid(s);
-        before = before.mid(s);
+        int left = qMin(skip, rawSize);
+        for (Piece &pc : pieces) {
+            if (left <= 0)
+                break;
+            const int n = qMin(left, pc.text.size());
+            if (n <= 0)
+                continue;
+            pc.text = pc.text.mid(n);
+            pc.model = pc.model.mid(n);
+            left -= n;
+        }
     }
 
-    QString text = raw;
-    if (doc.page.hyphenate)
-        text = hyphenateDisplay(raw, doc.page.hyphenZoneMm, b.lang);
+    QString text;
     QVector<int> mapped;
-    if (!doc.page.hyphenate) {
-        mapped = before;
-    } else {
-        mapped.reserve(text.size());
-        int si = 0;
-        for (int i = 0; i < text.size(); ++i) {
-            const QChar ch = text.at(i);
-            const bool inserted = ch == QChar(0x00AD) && (si >= raw.size() || raw.at(si) != QChar(0x00AD));
-            const int m = (si < before.size()) ? before.at(si) : out.modelLength;
-            mapped.append(m);
-            if (!inserted)
-                ++si;
+    QList<QTextLayout::FormatRange> fmts;
+    for (const Piece &pc : pieces) {
+        if (pc.text.isEmpty())
+            continue;
+        QString shown = pc.text;
+        QVector<int> pieceMap = pc.model;
+        if (pc.hyphenate && doc.page.hyphenate) {
+            shown = hyphenateDisplay(pc.text, doc.page.hyphenZoneMm, pc.lang);
+            pieceMap.clear();
+            pieceMap.reserve(shown.size());
+            int si = 0;
+            for (int i = 0; i < shown.size(); ++i) {
+                const QChar ch = shown.at(i);
+                // Inserted U+00AD is not in the model. Keep si on the next source
+                // character so this hyphen and that character share its offset.
+                const bool inserted = ch == QChar(0x00AD)
+                    && (si >= pc.text.size() || pc.text.at(si) != QChar(0x00AD));
+                const int m = (si < pc.model.size()) ? pc.model.at(si) : out.modelLength;
+                pieceMap.append(m);
+                if (!inserted)
+                    ++si;
+            }
         }
+        if (pc.format && !shown.isEmpty()) {
+            QTextLayout::FormatRange fr;
+            fr.start = text.size();
+            fr.length = shown.size();
+            fr.format = pc.cf;
+            fmts.append(fr);
+        }
+        text += shown;
+        mapped += pieceMap;
     }
     if (!in.paint && text.isEmpty()) {
         text = QString(QLatin1Char(' '));
@@ -1428,15 +1597,12 @@ BlockTextLayout blockTextLayout(const Document &doc, const Block &b, const Block
     out.displayToModel = mapped;
     out.displayToModel.append(out.modelLength);
     out.modelToDisplay.resize(out.modelLength + 1);
+    int scan = 0;
+    const int nMap = out.displayToModel.size();
     for (int m = 0; m <= out.modelLength; ++m) {
-        int found = text.size();
-        for (int d = 0; d < out.displayToModel.size(); ++d) {
-            if (out.displayToModel.at(d) >= m) {
-                found = d;
-                break;
-            }
-        }
-        out.modelToDisplay[m] = found;
+        while (scan < nMap && out.displayToModel.at(scan) < m)
+            ++scan;
+        out.modelToDisplay[m] = (scan < nMap) ? scan : text.size();
     }
 
     TextRun probe = runs.isEmpty() ? TextRun{} : runs.first();
@@ -1456,53 +1622,8 @@ BlockTextLayout blockTextLayout(const Document &doc, const Block &b, const Block
     }
     applyTabs(opt, b, in.zoom);
     layout->setTextOption(opt);
-
-    if (in.paint && in.docLayout) {
-        QList<QTextLayout::FormatRange> fmts;
-        int pos = 0;
-        int rawPos = 0;
-        for (const auto &r : runs) {
-            QString disp = liveDisplayText(doc, r, in.fieldPage, in.pages, *in.docLayout);
-            if (!r.noteId.isEmpty() && doc.page.noteRestart && noteOrds.contains(r.noteId))
-                disp = QString::number(noteOrds.value(r.noteId));
-            const int rawLen = disp.size();
-            if (rawPos + rawLen <= skip) {
-                rawPos += rawLen;
-                continue;
-            }
-            disp = disp.mid(qMax(0, skip - rawPos));
-            if (doc.page.hyphenate)
-                disp = hyphenateDisplay(disp, doc.page.hyphenZoneMm, r.lang.isEmpty() ? b.lang : r.lang);
-            QTextLayout::FormatRange fr;
-            fr.start = pos;
-            fr.length = disp.size();
-            QTextCharFormat cf;
-            cf.setFont(fontFor(doc, b, r, in.zoom));
-            if (r.strike)
-                cf.setFontStrikeOut(true);
-            if (r.superscript)
-                cf.setVerticalAlignment(QTextCharFormat::AlignSuperScript);
-            if (r.subscript)
-                cf.setVerticalAlignment(QTextCharFormat::AlignSubScript);
-            if (!r.color.isEmpty())
-                cf.setForeground(QColor(r.color));
-            else if (!r.charStyle.isEmpty()) {
-                if (const StyleDef *cs = styleNamed(doc, r.charStyle); cs && !cs->color.isEmpty())
-                    cf.setForeground(QColor(cs->color));
-            } else if (!r.link.isEmpty())
-                cf.setForeground(QColor(QStringLiteral("#B5651D")));
-            if (!r.highlight.isEmpty())
-                cf.setBackground(QColor(r.highlight));
-            if (!r.link.isEmpty())
-                cf.setFontUnderline(true);
-            fr.format = cf;
-            fmts.append(fr);
-            pos += fr.length;
-            rawPos += rawLen;
-        }
-        if (!fmts.isEmpty())
-            layout->setFormats(fmts);
-    }
+    if (!fmts.isEmpty())
+        layout->setFormats(fmts);
 
     out.textHeight = layoutLines(*layout, in.width, dc.width, dc.lines);
     if (in.fragmentHeight >= 0 && layout->lineCount() > 0) {
@@ -2303,8 +2424,68 @@ static void paintArtifactPass(QPainter *p, const Document &doc, const DocumentLa
     }
 }
 
+// One rectangle per line that intersects the model range. Offsets are model
+// offsets; QTextLine positions are display offsets (blockTextLayout::toDisplay).
+static void paintLineSelection(QPainter *p, const BlockTextLayout &btl, const QPointF &origin, int modelStart,
+                               int modelEnd, const LaidBlock *fragment)
+{
+    if (!btl.layout || modelEnd <= modelStart)
+        return;
+    const int d0 = btl.toDisplay(modelStart);
+    const int d1 = btl.toDisplay(modelEnd);
+    if (d1 <= d0)
+        return;
+    const QColor sel(QStringLiteral("#B5651D40"));
+    for (int li = 0; li < btl.layout->lineCount(); ++li) {
+        const QTextLine line = btl.layout->lineAt(li);
+        if (fragment && !lineInFragment(line, *fragment))
+            continue;
+        const int ls = line.textStart();
+        const int le = ls + line.textLength();
+        const int a = qMax(d0, ls);
+        const int bend = qMin(d1, le);
+        if (a >= bend)
+            continue;
+        qreal x0 = line.cursorToX(a);
+        qreal x1 = line.cursorToX(bend);
+        if (x1 < x0)
+            std::swap(x0, x1);
+        p->fillRect(QRectF(origin.x() + x0, origin.y() + line.y(), qMax(qreal(1), x1 - x0),
+                           qMax(qreal(1), line.height())),
+                    sel);
+    }
+}
+
+static BlockTextLayout layoutCellText(const Document &doc, const Block &host, const DocumentLayout &lay,
+                                       const LaidBlock &lb, const QVector<TextRun> &runs, qreal width)
+{
+    BlockTextInput in;
+    in.width = qMax(qreal(8), width);
+    in.zoom = lay.zoom;
+    in.fieldPage = lay.displayPage(lb.page);
+    in.pages = qMax(1, lay.pages);
+    in.physicalPage = lb.page;
+    in.paint = true;
+    in.docLayout = &lay;
+    in.runs = &runs;
+    return blockTextLayout(doc, host, in);
+}
+
+static void paintCellText(QPainter *p, const BlockTextLayout &btl, const QPointF &origin, int selStart, int selEnd)
+{
+    if (selEnd > selStart)
+        paintLineSelection(p, btl, origin, selStart, selEnd, nullptr);
+    p->setPen(QColor(QStringLiteral("#1A1F24")));
+    p->setFont(btl.font);
+    if (!btl.layout)
+        return;
+    for (int li = 0; li < btl.layout->lineCount(); ++li)
+        pdfDrawLine(p, btl.layout->lineAt(li), origin);
+}
+
 static void paintTableCellMarker(QPainter *p, const Document &doc, const DocumentLayout &lay, const LaidBlock &lb,
-                                  const Block &b, const PdfTagMarker &m, const QString &selId, int selRow, int selCol)
+                                  const Block &b, const PdfTagMarker &m, const QString &selId, int selStart, int selEnd,
+                                  int selRow, int selCol)
 {
     const CellGeom *gp = nullptr;
     for (const auto &g : lb.cells) {
@@ -2325,7 +2506,8 @@ static void paintTableCellMarker(QPainter *p, const Document &doc, const Documen
     }
     if (cellp && !cellp->background.isEmpty())
         fill = QColor(cellp->background);
-    if (selId == lb.id && selRow == g.row && selCol == g.col)
+    const bool thisCell = selId == lb.id && selRow == g.row && selCol == g.col;
+    if (thisCell)
         fill = QColor(QStringLiteral("#F3E0CC"));
     QPen cellPen(QColor(QStringLiteral("#D2C8B8")), 1);
     if (cellp && cellp->borderPt > 0) {
@@ -2335,61 +2517,43 @@ static void paintTableCellMarker(QPainter *p, const Document &doc, const Documen
     p->setPen(cellPen);
     p->setBrush(fill);
     p->drawRect(g.rect);
+    const Block host = cellTextBlock(b);
     if (cellp && !cellp->nested.isEmpty()) {
-        const auto &cell = b.table[g.row][g.col];
-        const int nc = cell.nested.first().size();
-        const qreal icw = g.rect.width() / qMax(1, nc);
-        qreal iy = g.rect.top();
-        p->setPen(QPen(QColor(QStringLiteral("#D2C8B8")), 1));
-        for (const auto &nrow : cell.nested) {
-            qreal rh = 16 * lay.zoom;
-            for (const auto &ncell : nrow) {
-                QString t;
-                for (const auto &r : ncell.runs)
-                    t += r.text;
-                rh = qMax(rh, QFontMetricsF(QFont(QStringLiteral("Liberation Serif"), int(10 * lay.zoom)))
-                                  .boundingRect(QRect(0, 0, int(icw - 6), 400), Qt::TextWordWrap, t)
-                                  .height()
-                              + 6);
-            }
-            qreal ix = g.rect.left();
-            for (const auto &ncell : nrow) {
-                QRectF nr(ix, iy, icw, rh);
+        const NestedGeom grid = nestedGeom(doc, host, *cellp, g.rect.width(), lay.zoom);
+        const qreal pad = cellPadPx(*cellp, lay.zoom);
+        qreal iy = g.rect.top() + pad;
+        const qreal ix0 = g.rect.left() + pad;
+        for (int ri = 0; ri < cellp->nested.size(); ++ri) {
+            const qreal rh = ri < grid.rowH.size() ? grid.rowH.at(ri) : 16 * lay.zoom;
+            qreal ix = ix0;
+            const auto &nrow = cellp->nested.at(ri);
+            for (int ci = 0; ci < nrow.size(); ++ci) {
+                const QRectF nr(ix, iy, grid.icw, rh);
                 p->setBrush(QColor(QStringLiteral("#FDFBF7")));
                 p->setPen(QPen(QColor(QStringLiteral("#D2C8B8")), 1));
                 p->drawRect(nr);
-                QString t;
-                for (const auto &r : ncell.runs)
-                    t += r.text;
-                p->setPen(QColor(QStringLiteral("#1A1F24")));
-                QFont tf(QStringLiteral("Liberation Serif"));
-                tf.setPointSizeF(9 * lay.zoom);
-                p->setFont(tf);
-                pdfDrawText(p, nr.adjusted(3, 1, -3, -1), Qt::AlignVCenter | Qt::AlignLeft | Qt::TextWordWrap, t);
-                ix += icw;
+                const QVector<TextRun> runs = runsWithCellDefaults(nrow.at(ci).runs);
+                const BlockTextLayout btl = layoutCellText(doc, host, lay, lb, runs, grid.textW);
+                paintCellText(p, btl, QPointF(nr.left() + 2, nr.top() + 2), -1, -1);
+                ix += grid.icw;
             }
             iy += rh;
         }
-    } else {
-        QString t;
-        if (cellp) {
-            for (const auto &r : cellp->runs)
-                t += r.text;
-        }
-        p->setPen(QColor(QStringLiteral("#1A1F24")));
-        QFont tf(QStringLiteral("Liberation Serif"));
-        tf.setPointSizeF(10 * lay.zoom);
-        p->setFont(tf);
-        const qreal pad = cellp ? cellPadPx(*cellp, lay.zoom) : 4 * lay.zoom;
-        Qt::Alignment va = Qt::AlignVCenter;
-        if (cellp) {
-            if (cellp->vAlign == QLatin1String("top"))
-                va = Qt::AlignTop;
-            else if (cellp->vAlign == QLatin1String("bottom"))
-                va = Qt::AlignBottom;
-        }
-        pdfDrawText(p, g.rect.adjusted(pad, pad, -pad, -pad), va | Qt::AlignLeft | Qt::TextWordWrap, t);
+        return;
     }
+    const TableCell emptyCell;
+    const TableCell &cell = cellp ? *cellp : emptyCell;
+    const qreal pad = cellPadPx(cell, lay.zoom);
+    const qreal textW = qMax(qreal(12), g.rect.width() - pad * 2);
+    const QVector<TextRun> runs = runsWithCellDefaults(cell.runs);
+    const BlockTextLayout btl = layoutCellText(doc, host, lay, lb, runs, textW);
+    qreal y = g.rect.top() + pad;
+    const qreal innerH = qMax(qreal(0), g.rect.height() - pad * 2);
+    if (cell.vAlign == QLatin1String("bottom"))
+        y += qMax(qreal(0), innerH - btl.textHeight);
+    else if (cell.vAlign != QLatin1String("top"))
+        y += qMax(qreal(0), (innerH - btl.textHeight) / 2);
+    paintCellText(p, btl, QPointF(g.rect.left() + pad, y), thisCell ? selStart : -1, thisCell ? selEnd : -1);
 }
 
 static void paintFigureMarker(QPainter *p, const Document &doc, const DocumentLayout &lay, const LaidBlock &lb,
@@ -2541,6 +2705,98 @@ static qreal formatBaselineShift(const QTextCharFormat &format, const QRawFont &
     return delta;
 }
 
+static bool formatUnderline(const QTextCharFormat &format)
+{
+    return format.fontUnderline() || format.font().underline();
+}
+
+static bool formatStrike(const QTextCharFormat &format)
+{
+    return format.fontStrikeOut() || format.font().strikeOut();
+}
+
+static void paintSpanDecorations(QPainter *p, const QTextLine &line, int from, int to, const QPointF &origin,
+                                 const QTextCharFormat &format)
+{
+    if (from >= to || (!formatUnderline(format) && !formatStrike(format)))
+        return;
+    qreal x0 = line.cursorToX(from);
+    qreal x1 = line.cursorToX(to);
+    if (x1 < x0)
+        std::swap(x0, x1);
+    if (qAbs(x1 - x0) < 0.5)
+        return;
+    const qreal thick = qMax(qreal(1), format.font().pointSizeF() / 18.0);
+    const qreal baseline = origin.y() + line.y() + line.ascent();
+    QPen pen = p->pen();
+    pen.setWidthF(thick);
+    pen.setCapStyle(Qt::FlatCap);
+    p->setPen(pen);
+    const qreal left = origin.x() + x0;
+    const qreal right = origin.x() + x1;
+    if (formatStrike(format)) {
+        const qreal y = baseline - qMax(line.ascent() * 0.32, qreal(1));
+        p->drawLine(QPointF(left, y), QPointF(right, y));
+    }
+    if (formatUnderline(format)) {
+        const qreal y = baseline + thick + 1;
+        p->drawLine(QPointF(left, y), QPointF(right, y));
+    }
+}
+
+static void paintShapedGlyph(QPainter *p, const QGlyphRun &gr, const QPointF &origin, const QTextCharFormat &format,
+                             const QColor &fallback)
+{
+    const QBrush fg = format.foreground();
+    p->setPen(fg.style() == Qt::NoBrush ? QPen(fallback) : QPen(fg, 0));
+    const qreal dy = gr.rawFont().isValid() ? formatBaselineShift(format, gr.rawFont()) : 0;
+    pdfNoteGlyphRuns(QList<QGlyphRun>{gr});
+    p->drawGlyphRun(origin + QPointF(0, dy), gr);
+}
+
+// Glyph runs of [from, to) on one line. Font comes from the run; color, highlight,
+// underline, and strike come from the format range, not the block's first run.
+static void paintDisplayRange(QPainter *p, const BlockTextLayout &btl, const QTextLine &line, int from, int to,
+                              const QPointF &origin, const QColor &fallback)
+{
+    if (!btl.layout || from >= to)
+        return;
+    const auto fmts = btl.layout->formats();
+    for (const auto &fr : fmts) {
+        const int a = qMax(from, fr.start);
+        const int b = qMin(to, fr.start + fr.length);
+        if (a >= b)
+            continue;
+        const QBrush bg = fr.format.background();
+        if (bg.style() == Qt::NoBrush)
+            continue;
+        qreal x0 = line.cursorToX(a);
+        qreal x1 = line.cursorToX(b);
+        if (x1 < x0)
+            std::swap(x0, x1);
+        p->fillRect(QRectF(origin.x() + x0, origin.y() + line.y(), qMax(qreal(1), x1 - x0),
+                           qMax(qreal(1), line.height())),
+                    bg);
+    }
+    const QList<QGlyphRun> runs = glyphRunsForRange(line, from, to - from);
+    for (const QGlyphRun &gr : runs) {
+        int pos = from;
+        const QList<qsizetype> idxs = gr.stringIndexes();
+        if (!idxs.isEmpty() && idxs.first() >= 0)
+            pos = int(idxs.first());
+        paintShapedGlyph(p, gr, origin, formatAtDisplay(btl.layout.get(), pos), fallback);
+    }
+    for (const auto &fr : fmts) {
+        const int a = qMax(from, fr.start);
+        const int b = qMin(to, fr.start + fr.length);
+        if (a >= b)
+            continue;
+        const QBrush fg = fr.format.foreground();
+        p->setPen(fg.style() == Qt::NoBrush ? QPen(fallback) : QPen(fg, 0));
+        paintSpanDecorations(p, line, a, b, origin, fr.format);
+    }
+}
+
 // Draw one glyph run QTextLayout already shaped, with that run's font and color.
 static void paintGlyphSlice(QPainter *p, const BlockTextLayout &btl, const QPointF &origin, const PdfTagMarker &m,
                             const QColor &fallback)
@@ -2553,21 +2809,35 @@ static void paintGlyphSlice(QPainter *p, const BlockTextLayout &btl, const QPoin
         return;
     const QGlyphRun &gr = runs.at(m.sliceGlyph);
     int pos = m.textFrom;
+    int end = m.textFrom + 1;
     const QList<qsizetype> idxs = gr.stringIndexes();
-    if (!idxs.isEmpty() && idxs.first() >= 0)
-        pos = int(idxs.first());
+    if (!idxs.isEmpty()) {
+        int lo = -1;
+        int hi = -1;
+        for (qsizetype ix : idxs) {
+            if (ix < 0)
+                continue;
+            if (lo < 0 || int(ix) < lo)
+                lo = int(ix);
+            if (int(ix) > hi)
+                hi = int(ix);
+        }
+        if (lo >= 0) {
+            pos = lo;
+            end = hi + 1;
+        }
+    }
     const QTextCharFormat format = formatAtDisplay(btl.layout.get(), pos);
-    const QBrush fg = format.foreground();
-    p->setPen(fg.style() == Qt::NoBrush ? QPen(fallback) : QPen(fg, 0));
     const QBrush bg = format.background();
     if (bg.style() != Qt::NoBrush) {
         QRectF br = gr.boundingRect();
         br.translate(origin);
         p->fillRect(br, bg);
     }
-    const qreal dy = gr.rawFont().isValid() ? formatBaselineShift(format, gr.rawFont()) : 0;
-    pdfNoteGlyphRuns(QList<QGlyphRun>{gr});
-    p->drawGlyphRun(origin + QPointF(0, dy), gr);
+    paintShapedGlyph(p, gr, origin, format, fallback);
+    const QBrush fg = format.foreground();
+    p->setPen(fg.style() == Qt::NoBrush ? QPen(fallback) : QPen(fg, 0));
+    paintSpanDecorations(p, line, pos, end, origin, format);
 }
 
 static void paintTextMarker(QPainter *p, const Document &doc, const DocumentLayout &lay, const LaidBlock &lb,
@@ -2601,16 +2871,20 @@ static void paintTextMarker(QPainter *p, const Document &doc, const DocumentLayo
         p->setBrush(Qt::NoBrush);
         p->drawRect(lb.rect.adjusted(-2, -1, 2, 1));
     }
-    if (chrome && selId == lb.id && selStart >= 0 && selEnd > selStart) {
-        const QString t = btl.display;
-        const int n = qMax(1, t.size());
-        const qreal x0 = lb.rect.left() + lb.markerWidth + qreal(selStart) / n * (lb.rect.width() - lb.markerWidth);
-        const qreal x1 = lb.rect.left() + lb.markerWidth + qreal(selEnd) / n * (lb.rect.width() - lb.markerWidth);
-        p->fillRect(QRectF(x0, lb.rect.top(), qMax(2.0, x1 - x0), qMin(lb.rect.height(), 22.0 * lay.zoom)),
-                    QColor(QStringLiteral("#B5651D40")));
-    }
-
     const QPointF origin(lb.rect.left() + lb.markerWidth, lb.rect.top() - lb.layoutY0);
+    // tocEntry >= 0 is one marker per TOC run. textFrom/textTo are display
+    // offsets; paintLineSelection takes model offsets and converts them.
+    // Other markers (tocEntry < 0) keep the full model range.
+    if (chrome && selId == lb.id && selEnd > selStart) {
+        int paintStart = selStart;
+        int paintEnd = selEnd;
+        if (m.tocEntry >= 0) {
+            paintStart = qMax(paintStart, btl.toModel(m.textFrom));
+            paintEnd = qMin(paintEnd, btl.toModel(m.textTo));
+        }
+        if (paintStart < paintEnd)
+            paintLineSelection(p, btl, origin, paintStart, paintEnd, &lb);
+    }
     if (!whole) {
         if (m.paintSlice == 2 && btl.dropLines > 0 && !btl.dropLetter.isEmpty()) {
             p->setFont(btl.dropFont);
@@ -2648,14 +2922,12 @@ static void paintTextMarker(QPainter *p, const Document &doc, const DocumentLayo
             if (m.textFrom >= 0) {
                 const int ls = line.textStart();
                 const int le = ls + line.textLength();
+                const int limit = m.textTo < 0 ? le : m.textTo;
                 const int a = qMax(m.textFrom, ls);
-                const int bend = qMin(m.textTo, le);
+                const int bend = qMin(limit, le);
                 if (a >= bend)
                     continue;
-                p->setFont(f);
-                p->setPen(col);
-                pdfDrawText(p, QPointF(origin.x() + line.cursorToX(a), origin.y() + line.y() + line.ascent()),
-                            btl.display.mid(a, bend - a));
+                paintDisplayRange(p, btl, line, a, bend, origin, col);
                 continue;
             }
             pdfDrawLine(p, line, origin);
@@ -2674,9 +2946,9 @@ void paintPage(QPainter *p, const Document &doc, const DocumentLayout &lay, int 
     for (const auto &m : markers) {
         if (!gutterDone && m.artifactPass != 0) {
             gutterDone = true;
-            const int shownEarly = lay.displayPage(page);
-            if (doc.page.gutterMirror && shownEarly % 2 == 0 && doc.page.gutterMm > 0)
-                p->translate(-mmToPx(doc.page.gutterMm, lay.zoom), 0);
+            const qreal gutterDx = mmToPx(lay.pageContentOffsetMm(doc, page), lay.zoom);
+            if (gutterDx != 0)
+                p->translate(gutterDx, 0);
         }
         const Block *bp = m.blockId.isEmpty() ? nullptr : doc.findBlock(m.blockId);
         const LaidBlock *lb = bp ? laidFragment(ordered, m) : nullptr;
@@ -2694,7 +2966,7 @@ void paintPage(QPainter *p, const Document &doc, const DocumentLayout &lay, int 
         if (m.role == PdfTagRole::Artifact) {
             paintArtifactPass(p, doc, lay, page, m.artifactPass, ordered, caretOn, selId, caretOff, selRow, selCol);
         } else if (m.role == PdfTagRole::TableCell && lb && bp) {
-            paintTableCellMarker(p, doc, lay, *lb, *bp, m, selId, selRow, selCol);
+            paintTableCellMarker(p, doc, lay, *lb, *bp, m, selId, selStart, selEnd, selRow, selCol);
         } else if (m.role == PdfTagRole::Figure && lb && bp && bp->type != QLatin1String("frame")) {
             paintFigureMarker(p, doc, lay, *lb, *bp);
         } else if (lb && bp) {
@@ -2704,7 +2976,8 @@ void paintPage(QPainter *p, const Document &doc, const DocumentLayout &lay, int 
     }
 }
 
-PreviewResult renderPage(const Document &doc, int page, double zoom)
+PreviewResult renderPage(const Document &doc, int page, double zoom, const QString &selId, int selStart, int selEnd,
+                         int selRow, int selCol)
 {
     DocumentLayout lay;
     lay.relayout(doc, zoom);
@@ -2717,14 +2990,15 @@ PreviewResult renderPage(const Document &doc, int page, double zoom)
     QPainter p(&res.image);
     p.setRenderHint(QPainter::Antialiasing);
     p.setRenderHint(QPainter::TextAntialiasing);
-    paintPage(&p, doc, lay, page);
+    paintPage(&p, doc, lay, page, selId, selStart, selEnd, selRow, selCol);
     p.end();
     return res;
 }
 
-QByteArray renderPagePng(const Document &doc, int page, double zoom)
+QByteArray renderPagePng(const Document &doc, int page, double zoom, const QString &selId, int selStart, int selEnd,
+                         int selRow, int selCol)
 {
-    const auto r = renderPage(doc, page, zoom);
+    const auto r = renderPage(doc, page, zoom, selId, selStart, selEnd, selRow, selCol);
     QByteArray bytes;
     QBuffer buf(&bytes);
     buf.open(QIODevice::WriteOnly);

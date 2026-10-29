@@ -174,9 +174,30 @@ A-epub-1 e A-epub-6 já estavam **Corrigido** na onda 23.
 
 **Próximo passo sugerido:** onda 26 (layout e preview).
 
-## Onda 26 — Layout e preview
+## Onda 26 — Layout e preview — **entregue** (2026-10-29, branch `fleet/wave26-layout-preview-873f4351`, código em `0f9443e`)
 
-A-preview-1..7 (números de capítulo e nota, hifenização por idioma do span, `note_restart`, TOC sem a formatação do run, seleção proporcional, células sem formatação, hit-test com `gutterMirror`), o nitpick CR-3 (`modelToDisplay` O(M·D)) e A-document-4 (`seq` em tabela aninhada).
+Gate: `scripts/qa-all.sh --gui --interop --pdf --formats` — 195/195 pass, 0 falhas. Tempo real do ctest: 398.61 s. Interop LibreOffice passou (`docx→odt`, `odt→docx`, campos, RTF, export DOCX da onda 24). O alvo GUI `aioffice` compilou antes do ctest.
+
+Executores: **Grok Build 4.7** em T1 (texto), T2 (pintura) e T3 (geometria/campos). **Sonnet** nas lições (PR #17) e na revisão. A revisão não achou defeito; este fechamento não altera código.
+
+| Id | Estado | Notas |
+|---|---|---|
+| A-preview-1 | **Corrigido** | D1. Um só laço em `blockTextLayout` monta o texto e o `FormatRange`. O prefixo sintético (número de capítulo ou de nota) usa o formato do primeiro run e desloca os intervalos seguintes. Juiz `wave26_text` (capítulo). |
+| A-preview-2 | **Corrigido** | D2. Cada run é hifenizado uma vez com `run.lang`, ou `block.lang` se vazio. O hífen suave entra no texto exibido. Juiz `wave26_text`. |
+| A-preview-3 | **Corrigido** | D1. Com `note_restart`, o ordinal da página é decidido no mesmo laço e aparece no texto pintado. Juiz `wave26_text`. |
+| A-preview-4 | **Corrigido** | D4. Trecho entre páginas e TOC pintam fonte, cor, sublinhado, tachado e realce de cada run, não só do primeiro. Juiz `wave26_d4` (pixels, com tolerância). |
+| A-preview-5 | **Corrigido** | D5. A seleção é um retângulo por `QTextLine` (`cursorToX`), no parágrafo, no trecho e na célula. Juiz `wave26_d5`. |
+| A-preview-6 | **Corrigido** | D6. A célula passa por `blockTextLayout`: fonte, tamanho, cor, negrito/itálico, `hidden`, `show_if`, `redact`, realce e campos. Sem formatação explícita, continua Liberation Serif 10 pt, `#1A1F24`. Juiz `wave26_d6`. |
+| A-preview-7 | **Corrigido** | D7. `DocumentLayout::pageContentOffsetMm` é o único deslocamento de `gutter_mirror` (página par, negativo `gutter_mm`). Pintura, PDF, `hit_test` e `caret_geometry` usam o mesmo valor. Juiz `wave26_d7_gutter`. |
+| CR-3-035 | **Corrigido** | D3. `modelToDisplay` é uma varredura com dois ponteiros sobre `displayToModel`. O parágrafo de 100 000 caracteres em `wave26_text` termina dentro do limite de 10 s (o ctest inteiro levou 6.44 s). |
+| A-document-4 | **Corrigido** | D8. `forEachFieldRun` percorre `cell.nested` na ordem do documento, então `seq`, `xref` e `stat` veem esses runs. O modelo só guarda um nível (`NestedCell` tem runs, não outra tabela); a descida cobre esse nível. Juiz `playbook_wave26-d8-nested-seq.json`. |
+| D8b (`filepath`) | **Corrigido** | Achado da revisão local do PR #17, fechado nesta onda. DOCX e RTF escrevem `FILENAME \p`; o import de `FILENAME \p` volta como `filepath` (sem `\p`, continua `filename`). ODT usa `text:file-name text:display="full"`. Juiz `wave26_d8b_filepath`. |
+| D9 (juízes) | **Corrigido** | Cada decisão D1–D8b tem teste `qa/wave26-*` com label `playbook`. PNG via `qa/png_probe.py` (stdlib). O gap de label dos juízes de pintura foi fechado em `0f9443e`. |
+| D10 (regressão) | **Corrigido** | Ondas 12–25 no mesmo `qa-all.sh`. 195/195 pass, incluindo veraPDF PDF/UA-1 e PDF/A-1b, EPUB e RTF. |
+
+**Decisões:** nenhum item da onda 26 foi adiado. O modelo não representa tabela aninhada além de um nível, então “qualquer profundidade” é esse nível. O backlog de GUI (Fase Humano, `src/app/`) não foi tocado.
+
+**Próximo passo sugerido:** sincronizar o Notion e abrir o PR. O backlog de GUI continua na Fase Humano.
 
 ## Fase Humano (GUI) — ficam no backlog, sem correção agora
 

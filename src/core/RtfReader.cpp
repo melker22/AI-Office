@@ -2194,8 +2194,16 @@ private:
             kind = QStringLiteral("author");
         else if (key == QLatin1String("TITLE"))
             kind = QStringLiteral("title");
-        else if (key == QLatin1String("FILENAME"))
+        else if (key == QLatin1String("FILENAME")) {
             kind = QStringLiteral("filename");
+            while (i < inst.size()) {
+                const QString tok = readFieldToken(inst, i);
+                if (tok.isEmpty())
+                    break;
+                if (tok.compare(QLatin1String("\\p"), Qt::CaseInsensitive) == 0)
+                    kind = QStringLiteral("filepath");
+            }
+        }
         else if (key == QLatin1String("NUMWORDS"))
             kind = QStringLiteral("word_count");
         else if (key == QLatin1String("REF") || key == QLatin1String("PAGEREF")) {

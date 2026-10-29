@@ -1,6 +1,6 @@
 # Catálogo Writer — ideias do Guide, código nosso
 
-Espelho git do board **Roadmap para Produção** no Notion ([hub](https://app.notion.com/p/3cb46a79156b819daef5ea9d7c41385a)). Sync: **2026-10-28** (Fase IA **onda 25** entregue: fidelidade de RTF nativo, exportação EPUB e PDF/UA — LCID, campos, notas, listas, estrutura PDF por cópia e células mescladas. A onda 24 continua entregue no round-trip DOCX/ODT e no QR decodificável). Totais: **200 Done**, **10 Partial**, **41 Todo** (contagens Notion podem estar desatualizadas até `notion-sync`). Coluna **Fase** = `IA` | `Humano` | `Infra` | `Fora`.
+Espelho git do board **Roadmap para Produção** no Notion ([hub](https://app.notion.com/p/3cb46a79156b819daef5ea9d7c41385a)). Sync: **2026-10-29** (Fase IA **onda 26** entregue: layout e preview — prefixo de nota e capítulo, hifenização por run, seleção por linha, células, margem espelhada e `seq` em tabela aninhada. A onda 25 continua entregue no RTF, no EPUB e no PDF/UA). Totais: **200 Done**, **10 Partial**, **41 Todo** (contagens Notion podem estar desatualizadas até `notion-sync`). Coluna **Fase** = `IA` | `Humano` | `Infra` | `Fora`.
 
 Fonte citável: The Document Foundation — [LibreOffice Writer Guide 26.2](https://books.libreoffice.org/en/WG262/WG262.html). Atribuição e limites: [`ATTRIBUTION.md`](ATTRIBUTION.md).
 
@@ -24,14 +24,14 @@ Camadas: `JSON+MCP+GUI` · `JSON+MCP` · `só JSON` · `infra`.
 | PDF nativo | Formats | WG 26.2 cap. 7 | JSON+MCP+GUI |
 | JSON nativo + IDs estáveis | MCP | infra | JSON+MCP |
 | MCP + socket GUI viva | MCP | infra (não StarBasic) | JSON+MCP |
-| page_preview estável | MCP | infra | JSON+MCP |
+| page_preview estável | MCP | infra | JSON+MCP. **Onda 26 entregue:** a seleção segue cada `QTextLine` (`cursorToX`), no parágrafo inteiro, no trecho entre páginas e na célula. Não é mais um retângulo proporcional único |
 | Validar schema e IDs | MCP | infra | JSON+MCP |
 | Operações em lote por IDs | MCP | infra | JSON+MCP |
 | Transacções MCP atómicas | MCP | infra | JSON+MCP |
 | Checkpoint e rollback via MCP | MCP | infra | JSON+MCP |
 | Playbook de calls MCP | MCP | infra | JSON+MCP |
 | JSON canónico para git | MCP | infra | JSON+MCP |
-| page_preview por intervalo | MCP | infra | JSON+MCP |
+| page_preview por intervalo | MCP | infra | JSON+MCP. **Onda 26 entregue:** um trecho de parágrafo (quebra de página ou TOC) pinta fonte, cor, sublinhado, tachado e realce de cada run, não só do primeiro |
 | Inserir Markdown em IDs | MCP | infra | JSON+MCP |
 | Árvore do documento via MCP | MCP | infra | JSON+MCP |
 | Duplicar bloco | MCP | infra | JSON+MCP |
@@ -49,14 +49,14 @@ Camadas: `JSON+MCP+GUI` · `JSON+MCP` · `só JSON` · `infra`.
 | Outline de headings | Writer | WG 26.2 cap. 8 | JSON+MCP+GUI |
 | Papel A4/Letter, margens e orientação | Writer | WG 26.2 cap. 5 | JSON+MCP+GUI |
 | Quebra de página | Writer | WG 26.2 cap. 5 | JSON+MCP+GUI |
-| Tabelas: inserir, linhas, colunas, cabeçalho | Writer | WG 26.2 cap. 13 | JSON+MCP+GUI |
+| Tabelas: inserir, linhas, colunas, cabeçalho | Writer | WG 26.2 cap. 13 | JSON+MCP+GUI. **Onda 26 entregue:** a célula é montada por `blockTextLayout` (fonte, tamanho, cor, negrito/itálico, `hidden`, `show_if`, `redact`, realce e campos). Sem formatação explícita, continua Liberation Serif 10 pt, `#1A1F24`. A altura da linha usa o mesmo layout da pintura |
 | Tabs multi-documento | Writer | infra | JSON+MCP+GUI |
 | Templates de documento | Writer | WG 26.2 cap. 10 | JSON+MCP+GUI |
-| Notas de rodapé e de fim | Writer | WG 26.2 cap. 3 | JSON+MCP |
+| Notas de rodapé e de fim | Writer | WG 26.2 cap. 3 | JSON+MCP. **Onda 26 entregue:** o prefixo sintético (número da nota) entra no texto pintado com o formato do primeiro run e desloca os intervalos seguintes. Negrito e cor deixam de cair em cima do número |
 | Tachado, superescrito, subscrito | Writer | WG 26.2 cap. 4 | JSON+MCP |
 | Tabulações | Writer | WG 26.2 cap. 4 | JSON+MCP |
 | Letra capitular | Writer | WG 26.2 cap. 4 | JSON+MCP |
-| Tabelas aninhadas | Writer | WG 26.2 cap. 13 | JSON+MCP |
+| Tabelas aninhadas | Writer | WG 26.2 cap. 13 | JSON+MCP. **Onda 26 entregue:** `seq`, `xref` e `stat` dentro de `cell.nested` entram na avaliação, na ordem do documento. O modelo só guarda um nível (`NestedCell` tem runs, não outra tabela) |
 | Mala direta | Writer | WG 26.2 cap. 14 | JSON+MCP |
 | Bordas de parágrafo | Writer | WG 26.2 cap. 4 | JSON+MCP |
 | Bordas da página | Writer | WG 26.2 cap. 5 | JSON+MCP |
@@ -109,13 +109,13 @@ Camadas: `JSON+MCP+GUI` · `JSON+MCP` · `só JSON` · `infra`.
 | Alinhamento vertical na célula | Writer | WG 26.2 cap. 13 | JSON+MCP |
 | Padding de célula | Writer | WG 26.2 cap. 13 | JSON+MCP |
 | Recuos de parágrafo | Writer | WG 26.2 cap. 4 | JSON+MCP |
-| Margem de encadernação (gutter) | Writer | WG 26.2 cap. 5 | JSON+MCP |
+| Margem de encadernação (gutter) | Writer | WG 26.2 cap. 5 | JSON+MCP. **Onda 26 entregue:** com `gutter_mirror`, a página par desloca o conteúdo por `pageContentOffsetMm` (pintura, PDF, `hit_test` e `caret_geometry`). O hit-test no ponto pintado devolve a palavra pintada |
 | Colunas de página 2–3 (desiguais) | Writer | WG 26.2 cap. 6 | JSON+MCP |
 | Capítulo no cabeçalho | Writer | WG 26.2 cap. 6 | JSON+MCP |
 | Marca d'água | Writer | WG 26.2 cap. 5 | JSON+MCP |
 | Variáveis de documento | Writer | WG 26.2 cap. 17 | JSON+MCP |
 | Campo de input | Writer | WG 26.2 cap. 17 | JSON+MCP |
-| Campo ficheiro | Writer | WG 26.2 cap. 17 | JSON+MCP |
+| Campo ficheiro | Writer | WG 26.2 cap. 17 | JSON+MCP. **Onda 26 entregue:** `filepath` sai como `FILENAME \p` no DOCX e no RTF, e como `text:file-name text:display="full"` no ODT. O import de `FILENAME \p` volta como `filepath`; sem `\p`, continua `filename` |
 | Campo contagem de palavras | Writer | WG 26.2 cap. 17 | JSON+MCP |
 | Documento só de leitura | Writer | WG 26.2 cap. 2 | JSON+MCP |
 | Propriedades do documento | Writer | WG 26.2 cap. 1 | JSON+MCP |
@@ -134,7 +134,7 @@ Camadas: `JSON+MCP+GUI` · `JSON+MCP` · `só JSON` · `infra`.
 | QR no texto | Writer | WG 26.2 cap. 11 | JSON+MCP. **Onda 24 entregue (A-odf-10):** `encodeQr` usa byte mode até a versão 10, com correção nível M. Os módulos de função são reservados antes dos dados. A máscara é a de menor penalidade entre as oito. O juiz `zbarimg` confirma que o símbolo é decodificável |
 | Equação numerada | Writer | WG 26.2 cap. 17 | JSON+MCP |
 | Formulário no texto | Writer | WG 26.2 cap. 13 | JSON+MCP |
-| Numeração de capítulos e linhas | Writer | WG 26.2 cap. 6 | JSON+MCP |
+| Numeração de capítulos e linhas | Writer | WG 26.2 cap. 6 | JSON+MCP. **Onda 26 entregue:** o número de capítulo é prefixo sintético no mesmo laço do texto e dos intervalos. A formatação do corpo começa depois do número |
 | Tom de papel, grelha, tamanho mm | Writer | WG 26.2 cap. 5 | JSON+MCP |
 | Livreto PDF 2-up | Formats | WG 26.2 cap. 7 | JSON+MCP |
 | Citação e base bibliográfica (JSON) | Writer | WG 26.2 cap. 15 | JSON+MCP |
@@ -156,7 +156,7 @@ Camadas: `JSON+MCP+GUI` · `JSON+MCP` · `só JSON` · `infra`.
 | Exportar HTML | Formats | WG 26.2 cap. 7 | JSON+MCP |
 | Biblioteca de imagens do utilizador | Writer | WG 26.2 cap. 11 | JSON+MCP |
 | Índice bibliográfico | Writer | WG 26.2 cap. 15 | JSON+MCP |
-| Notas: reinício por página | Writer | WG 26.2 cap. 3 | JSON+MCP |
+| Notas: reinício por página | Writer | WG 26.2 cap. 3 | JSON+MCP. **Onda 26 entregue:** com `note_restart`, o marcador pintado mostra o ordinal da página. O número deixa de existir só no intervalo de formatação |
 | Órfãs e viúvas | Writer | WG 26.2 cap. 4 | JSON+MCP |
 | Localizar com regex | Writer | WG 26.2 cap. 3 | JSON+MCP |
 | Sumário automático (só headings) | Writer | WG 26.2 cap. 15 | JSON+MCP |
@@ -165,7 +165,7 @@ Camadas: `JSON+MCP+GUI` · `JSON+MCP` · `só JSON` · `infra`.
 | Controle de alterações (inserir/apagar) | Writer | WG 26.2 cap. 3 | JSON+MCP |
 | Hiperlink | Writer | WG 26.2 cap. 3 | JSON+MCP |
 | Marcadores e referências cruzadas | Writer | WG 26.2 cap. 17 | JSON+MCP |
-| Hifenação real (Knuth-Liang) | Writer | WG 26.2 cap. 4 | JSON+MCP |
+| Hifenação real (Knuth-Liang) | Writer | WG 26.2 cap. 4 | JSON+MCP. **Onda 26 entregue:** cada run é hifenizado uma vez, com `run.lang` ou, se vazio, `block.lang`. O hífen suave fica no texto exibido. `modelToDisplay` é uma varredura linear (deixa de ser O(M·D) em cada medida, pintura, caret e hit-test) |
 | Impressão: intervalo, cópias | Writer | WG 26.2 cap. 7 | JSON+MCP |
 | Comentários no PDF | Formats | WG 26.2 cap. 7 | JSON+MCP |
 | PDF/A e PDF etiquetado | Formats | WG 26.2 cap. 7 | JSON+MCP. **Onda 25 (PDF/UA) entregue:** `pdfUtf16String` escapa CR/LF/TAB/BS/FF além de `( ) \`; com `copies>1` a estrutura é por cópia de página; lista aninhada é `/L` dentro do `/LI` pai; célula mesclada leva `/ColSpan` e `/RowSpan`, e a célula coberta é `/Artifact`. PDF/UA-1 e PDF/A-1b continuam conformes no veraPDF (suíte wave 19 + `check_pdf.py --self-test`) |
@@ -187,7 +187,7 @@ Camadas: `JSON+MCP+GUI` · `JSON+MCP` · `só JSON` · `infra`.
 | Linux packaging / PATH | Platform | infra | PATH global NixOS |
 | Round-trip ODT/DOCX | Formats | WG 26.2 cap. 1, 7 | **Onda 12:** bookmarks, hiperlinks, campos e revisão `insert` já tinham marcação nativa. **Onda 17 entregue:** revisões `delete`/`format` (export/import `w:del`/`w:rPrChange`, ODF `text:deletion`/`text:format-change`), invariante D1 + `priorRuns` + reject/accept, caminho estrangeiro sem `aioffice.json`, fixtures `qa/fixtures/`, playbooks wave 17, gate `--interop` LibreOffice. **Onda 18 entregue:** `IF`/`SEQ`/contagens/`doc_info`/remetente/lista/`hideIf` nativos ODT; DOCX nativo para comparação simples `IF`, `SEQ`, `NUMPAGES`/`NUMWORDS`/`NUMCHARS`, `DOCPROPERTY`/datas/revisão, `w:vanish` no export; fixtures/playbooks wave 18 + interop campos. **Onda 24 entregue:** DOCX import lê `w:sz`/`w:rFonts`/`w:color`, `w:bidi` real, mm reais de página, pilha de tabela aninhada, `docProps/core.xml` e `word/numbering.xml`; export escreve `w:gridSpan`/`w:vMerge`/tabela aninhada/legenda `SEQ`, campo dentro de `w:del` como `w:delText`, bookmark `w:id` único por documento, `FILLIN` escapado uma vez e `w:color` validado por hex6; parsing nativo de revisão (`w:ins`/`w:del`/`w:rPrChange`) não é mais descartado quando há JSON (CR-1-009). ODT import distingue `text:note-citation` do corpo da nota, lê `style:font-name`, `table:number-rows-spanned` e o tipo real de lista (`style:num-format`); blocos `shape`/`chart`/`qr`/`form` têm leitura e escrita próprias; nomes de estilo e orientação de página escapados; `roundtrip_foreign_odt_wave17`/`roundtrip_foreign_docx_wave17` (A-qa-1) saíram de `DISABLED` e passam. Tabela esparsa export→reimport ODT também corrigida (`appendOuterTable`). **Ainda falta de verdade:** notas de rodapé/fim com **vários parágrafos** no round-trip; dezenas de outros tipos de campo do Guide; hops LO docx↔odt que não preservam expressão/`hideIf`; fidelidade perfeita em todos os documentos Word/LO de terceiros |
 | Autocorrect mínimo | Writer | WG 26.2 cap. 2 | GUI |
-| Campos dinâmicos | Writer | WG 26.2 cap. 17 | **Onda 18 entregue (JSON+MCP+round-trip):** avaliador `FieldExpr`, `field_evaluate`, campo `if`, `doc_info`, `stat` (live + refresh em sessão dirty; cache limpo em open estrangeiro), `sender`, `seq`, `input_list`; onda 12 mantém merge/var/input/time/cite/page. **Ainda falta de verdade:** dezenas de tipos do Guide (REF, índices automáticos Word, USERNAME complexo, etc.); DOCX exporta `if` composto como texto avaliado; reimport estrangeiro DOCX sem `NUMPAGES`/`NUMCHARS` para `stat` paragraphs/tables/images; GUI inserir campo |
+| Campos dinâmicos | Writer | WG 26.2 cap. 17 | **Onda 18 entregue (JSON+MCP+round-trip):** avaliador `FieldExpr`, `field_evaluate`, campo `if`, `doc_info`, `stat` (live + refresh em sessão dirty; cache limpo em open estrangeiro), `sender`, `seq`, `input_list`; onda 12 mantém merge/var/input/time/cite/page. **Onda 26 entregue:** um `seq` dentro de `cell.nested` recebe o número (`forEachFieldRun` desce nesse nível). **Ainda falta de verdade:** dezenas de tipos do Guide (REF, índices automáticos Word, USERNAME complexo, etc.); DOCX exporta `if` composto como texto avaliado; reimport estrangeiro DOCX sem `NUMPAGES`/`NUMCHARS` para `stat` paragraphs/tables/images; GUI inserir campo |
 | Estilos só parágrafo | Writer | WG 26.2 cap. 8–9 | GUI carácter |
 | Ortografia Hunspell | Writer | WG 26.2 cap. 3 | Build sem Hunspell |
 | Citação CSL | Writer | WG 26.2 cap. 15 | Onda 14: formatador real (não genérico) para 4 estilos — APA/ABNT/MLA/Chicago — × 4 tipos de referência (book/article-journal/webpage/chapter), citação in-text e bibliografia com itálico real, `src/core/Csl.cpp`. Falta suporte a arquivo `.csl` arbitrário (processador CSL-XML genérico) — pesquisado antes de começar: não existe biblioteca C/C++ embutível com licença compatível (citeproc-rs é Rust sem FFI-C; citeproc-java é JVM) |
@@ -203,6 +203,8 @@ Fase IA Writer **não** está encerrada: o board ainda tem Todos de chrome, pack
 **Onda 20 (EPUB + RTF):** `document_save` com `.epub` gera EPUB 3 (`mimetype` stored primeiro, nav, capítulo por H1, CSS dos estilos, campos avaliados, `hide_if` omitido, formas/gráficos/QR rasterizados, metadados schema.org de acessibilidade); julgado com epubcheck **0 erros, 0 avisos** em `qa/wave20-epub*.json`. RTF nativo (`RtfReader`/`RtfWriter`): `.rtf` abre só pelo leitor nativo; export cobre parágrafo/carácter, listas, tabelas, notas, imagens, campos, marcadores; ida-e-volta própria + fixtures Word/LibreOffice + interop LibreOffice na gate `--formats --interop`. **Limites honestos entregues:** revisões, comentários de bloco e formas/molduras exportados em RTF como **texto plano**, com aviso único em `warnings[]` (`RTF export: tracked revisions…`, `block comments…`, `shapes/forms…`).
 
 **Onda 25 (fidelidade RTF, EPUB e PDF/UA):** ver as linhas **RTF nativo**, **Exportação EPUB** e **PDF/A e PDF etiquetado**. Juízes `qa/wave25-*`. O limite da onda 19 (lista ou tabela aninhada dentro de uma célula, sem tags próprias) não é o D22: D22 etiqueta o nível da lista no fluxo principal. Subsetting de fontes no PDF continua fora.
+
+**Onda 26 (layout e preview):** ver **page_preview estável**, **page_preview por intervalo**, **Notas de rodapé e de fim**, **Notas: reinício por página**, **Numeração de capítulos e linhas**, **Hifenação real (Knuth-Liang)**, **Tabelas: inserir, linhas, colunas, cabeçalho**, **Tabelas aninhadas**, **Margem de encadernação (gutter)**, **Campo ficheiro** e **Campos dinâmicos**. Juízes `qa/wave26-*`. O PDF continua a passar pelo mesmo pintor (veraPDF PDF/UA-1 e PDF/A-1b conformes). A GUI (`src/app/`) não mudou.
 
 - **Humano (chrome Tinta & Papel):** régua; stats GUI; zoom GUI; print preview; Navigator; paleta; atalhos; recents; status bar; modo leitura; split; foco/typewriter; inspector; balloons; DnD reorder; teclado só no canvas; Autocorrect lista GUI; underline ao escrever; impressão.
 - **Infra:** backup `~`; layout lazy; watch file; Hunspell Nix; Flatpak; CRDT; **DOC nativo (via soffice)**; assinatura; senha; crash recovery; autosave.

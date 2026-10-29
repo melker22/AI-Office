@@ -313,6 +313,42 @@ set_tests_properties(wave23_lok PROPERTIES LABELS "playbook" TIMEOUT 60 WORKING_
 add_test(NAME wave23_cli COMMAND "${CMAKE_COMMAND}" -E env AIOFFICE_HEADLESS=1 QT_QPA_PLATFORM=offscreen
     "${Python3_EXECUTABLE}" "${CMAKE_SOURCE_DIR}/qa/check_wave23_cli.py" "${AIOFFICE_CLI}")
 set_tests_properties(wave23_cli PROPERTIES LABELS "playbook" TIMEOUT 60 WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}")
+# Wave 26 geometry (D7) and filepath (D8b). D8 is the JSON playbook above.
+add_test(NAME wave26_d7_gutter COMMAND "${CMAKE_COMMAND}" -E env AIOFFICE_HEADLESS=1 QT_QPA_PLATFORM=offscreen
+    "${Python3_EXECUTABLE}" "${CMAKE_SOURCE_DIR}/qa/wave26-d7-gutter.py" --cli "${AIOFFICE_CLI}")
+set_tests_properties(wave26_d7_gutter PROPERTIES
+    LABELS "playbook"
+    TIMEOUT 180
+    WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}"
+)
+add_test(NAME wave26_d8b_filepath COMMAND "${CMAKE_COMMAND}" -E env AIOFFICE_HEADLESS=1 QT_QPA_PLATFORM=offscreen
+    "${Python3_EXECUTABLE}" "${CMAKE_SOURCE_DIR}/qa/wave26-d8b-filepath.py" --cli "${AIOFFICE_CLI}")
+set_tests_properties(wave26_d8b_filepath PROPERTIES
+    LABELS "playbook"
+    TIMEOUT 180
+    WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}"
+)
+add_test(NAME wave26_d8_seq_order COMMAND "${CMAKE_COMMAND}" -E env AIOFFICE_HEADLESS=1 QT_QPA_PLATFORM=offscreen
+    "${Python3_EXECUTABLE}" "${CMAKE_SOURCE_DIR}/qa/wave26-d8-seq-order.py" --cli "${AIOFFICE_CLI}")
+set_tests_properties(wave26_d8_seq_order PROPERTIES
+    LABELS "playbook"
+    TIMEOUT 180
+    WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}"
+)
+add_test(NAME wave26_d1_run_height COMMAND "${CMAKE_COMMAND}" -E env AIOFFICE_HEADLESS=1 QT_QPA_PLATFORM=offscreen
+    "${Python3_EXECUTABLE}" "${CMAKE_SOURCE_DIR}/qa/wave26-d1-run-height.py" --cli "${AIOFFICE_CLI}")
+set_tests_properties(wave26_d1_run_height PROPERTIES
+    LABELS "playbook"
+    TIMEOUT 180
+    WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}"
+)
+add_test(NAME wave26_d5_toc_selection COMMAND "${CMAKE_COMMAND}" -E env AIOFFICE_HEADLESS=1 QT_QPA_PLATFORM=offscreen
+    "${Python3_EXECUTABLE}" "${CMAKE_SOURCE_DIR}/qa/wave26-d5-toc-selection.py" --cli "${AIOFFICE_CLI}")
+set_tests_properties(wave26_d5_toc_selection PROPERTIES
+    LABELS "playbook"
+    TIMEOUT 180
+    WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}"
+)
 add_test(NAME pr_merge_gate_selftest COMMAND "${Python3_EXECUTABLE}" "${CMAKE_SOURCE_DIR}/scripts/pr-merge-gate.py" --self-test)
 set_tests_properties(pr_merge_gate_selftest PROPERTIES LABELS "playbook" WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}")
 add_test(NAME usage_guard_selftest COMMAND "${Python3_EXECUTABLE}" "${CMAKE_SOURCE_DIR}/scripts/usage-guard.py" --self-test)
@@ -462,6 +498,26 @@ endforeach()
 add_test(NAME pdf_check_selftest COMMAND "${Python3_EXECUTABLE}" "${CMAKE_SOURCE_DIR}/qa/check_pdf.py" --self-test --cli "${AIOFFICE_CLI}")
 set_tests_properties(pdf_check_selftest PROPERTIES LABELS "playbook" WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}")
 
+# Wave 26 paint judges. png_probe.py is stdlib-only and does not need the CLI.
+add_test(NAME wave26_png_probe COMMAND "${Python3_EXECUTABLE}" "${CMAKE_SOURCE_DIR}/qa/png_probe.py" --self-test)
+# playbook so scripts/qa-all.sh and CircleCI (-L playbook|…) run these judges.
+# wave26 stays so `ctest -R wave26` / `-L wave26` still select them.
+set_tests_properties(wave26_png_probe PROPERTIES
+    LABELS "playbook;wave26"
+    WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}"
+    TIMEOUT 30
+)
+foreach(_w26_check d4 d5 d6)
+    add_test(NAME "wave26_${_w26_check}" COMMAND "${CMAKE_COMMAND}" -E env AIOFFICE_HEADLESS=1 QT_QPA_PLATFORM=offscreen
+        "${Python3_EXECUTABLE}" "${CMAKE_SOURCE_DIR}/qa/wave26-paint.py"
+        --check "${_w26_check}" --cli "${AIOFFICE_CLI}")
+    set_tests_properties("wave26_${_w26_check}" PROPERTIES
+        LABELS "playbook;wave26"
+        WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}"
+        TIMEOUT 180
+    )
+endforeach()
+
 if(EXISTS "${CMAKE_SOURCE_DIR}/qa/wave20-rtf-out.json"
    AND EXISTS "${CMAKE_SOURCE_DIR}/qa/wave20-rtf-out.rtf.json")
     add_test(NAME rtf_wave20_rtf_out COMMAND "${CMAKE_COMMAND}" -E env AIOFFICE_HEADLESS=1 QT_QPA_PLATFORM=offscreen
@@ -553,5 +609,15 @@ add_test(NAME rtf_footnote_flush COMMAND "${CMAKE_COMMAND}" -E env AIOFFICE_HEAD
 set_tests_properties(rtf_footnote_flush PROPERTIES
     LABELS "rtf"
     TIMEOUT 90
+    WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}"
+)
+
+# Wave 26 D1–D3. The PNG helper is qa/png_probe.py (stdlib only). D3's own
+# limit is 10s; the ctest budget covers the other judges plus that timeout.
+add_test(NAME wave26_text COMMAND "${CMAKE_COMMAND}" -E env AIOFFICE_HEADLESS=1 QT_QPA_PLATFORM=offscreen
+    "${Python3_EXECUTABLE}" "${CMAKE_SOURCE_DIR}/qa/wave26-text.py" --cli "${AIOFFICE_CLI}")
+set_tests_properties(wave26_text PROPERTIES
+    LABELS "playbook"
+    TIMEOUT 180
     WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}"
 )

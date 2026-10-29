@@ -1649,10 +1649,9 @@ static void forEachFieldRun(const Document &doc,
             if (fn(block, run, &run))
                 return;
         }
-        for (const auto &run : block.captionRuns) {
-            if (fn(block, run, &run))
-                return;
-        }
+        // DOCX writes the nested w:tbl, then the caption paragraph. Seq numbers
+        // follow that order. NestedCell stores runs, not another table, so this
+        // is the only nested level.
         if (block.type == QLatin1String("table")) {
             for (const auto &row : block.table) {
                 for (const auto &cell : row) {
@@ -1660,8 +1659,20 @@ static void forEachFieldRun(const Document &doc,
                         if (fn(block, run, &run))
                             return;
                     }
+                    for (const auto &nestedRow : cell.nested) {
+                        for (const auto &nestedCell : nestedRow) {
+                            for (const auto &run : nestedCell.runs) {
+                                if (fn(block, run, &run))
+                                    return;
+                            }
+                        }
+                    }
                 }
             }
+        }
+        for (const auto &run : block.captionRuns) {
+            if (fn(block, run, &run))
+                return;
         }
     }
 }
@@ -1692,15 +1703,25 @@ static int seqNumberOfBlock(const Document &doc, const QString &blockId)
     const Block *target = doc.findBlock(blockId);
     if (!target)
         return 0;
-    int found = 0;
-    forEachFieldRun(doc, [&](const Block &block, const TextRun &run, const TextRun *ptr) {
-        if (block.id != blockId || run.field != QLatin1String("seq"))
-            return false;
-        found = seqOrdinal(doc, seqFieldName(run), ptr);
-        return true;
-    });
-    if (found > 0)
-        return found;
+    // A category reference names the caption seq when the caption has one,
+    // even though that seq is numbered after the nested fields above.
+    for (const auto &run : target->captionRuns) {
+        if (run.field != QLatin1String("seq"))
+            continue;
+        const int n = seqOrdinal(doc, seqFieldName(run), &run);
+        if (n > 0)
+            return n;
+    }
+    // Then a seq in the block's own runs. A seq inside one of its table cells (nested or not)
+    // numbers that cell's content, not the block, so a caption-less table falls back to its
+    // category ordinal.
+    for (const auto &run : target->runs) {
+        if (run.field != QLatin1String("seq"))
+            continue;
+        const int n = seqOrdinal(doc, seqFieldName(run), &run);
+        if (n > 0)
+            return n;
+    }
     return categoryOrdinalOf(doc, blockId);
 }
 
