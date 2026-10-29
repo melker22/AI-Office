@@ -76,7 +76,8 @@ nodes:
       Para cada decisão: primeiro um teste que FALHA hoje (qa/wave25-*.json ligado ao ctest, ou checker),
       depois a correção. Compile só o alvo do CLI (`cmake --preset linux` e `cmake --build --preset linux
       --target aioffice_cli`; no worktree isolado o primeiro build desse alvo é inevitável, nunca o projeto
-      inteiro) e rode `ctest --test-dir build/linux -R wave25`. O QA completo é do gate `build-1`, não deste
+      inteiro) e rode `ctest --test-dir build/linux -R 'wave25|rtf_check|epub_check|pdf_check'` (inclui os juízes
+      de formato). O QA completo é do gate `build-1`, não deste
       nó (L26). Commits em inglês (fix:/test:), sem push. Submeta commit = `git rev-parse HEAD`, qa_green, summary (decisão → teste → commit).
     success_output: qa_green
     output_contract: *executor_contract
@@ -102,7 +103,8 @@ nodes:
       Para cada decisão: primeiro um teste que FALHA hoje (qa/wave25-*.json ligado ao ctest, ou checker),
       depois a correção. Compile só o alvo do CLI (`cmake --preset linux` e `cmake --build --preset linux
       --target aioffice_cli`; no worktree isolado o primeiro build desse alvo é inevitável, nunca o projeto
-      inteiro) e rode `ctest --test-dir build/linux -R wave25`. O QA completo é do gate `build-1`, não deste
+      inteiro) e rode `ctest --test-dir build/linux -R 'wave25|rtf_check|epub_check|pdf_check'` (inclui os juízes
+      de formato). O QA completo é do gate `build-1`, não deste
       nó (L26). Commits em inglês (fix:/test:), sem push. Submeta commit = `git rev-parse HEAD`, qa_green, summary (decisão → teste → commit).
     success_output: qa_green
     output_contract: *executor_contract
@@ -125,7 +127,8 @@ nodes:
       Para cada decisão: primeiro um teste que FALHA hoje (qa/wave25-*.json ligado ao ctest, ou checker),
       depois a correção. Compile só o alvo do CLI (`cmake --preset linux` e `cmake --build --preset linux
       --target aioffice_cli`; no worktree isolado o primeiro build desse alvo é inevitável, nunca o projeto
-      inteiro) e rode `ctest --test-dir build/linux -R wave25`. O QA completo é do gate `build-1`, não deste
+      inteiro) e rode `ctest --test-dir build/linux -R 'wave25|rtf_check|epub_check|pdf_check'` (inclui os juízes
+      de formato). O QA completo é do gate `build-1`, não deste
       nó (L26). Commits em inglês (fix:/test:), sem push. Submeta commit = `git rev-parse HEAD`, qa_green, summary (decisão → teste → commit).
     success_output: qa_green
     output_contract: *executor_contract
@@ -149,7 +152,8 @@ nodes:
       Para cada decisão: primeiro um teste que FALHA hoje (qa/wave25-*.json ligado ao ctest, ou checker),
       depois a correção. Compile só o alvo do CLI (`cmake --preset linux` e `cmake --build --preset linux
       --target aioffice_cli`; no worktree isolado o primeiro build desse alvo é inevitável, nunca o projeto
-      inteiro) e rode `ctest --test-dir build/linux -R wave25`. O QA completo é do gate `build-1`, não deste
+      inteiro) e rode `ctest --test-dir build/linux -R 'wave25|rtf_check|epub_check|pdf_check'` (inclui os juízes
+      de formato). O QA completo é do gate `build-1`, não deste
       nó (L26). Commits em inglês (fix:/test:), sem push. Submeta commit = `git rev-parse HEAD`, qa_green, summary (decisão → teste → commit).
     success_output: qa_green
     output_contract: *executor_contract
