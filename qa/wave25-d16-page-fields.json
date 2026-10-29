@@ -48,10 +48,10 @@
         "EPUB export: page_count in pFields left empty (EPUB has no pages)",
         "EPUB export: xref page hTarget in pFields replaced by a link to the target text",
         "EPUB export: xref page imgCap in pFields replaced by a link to the target text",
-        "EPUB export: xref page pHid in pFields replaced by a link to the target text",
-        "EPUB export: xref page goneX in pFields replaced by a link to the target text",
+        "EPUB export: xref page pHid in pFields written as plain text, target not in the package",
+        "EPUB export: xref page goneX in pFields written as plain text, target not in the package",
         "EPUB export: xref page bmVis in pFields replaced by a link to the target text",
-        "EPUB export: xref page bmExpr in pFields replaced by a link to the target text"
+        "EPUB export: xref page bmExpr in pFields written as plain text, target not in the package"
       ]
     }}
   ],

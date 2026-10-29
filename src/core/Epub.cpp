@@ -590,12 +590,17 @@ void writeRuns(XhtmlWriter &x, WriteCtx &ctx, const Block &host, const QVector<T
             continue;
         }
         if (r.field == QLatin1String("xref") && r.xrefKind == QLatin1String("page")) {
-            warnOnce(ctx, QStringLiteral("EPUB export: xref page %1 in %2 replaced by a link to the target text")
-                             .arg(r.fieldArg, host.id));
             const QString href = xrefPageHref(ctx, r.fieldArg);
             const QString label = xrefPageLabel(*ctx.doc, r.fieldArg);
-            if (!href.isEmpty())
+            if (!href.isEmpty()) {
+                warnOnce(ctx, QStringLiteral("EPUB export: xref page %1 in %2 replaced by a link to the target text")
+                                 .arg(r.fieldArg, host.id));
                 x.start(QStringLiteral("a"), {{QStringLiteral("href"), href}});
+            } else {
+                warnOnce(ctx, QStringLiteral(
+                                 "EPUB export: xref page %1 in %2 written as plain text, target not in the package")
+                                 .arg(r.fieldArg, host.id));
+            }
             x.text(label.isEmpty() ? r.fieldArg : label);
             if (!href.isEmpty())
                 x.end(QStringLiteral("a"));
