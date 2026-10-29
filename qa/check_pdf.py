@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+import inspect
 import json
 import os
 import re
@@ -953,8 +954,38 @@ def run_wave25_suite(cli: Path) -> int:
     return 1 if failed else 0
 
 
-def self_test() -> int:
+def pdf_cli_wiring_errors() -> list[str]:
+    """self_test must take the CLI and pass it on; ctest must pass that path."""
+    errors: list[str] = []
+    source = inspect.getsource(self_test)
+    if "build/linux/aioffice-cli" in source:
+        errors.append("pdf self_test still uses build/linux/aioffice-cli")
+    if "run_wave25_suite(cli)" not in source:
+        errors.append("pdf self_test does not pass cli into run_wave25_suite")
+    if not source.startswith("def self_test(cli:"):
+        errors.append("pdf self_test does not take the cli path")
+    main_source = inspect.getsource(main)
+    if "self_test(args.cli)" not in main_source:
+        errors.append("pdf main does not pass args.cli into self_test")
+    cmake = (REPO / "CMakeLists.txt").read_text(encoding="utf-8")
+    start = cmake.find("add_test(NAME pdf_check_selftest")
+    end = cmake.find("set_tests_properties(pdf_check_selftest", start)
+    if start < 0 or end < 0:
+        errors.append("pdf_check_selftest CMake block not found")
+    elif '--cli "${AIOFFICE_CLI}"' not in cmake[start:end]:
+        errors.append('pdf_check_selftest does not pass --cli "${AIOFFICE_CLI}"')
+    return errors
+
+
+def self_test(cli: Path) -> int:
     ok = True
+
+    wiring = pdf_cli_wiring_errors()
+    if wiring:
+        print("FAIL self-test cli wiring: " + "; ".join(wiring))
+        ok = False
+    else:
+        print("ok   pdf self-test uses the passed CLI")
 
     dup = note_id_errors(
         [{"/S": "/Note", "/ID": "fn1"}, {"/S": "/Note", "/ID": "fn1"}],
@@ -1109,7 +1140,7 @@ def self_test() -> int:
     else:
         print("ok   named \r \n \t \b \f escapes decode")
 
-    if run_wave25_suite(REPO / "build/linux/aioffice-cli") != 0:
+    if run_wave25_suite(cli) != 0:
         ok = False
 
     return 0 if ok else 1
@@ -1126,7 +1157,7 @@ def main() -> int:
     args = parser.parse_args()
 
     if args.self_test:
-        return self_test()
+        return self_test(args.cli)
     if args.wave25:
         return run_wave25_suite(args.cli.resolve())
 
