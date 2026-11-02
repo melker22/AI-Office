@@ -623,3 +623,22 @@ set_tests_properties(wave26_text PROPERTIES
     TIMEOUT 180
     WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}"
 )
+
+# Wave 27 (T2): export_html shares the EPUB XHTML block renderer (D4/D5) and a
+# note with U+2029 exports as one paragraph per element (D2, EPUB/HTML side).
+# qa/wave27-html.py drives the CLI with a generated playbook and parses the
+# exported HTML and EPUB as XML.
+add_test(NAME wave27_html COMMAND "${CMAKE_COMMAND}" -E env AIOFFICE_HEADLESS=1 QT_QPA_PLATFORM=offscreen
+    "${Python3_EXECUTABLE}" "${CMAKE_SOURCE_DIR}/qa/wave27-html.py" --cli "${AIOFFICE_CLI}")
+set_tests_properties(wave27_html PROPERTIES
+    LABELS "playbook"
+    TIMEOUT 180
+    WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}"
+)
+add_test(NAME wave27_html_selftest COMMAND "${Python3_EXECUTABLE}"
+    "${CMAKE_SOURCE_DIR}/qa/wave27-html.py" --self-test --cli "${AIOFFICE_CLI}")
+set_tests_properties(wave27_html_selftest PROPERTIES
+    LABELS "playbook"
+    TIMEOUT 180
+    WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}"
+)
