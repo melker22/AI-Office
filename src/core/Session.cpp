@@ -4563,96 +4563,23 @@ QJsonObject Session::copyMarkdown(const QJsonObject &args)
     return r;
 }
 
-static QString runsToHtml(const QVector<TextRun> &runs)
-{
-    QString out;
-    for (const auto &r : runs) {
-        QString t = r.text.toHtmlEscaped();
-        t.replace(QLatin1Char('\n'), QStringLiteral("<br/>"));
-        if (r.bold)
-            t = QStringLiteral("<strong>%1</strong>").arg(t);
-        if (r.italic)
-            t = QStringLiteral("<em>%1</em>").arg(t);
-        if (r.underline)
-            t = QStringLiteral("<u>%1</u>").arg(t);
-        if (r.strike)
-            t = QStringLiteral("<s>%1</s>").arg(t);
-        if (!r.link.isEmpty())
-            t = QStringLiteral("<a href=\"%1\">%2</a>").arg(r.link.toHtmlEscaped(), t);
-        out += t;
-    }
-    return out;
-}
-
-static QString blockToHtml(const Block &b)
-{
-    if (b.type == QLatin1String("heading")) {
-        const int lv = qBound(1, b.level > 0 ? b.level : 1, 6);
-        return QStringLiteral("<h%1 id=\"%2\">%3</h%1>")
-            .arg(lv)
-            .arg(b.id.toHtmlEscaped(), runsToHtml(b.runs));
-    }
-    if (b.type == QLatin1String("list-item"))
-        return QStringLiteral("<li id=\"%1\">%2</li>").arg(b.id.toHtmlEscaped(), runsToHtml(b.runs));
-    if (b.type == QLatin1String("table")) {
-        QString html = QStringLiteral("<table id=\"%1\">").arg(b.id.toHtmlEscaped());
-        for (int r = 0; r < b.table.size(); ++r) {
-            html += QStringLiteral("<tr>");
-            const QString tag = (b.headerRow && r == 0) ? QStringLiteral("th") : QStringLiteral("td");
-            for (const auto &cell : b.table[r])
-                html += QStringLiteral("<%1>%2</%1>").arg(tag, runsToHtml(cell.runs));
-            html += QStringLiteral("</tr>");
-        }
-        html += QStringLiteral("</table>");
-        return html;
-    }
-    if (b.type == QLatin1String("image")) {
-        const QString alt = b.altText.isEmpty() ? QStringLiteral("image") : b.altText.toHtmlEscaped();
-        const QString src = b.imagePath.isEmpty() ? QStringLiteral("#") : b.imagePath.toHtmlEscaped();
-        QString html = QStringLiteral("<figure id=\"%1\"><img src=\"%2\" alt=\"%3\"/>").arg(b.id.toHtmlEscaped(), src, alt);
-        if (!b.caption.isEmpty())
-            html += QStringLiteral("<figcaption>%1</figcaption>").arg(b.caption.toHtmlEscaped());
-        html += QStringLiteral("</figure>");
-        return html;
-    }
-    if (b.type == QLatin1String("break"))
-        return QStringLiteral("<hr/>");
-    if (b.type == QLatin1String("frame"))
-        return QStringLiteral("<blockquote id=\"%1\">%2</blockquote>").arg(b.id.toHtmlEscaped(), runsToHtml(b.runs));
-    if (b.type == QLatin1String("toc"))
-        return QStringLiteral("<nav id=\"%1\" class=\"toc\">%2</nav>").arg(b.id.toHtmlEscaped(), runsToHtml(b.runs));
-    return QStringLiteral("<p id=\"%1\">%2</p>").arg(b.id.toHtmlEscaped(), runsToHtml(b.runs));
-}
-
 QJsonObject Session::exportHtml(const QJsonObject &args)
 {
-    auto idx = indexesFor(idList(args));
-    if (idx.isEmpty()) {
-        for (int i = 0; i < doc_.body.size(); ++i)
-            idx.push_back(i);
+    const QVector<int> idx = indexesFor(idList(args));
+    QString html;
+    QStringList warnings;
+    QString err;
+    // wave 27 D4/D5: one renderer for EPUB chapters and export_html.
+    if (!renderHtmlDocument(doc_, idx, &html, &warnings, &err))
+        return fail(err.isEmpty() ? QStringLiteral("HTML export failed") : err);
+    QJsonObject r = writeExport(args, html, QStringLiteral("html"));
+    if (r.value(QStringLiteral("ok")).toBool() && !warnings.isEmpty()) {
+        QJsonArray wa;
+        for (const QString &w : warnings)
+            wa.append(w);
+        r[QStringLiteral("warnings")] = wa;
     }
-    QStringList body;
-    bool inList = false;
-    for (int i : idx) {
-        if (i < 0 || i >= doc_.body.size())
-            continue;
-        const auto &b = doc_.body[i];
-        const bool li = b.type == QLatin1String("list-item");
-        if (li && !inList) {
-            body.push_back(QStringLiteral("<ul>"));
-            inList = true;
-        } else if (!li && inList) {
-            body.push_back(QStringLiteral("</ul>"));
-            inList = false;
-        }
-        body.push_back(blockToHtml(b));
-    }
-    if (inList)
-        body.push_back(QStringLiteral("</ul>"));
-    const QString html = QStringLiteral(
-                             "<!DOCTYPE html><html><head><meta charset=\"utf-8\"/><title>%1</title></head><body>%2</body></html>")
-                             .arg(doc_.title.toHtmlEscaped(), body.join(QLatin1Char('\n')));
-    return writeExport(args, html, QStringLiteral("html"));
+    return r;
 }
 
 QJsonObject Session::convertNote(const QJsonObject &args)

@@ -308,7 +308,7 @@ Args: `{ "id"?: string, "ids"?: [...], "delta"?: -1 }`
 
 `export_markdown {path?, ids?}` returns `{markdown}` and optionally writes UTF-8. Whole document if `ids` omitted. With `path`, the file is written atomically; a write failure returns `{ok:false, error}`.  
 `export_text` same with `{text}` (tables as tab-separated rows).  
-`export_html` same with `{html}` (simple semantic HTML).  
+`export_html` same with `{html}`, now a self-contained HTML5 document produced by the same XHTML renderer as the EPUB chapters (wave 27 D4/D5): `<!DOCTYPE html>`, `<html lang>`, `<meta charset="utf-8">`, the metadata `<title>`, the stylesheet in a `<style>`, block/character styles as classes, evaluated fields, `hide_if`/`section_hidden` omitted, `lang`/`dir`, captions, tables with `colspan`/`rowspan`, nested lists and the notes in a `<section>` at the end with forward and back links. Figures are embedded as `data:` URIs, and a note whose runs carry U+2029 renders one `<p>` per paragraph (wave 27 D2). The result keeps its `{html}` payload (plus `path` when written, and `warnings` when a page field or an orphan note was rewritten) and the file is written atomically.  
 `copy_markdown` is the selection (or `ids`) without a file.
 
 ### `document_diff`
