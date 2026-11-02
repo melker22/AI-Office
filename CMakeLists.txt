@@ -623,3 +623,25 @@ set_tests_properties(wave26_text PROPERTIES
     TIMEOUT 180
     WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}"
 )
+
+# Wave 27 EPUB import. Every fixture is generated in the judge's private temp
+# dir (no opaque EPUB is committed): D6 maps the block tree of a third-party
+# EPUB and of an EPUB written by our own exporter, D7 covers hostile input.
+foreach(_w27_check d6 d7)
+    add_test(NAME "wave27_epub_${_w27_check}"
+        COMMAND "${CMAKE_COMMAND}" -E env AIOFFICE_HEADLESS=1 QT_QPA_PLATFORM=offscreen
+            "${Python3_EXECUTABLE}" "${CMAKE_SOURCE_DIR}/qa/check_wave27_epub_in.py"
+            --check "${_w27_check}" --cli "${AIOFFICE_CLI}")
+    set_tests_properties("wave27_epub_${_w27_check}" PROPERTIES
+        LABELS "playbook;epub;wave27"
+        TIMEOUT 300
+        WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}"
+    )
+endforeach()
+add_test(NAME wave27_epub_selftest COMMAND "${Python3_EXECUTABLE}"
+    "${CMAKE_SOURCE_DIR}/qa/check_wave27_epub_in.py" --self-test --cli "${AIOFFICE_CLI}")
+set_tests_properties(wave27_epub_selftest PROPERTIES
+    LABELS "playbook;wave27"
+    TIMEOUT 120
+    WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}"
+)
