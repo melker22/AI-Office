@@ -36,6 +36,7 @@ add_library(aioffice_core STATIC
     src/core/Zip.cpp
     src/core/Xhtml.cpp
     src/core/Epub.cpp
+    src/core/EpubReader.cpp
     src/core/Preview.cpp
     src/core/Xml.cpp
     src/core/Spell.cpp

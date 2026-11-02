@@ -3,6 +3,7 @@
 #include "core/Csl.h"
 #include "core/Docx.h"
 #include "core/Epub.h"
+#include "core/EpubReader.h"
 #include "core/FieldExpr.h"
 #include "core/Odf.h"
 #include "core/RtfWriter.h"
@@ -557,7 +558,7 @@ bool Session::saveTo(const QString &path, QString *error, bool embedJson, QJsonO
     return false;
 }
 
-bool Session::loadFrom(const QString &path, QString *error)
+bool Session::loadFrom(const QString &path, QString *error, QStringList *warnings)
 {
     const QString ext = QFileInfo(path).suffix().toLower();
     if (isNativeSessionJsonPath(path)) {
@@ -620,9 +621,15 @@ bool Session::loadFrom(const QString &path, QString *error)
         return true;
     }
     if (ext == QLatin1String("epub")) {
-        if (error)
-            *error = QStringLiteral("EPUB import is not supported");
-        return false;
+        Document loaded;
+        QStringList epubWarnings;
+        if (!loadEpubFile(path, loaded, error, &epubWarnings))
+            return false;
+        if (warnings)
+            *warnings = epubWarnings;
+        loaded.fileName = QFileInfo(path).fileName();
+        doc_ = loaded;
+        return true;
     }
     if (ext == QLatin1String("rtf")) {
         if (!loadRtfFile(path, doc_, error))
@@ -672,10 +679,11 @@ QJsonObject Session::openDocument(const QJsonObject &args)
     if (path.isEmpty())
         return fail(QStringLiteral("path is required"));
     QString err;
+    QStringList loadWarnings;
     const Document previous = doc_;
     const QString previousPath = path_;
     const bool previousDirty = dirty_;
-    if (!loadFrom(path, &err))
+    if (!loadFrom(path, &err, &loadWarnings))
         return fail(err);
     if (undoSuppress_ == 0) {
         undo_.push_back(HistoryFrame{previous, previousPath, previousDirty});
@@ -690,6 +698,12 @@ QJsonObject Session::openDocument(const QJsonObject &args)
     captureBaseline();
     auto r = ok();
     r[QStringLiteral("document")] = doc_.toJson();
+    if (!loadWarnings.isEmpty()) {
+        QJsonArray wa;
+        for (const QString &w : loadWarnings)
+            wa.append(w);
+        r[QStringLiteral("warnings")] = wa;
+    }
     return r;
 }
 
