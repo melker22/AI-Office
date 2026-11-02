@@ -5,7 +5,59 @@
 > verificável para a onda N+1. **Só entra lição com evidência** (thread de review, commit ou incidente).
 > O checklist curto que executores e revisores aplicam está em `.cursor/rules/lessons.mdc`.
 
-Última PR processada: **#17** (onda 25 — fidelidade RTF/EPUB/PDF). 33 threads inline, todos corrigidos,
+Última PR processada: **#18** (tools: `pr-watch.py` espera CI/CodeRabbit com ETag). 11 threads inline em
+seis rodadas de CodeRabbit, todos corrigidos, mais 8 achados fora do diff em três revisões — 6
+corrigidos/reconhecidos com `cr-ack` (commits `cdf1b5a`/`f13df51`), mas os **2 últimos** (paginação de
+CI e uma corrida de arquivo) ficaram sem correção nem `cr-ack` quando o autor mergeou 1 minuto após a
+revisão final. Reforçou L18 (gate de merge só decide "limpo" com evidência completa): `reply_outcome`
+aceitava o marcador de resposta do CodeRabbit (`<!-- This is an auto-generated reply by CodeRabbit -->`)
+e o aviso de rate-limit como substring dentro de texto arbitrário, então um comentário comum que citasse
+esse texto entre aspas virava prova de "sem revisão"/"rate limited"
+(https://github.com/melker22/AI-Office/pull/18#pullrequestreview-5699977040,
+https://github.com/melker22/AI-Office/pull/18#discussion_r4414256046, corrigidos em `cdf1b5a`/`658d648`
+exigindo o marcador como linha inteira, não citação); uma resposta de bot dentro de uma thread de review
+(corpo vazio) contava como revisão do head, mascarando um head na verdade sob rate-limit (commit
+`d3f2080`); e os endpoints de status/check-run da CI eram buscados só na primeira página, então um
+status de falha além do item 100 escaparia de `--until all`
+(https://github.com/melker22/AI-Office/pull/18#pullrequestreview-5705791800, **não corrigido antes do
+merge**). Abriu lição nova (dentro de L1, ver abaixo): corrigir uma corrida checagem-depois-ação
+(`path.exists()` então `path.stat()`) retirando a checagem prévia só *desloca* a mesma corrida para o
+próximo passo — o arquivo ainda podia desaparecer entre `stat()` e `read_text()`, sem handler
+(https://github.com/melker22/AI-Office/pull/18#discussion_r4418069841, corrigido parcialmente em
+`d2525024`; a corrida reaberta em
+https://github.com/melker22/AI-Office/pull/18#pullrequestreview-5705791800, **também não corrigida antes
+do merge**). Reforçou L1 (entrada externa hostil, aqui a resposta da API do GitHub): itens malformados em
+`reviews`/`comments` (não-dict, timestamp não-ISO) derrubavam `cr_state` com exceção não tratada em vez de
+`fetch_failed` (https://github.com/melker22/AI-Office/pull/18#discussion_r4418069857, corrigido em
+`d2525024`); e `--interval`/`--timeout` aceitavam negativo/NaN do `argparse`, chegando a `sleep()` com
+`ValueError` (https://github.com/melker22/AI-Office/pull/18#pullrequestreview-5704553222, corrigido em
+`f13df51`, junto com os outros 4 achados fora do diff da mesma revisão — timestamp de review ausente,
+validação de forma aninhada, releitura do head, erro de token). Reforçou L28 (condição sobre item com
+dado ausente não libera por omissão): uma revisão sem `submitted_at` (ou em estado `PENDING`) virava
+`reviewed` por padrão, em vez de pendente (mesma revisão/commit `f13df51`).
+
+Antes dela, **PR #19** (onda 26 — layout e fidelidade de preview). 5 threads inline em duas rodadas de
+CodeRabbit (todos corrigidos). Reforçou L4 (valor derivado recalculado num ponto único/consistente):
+`seqNumberOfBlock` visitava os campos `seq` da tabela aninhada antes da legenda, numerando na ordem
+contrária à do export DOCX (que escreve a tabela primeiro), então um `category_number` cross-reference
+citava o número do campo aninhado em vez do número da tabela
+(https://github.com/melker22/AI-Office/pull/19#discussion_r4413566282, corrigido em `fe8d5d6`, visitando
+células e `cell.nested` antes de `captionRuns`). Reforçou L7 (schema/docs/código concordam em prosa): a
+decisão D8 da onda 26 prometia travessia "em qualquer profundidade", quando `forEachFieldRun` entrega só
+um nível de tabela aninhada (`NestedCell` guarda runs, não outra tabela)
+(https://github.com/melker22/AI-Office/pull/19#discussion_r4413566258, corrigido em `e54ee6b`). Reforçou
+L11 (ambiente hermético/portável, aqui versão mínima do Python): `qa/wave26-d8b-filepath.py` usava uma
+barra invertida dentro de uma expressão de f-string — sintaxe só válida a partir do Python 3.12 — e o
+CMake só exige Python 3, sem mínimo 3.12, então o script quebrava com `SyntaxError` num Python 3.10/3.11
+(https://github.com/melker22/AI-Office/pull/19#discussion_r4413566267, corrigido em `e82d179`, calculando
+a contagem fora da f-string). Outros 2 achados (seleção de TOC pintada só na primeira entrada; formatos
+por-run omitidos na medição de `blockTextLayout`, descasando da pintura e cortando texto no clipe da
+célula) foram corrigidos sem abrir padrão novo
+(https://github.com/melker22/AI-Office/pull/19#discussion_r4413566330,
+https://github.com/melker22/AI-Office/pull/19#discussion_r4413566287, corrigidos em
+`059d9e1`/`84b1e86`).
+
+Antes disso, **PR #17** (onda 25 — fidelidade RTF/EPUB/PDF). 33 threads inline, todos corrigidos,
 mais 6 achados fora do diff em 5 revisões — as 39 ocorrências foram corrigidas, nenhum nitpick ficou
 pendente nesta PR. Reforçou L6 (sintaxe RTF real): `HYPERLINK` perdia o alvo por não pular os switches
 `\o`/`\t`/`\m`/`\n` antes dele
@@ -130,7 +182,20 @@ Formato: `L<n> — regra` · onde falhou (evidência) · ocorrências.
   `<w:delText>` importado como texto vivo; PR #7 `Block::fromJson` aplicava o atalho numérico de
   `rows`/`cols` a qualquer bloco (até sem `type`), permitindo alocar ~10¹⁰ células a partir de
   `document_open`/`insert_blocks`/`replace_range`
-  (https://github.com/melker22/AI-Office/pull/7#discussion_r4331347217). · 4
+  (https://github.com/melker22/AI-Office/pull/7#discussion_r4331347217); PR #18 (`pr-watch.py`): a
+  resposta da API do GitHub também é entrada hostil — um item não-dict ou um `submitted_at`/`updated_at`
+  fora do formato ISO dentro de `reviews`/`comments` derrubava `cr_state` com exceção não tratada (exit
+  code fora do contrato 0/2/3) em vez de virar `fetch_failed`
+  (https://github.com/melker22/AI-Office/pull/18#discussion_r4418069857, corrigido em `d2525024`); e
+  `--interval`/`--timeout` do `argparse` aceitavam negativo/NaN/infinito, chegando a `sleep()` com
+  `ValueError` (https://github.com/melker22/AI-Office/pull/18#pullrequestreview-5704553222, corrigido em
+  `f13df51`). **Corolário sobre corrida checagem-depois-ação:** corrigir uma checagem prévia (`exists()`
+  antes de `stat()`) catching o erro no passo seguinte só desloca a mesma corrida — trate a falha no
+  ponto da operação real que pode falhar (o último passo da sequência), nunca numa pré-condição isolada;
+  PR #18 corrigiu `exists()`+`stat()` tratando `FileNotFoundError` em `stat()` (commit `d2525024`), mas a
+  mesma corrida reabriu um passo depois, entre esse `stat()` e o `read_text()` seguinte — achado da
+  revisão final, sem correção nem `cr-ack` antes do merge
+  (https://github.com/melker22/AI-Office/pull/18#pullrequestreview-5705791800). · 6
 - **L2 — Mapear por identidade, nunca por posição, entre export e import.** Índice de bloco/run muda
   quando o formato expande ou funde elementos (TOC, notas). Identidade por fingerprint sozinha ainda não
   basta: inclua tipo de bloco e número de ocorrência, senão uma entrada de TOC com o mesmo texto do
@@ -176,7 +241,12 @@ Formato: `L<n> — regra` · onde falhou (evidência) · ocorrências.
   era a fonte de palavras/caracteres em `document_stats`, mas também servia para outros usos que não devem
   contar legenda; a correção manteve `plainText()` só com texto do corpo e passou a estatística a usar
   `statText()`, que inclui legenda (decisão D15)
-  (https://github.com/melker22/AI-Office/pull/13#discussion_r4370398847, corrigido em `c63bf75`). · 4
+  (https://github.com/melker22/AI-Office/pull/13#discussion_r4370398847, corrigido em `c63bf75`). PR #19
+  (onda 26): `seqNumberOfBlock` visitava os campos `seq` de `cell.nested` antes da legenda da tabela,
+  numerando na ordem contrária à do export DOCX (que escreve a tabela antes da legenda), então um
+  `category_number` cross-reference citava o número do campo aninhado em vez do da tabela
+  (https://github.com/melker22/AI-Office/pull/19#discussion_r4413566282, corrigido em `fe8d5d6`,
+  visitando células e `cell.nested` antes de `captionRuns`). · 5
 - **L5 — Operações em vários blocos geram dados por bloco.** · PR #4 `priorRuns` só do primeiro bloco. · 1
 - **L20 — Não mute uma coleção enquanto itera sobre ela; ordem de saída que importa é construída
   explicitamente, nunca herdada da ordem de iteração de um hash.** `QHash`/`QMap` não garantem ordem
@@ -248,7 +318,11 @@ Formato: `L<n> — regra` · onde falhou (evidência) · ocorrências.
   (https://github.com/melker22/AI-Office/pull/15#discussion_r4396808609) — todos corrigidos nos commits
   `c83b9c8`..`ac25f6e`; e um nitpick trivial não corrigido na mesma PR: o comentário do CMake sobre os
   ctests `wave17` e a nota de auditoria citando `zbar` em vez de `zbarimg`
-  (https://github.com/melker22/AI-Office/pull/15#pullrequestreview-5681108253). · 6
+  (https://github.com/melker22/AI-Office/pull/15#pullrequestreview-5681108253). PR #19 (onda 26): a
+  decisão D8 prometia travessia de `forEachFieldRun` "em qualquer profundidade", quando o modelo entregue
+  (`NestedCell` guarda runs, não outra tabela) só suporta um nível de tabela aninhada
+  (https://github.com/melker22/AI-Office/pull/19#discussion_r4413566258, corrigido em `e54ee6b`,
+  restringindo a prosa ao nível entregue). · 7
 - **L8 — Portabilidade de compilador.** Forward declaration com a mesma tag (`struct`/`class`) da
   definição. · PR #6 (MSVC C4099). · 1
 - **L24 — Id novo nunca vem do tamanho atual de uma coleção; aloque acima do maior sufixo numérico
@@ -306,7 +380,12 @@ Formato: `L<n> — regra` · onde falhou (evidência) · ocorrências.
   https://github.com/melker22/AI-Office/pull/17#discussion_r4409259834, corrigido em `3ef16ae`); e um
   playbook de teste que o CTest também roda direto (sem o rewrite de caminho temporário da suíte)
   dependia do mesmo `build/linux` fixo
-  (https://github.com/melker22/AI-Office/pull/17#discussion_r4409010083, corrigido em `4df7899`). · 3
+  (https://github.com/melker22/AI-Office/pull/17#discussion_r4409010083, corrigido em `4df7899`). PR #19
+  (onda 26): `qa/wave26-d8b-filepath.py` usava uma barra invertida dentro de uma expressão de f-string —
+  sintaxe só válida a partir do Python 3.12 — e o `CMakeLists.txt` só exige Python 3, sem mínimo 3.12,
+  então o script quebrava com `SyntaxError` num Python 3.10/3.11 válido para o projeto
+  (https://github.com/melker22/AI-Office/pull/19#discussion_r4413566267, corrigido em `e82d179`,
+  calculando a contagem fora da f-string). · 4
 - **L21 — Diretório de trabalho compartilhado entre execuções usa lock com caminho estável e controlado
   pelo dono, nunca um caminho fixo em `/tmp` nem uma variável de ambiente que varia por processo.** Um
   caminho fixo em `/tmp` é alvo de symlink/TOCTOU por outro usuário local; um lock derivado de
@@ -440,7 +519,21 @@ Formato: `L<n> — regra` · onde falhou (evidência) · ocorrências.
   aplicava mesmo quando já havia um status CodeRabbit dizendo "Review paused", mascarando esse pendente
   como limpo
   (https://github.com/melker22/AI-Office/pull/16#discussion_r4406774035); corrigidos todos no mesmo
-  commit `d178478`. · 12
+  commit `d178478`. PR #18 (`scripts/pr-watch.py`, mesma classe de defeito num consumidor diferente da
+  API do CodeRabbit): `reply_outcome` aceitava o marcador de resposta
+  (`<!-- This is an auto-generated reply by CodeRabbit -->`) e o aviso de rate-limit como substring
+  dentro de texto arbitrário, então um comentário comum que citasse esse texto entre aspas virava prova
+  de "sem revisão"/"rate limited"
+  (https://github.com/melker22/AI-Office/pull/18#pullrequestreview-5699977040,
+  https://github.com/melker22/AI-Office/pull/18#discussion_r4414256046, corrigidos em
+  `cdf1b5a`/`658d648` exigindo o marcador como linha inteira âncorada por regex `(?m)^...$`, não
+  citação); uma resposta de bot dentro de uma thread de review (corpo vazio) contava como revisão do
+  head, mascarando um head na verdade sob rate-limit (commit `d3f2080`); e os endpoints de
+  status/check-run da CI eram buscados só na primeira página (`per_page=100`), então um status de falha
+  além do item 100 escaparia de `--until all` — mesmo padrão do PR #10 (pt. 2 abaixo), agora no watcher
+  em vez do gate (https://github.com/melker22/AI-Office/pull/18#pullrequestreview-5705791800, **achado
+  da revisão final, sem correção nem `cr-ack` antes do merge** — o autor mergeou 1 minuto depois, sem
+  rodar o gate contra esse achado). · 14
 - **L17 — O nó `lessons` lê handoff atual E arquivo antes de avançar o marcador.** Se a entrada de
   handoff de um PR ainda não processado já foi movida para `AI_HANDOFF_ARCHIVE.md`, ler só
   `AI_HANDOFF.md` perde o registro de intervenção e o Passo 4 marca esse PR como processado sem revisitar
@@ -476,7 +569,11 @@ Formato: `L<n> — regra` · onde falhou (evidência) · ocorrências.
   `max(... if t)` porque a comprehension descarta o `None`, liberando o resume mesmo com esse nó ainda
   potencialmente limitado
   (https://github.com/melker22/AI-Office/pull/14#pullrequestreview-5677842045, corrigido em `04efa55`).
-  · 1
+  PR #18 (`scripts/pr-watch.py`): um objeto de review sem `submitted_at` (ou em estado `PENDING`) virava
+  `reviewed` por padrão em vez de pendente — dado ausente/inválido liberando a condição por omissão, a
+  mesma classe de defeito do PR #14, aqui num item em vez de num grupo
+  (https://github.com/melker22/AI-Office/pull/18#pullrequestreview-5704553222, corrigido em `f13df51`
+  exigindo `submitted_at` não-nulo e `state != "PENDING"`). · 2
 - **L29 — `--dry-run`/simulação nunca persiste estado real (audite todo caminho de escrita, não só o
   óbvio); e um marcador de evento pendente (retry/warning/done) é reaproveitado para a MESMA
   interrupção, nunca recriado com timestamp novo a cada verificação.** Recriar o marcador a cada scan
