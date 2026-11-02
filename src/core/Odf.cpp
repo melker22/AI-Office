@@ -47,6 +47,10 @@ struct SpanCounter {
     int dropN = 0;
     QString stylesXml;
     QMap<QString, int> seen;
+    // D2: a note body is emitted through spansXml, which can meet a run that refers to
+    // another note. The set stops a note that (directly or indirectly) refers to itself
+    // from recursing forever.
+    QSet<QString> notesInProgress;
 };
 
 struct ParaStyleCounter {
@@ -359,6 +363,8 @@ QString userFieldDeclsXml(const Document &doc)
     return xml;
 }
 
+QString spansXml(SpanCounter &sc, const QVector<TextRun> &runs, const Document &doc);
+
 QString emitSpan(SpanCounter &sc, const TextRun &r, const Document &doc)
 {
     const bool fmt = r.bold || r.italic || r.underline || r.strike || r.superscript || r.subscript
@@ -522,17 +528,24 @@ QString emitSpan(SpanCounter &sc, const TextRun &r, const Document &doc)
                 inner = QStringLiteral("<text:a xlink:href=\"%1\">%2</text:a>").arg(xmlEscape(r.link), inner);
         }
     }
-    if (!r.noteId.isEmpty()) {
+    if (!r.noteId.isEmpty() && !sc.notesInProgress.contains(r.noteId)) {
         const Block *nb = doc.findBlock(r.noteId);
         if (nb) {
             const bool fn = nb->type == QLatin1String("footnote");
+            // D2: each note paragraph is its own text:p (U+2029 is the separator, D1)
+            // and keeps its run formatting. The guard keeps a self-referencing note
+            // from recursing.
+            sc.notesInProgress.insert(r.noteId);
             QString body;
-            for (const auto &nr : nb->runs)
-                body += xmlEscape(nr.text);
+            for (const auto &para : splitNoteParagraphs(nb->runs)) {
+                body += QStringLiteral("<text:p text:style-name=\"Standard\">%1</text:p>")
+                            .arg(spansXml(sc, para, doc));
+            }
+            sc.notesInProgress.remove(r.noteId);
             inner += QStringLiteral(
                          "<text:note text:id=\"%1\" text:note-class=\"%2\">"
                          "<text:note-citation>*</text:note-citation>"
-                         "<text:note-body><text:p text:style-name=\"Standard\">%3</text:p></text:note-body></text:note>")
+                         "<text:note-body>%3</text:note-body></text:note>")
                          .arg(xmlEscape(r.noteId),
                               fn ? QStringLiteral("footnote") : QStringLiteral("endnote"),
                               body);
@@ -631,6 +644,13 @@ QString revisedSpansXml(SpanCounter &sc, const QString &blockId, const QVector<T
     }
     if (cursor < total)
         out += spansXml(sc, splitRuns(runs, cursor, total), doc);
+    // D2: a note anchor with no text is not covered by any text range, so
+    // splitRuns drops it. Emit its note at the end of the block so the round
+    // trip keeps the note (the RTF writer already walks every run).
+    for (const auto &r : runs) {
+        if (!r.noteId.isEmpty() && r.text.isEmpty() && r.field.isEmpty())
+            out += emitSpan(sc, r, doc);
+    }
     return out;
 }
 
@@ -1919,34 +1939,113 @@ bool loadOdt(const QByteArray &zipData, Document &doc, QString *error)
                 nb.id = xml.attributes().value(QStringLiteral("text:id")).toString();
                 const QString cls = xml.attributes().value(QStringLiteral("text:note-class")).toString();
                 nb.type = cls == QLatin1String("endnote") ? QStringLiteral("endnote") : QStringLiteral("footnote");
-                QStringList parts;
-                QString cur;
-                int bodyDepth = 0;
-                bool inNotePara = false;
+                // D2: each text:p inside text:note-body is a paragraph (joined with
+                // U+2029, D1) and text:span keeps its automatic-style formatting.
+                QVector<QVector<TextRun>> paragraphs;
+                QVector<TextRun> curPara;
+                QVector<TextRun> fmtStack;
+                QString runText;
+                bool inBody = false;
+                bool inPara = false;
+                int nestedNote = 0;
+                auto flushRun = [&]() {
+                    if (runText.isEmpty())
+                        return;
+                    TextRun r = fmtStack.isEmpty() ? TextRun{} : fmtStack.last();
+                    r.text = runText;
+                    runText.clear();
+                    curPara.push_back(r);
+                };
+                auto finishPara = [&]() {
+                    flushRun();
+                    if (!curPara.isEmpty()) {
+                        // ODF XML may be pretty-printed; drop the indentation a text:p picks
+                        // up outside its visible text (the old reader trimmed the same way).
+                        auto trim = [](QString &s, bool leading) {
+                            if (leading) {
+                                int i = 0;
+                                while (i < s.size() && s.at(i).isSpace())
+                                    ++i;
+                                s.remove(0, i);
+                            } else {
+                                int i = s.size();
+                                while (i > 0 && s.at(i - 1).isSpace())
+                                    --i;
+                                s.truncate(i);
+                            }
+                        };
+                        trim(curPara.first().text, true);
+                        trim(curPara.last().text, false);
+                        if (curPara.first().text.isEmpty())
+                            curPara.removeFirst();
+                        if (!curPara.isEmpty() && curPara.last().text.isEmpty())
+                            curPara.removeLast();
+                    }
+                    paragraphs.push_back(curPara);
+                    curPara.clear();
+                    inPara = false;
+                };
                 while (!xml.atEnd()) {
                     xml.readNext();
-                    if (xml.isStartElement() && xml.name() == QLatin1String("note-body"))
-                        ++bodyDepth;
-                    else if (xml.isStartElement() && bodyDepth > 0
-                             && (xml.name() == QLatin1String("p") || xml.name() == QLatin1String("h"))) {
-                        inNotePara = true;
-                        cur.clear();
-                    } else if (xml.isCharacters() && inNotePara)
-                        cur += xml.text();
-                    else if (xml.isEndElement() && inNotePara
-                             && (xml.name() == QLatin1String("p") || xml.name() == QLatin1String("h"))) {
-                        const QString t = cur.trimmed();
-                        if (!t.isEmpty())
-                            parts.push_back(t);
-                        inNotePara = false;
-                    } else if (xml.isEndElement() && xml.name() == QLatin1String("note-body"))
-                        bodyDepth = qMax(0, bodyDepth - 1);
-                    else if (xml.isEndElement() && xml.name() == QLatin1String("note"))
-                        break;
+                    if (xml.isStartElement()) {
+                        const auto nn = xml.name();
+                        if (nn == QLatin1String("note"))
+                            ++nestedNote;
+                        else if (nestedNote > 0) {
+                            // content of a note nested inside this one is not body text
+                        } else if (!inPara && nn == QLatin1String("note-body")) {
+                            inBody = true;
+                        } else if (inBody && (nn == QLatin1String("p") || nn == QLatin1String("h"))) {
+                            flushRun();
+                            curPara.clear();
+                            inPara = true;
+                        } else if (inPara && nn == QLatin1String("span")) {
+                            flushRun();
+                            const QString sn = xml.attributes().value(QStringLiteral("text:style-name")).toString();
+                            fmtStack.push_back(autoText.value(sn));
+                        } else if (inPara && nn == QLatin1String("s")) {
+                            const QString c = xml.attributes().value(QStringLiteral("text:c")).toString();
+                            qlonglong count = 1;
+                            if (!c.isEmpty()) {
+                                bool okCount = false;
+                                const qlonglong raw = c.toLongLong(&okCount);
+                                if (okCount && raw > 0)
+                                    count = qMin<qlonglong>(raw, 10000);
+                            }
+                            runText += QString(int(count), QLatin1Char(' '));
+                        } else if (inPara && nn == QLatin1String("tab")) {
+                            runText += QLatin1Char('\t');
+                        } else if (inPara && nn == QLatin1String("line-break")) {
+                            runText += QLatin1Char('\n');
+                        }
+                    } else if (xml.isCharacters()) {
+                        if (nestedNote == 0 && inPara)
+                            runText += xml.text();
+                    } else if (xml.isEndElement()) {
+                        const auto nn = xml.name();
+                        if (nn == QLatin1String("note")) {
+                            if (nestedNote > 0)
+                                --nestedNote;
+                            else
+                                break;
+                        } else if (nestedNote > 0) {
+                            // skip
+                        } else if (nn == QLatin1String("span") && inPara) {
+                            flushRun();
+                            if (!fmtStack.isEmpty())
+                                fmtStack.pop_back();
+                        } else if (inPara && (nn == QLatin1String("p") || nn == QLatin1String("h"))) {
+                            finishPara();
+                        } else if (nn == QLatin1String("note-body")) {
+                            inBody = false;
+                        }
+                    }
                 }
-                TextRun nr;
-                nr.text = parts.join(QStringLiteral("\n"));
-                nb.runs.push_back(nr);
+                if (inPara)
+                    finishPara();
+                nb.runs = joinNoteParagraphs(paragraphs);
+                if (nb.runs.isEmpty())
+                    nb.runs.push_back(TextRun{});
                 if (nb.id.isEmpty() || doc.indexOf(nb.id) >= 0)
                     doc.assignId(nb);
                 if (!spanRun.text.isEmpty() || !spanRun.field.isEmpty())
@@ -2381,6 +2480,7 @@ bool loadOdt(const QByteArray &zipData, Document &doc, QString *error)
     }
     if (doc.body.isEmpty())
         doc = Document::blank(doc.title);
+    doc.normalizeExternalParaSeps();
     return true;
 }
 

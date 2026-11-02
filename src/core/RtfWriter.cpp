@@ -345,9 +345,16 @@ struct RtfOut {
         if (!r.noteId.isEmpty() && !inNote) {
             const Block *nb = doc->findBlock(r.noteId);
             if (nb) {
+                // D2: the note's U+2029-separated paragraphs become \par inside the
+                // note group; each paragraph keeps its run formatting.
                 QString body;
-                for (const auto &nr : nb->runs)
-                    body += emitRun(nr, defFont, defSizeHalfPt, true);
+                const QVector<QVector<TextRun>> paras = splitNoteParagraphs(nb->runs);
+                for (int i = 0; i < paras.size(); ++i) {
+                    if (i > 0)
+                        body += QStringLiteral("\\par ");
+                    for (const auto &nr : paras.at(i))
+                        body += emitRun(nr, defFont, defSizeHalfPt, true);
+                }
                 out += QStringLiteral("{\\footnote");
                 if (nb->type == QLatin1String("endnote"))
                     out += QStringLiteral("\\ftnalt");

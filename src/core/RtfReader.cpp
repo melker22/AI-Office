@@ -1696,7 +1696,7 @@ private:
             return;
         if (f.sink == Sink::Note) {
             if (!noteStack_.isEmpty())
-                appendRun(noteStack_.last(), QStringLiteral("\n"), fmtOf(f.ch));
+                appendRun(noteStack_.last(), QString(QChar(0x2029)), fmtOf(f.ch));
             return;
         }
         if (f.sink == Sink::Result) {
@@ -2068,7 +2068,12 @@ private:
 
     static void stripNote(QVector<TextRun> &runs)
     {
-        while (!runs.isEmpty() && runs.last().text.endsWith(QLatin1Char('\n'))) {
+        // The note body's own terminal \par becomes a U+2029 (D1/D2); a trailing \line
+        // is a '\n'. Both are the paragraph/line terminator, not body text, so drop
+        // the trailing run of terminators (same rule the '\n'-only code had).
+        auto trailing = [](QChar c) { return c == QLatin1Char('\n') || c == QChar(0x2029); };
+        while (!runs.isEmpty() && !runs.last().text.isEmpty()
+               && trailing(runs.last().text.at(runs.last().text.size() - 1))) {
             runs.last().text.chop(1);
             if (runs.last().text.isEmpty() && runs.last().field.isEmpty())
                 runs.removeLast();
@@ -2504,6 +2509,7 @@ bool loadRtfFile(const QString &path, Document &doc, QString *error, QStringList
     if (!RtfParser().parse(data, parsed, error, warnings))
         return false;
     parsed.fileName = QFileInfo(path).fileName();
+    parsed.normalizeExternalParaSeps();
     doc = parsed;
     return true;
 }

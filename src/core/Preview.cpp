@@ -1503,6 +1503,12 @@ BlockTextLayout blockTextLayout(const Document &doc, const Block &b, const Block
                             : runDisplayText(doc, r, in.fieldPage, in.pages, &r);
         if (live && !r.noteId.isEmpty() && doc.page.noteRestart && noteOrds.contains(r.noteId))
             disp = QString::number(noteOrds.value(r.noteId));
+        // D1/D2: U+2029 separates note paragraphs. QTextLayout breaks on U+2028
+        // (LINE SEPARATOR) but not on U+2029, so map it to U+2028 for the layout
+        // (same length, so model offsets hold) — each note paragraph paints on its
+        // own line.
+        if (disp.contains(QChar(0x2029)))
+            disp.replace(QChar(0x2029), QChar(0x2028));
         const int m0 = model;
         model += r.text.size();
         const int D = disp.size();
