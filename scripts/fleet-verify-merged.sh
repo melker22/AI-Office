@@ -15,6 +15,11 @@
 set -uo pipefail
 if [[ "${1:-}" == "--self-test" ]]; then
   cd "$(dirname "$0")/.." || exit 2
+  # Hermetic: a self-test run inside a Fleet command gate inherits the real FLEET_NEEDS_*_OUTPUT of the
+  # upstream nodes, which would be verified against this checkout's HEAD and fail the self-test.
+  while IFS='=' read -r name _; do
+    [[ "$name" == FLEET_NEEDS_*_OUTPUT ]] && unset "$name"
+  done < <(env)
   head_sha=$(git rev-parse HEAD)
   bogus="0000000000000000000000000000000000000001"
   rm -f /tmp/fleet-verify-self-pass.txt /tmp/fleet-verify-self-fail.txt
