@@ -524,22 +524,28 @@ bool Session::saveTo(const QString &path, QString *error, bool embedJson, QJsonO
             return false;
         return true;
     }
-    if (ext == QLatin1String("md") || ext == QLatin1String("markdown") || ext == QLatin1String("txt")
-        || ext == QLatin1String("html") || ext == QLatin1String("htm")) {
+    if (ext == QLatin1String("html") || ext == QLatin1String("htm")) {
+        // wave 27 D5: the same self-contained HTML5 renderer as export_html (styles, notes, fields, images).
+        QString html;
+        QStringList htmlWarnings;
+        QString renderErr;
+        if (!renderHtmlDocument(doc_, {}, &html, &htmlWarnings, &renderErr)) {
+            if (error)
+                *error = renderErr.isEmpty() ? QStringLiteral("HTML export failed") : renderErr;
+            return false;
+        }
+        if (warnings)
+            *warnings += htmlWarnings;
+        return writeFileAtomic(path, html.toUtf8(), error);
+    }
+    if (ext == QLatin1String("md") || ext == QLatin1String("markdown") || ext == QLatin1String("txt")) {
         QString out;
         for (const auto &b : doc_.body) {
             if (b.type == QLatin1String("footnote") || b.type == QLatin1String("endnote")
                 || b.type == QLatin1String("break"))
                 continue;
             const QString plain = b.plainText();
-            if (ext == QLatin1String("html") || ext == QLatin1String("htm")) {
-                if (b.type == QLatin1String("heading"))
-                    out += QStringLiteral("<h%1>%2</h%1>\n").arg(qBound(1, b.level, 6)).arg(plain.toHtmlEscaped());
-                else if (b.type == QLatin1String("list-item"))
-                    out += QStringLiteral("<li>%1</li>\n").arg(plain.toHtmlEscaped());
-                else
-                    out += QStringLiteral("<p>%1</p>\n").arg(plain.toHtmlEscaped());
-            } else if (ext == QLatin1String("md") || ext == QLatin1String("markdown")) {
+            if (ext == QLatin1String("md") || ext == QLatin1String("markdown")) {
                 if (b.type == QLatin1String("heading"))
                     out += QStringLiteral("%1 %2\n\n").arg(QString(qBound(1, b.level, 6), QLatin1Char('#')), plain);
                 else if (b.type == QLatin1String("list-item"))

@@ -203,6 +203,8 @@ def build_playbook(html_path: Path, epub_path: Path) -> list:
             },
         },
         {"tool": "export_html", "args": {"path": str(html_path)}, "expect": {"ok": True, "path": str(html_path)}},
+        # document_save to .html goes through the same renderer as export_html (wave 27 D5).
+        {"tool": "document_save", "args": {"path": str(html_path.with_name("saved.html"))}, "expect": {"ok": True}},
         {
             "tool": "document_save",
             "args": {"path": str(epub_path)},
@@ -498,6 +500,10 @@ def run_suite(cli: Path) -> bool:
             return False
 
         html_errors = check_html(html)
+        try:
+            saved_errors = check_html(html_path.with_name("saved.html").read_text(encoding="utf-8"))
+        except OSError as exc:
+            saved_errors = [f"cannot read the document_save .html output: {exc}"]
         epub_errors = check_epub(epub_path)
         epubcheck_errors = run_epubcheck(epub_path)
 
@@ -518,6 +524,7 @@ def run_suite(cli: Path) -> bool:
     for label, errs in (
         ("D5 export_html", html_errors),
         ("D5 export_html selection orphans", selection_errors),
+        ("D5 document_save .html", saved_errors),
         ("D2 EPUB note paragraphs", epub_errors),
         ("EPUB epubcheck", epubcheck_errors),
     ):
