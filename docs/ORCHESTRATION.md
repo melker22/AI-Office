@@ -10,7 +10,7 @@ uma task real de um agente, com dependências, gates de QA e aprovação humana 
 | Estratégica | `claude` / `claude-opus-5-5` | Arquitetura, decisões críticas, spec da onda, auditoria final opcional | Escrever código, docs longas, testes |
 | Tech Lead | `claude` / `claude-sonnet-5` | Plano de tarefa, revisão, QA, adjudicação, PR | Implementação que um executor faz |
 | Executor principal | `grok` / `grok-4.7` (Grok Build) ou `cursor` / `grok-4.7-high` (Grok da Cursor, pela assinatura) | Implementação, refatoração, debugging no core | Tarefas triviais (desperdício) |
-| Executor por token | `cockpit` / `openrouter/deepseek/deepseek-v4.1-flash` (reserva: `openrouter/xiaomi/mimo-v2.6-flash`) | Correções pós-revisão, integração, e implementação quando o Grok Build está sem cota | Nós que dependem de MCP (Notion, GitHub) |
+| Executor por token | `cockpit` / `openrouter/deepseek/deepseek-v4.1-flash` (reserva: `openrouter/xiaomi/mimo-v2.6-flash`) | Correções pós-revisão, integração, e implementação quando o Grok Build e o Grok da Cursor estão sem cota | Nós que dependem de MCP (Notion, GitHub) |
 | Executor barato | `cursor` / `composer-2.5` | Campos/tools MCP, round-trip de atributos, playbooks, merges, docs | Refatoração central, decisões |
 
 Ordem de decisão: arquitetura? → Opus · análise/revisão? → Sonnet · implementação simples? → Composer ·

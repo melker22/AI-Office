@@ -259,6 +259,11 @@ def cr_state(head: str, since: datetime, reviews: list[dict], comments: list[dic
         edited = c.get("updated_at") or c.get("created_at")
         if edited and iso(edited) > since and summary_rate_limited(body):
             events.append((iso(edited), "rate_limited", f"summary {c.get('html_url')}{summary_wait(body)}"))
+        # Auto-review paused after many commits: the summary names this head as not reviewed. Nothing
+        # will come until someone asks. A notice older than `since` is stale once a review was requested.
+        if (edited and iso(edited) > since and _PAUSED_RE.search(body)
+                and re.search(r"Latest commit, not reviewed:\s*" + re.escape(head), body)):
+            events.append((iso(edited), "paused", f"summary {c.get('html_url')} (ask @coderabbitai review)"))
         created = c.get("created_at")
         if created and iso(created) > since and _REPLY_MARK_RE.search(body):  # only command replies (whole-line marker)
             outcome = reply_outcome(body)
@@ -267,15 +272,6 @@ def cr_state(head: str, since: datetime, reviews: list[dict], comments: list[dic
     if events:
         _, outcome, detail = max(events, key=lambda e: e[0])
         return outcome, detail
-    # Auto-review paused after many commits: the summary says so and names this head as not reviewed.
-    # Nothing will come until someone asks, so report it instead of waiting out the timeout.
-    for c in comments:
-        body = c.get("body") or ""
-        edited = c.get("updated_at") or c.get("created_at")
-        # Only a notice written after `since`: once a review was requested, the old notice is stale.
-        if (is_bot(c.get("user")) and edited and iso(edited) > since and _PAUSED_RE.search(body)
-                and re.search(r"Latest commit, not reviewed:\s*" + re.escape(head), body)):
-            return "paused", f"summary {c.get('html_url')} (ask @coderabbitai review)"
     return "pending", ""
 
 
@@ -660,6 +656,12 @@ def self_test() -> int:
     check("pause text without the marker", cr_state(head, since, [], [no_marker])[0] == "pending")
     check("a pause notice from before the request is stale",
           cr_state(head, since, [], [dict(paused, updated_at="2026-10-29T09:30:00Z")])[0] == "pending")
+    later_reply = {"user": BOT_USER, "created_at": "2026-10-29T10:30:00Z", "html_url": "r",
+                   "body": _REPLY_MARK + "\nReview rate limited."}
+    check("a newer reply beats an older pause notice",
+          cr_state(head, since, [], [paused, later_reply])[0] == "rate_limited")
+    check("a newer pause notice beats an older reply",
+          cr_state(head, since, [], [dict(paused, updated_at="2026-10-29T10:40:00Z"), later_reply])[0] == "paused")
     check("a head review beats the pause notice",
           cr_state(head, since, [new_rev], [paused])[0] == "reviewed")
     check("ci none", ci_state([], []) == "pending")
