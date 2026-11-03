@@ -189,7 +189,8 @@ def ci_state(statuses: list[dict], check_runs: list[dict]) -> str:
     return "success"
 
 
-_REVIEW_HEADER = re.compile(r"(?m)^\**Actionable comments posted:\s*\d+")
+_REVIEW_HEADER = re.compile(r"(?m)^\**Actionable comments posted:\s*\d+|"
+                            r"^<!-- This is an auto-generated comment by CodeRabbit for review status -->$")
 _COVERAGE_RE = re.compile(r"(?m)^<!-- final_review_risk_coverage:(\{[^\n]*?\}) -->$")
 
 
@@ -568,6 +569,9 @@ def self_test() -> int:
     check("review with null submitted_at", cr_state(head, since, [dict(unsent, submitted_at=None)], [])[0] == "pending")
     check("pending review is not submitted",
           cr_state(head, since, [dict(unsent, submitted_at="2026-10-29T10:05:00Z", state="PENDING")], [])[0] == "pending")
+    new_fmt = {"user": BOT_USER, "commit_id": head, "state": "COMMENTED", "submitted_at": "2026-11-03T05:21:03Z",
+               "body": "<!-- coderabbit-ai-generated:v1 -->\n\n<!-- This is an auto-generated comment by CodeRabbit for review status -->\n\n## Follow-up Comments\n"}
+    check("2026-11 review format counts", cr_state(head, since, [new_fmt], [])[0] == "reviewed")
     check("thread reply on head is not a review", cr_state(head, since, [{"user": BOT_USER, "commit_id": head, "body": ""}], [])[0] == "pending")
     old_rev = {"user": BOT_USER, "commit_id": head, "submitted_at": "2026-10-29T09:30:00Z", "body": "**Actionable comments posted: 0**"}
     check("review before since", cr_state(head, since, [old_rev], [])[0] == "pending")

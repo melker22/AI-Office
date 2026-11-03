@@ -221,12 +221,50 @@ def _is_heading(body: str, m: re.Match) -> bool:
     return bold or summary
 
 
+_BADGE_KIND = {"Outside diff": "outside-diff", "Duplicate": "duplicate", "Nitpick": "nitpick",
+               "Additional": "additional"}
+_BADGE_RE = re.compile(r'review-finding-badges-v1/[a-z-]+\.svg"[^>]*>|alt="([^"]+)"')
+_SEVERITY_RE = re.compile(r"\*\*[^*\w]*\s*(Critical|Major|Minor|Trivial)\*\*")
+
+
+def _badge_findings(review: dict, body: str, kinds: tuple) -> list[dict]:
+    """CodeRabbit's 2026-11 review body: one <details> per finding whose <summary> carries a badge image
+    (alt "Outside diff", "Nitpick", ...) and whose text has the severity in bold; each ends with its
+    <!-- cr-comment:v1:HEX --> marker. Markers with no badge in front (the status list at the top of the
+    body) are not findings."""
+    out: list[dict] = []
+    prev = 0
+    for m in re.finditer(r"<!--\s*cr-comment:v1:([0-9a-f]+)\s*-->", body):
+        seg, prev = body[prev:m.start()], m.end()
+        if "review-finding-badges-v1/" not in seg:
+            continue
+        alts = re.findall(r'<img[^>]*alt="([^"]+)"[^>]*src="[^"]*review-finding-badges-v1/', seg)
+        alts += re.findall(r'<img[^>]*src="[^"]*review-finding-badges-v1/[^"]*"[^>]*alt="([^"]+)"', seg)
+        badge = alts[-1] if alts else ""
+        kind = _BADGE_KIND.get(badge, badge.lower().replace(" ", "-") or "?")
+        sev = _SEVERITY_RE.findall(seg)
+        if kind not in ("outside-diff", "duplicate", "nitpick", "additional") and sev:
+            kind = "body-" + sev[-1].lower()
+        if kind not in kinds:
+            continue
+        title_m = re.findall(r"</sub>\s*(.+?)\s*</summary>", seg, re.S)
+        title = re.sub(r"<[^>]+>", "", title_m[-1]).strip() if title_m else "?"
+        src = re.findall(r"/blob/[0-9a-f]{7,40}/([^\s)#]+)#L(\d+)", seg)
+        rng = re.findall(r"`(\d+(?:-\d+)?)`:", seg)
+        loc = f"{src[-1][0]}:{rng[-1] if rng else src[-1][1]}" if src else "?"
+        out.append({"id": m.group(1), "kind": kind, "title": title, "loc": loc, "text": seg,
+                    "commit": (review.get("commit_id") or "")[:7], "url": review.get("html_url", "")})
+    return out
+
+
 def body_findings(review: dict, kinds: tuple = _BLOCKING_BODY_KINDS) -> list[dict]:
     """Outside-diff and duplicate findings in one CodeRabbit review body (old <em> and new <strong>
     formats). Each ends with a <!-- cr-comment:v1:HEX --> marker, which is its id."""
     body = review.get("body") or ""
     for _ in range(3):  # nested "> " quote prefixes, the first line included
         body = re.sub(r"^[ \t]*>[ \t]?", "", body, flags=re.M)
+    if "review-finding-badges-v1/" in body:
+        return _badge_findings(review, body, kinds)
     # The prompt section starts at its <summary> heading line; the same words quoted inside a finding
     # must not end the scan early (every later finding would be dropped).
     # ... and it comes after every finding, so the LAST such heading is the boundary.
@@ -306,7 +344,10 @@ def summary_reviewed(issue_comments: list | None, head: str) -> bool:
     return False
 
 
-_REVIEW_HEADER = re.compile(r"(?m)^\**Actionable comments posted:\s*\d+")
+# The review header: "Actionable comments posted: N" (until 2026-10) or, in the 2026-11 format, the
+# whole-line "review status" marker. A bot reply in a thread is a review object with an empty body.
+_REVIEW_HEADER = re.compile(r"(?m)^\**Actionable comments posted:\s*\d+|"
+                            r"^<!-- This is an auto-generated comment by CodeRabbit for review status -->$")
 
 
 def is_head_review(r: dict, head: str) -> bool:
@@ -716,7 +757,7 @@ def self_test() -> int:
     # Real CodeRabbit review bodies (old <em>, new <strong> with icons, grouped "Minor comments: N"):
     # the number of blocking body findings per PR must not change when the parser does.
     fixtures = Path(__file__).resolve().parent.parent / "qa" / "fixtures" / "coderabbit"
-    expected_counts = {1: 1, 2: 3, 4: 1, 6: 1, 9: 3, 10: 3, 11: 28}
+    expected_counts = {1: 1, 2: 3, 4: 1, 6: 1, 9: 3, 10: 3, 11: 28, 20: 1}
     for n, want in expected_counts.items():
         path = fixtures / f"pr{n}-reviews.json"
         if not path.is_file():
@@ -726,6 +767,19 @@ def self_test() -> int:
         check(f"real review bodies of PR #{n}: {want} blocking body finding(s)",
               len(got) == want and all(f["loc"] != "?" and f["title"] != "?" for f in got),
               str([(f["kind"], f["title"][:40], f["loc"]) for f in got]))
+
+    # 2026-11 badge format (PR #20): one blocking outside-diff finding; the Trivial nitpick does not block;
+    # the 31 status markers at the top of the body are not findings; the review counts as a head review.
+    pr20 = json.loads((fixtures / "pr20-reviews.json").read_text(encoding="utf-8"))
+    got20 = [f for r in pr20 for f in body_findings(r)]
+    check("PR #20 badge format: the outside-diff finding",
+          [(f["id"][:8], f["kind"], f["loc"]) for f in got20] == [("81b7d031", "outside-diff", "src/mcp/ToolDispatch.cpp:67-67")],
+          str([(f["id"][:8], f["kind"], f["title"][:50], f["loc"]) for f in got20]))
+    nit20 = [f for r in pr20 for f in body_findings(r, ("nitpick",))]
+    check("PR #20 badge format: the nitpick is found but not blocking",
+          [f["id"][:8] for f in nit20] == ["646bfae2"], str([(f["id"][:8], f["kind"]) for f in nit20]))
+    check("PR #20 badge format review counts as a head review",
+          is_head_review(pr20[-1], pr20[-1]["commit_id"]), "")
 
     import ssl
     real_urlopen2, real_argv2 = urllib.request.urlopen, sys.argv
