@@ -9,12 +9,12 @@ uma task real de um agente, com dependências, gates de QA e aprovação humana 
 |---|---|---|---|
 | Estratégica | `claude` / `claude-opus-5-5` | Arquitetura, decisões críticas, spec da onda, auditoria final opcional | Escrever código, docs longas, testes |
 | Tech Lead | `claude` / `claude-sonnet-5` | Plano de tarefa, revisão, QA, adjudicação, PR | Implementação que um executor faz |
-| Executor principal | `grok` / `grok-4.7` (Grok Build; o Grok da Cursor não é usado) | Implementação, refatoração, debugging no core | Tarefas triviais (desperdício) |
-| Executor por token | `cockpit` / `openrouter/deepseek/deepseek-v4.1-flash` (reserva: `openrouter/xiaomi/mimo-v2.6-flash`) | Correções pós-revisão, integração, e implementação quando o Grok Build está sem cota | Nós que dependem de MCP (Notion, GitHub) |
-| Executor barato | `cursor` / `composer-2.5` (o único modelo da Cursor em uso) | Campos/tools MCP, round-trip de atributos, playbooks, merges, docs | Refatoração central, decisões |
+| Executor principal | `grok` / `grok-4.7` (Grok Build) ou `cursor` / `grok-4.7-high` (Grok da Cursor, pela assinatura) | Implementação, refatoração, debugging no core | Tarefas triviais (desperdício) |
+| Executor por token | `cockpit` / `openrouter/deepseek/deepseek-v4.1-flash` (reserva: `openrouter/xiaomi/mimo-v2.6-flash`) | Correções pós-revisão, integração, e implementação quando o Grok Build e o Grok da Cursor estão sem cota | Nós que dependem de MCP (Notion, GitHub) |
+| Executor barato | `cursor` / `composer-2.5` | Campos/tools MCP, round-trip de atributos, playbooks, merges, docs | Refatoração central, decisões |
 
 Ordem de decisão: arquitetura? → Opus · análise/revisão? → Sonnet · implementação simples? → Composer ·
-implementação não trivial? → Grok Build · Grok Build sem cota? → DeepSeek V4.1 Flash (OpenRouter). Os modelos do
+implementação não trivial? → Grok Build · Grok Build sem cota? → Grok da Cursor (`grok-4.7-high`) · Cursor sem cota? → DeepSeek V4.1 Flash (OpenRouter). Os modelos do
 OpenRouter são pagos por token: avaliação, preços e o piloto (2 tarefas, US$ 0,06) estão no agent-ops-kit,
 `docs/openrouter-models.md`.
 
@@ -110,7 +110,7 @@ depois de um `@coderabbitai review` sem push novo, `scripts/pr-watch.py <pr> --s
 (obrigatório: sem `--since`, uma resposta antiga sobre o mesmo commit contaria). O processo
 termina assim que há algo a fazer, e o término acorda o agente: revisão do bot no SHA do HEAD
 (`cr=reviewed`), resposta "Review finished"/"Already reviewed" sem revisão (`cr=no_review` → peça
-`@coderabbitai full review`), "rate limited" (`cr=rate_limited` → peça de novo depois) ou CI vermelha
+`@coderabbitai full review`), "rate limited" (`cr=rate_limited` → peça de novo depois), revisão automática pausada depois de muitos commits (`cr=paused`, pelo marcador do resumo que diz "Latest commit, not reviewed: <HEAD>" → peça `@coderabbitai review`) ou CI vermelha
 (`ci=failure`). Com `--until all`, um resultado do CodeRabbit ainda espera a CI terminar. Cada consulta
 manda o ETag da anterior (`If-None-Match`); com token, um 304 não gasta a cota. Sem token, o 304 conta e cada consulta faz pelo menos 7 requisições
 (a última relê o PR para não reportar um HEAD que mudou no meio; mais com paginação), então o intervalo é 540 s (cerca de 47 de 60 req/h por IP); com um token de leitura em `~/.config/aio-pr-watch/token` (modo 600, também usado pelo
@@ -148,7 +148,7 @@ fora de Fleet (correções avulsas, merges) também termina com uma sincronizaç
 
 ## Fallback quando o limite do Claude acaba (autorizado pelo utilizador)
 
-Regra do utilizador (2026-11): da Cursor só se usa o Composer, e o Grok só pelo Grok Build. O antigo fallback para o
+Regra do utilizador (2026-11): da Cursor usam-se o Composer e o Grok (`grok-4.7-high`); o antigo fallback para o
 Sonnet da Cursor está aposentado. Quando a janela do Claude (5 h ou semanal) esgota, os nós `agent: claude` não esperam
 o reset; os que não dependem de MCP vão para um modelo pago por token do OpenRouter, sem editar o YAML:
 

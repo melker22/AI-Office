@@ -219,6 +219,7 @@ def summary_covers(comment: dict, head: str) -> bool:
 # rate limits (the walkthrough of a PR about rate limits, for one) does not match.
 _RATE_NOTICE = re.compile(r"(?m)^<!-- This is an auto-generated comment: rate limited by coderabbit\.ai -->$")
 _REPLY_MARK = "<!-- This is an auto-generated reply by CodeRabbit -->"
+_PAUSED_RE = re.compile(r"(?m)^<!-- This is an auto-generated comment: review paused by coderabbit\.ai -->$")
 _REPLY_MARK_RE = re.compile(r"(?m)^<!-- This is an auto-generated reply by CodeRabbit -->$")
 _WAIT = re.compile(r"(?i)(?:wait\s+\**\s*([0-9][^*\n]{0,40}?)\s*\**\s+before|available in:?\s*\**\s*([0-9][^*\n.]{0,40}))")
 
@@ -233,7 +234,8 @@ def summary_wait(body: str) -> str:
     return f" (wait {(m.group(1) or m.group(2)).strip()})" if m else ""
 
 
-def cr_state(head: str, since: datetime, reviews: list[dict], comments: list[dict]) -> tuple[str, str]:
+def cr_state(head: str, since: datetime, reviews: list[dict], comments: list[dict],
+             pause_ok: bool = True) -> tuple[str, str]:
     for r in reviews:
         if not (is_bot(r.get("user")) and r.get("commit_id") == head):
             continue
@@ -258,6 +260,12 @@ def cr_state(head: str, since: datetime, reviews: list[dict], comments: list[dic
         edited = c.get("updated_at") or c.get("created_at")
         if edited and iso(edited) > since and summary_rate_limited(body):
             events.append((iso(edited), "rate_limited", f"summary {c.get('html_url')}{summary_wait(body)}"))
+        # Auto-review paused after many commits: the summary names this head as not reviewed. It only
+        # matters while nobody asked for a review (pause_ok: no --since). After a request the bot keeps
+        # editing the summary while it reviews, and the old notice would read as a fresh pause.
+        if (pause_ok and edited and iso(edited) > since and _PAUSED_RE.search(body)
+                and re.search(r"Latest commit, not reviewed:\s*" + re.escape(head), body)):
+            events.append((iso(edited), "paused", f"summary {c.get('html_url')} (ask @coderabbitai review)"))
         created = c.get("created_at")
         if created and iso(created) > since and _REPLY_MARK_RE.search(body):  # only command replies (whole-line marker)
             outcome = reply_outcome(body)
@@ -375,7 +383,10 @@ class Watcher:
                 continue
             ci = ci_state(statuses, check_runs)
             try:
-                cr, detail = cr_state(head, since, reviews, comments)
+                # A pause notice counts while no review was requested for this head: no --since, or the head was
+                # pushed after the request (a new head the request did not cover).
+                pause_ok = self.since is None or committed > self.since
+                cr, detail = cr_state(head, since, reviews, comments, pause_ok=pause_ok)
             except (AttributeError, KeyError, TypeError, ValueError):
                 return None  # a malformed review/comment item or timestamp: fetch_failed
             return Snapshot(head, ci, cr, detail)
@@ -638,6 +649,28 @@ def self_test() -> int:
     check("a bot comment that is not a command reply is ignored", cr_state(head, since, [], [plain])[0] == "pending")
     prose = dict(rl_summary, body="<!-- walkthrough_start -->\n> ## Rate limit exceeded\nThe watcher handles rate limited replies.")
     check("rate-limit prose without the marker is ignored", cr_state(head, since, [], [prose])[0] == "pending")
+    paused_body = ("<!-- walkthrough_start -->\n<!-- This is an auto-generated comment: review paused by coderabbit.ai -->\n"
+                   "> [!NOTE]\n> ## Reviews paused\n> - Last reviewed commit: " + "b" * 40 + "\n"
+                   "> - Latest commit, not reviewed: " + head + "\n")
+    paused = {"user": BOT_USER, "created_at": "2026-10-28T00:00:00Z", "updated_at": "2026-10-29T10:20:00Z",
+              "body": paused_body, "html_url": "s"}
+    check("paused summary naming the head", cr_state(head, since, [], [paused])[0] == "paused")
+    other_head = dict(paused, body=paused_body.replace(head, "c" * 40))
+    check("paused summary for another head", cr_state(head, since, [], [other_head])[0] == "pending")
+    no_marker = dict(paused, body=paused_body.replace("review paused by coderabbit.ai", "something else"))
+    check("pause text without the marker", cr_state(head, since, [], [no_marker])[0] == "pending")
+    check("after a review request (--since) a summary edit is not a pause",
+          cr_state(head, since, [], [paused], pause_ok=False)[0] == "pending")
+    check("a pause notice from before the request is stale",
+          cr_state(head, since, [], [dict(paused, updated_at="2026-10-29T09:30:00Z")])[0] == "pending")
+    later_reply = {"user": BOT_USER, "created_at": "2026-10-29T10:30:00Z", "html_url": "r",
+                   "body": _REPLY_MARK + "\nReview rate limited."}
+    check("a newer reply beats an older pause notice",
+          cr_state(head, since, [], [paused, later_reply])[0] == "rate_limited")
+    check("a newer pause notice beats an older reply",
+          cr_state(head, since, [], [dict(paused, updated_at="2026-10-29T10:40:00Z"), later_reply])[0] == "paused")
+    check("a head review beats the pause notice",
+          cr_state(head, since, [new_rev], [paused])[0] == "reviewed")
     check("ci none", ci_state([], []) == "pending")
     check("ci coderabbit ignored", ci_state([{"context": "CodeRabbit", "state": "success"}], []) == "pending")
     check("ci newest status", ci_state([{"context": "ci", "state": "success"},
@@ -692,6 +725,20 @@ def self_test() -> int:
 
     code, lines, _, _ = scenario([reply_finished], [])
     check("exit on reply-only", code == 0 and lines[-1]["cr"] == "no_review", lines)
+    def pause_notice(gh: _FakeGitHub) -> None:
+        gh.comments.append({"user": BOT_USER, "created_at": "2026-10-28T00:00:00Z", "updated_at": "2026-10-29T12:00:00Z",
+                            "html_url": "s", "body": "<!-- This is an auto-generated comment: review paused by coderabbit.ai -->\n"
+                            "> - Latest commit, not reviewed: " + gh.HEAD + "\n"})
+
+    code, lines, _, _ = scenario([pause_notice], [])
+    check("push wait: a pause notice ends the watch as paused", code == 0 and lines[-1].get("cr") == "paused", lines)
+    code, lines, _, _ = scenario([pause_notice], ["--since", "2026-10-29T11:00:00Z", "--timeout", "500",
+                                                  "--interval", "100"])
+    check("request wait (--since): a pause notice does not end the watch",
+          code == 2 and lines[-1].get("event") == "timeout", lines)
+    code, lines, _, _ = scenario([pause_notice], ["--since", "2026-10-29T09:00:00Z"])
+    check("a head pushed after the request (--since) reports its pause",
+          code == 0 and lines[-1].get("cr") == "paused", lines)
     code, lines, _, _ = scenario([reply_finished], ["--since", "2026-10-29T11:00:00Z", "--timeout", "500",
                                                     "--interval", "100"])
     check("--since ignores older reply", code == 2 and lines[-1].get("event") == "timeout", lines)
