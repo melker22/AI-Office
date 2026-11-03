@@ -12,6 +12,16 @@ QJsonObject prop(const QString &type, const QString &desc = {})
     return o;
 }
 
+QJsonObject stringArrayProp(const QString &desc = {})
+{
+    QJsonObject o;
+    o[QStringLiteral("type")] = QStringLiteral("array");
+    o[QStringLiteral("items")] = QJsonObject{{QStringLiteral("type"), QStringLiteral("string")}};
+    if (!desc.isEmpty())
+        o[QStringLiteral("description")] = desc;
+    return o;
+}
+
 QJsonObject stringOrObject(const QString &desc)
 {
     QJsonObject o;
@@ -452,15 +462,15 @@ QJsonArray toolDefinitions()
                   QJsonObject{{QStringLiteral("expr"), prop(QStringLiteral("string"))}},
                   QJsonArray{QStringLiteral("expr")}));
     a.append(tool(QStringLiteral("insert_footnote"),
-                  QStringLiteral("Insert a footnote marker at the caret and a footnote block. `paragraphs` is one entry per paragraph (stored as runs separated by U+2029); `text` is a single paragraph."),
+                  QStringLiteral("Insert a footnote marker at the caret and a footnote block. `paragraphs` is one entry per paragraph (stored as runs separated by U+2029) and takes precedence over `text`; `text` is a single paragraph."),
                   QJsonObject{{QStringLiteral("text"), prop(QStringLiteral("string"))},
-                              {QStringLiteral("paragraphs"), prop(QStringLiteral("array"))},
+                              {QStringLiteral("paragraphs"), stringArrayProp()},
                               {QStringLiteral("id"), prop(QStringLiteral("string"))},
                               {QStringLiteral("offset"), prop(QStringLiteral("integer"))}}));
     a.append(tool(QStringLiteral("insert_endnote"),
-                  QStringLiteral("Insert an endnote marker at the caret. `paragraphs` is one entry per paragraph (stored as runs separated by U+2029); `text` is a single paragraph."),
+                  QStringLiteral("Insert an endnote marker at the caret. `paragraphs` is one entry per paragraph (stored as runs separated by U+2029) and takes precedence over `text`; `text` is a single paragraph."),
                   QJsonObject{{QStringLiteral("text"), prop(QStringLiteral("string"))},
-                              {QStringLiteral("paragraphs"), prop(QStringLiteral("array"))},
+                              {QStringLiteral("paragraphs"), stringArrayProp()},
                               {QStringLiteral("id"), prop(QStringLiteral("string"))},
                               {QStringLiteral("offset"), prop(QStringLiteral("integer"))}}));
     a.append(tool(QStringLiteral("toc_update"),

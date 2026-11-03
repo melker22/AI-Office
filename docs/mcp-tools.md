@@ -344,7 +344,7 @@ Evaluates `expr` against the open document. Literals: numbers (`1`, `2.5`, `-3`)
 ### `insert_footnote` / `insert_endnote`
 
 Args: `{ "text"?: string, "paragraphs"?: [string], "id"?: string, "offset"?: integer }`  
-Marca sobrescrita no caret + bloco `footnote`/`endnote` com id `fn*`/`en*`. `paragraphs` é um item por parágrafo, guardados como runs separados por U+2029 (é o que `document_get` devolve); sem `paragraphs`, `text` é o parágrafo único (por omissão `"Nota"`). A âncora tem de ser um bloco com id (parágrafo, heading, item de lista). Uma célula de tabela não tem id, então a nota não gruda no conteúdo da célula.
+Marca sobrescrita no caret + bloco `footnote`/`endnote` com id `fn*`/`en*`. `paragraphs` tem precedência sobre `text`: é um item por parágrafo, guardados como runs separados por U+2029 (é o que `document_get` devolve); sem `paragraphs`, `text` é o parágrafo único (por omissão `"Nota"`). A âncora tem de ser um bloco com id (parágrafo, heading, item de lista). Uma célula de tabela não tem id, então a nota não gruda no conteúdo da célula.
 
 ### `toc_update`
 
