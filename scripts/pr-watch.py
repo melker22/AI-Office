@@ -219,6 +219,7 @@ def summary_covers(comment: dict, head: str) -> bool:
 # rate limits (the walkthrough of a PR about rate limits, for one) does not match.
 _RATE_NOTICE = re.compile(r"(?m)^<!-- This is an auto-generated comment: rate limited by coderabbit\.ai -->$")
 _REPLY_MARK = "<!-- This is an auto-generated reply by CodeRabbit -->"
+_PAUSED_RE = re.compile(r"(?m)^<!-- This is an auto-generated comment: review paused by coderabbit\.ai -->$")
 _REPLY_MARK_RE = re.compile(r"(?m)^<!-- This is an auto-generated reply by CodeRabbit -->$")
 _WAIT = re.compile(r"(?i)(?:wait\s+\**\s*([0-9][^*\n]{0,40}?)\s*\**\s+before|available in:?\s*\**\s*([0-9][^*\n.]{0,40}))")
 
@@ -266,6 +267,15 @@ def cr_state(head: str, since: datetime, reviews: list[dict], comments: list[dic
     if events:
         _, outcome, detail = max(events, key=lambda e: e[0])
         return outcome, detail
+    # Auto-review paused after many commits: the summary says so and names this head as not reviewed.
+    # Nothing will come until someone asks, so report it instead of waiting out the timeout.
+    for c in comments:
+        body = c.get("body") or ""
+        edited = c.get("updated_at") or c.get("created_at")
+        # Only a notice written after `since`: once a review was requested, the old notice is stale.
+        if (is_bot(c.get("user")) and edited and iso(edited) > since and _PAUSED_RE.search(body)
+                and re.search(r"Latest commit, not reviewed:\s*" + re.escape(head), body)):
+            return "paused", f"summary {c.get('html_url')} (ask @coderabbitai review)"
     return "pending", ""
 
 
@@ -638,6 +648,20 @@ def self_test() -> int:
     check("a bot comment that is not a command reply is ignored", cr_state(head, since, [], [plain])[0] == "pending")
     prose = dict(rl_summary, body="<!-- walkthrough_start -->\n> ## Rate limit exceeded\nThe watcher handles rate limited replies.")
     check("rate-limit prose without the marker is ignored", cr_state(head, since, [], [prose])[0] == "pending")
+    paused_body = ("<!-- walkthrough_start -->\n<!-- This is an auto-generated comment: review paused by coderabbit.ai -->\n"
+                   "> [!NOTE]\n> ## Reviews paused\n> - Last reviewed commit: " + "b" * 40 + "\n"
+                   "> - Latest commit, not reviewed: " + head + "\n")
+    paused = {"user": BOT_USER, "created_at": "2026-10-28T00:00:00Z", "updated_at": "2026-10-29T10:20:00Z",
+              "body": paused_body, "html_url": "s"}
+    check("paused summary naming the head", cr_state(head, since, [], [paused])[0] == "paused")
+    other_head = dict(paused, body=paused_body.replace(head, "c" * 40))
+    check("paused summary for another head", cr_state(head, since, [], [other_head])[0] == "pending")
+    no_marker = dict(paused, body=paused_body.replace("review paused by coderabbit.ai", "something else"))
+    check("pause text without the marker", cr_state(head, since, [], [no_marker])[0] == "pending")
+    check("a pause notice from before the request is stale",
+          cr_state(head, since, [], [dict(paused, updated_at="2026-10-29T09:30:00Z")])[0] == "pending")
+    check("a head review beats the pause notice",
+          cr_state(head, since, [new_rev], [paused])[0] == "reviewed")
     check("ci none", ci_state([], []) == "pending")
     check("ci coderabbit ignored", ci_state([{"context": "CodeRabbit", "state": "success"}], []) == "pending")
     check("ci newest status", ci_state([{"context": "ci", "state": "success"},

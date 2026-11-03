@@ -110,7 +110,7 @@ depois de um `@coderabbitai review` sem push novo, `scripts/pr-watch.py <pr> --s
 (obrigatório: sem `--since`, uma resposta antiga sobre o mesmo commit contaria). O processo
 termina assim que há algo a fazer, e o término acorda o agente: revisão do bot no SHA do HEAD
 (`cr=reviewed`), resposta "Review finished"/"Already reviewed" sem revisão (`cr=no_review` → peça
-`@coderabbitai full review`), "rate limited" (`cr=rate_limited` → peça de novo depois) ou CI vermelha
+`@coderabbitai full review`), "rate limited" (`cr=rate_limited` → peça de novo depois), revisão automática pausada depois de muitos commits (`cr=paused`, pelo marcador do resumo que diz "Latest commit, not reviewed: <HEAD>" → peça `@coderabbitai review`) ou CI vermelha
 (`ci=failure`). Com `--until all`, um resultado do CodeRabbit ainda espera a CI terminar. Cada consulta
 manda o ETag da anterior (`If-None-Match`); com token, um 304 não gasta a cota. Sem token, o 304 conta e cada consulta faz pelo menos 7 requisições
 (a última relê o PR para não reportar um HEAD que mudou no meio; mais com paginação), então o intervalo é 540 s (cerca de 47 de 60 req/h por IP); com um token de leitura em `~/.config/aio-pr-watch/token` (modo 600, também usado pelo
