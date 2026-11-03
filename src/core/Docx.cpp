@@ -852,6 +852,47 @@ QString runsToWml(const QVector<TextRun> &runs, const Document &doc, DocxOut &o,
     return xml;
 }
 
+// A note reference is an anchor run whose text is empty (the number is drawn by Word,
+// not stored). revisedRunsToWml only walks text offsets, so a zero-width anchor would
+// be dropped; this writes its reference next to the paragraph text instead.
+QString noteReferenceWml(const TextRun &r, const Document &doc, DocxOut &o)
+{
+    if (r.noteId.isEmpty() || !r.text.isEmpty() || !r.field.isEmpty())
+        return {};
+    const Block *nb = doc.findBlock(r.noteId);
+    if (!nb)
+        return {};
+    if (nb->type == QLatin1String("footnote")) {
+        int id = o.fnIds.value(r.noteId, 0);
+        if (id == 0) {
+            id = o.fnIds.size() + 1;
+            o.fnIds[r.noteId] = id;
+        }
+        return QStringLiteral(
+                   "<w:r><w:rPr><w:vertAlign w:val=\"superscript\"/></w:rPr><w:footnoteReference w:id=\"%1\"/></w:r>")
+            .arg(id);
+    }
+    if (nb->type == QLatin1String("endnote")) {
+        int id = o.enIds.value(r.noteId, 0);
+        if (id == 0) {
+            id = o.enIds.size() + 1;
+            o.enIds[r.noteId] = id;
+        }
+        return QStringLiteral(
+                   "<w:r><w:rPr><w:vertAlign w:val=\"superscript\"/></w:rPr><w:endnoteReference w:id=\"%1\"/></w:r>")
+            .arg(id);
+    }
+    return {};
+}
+
+QString anchorRefsWml(const Document &doc, const QVector<TextRun> &runs, DocxOut &o)
+{
+    QString refs;
+    for (const auto &r : runs)
+        refs += noteReferenceWml(r, doc, o);
+    return refs;
+}
+
 // D3: insert wraps live text in one w:ins; delete is a w:del at `start` built from deletedRuns
 // (the edit model has already removed that text from `runs`); format adds w:rPrChange as the
 // last child of each covered run's w:rPr, with the previous w:rPr taken from priorRuns.
@@ -1532,8 +1573,8 @@ bool saveDocx(const Document &doc, const QString &path, QString *error, bool emb
             continue;
         }
         body += bookmarksAroundWml(doc, b.id,
-            QStringLiteral("<w:p>%1%2</w:p>")
-                .arg(pPr(b, van), revisedRunsToWml(b.id, b.runs, doc, o, van)), o);
+            QStringLiteral("<w:p>%1%2%3</w:p>")
+                .arg(pPr(b, van), revisedRunsToWml(b.id, b.runs, doc, o, van), anchorRefsWml(doc, b.runs, o)), o);
         accountSeqRuns(o, b.captionRuns);
     }
     QSet<QString> referencedNotes;
@@ -1705,10 +1746,19 @@ bool saveDocx(const Document &doc, const QString &path, QString *error, bool emb
         const QString item = tag.endsWith(QLatin1Char('s')) ? tag.chopped(1) : tag;
         for (auto it = byId.begin(); it != byId.end(); ++it) {
             const Block *nb = doc.findBlock(it.value());
-            xml += QStringLiteral("<w:%1 w:id=\"%2\"><w:p><w:r><w:t>%3</w:t></w:r></w:p></w:%1>")
+            // D2: each note paragraph is its own w:p; run formatting is kept. Nested
+            // note references are cleared because byId only holds this part's notes.
+            QString parasXml;
+            for (const auto &para : splitNoteParagraphs(nb ? nb->runs : QVector<TextRun>{})) {
+                QVector<TextRun> runs = para;
+                for (TextRun &r : runs)
+                    r.noteId.clear();
+                parasXml += QStringLiteral("<w:p>%1</w:p>").arg(runsToWml(runs, doc, o));
+            }
+            xml += QStringLiteral("<w:%1 w:id=\"%2\">%3</w:%1>")
                        .arg(item)
                        .arg(it.key())
-                       .arg(xmlEscape(nb ? nb->plainText() : QString()));
+                       .arg(parasXml);
         }
         xml += QStringLiteral("</w:%1>").arg(tag);
         return xml;
@@ -1732,6 +1782,100 @@ bool saveDocx(const Document &doc, const QString &path, QString *error, bool emb
         entries.push_back(m);
 
     return writeFileAtomic(path, Zip::pack(entries), error);
+}
+
+// D2: parse one footnotes.xml / endnotes.xml part into id -> note runs. Each w:p is a
+// paragraph and the note's paragraphs are joined with U+2029 (D1). Run formatting from
+// w:rPr is kept so a note paragraph round-trips with bold/italic/underline/size/color/font.
+// w:type separator/continuationNotice notes (the horizontal rule and the continuation
+// marker) are not body text and are dropped.
+static QMap<int, QVector<TextRun>> parseDocxNoteParts(const QByteArray &bytes, const QString &tag)
+{
+    QMap<int, QVector<TextRun>> out;
+    if (bytes.isEmpty())
+        return out;
+    QXmlStreamReader xml(bytes);
+    while (!xml.atEnd()) {
+        xml.readNext();
+        if (!xml.isStartElement() || xml.name() != tag)
+            continue;
+        const QXmlStreamAttributes attrs = xml.attributes();
+        const int id = attrs.value(QStringLiteral("w:id")).toInt();
+        const QString type = attrs.value(QStringLiteral("w:type")).toString();
+        QVector<QVector<TextRun>> paragraphs;
+        QVector<TextRun> cur;
+        TextRun run;
+        bool inRun = false;
+        bool inRPr = false;
+        while (!xml.atEnd()) {
+            xml.readNext();
+            if (xml.isStartElement()) {
+                const auto n = xml.name();
+                if (n == QLatin1String("p"))
+                    cur.clear();
+                else if (n == QLatin1String("r")) {
+                    run = TextRun{};
+                    inRun = true;
+                } else if (n == QLatin1String("rPr"))
+                    inRPr = true;
+                else if (inRPr && n == QLatin1String("b"))
+                    run.bold = onOffIsOn(xml.attributes(), false);
+                else if (inRPr && n == QLatin1String("i"))
+                    run.italic = onOffIsOn(xml.attributes(), false);
+                else if (inRPr && n == QLatin1String("u"))
+                    run.underline = onOffIsOn(xml.attributes(), true);
+                else if (inRPr && n == QLatin1String("strike"))
+                    run.strike = onOffIsOn(xml.attributes(), false);
+                else if (inRPr && n == QLatin1String("vertAlign")) {
+                    const QString v = xml.attributes().value(QStringLiteral("w:val")).toString();
+                    run.superscript = v == QLatin1String("superscript");
+                    run.subscript = v == QLatin1String("subscript");
+                } else if (inRPr && n == QLatin1String("sz")) {
+                    const int half = xml.attributes().value(QStringLiteral("w:val")).toInt();
+                    if (half > 0)
+                        run.sizePt = half / 2.0;
+                } else if (inRPr && n == QLatin1String("color")) {
+                    const QString hex = docxColorHex(xml.attributes().value(QStringLiteral("w:val")).toString());
+                    if (!hex.isEmpty())
+                        run.color = hex;
+                } else if (inRPr && n == QLatin1String("rFonts")) {
+                    const QString ascii = xml.attributes().value(QStringLiteral("w:ascii")).toString();
+                    const QString hAnsi = xml.attributes().value(QStringLiteral("w:hAnsi")).toString();
+                    run.font = !ascii.isEmpty() ? ascii : hAnsi;
+                } else if (inRPr && n == QLatin1String("highlight")) {
+                    const QString hex = docxHighlightHex(xml.attributes().value(QStringLiteral("w:val")).toString());
+                    if (!hex.isEmpty())
+                        run.highlight = hex;
+                } else if (inRun && n == QLatin1String("t"))
+                    run.text += xml.readElementText();
+                else if (inRun && n == QLatin1String("delText"))
+                    run.text += xml.readElementText();
+                else if (inRun && n == QLatin1String("br")) {
+                    const auto ty = xml.attributes().value(QStringLiteral("w:type")).toString();
+                    if (ty != QLatin1String("page") && ty != QLatin1String("column"))
+                        run.text += QLatin1Char('\n');
+                } else if (inRun && n == QLatin1String("tab"))
+                    run.text += QLatin1Char('\t');
+            } else if (xml.isEndElement()) {
+                const auto n = xml.name();
+                if (n == QLatin1String("rPr"))
+                    inRPr = false;
+                else if (n == QLatin1String("r") && inRun) {
+                    if (!run.text.isEmpty())
+                        cur.push_back(run);
+                    inRun = false;
+                } else if (n == QLatin1String("p")) {
+                    paragraphs.push_back(cur);
+                    cur.clear();
+                } else if (n == tag) {
+                    break;
+                }
+            }
+        }
+        if (type.isEmpty() || type == QLatin1String("normal"))
+            out.insert(id, joinNoteParagraphs(paragraphs));
+    }
+    return out;
 }
 
 bool loadDocx(const QByteArray &zipData, Document &doc, QString *error)
@@ -1801,31 +1945,10 @@ bool loadDocx(const QByteArray &zipData, Document &doc, QString *error)
         doc.keywords = jsonKeywords;
     else if (!core.keywords.isEmpty())
         doc.keywords = core.keywords;
-    QMap<int, QString> footnoteText;
-    QMap<int, QString> endnoteText;
-    auto loadNotes = [&](const QString &part, QMap<int, QString> *out) {
-        const auto bytes = Zip::file(entries, part);
-        if (bytes.isEmpty())
-            return;
-        QXmlStreamReader nx(bytes);
-        int cur = -1;
-        QString acc;
-        while (!nx.atEnd()) {
-            nx.readNext();
-            if (nx.isStartElement() && (nx.name() == QLatin1String("footnote") || nx.name() == QLatin1String("endnote"))) {
-                cur = nx.attributes().value(QStringLiteral("w:id")).toInt();
-                acc.clear();
-            } else if (nx.isStartElement() && nx.name() == QLatin1String("t"))
-                acc += nx.readElementText();
-            else if (nx.isEndElement() && (nx.name() == QLatin1String("footnote") || nx.name() == QLatin1String("endnote"))) {
-                if (cur >= 0)
-                    out->insert(cur, acc.trimmed());
-                cur = -1;
-            }
-        }
-    };
-    loadNotes(QStringLiteral("word/footnotes.xml"), &footnoteText);
-    loadNotes(QStringLiteral("word/endnotes.xml"), &endnoteText);
+    const QMap<int, QVector<TextRun>> footnoteRuns =
+        parseDocxNoteParts(Zip::file(entries, QStringLiteral("word/footnotes.xml")), QStringLiteral("footnote"));
+    const QMap<int, QVector<TextRun>> endnoteRuns =
+        parseDocxNoteParts(Zip::file(entries, QStringLiteral("word/endnotes.xml")), QStringLiteral("endnote"));
 
     QMap<QString, QString> rels;
     const QByteArray relBytes = Zip::file(entries, QStringLiteral("word/_rels/document.xml.rels"));
@@ -2434,9 +2557,9 @@ bool loadDocx(const QByteArray &zipData, Document &doc, QString *error)
                 const int id = xml.attributes().value(QStringLiteral("w:id")).toInt();
                 Block nb;
                 nb.type = QStringLiteral("footnote");
-                TextRun nr;
-                nr.text = footnoteText.value(id);
-                nb.runs.push_back(nr);
+                nb.runs = footnoteRuns.value(id);
+                if (nb.runs.isEmpty())
+                    nb.runs.push_back(TextRun{});
                 doc.assignId(nb);
                 run.noteId = nb.id;
                 run.superscript = true;
@@ -2445,9 +2568,9 @@ bool loadDocx(const QByteArray &zipData, Document &doc, QString *error)
                 const int id = xml.attributes().value(QStringLiteral("w:id")).toInt();
                 Block nb;
                 nb.type = QStringLiteral("endnote");
-                TextRun nr;
-                nr.text = endnoteText.value(id);
-                nb.runs.push_back(nr);
+                nb.runs = endnoteRuns.value(id);
+                if (nb.runs.isEmpty())
+                    nb.runs.push_back(TextRun{});
                 doc.assignId(nb);
                 run.noteId = nb.id;
                 run.superscript = true;
@@ -2688,6 +2811,7 @@ bool loadDocx(const QByteArray &zipData, Document &doc, QString *error)
         return false;
     }
     applyFieldConditionals(doc, fieldConditionals);
+    doc.normalizeExternalParaSeps();
     if (doc.body.isEmpty())
         doc = Document::blank();
     return true;

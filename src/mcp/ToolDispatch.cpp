@@ -452,13 +452,17 @@ QJsonArray toolDefinitions()
                   QJsonObject{{QStringLiteral("expr"), prop(QStringLiteral("string"))}},
                   QJsonArray{QStringLiteral("expr")}));
     a.append(tool(QStringLiteral("insert_footnote"),
-                  QStringLiteral("Insert a footnote marker at the caret and a footnote block."),
+                  QStringLiteral("Insert a footnote marker at the caret and a footnote block. `paragraphs` is one entry per paragraph (stored as runs separated by U+2029); `text` is a single paragraph."),
                   QJsonObject{{QStringLiteral("text"), prop(QStringLiteral("string"))},
-                              {QStringLiteral("id"), prop(QStringLiteral("string"))}}));
+                              {QStringLiteral("paragraphs"), prop(QStringLiteral("array"))},
+                              {QStringLiteral("id"), prop(QStringLiteral("string"))},
+                              {QStringLiteral("offset"), prop(QStringLiteral("integer"))}}));
     a.append(tool(QStringLiteral("insert_endnote"),
-                  QStringLiteral("Insert an endnote marker at the caret."),
+                  QStringLiteral("Insert an endnote marker at the caret. `paragraphs` is one entry per paragraph (stored as runs separated by U+2029); `text` is a single paragraph."),
                   QJsonObject{{QStringLiteral("text"), prop(QStringLiteral("string"))},
-                              {QStringLiteral("id"), prop(QStringLiteral("string"))}}));
+                              {QStringLiteral("paragraphs"), prop(QStringLiteral("array"))},
+                              {QStringLiteral("id"), prop(QStringLiteral("string"))},
+                              {QStringLiteral("offset"), prop(QStringLiteral("integer"))}}));
     a.append(tool(QStringLiteral("toc_update"),
                   QStringLiteral("Create or refresh a table of contents from headings. Applies named styles TOC 1…TOC 6. Optional min_level, max_level, styles[] extra paragraph styles."),
                   QJsonObject{{QStringLiteral("min_level"), prop(QStringLiteral("integer"))},

@@ -718,6 +718,83 @@ QJsonObject Block::toJson() const
     return o;
 }
 
+static bool isNoteBlockType(const QString &type)
+{
+    return type == QLatin1String("footnote") || type == QLatin1String("endnote");
+}
+
+static void paraSepToLineBreak(QVector<TextRun> &runs)
+{
+    for (TextRun &r : runs) {
+        if (r.text.contains(QChar(0x2029)))
+            r.text.replace(QChar(0x2029), QLatin1Char('\n'));
+    }
+}
+
+// D1: outside a footnote/endnote, a U+2029 is a hard line break, not a paragraph
+// separator. Table cells, nested cells, and caption runs belong to non-note blocks too.
+static void normalizeParaSeps(Block &b)
+{
+    if (isNoteBlockType(b.type))
+        return;
+    paraSepToLineBreak(b.runs);
+    paraSepToLineBreak(b.captionRuns);
+    for (auto &row : b.table) {
+        for (TableCell &cell : row) {
+            paraSepToLineBreak(cell.runs);
+            for (auto &nrow : cell.nested) {
+                for (NestedCell &nc : nrow)
+                    paraSepToLineBreak(nc.runs);
+            }
+        }
+    }
+}
+
+void Document::normalizeExternalParaSeps()
+{
+    for (Block &b : body)
+        normalizeParaSeps(b);
+}
+
+QVector<QVector<TextRun>> splitNoteParagraphs(const QVector<TextRun> &runs)
+{
+    QVector<QVector<TextRun>> paragraphs;
+    paragraphs.push_back(QVector<TextRun>{});
+    for (const TextRun &r : runs) {
+        const QString &t = r.text;
+        int start = 0;
+        for (int i = 0; i <= t.size(); ++i) {
+            if (i < t.size() && t.at(i) != QChar(0x2029))
+                continue;
+            if (i > start) {
+                TextRun frag = r;
+                frag.text = t.mid(start, i - start);
+                paragraphs.last().push_back(frag);
+            }
+            if (i < t.size()) {
+                paragraphs.push_back(QVector<TextRun>{});
+                start = i + 1;
+            }
+        }
+    }
+    return paragraphs;
+}
+
+QVector<TextRun> joinNoteParagraphs(const QVector<QVector<TextRun>> &paragraphs)
+{
+    QVector<TextRun> out;
+    for (int i = 0; i < paragraphs.size(); ++i) {
+        if (i > 0) {
+            TextRun sep;
+            sep.text = QString(QChar(0x2029));
+            out.push_back(sep);
+        }
+        for (const TextRun &r : paragraphs.at(i))
+            out.push_back(r);
+    }
+    return out;
+}
+
 Block Block::fromJson(const QJsonObject &o)
 {
     Block b;
@@ -862,6 +939,7 @@ Block Block::fromJson(const QJsonObject &o)
     b.hideIf = o.value(QStringLiteral("hide_if")).toString();
     b.numbered = o.value(QStringLiteral("numbered")).toBool();
     b.connectTo = o.value(QStringLiteral("connect_to")).toString();
+    normalizeParaSeps(b);
     return b;
 }
 
@@ -889,6 +967,10 @@ QString Block::plainText() const
         for (const auto &r : runs)
             t += r.text;
     }
+    // D1: U+2029 is a paragraph boundary inside a note, never a visible character.
+    // The canonical text and the word count treat it as a space.
+    if (t.contains(QChar(0x2029)))
+        t.replace(QChar(0x2029), QLatin1Char(' '));
     return t;
 }
 

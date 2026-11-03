@@ -664,3 +664,24 @@ set_tests_properties(wave27_html_selftest PROPERTIES
     TIMEOUT 180
     WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}"
 )
+# Wave 27 T3 note judges: D1 (U+2029 as a note paragraph separator; word count and
+# plainText as a space), D2 (multi-paragraph notes round-trip DOCX/ODT/RTF and the PDF
+# paints one line per paragraph), D3 (insert_footnote / insert_endnote `paragraphs[]`).
+# Labels playbook so scripts/qa-all.sh runs them; wave27 so `ctest -R wave27` selects them.
+foreach(_w27_check d1 d2 d3)
+    add_test(NAME "wave27_${_w27_check}" COMMAND "${CMAKE_COMMAND}" -E env AIOFFICE_HEADLESS=1 QT_QPA_PLATFORM=offscreen
+        "${Python3_EXECUTABLE}" "${CMAKE_SOURCE_DIR}/qa/wave27-notes.py"
+        --check "${_w27_check}" --cli "${AIOFFICE_CLI}")
+    set_tests_properties("wave27_${_w27_check}" PROPERTIES
+        LABELS "playbook;wave27"
+        TIMEOUT 240
+        WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}"
+    )
+endforeach()
+add_test(NAME wave27_notes_selftest COMMAND "${Python3_EXECUTABLE}"
+    "${CMAKE_SOURCE_DIR}/qa/wave27-notes.py" --self-test)
+set_tests_properties(wave27_notes_selftest PROPERTIES
+    LABELS "playbook;wave27"
+    TIMEOUT 30
+    WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}"
+)

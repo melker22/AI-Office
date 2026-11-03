@@ -3219,9 +3219,26 @@ static QJsonObject insertNoteAtCaret(Document &doc, Selection &sel, const QJsonO
     Block note;
     note.type = type;
     note.style = QStringLiteral("Normal");
-    TextRun nr;
-    nr.text = text;
-    note.runs.push_back(nr);
+    // D3 (wave 27): `paragraphs` is one entry per note paragraph. Without it, `text`
+    // is the single paragraph. Paragraphs are stored as runs separated by U+2029 (D1).
+    QStringList paragraphs;
+    if (args.contains(QStringLiteral("paragraphs"))) {
+        for (const auto &v : args.value(QStringLiteral("paragraphs")).toArray())
+            paragraphs.push_back(v.toString());
+    }
+    if (paragraphs.isEmpty())
+        paragraphs.push_back(text);
+    QVector<QVector<TextRun>> noteParagraphs;
+    for (const QString &p : paragraphs) {
+        QVector<TextRun> pr;
+        if (!p.isEmpty()) {
+            TextRun nr;
+            nr.text = p;
+            pr.push_back(nr);
+        }
+        noteParagraphs.push_back(pr);
+    }
+    note.runs = joinNoteParagraphs(noteParagraphs);
     doc.assignId(note);
     const int n = int(std::count_if(doc.body.begin(), doc.body.end(), [&](const Block &b) {
         return b.type == type;
