@@ -168,7 +168,7 @@ cockpit fleet resume <runId> \
   --set "review-adjudication.agent=cockpit" --set "review-adjudication.model=$M"
 ```
 
-Quando o Claude voltar: `cockpit fleet pause`, e `cockpit fleet resume --unset '<nó>.agent' --unset '<nó>.model'` para
+Quando o Claude voltar: `cockpit fleet pause <runId>`, e `cockpit fleet resume <runId> --unset '<nó>.agent' --unset '<nó>.model'` para
 os nós movidos; eles voltam ao YAML (Claude).
 
 ## Limites de uso
