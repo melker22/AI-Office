@@ -1944,22 +1944,46 @@ QString runDisplayText(const Document &doc, const TextRun &r, int page, int page
         // "page" is resolved by the layout-aware caller (Preview.cpp); falls through to the
         // target-text lookup below as a placeholder when no layout is available (export, insert time).
         if (t.isEmpty()) {
-            const Block *tgt = doc.findBlock(r.fieldArg);
-            if (tgt) {
-                if (tgt->type == QLatin1String("image") || tgt->type == QLatin1String("table")
-                    || tgt->type == QLatin1String("equation") || tgt->type == QLatin1String("chart")) {
-                    const QString cap = captionDisplayText(doc, *tgt, page, pages);
-                    t = cap.isEmpty() ? tgt->id : cap;
+            // The target's text as the target itself shows it: an omitted block (section_hidden, a true
+            // hide_if) shows nothing, and hidden or false-show_if runs are left out. Nested cross-references
+            // in the target are skipped (no cycles). With nothing visible, the target id or bookmark name
+            // stands in, never hidden content.
+            auto shownText = [&](const Block &tb) -> QString {
+                if (tb.sectionHidden || blockHiddenByExpr(doc, tb, 1, 1))
+                    return {};
+                if (tb.type == QLatin1String("image") || tb.type == QLatin1String("table")
+                    || tb.type == QLatin1String("equation") || tb.type == QLatin1String("chart")) {
+                    // Caption runs, without following a cross-reference in them: a caption that names
+                    // its own table would otherwise re-enter this lookup forever.
+                    if (tb.captionRuns.isEmpty())
+                        return tb.caption;
+                    QString cap;
+                    for (const auto &rr : tb.captionRuns) {
+                        if (rr.field == QLatin1String("xref"))
+                            continue;
+                        cap += runDisplayText(doc, rr, page, pages, &rr);
+                    }
+                    return cap;
                 }
-                else if (tgt->type == QLatin1String("list-item"))
-                    t = tgt->plainText().left(48);
-                else
-                    t = tgt->plainText().left(48);
+                QString s;
+                for (const auto &rr : tb.runs) {
+                    if (rr.field == QLatin1String("xref"))
+                        continue;
+                    s += runDisplayText(doc, rr, page, pages, &rr);
+                }
+                return s.left(48);
+            };
+            if (const Block *tgt = doc.findBlock(r.fieldArg)) {
+                t = shownText(*tgt);
+                if (t.isEmpty())
+                    t = tgt->id;
             } else {
                 for (const auto &bm : doc.bookmarks) {
                     if (bm.id == r.fieldArg || bm.name == r.fieldArg) {
                         const Block *b = doc.findBlock(bm.blockId);
-                        t = b ? b->plainText().left(48) : bm.name;
+                        t = b ? shownText(*b) : QString();
+                        if (t.isEmpty())
+                            t = bm.name.isEmpty() ? r.fieldArg : bm.name;
                         break;
                     }
                 }

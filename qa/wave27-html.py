@@ -482,28 +482,51 @@ def run_epubcheck(epub: Path) -> list[str]:
 
 
 def hidden_xref_errors(cli: Path, folder: Path) -> list[str]:
-    """A page cross-reference to an omitted block must not export that block's text."""
+    """A cross-reference must never publish text its target does not show: an omitted block
+    (section_hidden, true hide_if), hidden or false-show_if runs, or hidden table cells. Checked in
+    export_html, a .html save and every file of the EPUB (chapter titles, nav, captions)."""
     out = folder / "hidden-xref.html"
+    saved = folder / "hidden-xref-saved.html"
+    epub = folder / "hidden-xref.epub"
+    xr = lambda target: {"field": "xref", "field_arg": target, "xref_kind": "page"}
     steps = [
         {"tool": "document_new", "args": {"title": "Wave27 hidden xref", "force": True}},
         {"tool": "insert_blocks", "args": {"after_id": "p1", "blocks": [
             {"id": "pHid", "type": "paragraph", "section_hidden": True, "runs": [{"text": "SECRET-XREF-TARGET"}]},
             {"id": "pExpr", "type": "paragraph", "hide_if": "1", "runs": [{"text": "SECRET-EXPR-TARGET"}]},
+            {"id": "pRunsOff", "type": "paragraph", "runs": [
+                {"text": "SECRET-RUN-HIDDEN", "hidden": True},
+                {"text": "SECRET-RUN-SHOWIF", "show_if": "nope"}]},
+            {"id": "tCells", "type": "table", "header": False,
+             "rows": [[{"runs": [{"text": "SECRET-CELL", "hidden": True}]}, {"runs": [{"text": "cell ok"}]}]]},
+            {"id": "hHead", "type": "heading", "level": 1, "runs": [{"text": "Chapter "}, xr("pHid"), xr("pRunsOff")]},
+            {"id": "tCap", "type": "table", "header": False, "rows": [[{"runs": [{"text": "x"}]}]],
+             "caption_runs": [{"text": "Table "}, xr("pExpr")]},
             {"id": "pRef", "type": "paragraph", "runs": [
-                {"text": "See "}, {"field": "xref", "field_arg": "pHid", "xref_kind": "page"},
-                {"text": " and "}, {"field": "xref", "field_arg": "pExpr", "xref_kind": "page"}]},
+                {"text": "See "}, xr("pHid"), {"text": " and "}, xr("pExpr"), {"text": " and "}, xr("pRunsOff"),
+                {"text": " and "}, xr("tCells"),
+                {"text": " text "}, {"field": "xref", "field_arg": "pHid"}]},
         ]}},
         {"tool": "export_html", "args": {"path": str(out)}, "expect": {"ok": True}},
+        {"tool": "document_save", "args": {"path": str(saved)}, "expect": {"ok": True}},
+        {"tool": "document_save", "args": {"path": str(epub)}, "expect": {"ok": True, "format": "epub"}},
     ]
     script = folder / "hidden-xref.json"
     script.write_text(json.dumps(steps), encoding="utf-8")
     play(cli, script)
+    texts: dict[str, str] = {}
     try:
-        html = out.read_text(encoding="utf-8")
-    except OSError as exc:
-        return [f"cannot read {out}: {exc}"]
-    return [f"hidden target text {t!r} leaked through a page xref" for t in ("SECRET-XREF-TARGET", "SECRET-EXPR-TARGET")
-            if t in html]
+        texts["export_html"] = out.read_text(encoding="utf-8")
+        texts["document_save .html"] = saved.read_text(encoding="utf-8")
+        with zipfile.ZipFile(epub) as zf:
+            for name in zf.namelist():
+                if name.endswith((".xhtml", ".html", ".opf", ".ncx")):
+                    texts[f"epub {name}"] = zf.read(name).decode("utf-8", errors="replace")
+    except (OSError, zipfile.BadZipFile) as exc:
+        return [f"cannot read the hidden-xref outputs: {exc}"]
+    secrets = ("SECRET-XREF-TARGET", "SECRET-EXPR-TARGET", "SECRET-RUN-HIDDEN", "SECRET-RUN-SHOWIF", "SECRET-CELL")
+    return [f"{where}: hidden text {sec!r} leaked through a cross-reference"
+            for where, txt in texts.items() for sec in secrets if sec in txt]
 
 
 def run_suite(cli: Path) -> bool:

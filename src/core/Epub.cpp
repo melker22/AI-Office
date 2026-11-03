@@ -476,9 +476,8 @@ QString blockVisibleText(const Document &doc, const Block &b)
     const QString shown = runsVisibleText(doc, b.runs);
     if (!shown.trimmed().isEmpty())
         return shown;
-    const QString plain = b.plainText();
-    if (!plain.trimmed().isEmpty())
-        return plain;
+    // No plainText() fallback: it includes hidden and false-show_if runs (and every table cell). With
+    // nothing visible the caller labels the reference with the target id or bookmark name.
     return {};
 }
 
