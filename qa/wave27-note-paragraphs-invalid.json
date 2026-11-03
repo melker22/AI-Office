@@ -1,0 +1,8 @@
+[
+  {"tool": "document_new", "args": {"title": "Wave27 D3 invalid paragraphs", "force": true}},
+  {"tool": "insert_footnote", "args": {"id": "p1", "offset": 0, "paragraphs": [], "text": "x"},
+   "expect": {"ok": false, "error": "paragraphs must be a non-empty array of strings"}},
+  {"tool": "insert_endnote", "args": {"id": "p1", "offset": 0, "paragraphs": ["ok", 3]},
+   "expect": {"ok": false, "error": "paragraphs must be a non-empty array of strings"}},
+  {"tool": "insert_footnote", "args": {"id": "p1", "offset": 0, "paragraphs": ["A", "B"]}, "expect": {"ok": true}}
+]

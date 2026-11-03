@@ -3223,8 +3223,16 @@ static QJsonObject insertNoteAtCaret(Document &doc, Selection &sel, const QJsonO
     // is the single paragraph. Paragraphs are stored as runs separated by U+2029 (D1).
     QStringList paragraphs;
     if (args.contains(QStringLiteral("paragraphs"))) {
-        for (const auto &v : args.value(QStringLiteral("paragraphs")).toArray())
+        // An explicit `paragraphs` must say something: an empty array or a non-string item is an error,
+        // never a silent fall-back to `text` or an empty paragraph.
+        const QJsonValue pv = args.value(QStringLiteral("paragraphs"));
+        if (!pv.isArray() || pv.toArray().isEmpty())
+            return toolResultErr(QStringLiteral("paragraphs must be a non-empty array of strings"));
+        for (const auto &v : pv.toArray()) {
+            if (!v.isString())
+                return toolResultErr(QStringLiteral("paragraphs must be a non-empty array of strings"));
             paragraphs.push_back(v.toString());
+        }
     }
     if (paragraphs.isEmpty())
         paragraphs.push_back(text);
@@ -3260,10 +3268,16 @@ static QJsonObject insertNoteAtCaret(Document &doc, Selection &sel, const QJsonO
 
 QJsonObject Session::insertFootnote(const QJsonObject &args)
 {
+    // Inside a batch pushUndo() records nothing, so a failed call must not drop the frame before it.
+    const bool pushed = undoSuppress_ == 0;
+    const auto redoBefore = redo_;
     pushUndo();
     auto r = insertNoteAtCaret(doc_, sel_, args, QStringLiteral("footnote"));
     if (!r.value(QStringLiteral("ok")).toBool()) {
-        undo_.removeLast();
+        if (pushed) {
+            undo_.removeLast();
+            redo_ = redoBefore;
+        }
         return r;
     }
     markChanged();
@@ -3272,10 +3286,16 @@ QJsonObject Session::insertFootnote(const QJsonObject &args)
 
 QJsonObject Session::insertEndnote(const QJsonObject &args)
 {
+    // Inside a batch pushUndo() records nothing, so a failed call must not drop the frame before it.
+    const bool pushed = undoSuppress_ == 0;
+    const auto redoBefore = redo_;
     pushUndo();
     auto r = insertNoteAtCaret(doc_, sel_, args, QStringLiteral("endnote"));
     if (!r.value(QStringLiteral("ok")).toBool()) {
-        undo_.removeLast();
+        if (pushed) {
+            undo_.removeLast();
+            redo_ = redoBefore;
+        }
         return r;
     }
     markChanged();
