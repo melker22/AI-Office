@@ -229,17 +229,25 @@ _SEVERITY_RE = re.compile(r"\*\*[^*\w]*\s*(Critical|Major|Minor|Trivial)\*\*")
 
 def _badge_findings(review: dict, body: str, kinds: tuple) -> list[dict]:
     """CodeRabbit's 2026-11 review body: one <details> per finding whose <summary> carries a badge image
-    (alt "Outside diff", "Nitpick", ...) and whose text has the severity in bold; each ends with its
-    <!-- cr-comment:v1:HEX --> marker. Markers with no badge in front (the status list at the top of the
-    body) are not findings."""
+    (alt "Outside diff", "Nitpick", ...) and whose text has the severity in bold. A finding block runs from
+    its badge <summary> to the next one; its id is the LAST <!-- cr-comment:v1:HEX --> marker of that block
+    outside fenced code (a marker quoted inside a finding's code cannot stand in for the real one). Markers
+    before the first badge (the status list at the top of the body) are not findings."""
+    # Blank fenced code with same-length filler so positions stay comparable.
+    scan = re.sub(r"```.*?```", lambda m: " " * len(m.group(0)), body, flags=re.S)
+    starts = [m.start() for m in re.finditer(r"<summary>(?:(?!</summary>).)*review-finding-badges-v1/", scan, re.S)]
     out: list[dict] = []
-    prev = 0
-    for m in re.finditer(r"<!--\s*cr-comment:v1:([0-9a-f]+)\s*-->", body):
-        seg, prev = body[prev:m.start()], m.end()
-        if "review-finding-badges-v1/" not in seg:
+    for i, start in enumerate(starts):
+        end = starts[i + 1] if i + 1 < len(starts) else len(scan)
+        markers = list(re.finditer(r"<!--\s*cr-comment:v1:([0-9a-f]+)\s*-->", scan[start:end]))
+        if not markers:
             continue
-        alts = re.findall(r'<img[^>]*alt="([^"]+)"[^>]*src="[^"]*review-finding-badges-v1/', seg)
-        alts += re.findall(r'<img[^>]*src="[^"]*review-finding-badges-v1/[^"]*"[^>]*alt="([^"]+)"', seg)
+        mid = markers[-1].group(1)
+        seg = body[start:start + markers[-1].start()]
+        head = re.match(r"<summary>(?:(?!</summary>).)*</summary>", seg, re.S)
+        summary = head.group(0) if head else seg
+        alts = re.findall(r'<img[^>]*alt="([^"]+)"[^>]*src="[^"]*review-finding-badges-v1/', summary)
+        alts += re.findall(r'<img[^>]*src="[^"]*review-finding-badges-v1/[^"]*"[^>]*alt="([^"]+)"', summary)
         badge = alts[-1] if alts else ""
         kind = _BADGE_KIND.get(badge, badge.lower().replace(" ", "-") or "?")
         sev = _SEVERITY_RE.findall(seg)
@@ -247,12 +255,12 @@ def _badge_findings(review: dict, body: str, kinds: tuple) -> list[dict]:
             kind = "body-" + sev[-1].lower()
         if kind not in kinds:
             continue
-        title_m = re.findall(r"</sub>\s*(.+?)\s*</summary>", seg, re.S)
+        title_m = re.findall(r"</sub>\s*(.+?)\s*</summary>", summary, re.S)
         title = re.sub(r"<[^>]+>", "", title_m[-1]).strip() if title_m else "?"
         src = re.findall(r"/blob/[0-9a-f]{7,40}/([^\s)#]+)#L(\d+)", seg)
         rng = re.findall(r"`(\d+(?:-\d+)?)`:", seg)
         loc = f"{src[-1][0]}:{rng[-1] if rng else src[-1][1]}" if src else "?"
-        out.append({"id": m.group(1), "kind": kind, "title": title, "loc": loc, "text": seg,
+        out.append({"id": mid, "kind": kind, "title": title, "loc": loc, "text": seg,
                     "commit": (review.get("commit_id") or "")[:7], "url": review.get("html_url", "")})
     return out
 
@@ -778,6 +786,13 @@ def self_test() -> int:
     nit20 = [f for r in pr20 for f in body_findings(r, ("nitpick",))]
     check("PR #20 badge format: the nitpick is found but not blocking",
           [f["id"][:8] for f in nit20] == ["646bfae2"], str([(f["id"][:8], f["kind"]) for f in nit20]))
+    # A cr-comment marker quoted inside a finding's fenced code is not that finding's id.
+    forged = dict(pr20[-1])
+    fb = forged["body"]
+    k = fb.index("<!-- cr-comment:v1:81b7d0314ff60cdf8f7f9447 -->")
+    forged["body"] = fb[:k] + "```\n<!-- cr-comment:v1:aaaaaaaaaaaaaaaaaaaaaaaa -->\n```\n" + fb[k:]
+    ids_f = [f["id"][:8] for f in body_findings(forged)]
+    check("a marker quoted in fenced code is not the finding id", ids_f == ["81b7d031"], str(ids_f))
     check("PR #20 badge format review counts as a head review",
           is_head_review(pr20[-1], pr20[-1]["commit_id"]), "")
 
