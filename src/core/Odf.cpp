@@ -568,13 +568,14 @@ QString spansXml(SpanCounter &sc, const QVector<TextRun> &runs, const Document &
 // text:format-change is only a mark — ODF carries no previous character attributes.
 struct RevMark {
     int pos = 0;
-    int ord = 0; // 0 end, 1 delete point, 2 start, 3 bookmark — ends precede a point or a new range at the same offset
+    int ord = 0; // 0 end, 1 delete point/anchor, 2 start, 3 bookmark — ends precede a point or a new range at the same offset
     int seq = 0;
     const Revision *rv = nullptr;
     bool point = false;
     bool opening = false;
     bool bookmark = false;
     QString bookmarkName;
+    const TextRun *anchor = nullptr;
 };
 
 QString officeChangeInfo(const Revision *rv)
@@ -613,6 +614,18 @@ QString revisedSpansXml(SpanCounter &sc, const QString &blockId, const QVector<T
             continue;
         marks.push_back(RevMark{qBound(0, bm.offset, total), 3, seq++, nullptr, false, false, true, name});
     }
+    // D2: a note reference is a zero-width run, so splitRuns would drop it. Emit it as a
+    // point at its own offset (like a delete point or a bookmark) so a mark followed by
+    // more text ("Ref[note]tail") keeps its place between the runs instead of moving to
+    // the end of the block.
+    {
+        int anchorPos = 0;
+        for (const auto &r : runs) {
+            if (!r.noteId.isEmpty() && r.text.isEmpty() && r.field.isEmpty())
+                marks.push_back(RevMark{anchorPos, 1, seq++, nullptr, false, false, false, QString(), &r});
+            anchorPos += r.text.size();
+        }
+    }
     std::sort(marks.begin(), marks.end(), [](const RevMark &a, const RevMark &b) {
         if (a.pos != b.pos)
             return a.pos < b.pos;
@@ -626,6 +639,10 @@ QString revisedSpansXml(SpanCounter &sc, const QString &blockId, const QVector<T
         if (m.pos > cursor) {
             out += spansXml(sc, splitRuns(runs, cursor, m.pos), doc);
             cursor = m.pos;
+        }
+        if (m.anchor) {
+            out += emitSpan(sc, *m.anchor, doc);
+            continue;
         }
         if (m.bookmark) {
             out += QStringLiteral("<text:bookmark text:name=\"%1\"/>").arg(xmlEscape(m.bookmarkName));
@@ -644,13 +661,6 @@ QString revisedSpansXml(SpanCounter &sc, const QString &blockId, const QVector<T
     }
     if (cursor < total)
         out += spansXml(sc, splitRuns(runs, cursor, total), doc);
-    // D2: a note anchor with no text is not covered by any text range, so
-    // splitRuns drops it. Emit its note at the end of the block so the round
-    // trip keeps the note (the RTF writer already walks every run).
-    for (const auto &r : runs) {
-        if (!r.noteId.isEmpty() && r.text.isEmpty() && r.field.isEmpty())
-            out += emitSpan(sc, r, doc);
-    }
     return out;
 }
 

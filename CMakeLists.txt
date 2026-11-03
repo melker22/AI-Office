@@ -679,9 +679,9 @@ foreach(_w27_check d1 d2 d3)
     )
 endforeach()
 add_test(NAME wave27_notes_selftest COMMAND "${Python3_EXECUTABLE}"
-    "${CMAKE_SOURCE_DIR}/qa/wave27-notes.py" --self-test)
+    "${CMAKE_SOURCE_DIR}/qa/wave27-notes.py" --self-test --cli "${AIOFFICE_CLI}")
 set_tests_properties(wave27_notes_selftest PROPERTIES
     LABELS "playbook;wave27"
-    TIMEOUT 30
+    TIMEOUT 240
     WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}"
 )

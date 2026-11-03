@@ -885,24 +885,17 @@ QString noteReferenceWml(const TextRun &r, const Document &doc, DocxOut &o)
     return {};
 }
 
-QString anchorRefsWml(const Document &doc, const QVector<TextRun> &runs, DocxOut &o)
-{
-    QString refs;
-    for (const auto &r : runs)
-        refs += noteReferenceWml(r, doc, o);
-    return refs;
-}
-
 // D3: insert wraps live text in one w:ins; delete is a w:del at `start` built from deletedRuns
 // (the edit model has already removed that text from `runs`); format adds w:rPrChange as the
 // last child of each covered run's w:rPr, with the previous w:rPr taken from priorRuns.
 struct RevEv {
     int pos = 0;
-    int ord = 0; // 0 close, 1 delete point, 2 open — same order LibreOffice writes at one offset
+    int ord = 0; // 0 close, 1 delete point/anchor, 2 open — same order LibreOffice writes at one offset
     int seq = 0;
     const Revision *rv = nullptr;
     bool open = false;
     bool point = false;
+    const TextRun *anchor = nullptr;
 };
 
 QString revDate(const Revision *rv)
@@ -983,6 +976,18 @@ QString revisedRunsToWml(const QString &blockId, const QVector<TextRun> &runs, c
             evs.push_back(RevEv{s, 1, seq++, &rv, false, true});
         }
     }
+    // A note reference is a zero-width run (the number is drawn by Word, not stored), so
+    // revisedRunsToWml's offset walk would drop it: it used to be appended at the end of
+    // the paragraph by anchorRefsWml. Emit it as a point at its own offset instead, so a
+    // mark followed by more text ("Ref[note]tail") keeps its place between the runs.
+    {
+        int anchorPos = 0;
+        for (const auto &r : runs) {
+            if (!r.noteId.isEmpty() && r.text.isEmpty() && r.field.isEmpty())
+                evs.push_back(RevEv{anchorPos, 1, seq++, nullptr, false, false, &r});
+            anchorPos += r.text.size();
+        }
+    }
     std::sort(evs.begin(), evs.end(), [](const RevEv &a, const RevEv &b) {
         if (a.pos != b.pos)
             return a.pos < b.pos;
@@ -998,6 +1003,7 @@ QString revisedRunsToWml(const QString &blockId, const QVector<TextRun> &runs, c
         const Revision *delRv = nullptr;
         const Revision *insert = nullptr;
         QVector<const Revision *> formats;
+        const TextRun *anchor = nullptr;
     };
     QVector<Piece> pieces;
     int cursor = 0;
@@ -1017,7 +1023,12 @@ QString revisedRunsToWml(const QString &blockId, const QVector<TextRun> &runs, c
     for (const RevEv &ev : evs) {
         if (ev.pos > cursor)
             flushText(ev.pos);
-        if (ev.point) {
+        if (ev.anchor) {
+            Piece p;
+            p.anchor = ev.anchor;
+            p.insert = insert;
+            pieces.push_back(p);
+        } else if (ev.point) {
             Piece p;
             p.del = true;
             p.delRv = ev.rv;
@@ -1054,17 +1065,24 @@ QString revisedRunsToWml(const QString &blockId, const QVector<TextRun> &runs, c
         return xml;
     };
 
+    // A zero-width note anchor piece carries no text: write its reference in place.
+    auto emitPiece = [&](const Piece &p) -> QString {
+        if (p.anchor)
+            return noteReferenceWml(*p.anchor, doc, o);
+        return p.del ? emitDel(p.delRv, doc, o, vanish) : emitText(p);
+    };
+
     QString out;
     for (int i = 0; i < pieces.size();) {
         const Revision *ins = pieces[i].insert;
         if (!ins) {
-            out += pieces[i].del ? emitDel(pieces[i].delRv, doc, o, vanish) : emitText(pieces[i]);
+            out += emitPiece(pieces[i]);
             ++i;
             continue;
         }
         QString inner;
         while (i < pieces.size() && pieces[i].insert == ins) {
-            inner += pieces[i].del ? emitDel(pieces[i].delRv, doc, o, vanish) : emitText(pieces[i]);
+            inner += emitPiece(pieces[i]);
             ++i;
         }
         out += wrapIns(ins, inner, o);
@@ -1573,8 +1591,8 @@ bool saveDocx(const Document &doc, const QString &path, QString *error, bool emb
             continue;
         }
         body += bookmarksAroundWml(doc, b.id,
-            QStringLiteral("<w:p>%1%2%3</w:p>")
-                .arg(pPr(b, van), revisedRunsToWml(b.id, b.runs, doc, o, van), anchorRefsWml(doc, b.runs, o)), o);
+            QStringLiteral("<w:p>%1%2</w:p>")
+                .arg(pPr(b, van), revisedRunsToWml(b.id, b.runs, doc, o, van)), o);
         accountSeqRuns(o, b.captionRuns);
     }
     QSet<QString> referencedNotes;

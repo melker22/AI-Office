@@ -15,7 +15,7 @@ The script drives aioffice_cli through generated playbooks, writes under mktemp,
 and never passes LD_PRELOAD to the CLI (CI runs as root with another glibc).
 
 Run:  wave27-notes.py --check d1|d2|d3 --cli <aioffice-cli>
-      wave27-notes.py --self-test
+      wave27-notes.py --self-test --cli <aioffice-cli>
 """
 
 from __future__ import annotations
@@ -124,6 +124,20 @@ def para_flag(para: list[dict[str, Any]], key: str) -> bool:
     return any(bool(r.get(key)) for r in para)
 
 
+def note_anchor_offset(block: dict[str, Any]) -> int | None:
+    """Plain-text offset of the zero-width note reference run, or None.
+
+    The reference is a run with `note_id` and no text; its position among the
+    other runs is the offset where the note mark belongs.
+    """
+    pos = 0
+    for run in block.get("runs") or []:
+        if run.get("note_id"):
+            return pos
+        pos += len(run.get("text") or "")
+    return None
+
+
 # --------------------------------------------------------------------------- D1
 
 def check_d1(cli: Path, folder: Path) -> list[str]:
@@ -187,7 +201,11 @@ def roundtrip_note(cli: Path, folder: Path, ext: str, errors: list[str]) -> None
                         {
                             "id": "host",
                             "type": "paragraph",
-                            "runs": [{"text": "Ref "}, {"text": "", "note_id": "fn1"}],
+                            "runs": [
+                                {"text": "Ref "},
+                                {"text": "", "note_id": "fn1"},
+                                {"text": "tail"},
+                            ],
                         },
                         {
                             "id": "fn1",
@@ -227,6 +245,22 @@ def roundtrip_note(cli: Path, folder: Path, ext: str, errors: list[str]) -> None
         errors.append(f"D2/{ext}: paragraph 2 formatting is wrong ({paras[1]!r})")
     if not para_flag(paras[2], "underline"):
         errors.append(f"D2/{ext}: paragraph 3 formatting is wrong ({paras[2]!r})")
+    # The host paragraph has text after the mark ("Ref " + mark + "tail"). The
+    # round trip must keep the mark between the two text runs, not move it to
+    # the end of the paragraph.
+    host = next(
+        (b for b in blocks(doc) if any(r.get("note_id") for r in b.get("runs") or [])),
+        None,
+    )
+    if host is None:
+        errors.append(f"D2/{ext}: the note reference did not come back in the host paragraph")
+    else:
+        off = note_anchor_offset(host)
+        if off != len("Ref "):
+            errors.append(
+                f"D2/{ext}: the note anchor moved to offset {off!r} of the host "
+                f"paragraph (want {len('Ref ')}, between 'Ref ' and 'tail')"
+            )
 
 
 def check_pdf_preview(cli: Path, folder: Path, errors: list[str]) -> None:
@@ -372,6 +406,46 @@ def judge_fail_case() -> str | None:
     return None
 
 
+def run_main(args: list[str]) -> int:
+    """Drive the real main() with a fresh argv (L19)."""
+    argv = sys.argv
+    sys.argv = [str(Path(__file__).name), *args]
+    try:
+        return main()
+    finally:
+        sys.argv = argv
+
+
+def self_test(cli: Path | None) -> int:
+    ok = True
+    bad = judge_fail_case()
+    if bad:
+        print(f"FAIL {bad}")
+        ok = False
+    else:
+        print("ok   wave27 judge fail-case")
+    # L11: the CLI path is the one ctest built, never a fixed build/linux dir.
+    if cli is None or not cli.is_file():
+        print("FAIL self-test needs an existing --cli for the end-to-end run")
+        return 1
+    # L19: a real check through the real main(), not just pure Python helpers.
+    rc = run_main(["--check", "d1", "--cli", str(cli)])
+    if rc != 0:
+        print(f"FAIL self-test end-to-end d1 through main (rc={rc})")
+        ok = False
+    else:
+        print("ok   wave27 notes d1 end-to-end")
+    # The gate must fail when the CLI is missing, or the pass above is vacuous.
+    missing = cli.with_name("aioffice-cli-does-not-exist")
+    rc = run_main(["--check", "d1", "--cli", str(missing)])
+    if rc == 0:
+        print("FAIL self-test a missing CLI still passed")
+        ok = False
+    else:
+        print("ok   wave27 notes missing CLI rejected")
+    return 0 if ok else 1
+
+
 CHECKS = {"d1": check_d1, "d2": check_d2, "d3": check_d3}
 
 
@@ -383,12 +457,7 @@ def main() -> int:
     args = parser.parse_args()
 
     if args.self_test:
-        bad = judge_fail_case()
-        if bad:
-            print(f"FAIL {bad}")
-            return 1
-        print("ok   wave27 judge fail-case")
-        return 0
+        return self_test(Path(args.cli) if args.cli else None)
 
     if args.check is None:
         print("FAIL --check is required (or --self-test)")
