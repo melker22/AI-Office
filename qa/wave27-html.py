@@ -481,6 +481,31 @@ def run_epubcheck(epub: Path) -> list[str]:
     return [f"epubcheck reported problems (exit {proc.returncode}): " + " | ".join(combined.strip().splitlines()[-6:])]
 
 
+def hidden_xref_errors(cli: Path, folder: Path) -> list[str]:
+    """A page cross-reference to an omitted block must not export that block's text."""
+    out = folder / "hidden-xref.html"
+    steps = [
+        {"tool": "document_new", "args": {"title": "Wave27 hidden xref", "force": True}},
+        {"tool": "insert_blocks", "args": {"after_id": "p1", "blocks": [
+            {"id": "pHid", "type": "paragraph", "section_hidden": True, "runs": [{"text": "SECRET-XREF-TARGET"}]},
+            {"id": "pExpr", "type": "paragraph", "hide_if": "1", "runs": [{"text": "SECRET-EXPR-TARGET"}]},
+            {"id": "pRef", "type": "paragraph", "runs": [
+                {"text": "See "}, {"field": "xref", "field_arg": "pHid", "xref_kind": "page"},
+                {"text": " and "}, {"field": "xref", "field_arg": "pExpr", "xref_kind": "page"}]},
+        ]}},
+        {"tool": "export_html", "args": {"path": str(out)}, "expect": {"ok": True}},
+    ]
+    script = folder / "hidden-xref.json"
+    script.write_text(json.dumps(steps), encoding="utf-8")
+    play(cli, script)
+    try:
+        html = out.read_text(encoding="utf-8")
+    except OSError as exc:
+        return [f"cannot read {out}: {exc}"]
+    return [f"hidden target text {t!r} leaked through a page xref" for t in ("SECRET-XREF-TARGET", "SECRET-EXPR-TARGET")
+            if t in html]
+
+
 def run_suite(cli: Path) -> bool:
     if not cli.is_file():
         print(f"FAIL wave27: missing cli {cli}")
@@ -500,6 +525,7 @@ def run_suite(cli: Path) -> bool:
             return False
 
         html_errors = check_html(html)
+        hidden_errors = hidden_xref_errors(cli, Path(tmp))
         try:
             saved_errors = check_html(html_path.with_name("saved.html").read_text(encoding="utf-8"))
         except OSError as exc:
@@ -525,6 +551,7 @@ def run_suite(cli: Path) -> bool:
         ("D5 export_html", html_errors),
         ("D5 export_html selection orphans", selection_errors),
         ("D5 document_save .html", saved_errors),
+        ("D5 page xref to a hidden block", hidden_errors),
         ("D2 EPUB note paragraphs", epub_errors),
         ("EPUB epubcheck", epubcheck_errors),
     ):

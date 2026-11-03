@@ -462,6 +462,10 @@ bool isCaptionTarget(const Block &b)
 
 QString blockVisibleText(const Document &doc, const Block &b)
 {
+    // An omitted block (section_hidden, true hide_if) has no visible text: a page cross-reference to it
+    // must not publish its content. The label then falls back to the target id.
+    if (omittedBlock(doc, b))
+        return {};
     if (isCaptionTarget(b)) {
         const QString cap = captionDisplayText(doc, b, 1, 1).trimmed();
         if (!cap.isEmpty())
