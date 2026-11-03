@@ -199,6 +199,49 @@ Executores: **Grok Build 4.7** em T1 (texto), T2 (pintura) e T3 (geometria/campo
 
 **Próximo passo sugerido:** sincronizar o Notion e abrir o PR. O backlog de GUI continua na Fase Humano.
 
+## Onda 27 — EPUB import, HTML XHTML, notas multi-parágrafo — **entregue** (2026-11-03, branch `fleet/wave27-formats-b8e31e5e`, código em `bdbedb5`)
+
+Gate: `scripts/qa-all.sh --gui --interop --pdf --formats` ( `nix-shell --run`, LibreOffice no PATH) — **208/208** ctest pass, **0** falhas. Tempo real do ctest **566.84 s**. Interop passou: `docx→odt`, `odt→docx`, campos (`odt` resave / `odt→docx` / `docx→odt`), `rtf our RTF→ODT / LO RTF→native`, export DOCX da onda 24 e **`ok interop notes 3-paragraph DOCX/ODT`**. Build incremental do `build/linux` existente; alvo GUI `aioffice` compilou antes do ctest. Com `nix-shell --pure`, o ctest também passa (**493.28 s**, 208/208), mas o gate imprime `skip interop` quando `soffice` não está no PATH puro.
+
+Executores: **DeepSeek V4.1 Flash (OpenRouter)** em T1 (EPUB import), T2 (`export_html`/XHTML partilhado) e T3 (notas multi-parágrafo); **Composer** na integração e neste handoff; **Sonnet** nas lições (PR #18) e na revisão. A re-revisão fechou com **0 findings**; o fix-pass **`bdbedb5`** preserva a posição da âncora de nota de largura zero no export DOCX/ODT (`revisedRunsToWml` / `revisedSpansXml`).
+
+### EPUB import (D6, D7)
+
+| Id | Estado | Notas |
+|---|---|---|
+| D6 — `document_open` lê `.epub` | **Corrigido** | `EpubReader`: spine OPF → XHTML → blocos (heading, parágrafo, listas, tabelas, imagem, legenda, notas com D1, metadados `dc:*`). EPUB nosso round-trip estrutural. Juízes `wave27_epub_d6`, `wave27_epub_selftest`. |
+| D7 — entrada hostil | **Corrigido** | Limites zip/imagem da onda 23; XML inválido com mensagem; `href` perigoso ignorado com aviso; DRM recusado; `script`/`iframe`/`object`/`form` descartados. Juiz `wave27_epub_d7`. |
+| D2 (import EPUB) | **Corrigido** | Vários `<p>` num `aside` viram runs separados por U+2029. |
+
+### HTML / XHTML (D4, D5)
+
+| Id | Estado | Notas |
+|---|---|---|
+| D4 — gerador partilhado | **Corrigido** | Renderização de blocos extraída para uso comum EPUB + `export_html`; EPUB/regressão wave 20/25 permanecem verdes. |
+| D5 — `export_html` HTML5 | **Corrigido** | Documento autossuficiente: estilos em `<style>`, classes, campos avaliados, `hide_if` omitido, `lang`/`dir`, tabelas, listas aninhadas, notas com links, imagens `data:` URI, XML bem formado. Juízes `wave27_html`, `wave27_html_selftest`. |
+| D2 (export EPUB/HTML) | **Corrigido** | Notas multi-parágrafo no EPUB export e no HTML. |
+
+### Notas multi-parágrafo (D1–D3, D2 formatos)
+
+| Id | Estado | Notas |
+|---|---|---|
+| D1 — U+2029 | **Corrigido** | Separador de parágrafo dentro de `footnote`/`endnote`; `plainText()`/contagens tratam U+2029 como espaço; noutros blocos U+2029 externo vira `\n`. Juiz `wave27_d1`. |
+| D2 — DOCX/ODT/RTF/EPUB/preview/PDF | **Corrigido** | Import/export nativo com vários parágrafos e formatação por parágrafo; preview/PDF uma linha por parágrafo; âncora de nota no offset certo (`bdbedb5`). Juiz `wave27_d2` (inclui texto após a marca). |
+| D3 — MCP | **Corrigido** | `insert_footnote`/`insert_endnote` aceitam `paragraphs[]`; `document_get` devolve U+2029 nos runs. Juiz `wave27_d3`. |
+| D2 — interop LibreOffice | **Corrigido** | `scripts/qa-interop.py` `notes_roundtrip`: DOCX e ODT com 3 `<w:p>`/`<text:p>`, conversão LO nos dois sentidos, reopen CLI com `["P1","P2","P3"]`. |
+| Self-test notas (L19) | **Corrigido** | `wave27-notes.py --self-test` chama `main()` com `--check d1 --cli` real; CMake passa `--cli "${AIOFFICE_CLI}"`. Ctest `wave27_notes_selftest`. |
+
+### QA (D8, D9)
+
+| Item | Estado | Notas |
+|---|---|---|
+| Juízes `qa/wave27-*` | **Corrigido** | EPUB nosso + fixture de terceiro; HTML parseado como XML; notas ida e volta DOCX/ODT/RTF/EPUB; interop notas. |
+| Regressão ondas 12–26 | **Corrigido** | 208/208 no gate completo; epubcheck 0/0; veraPDF PDF/UA-1 e PDF/A-1b conformes na mesma corrida. |
+
+**Decisões:** nenhum item da onda 27 foi adiado. CSS arbitrário de EPUB de terceiros não é interpretado além de estilo inline básico (spec D6). O backlog de GUI (`src/app/`) não foi tocado.
+
+**Próximo passo sugerido:** `notion-sync`, abrir PR, merge gate.
+
 ## Fase Humano (GUI) — ficam no backlog, sem correção agora
 
 São 13 achados da Frente B e 9 do PR #11:
