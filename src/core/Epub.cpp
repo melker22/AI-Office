@@ -342,6 +342,11 @@ struct WriteCtx {
     QHash<QString, QString> *xmlIds = nullptr;
     const QHash<QString, QString> *styleClass = nullptr;
     QStringList *warnings = nullptr;
+    // export_html (wave 27 D4/D5): images become data: URIs (no sibling folder)
+    // and the EPUB-only epub:type attribute is left out so the result stays
+    // well-formed, namespace-clean HTML5.
+    bool dataUriImages = false;
+    bool html5 = false;
 };
 
 using Attrs = QVector<QPair<QString, QString>>;
@@ -574,12 +579,12 @@ void writeRuns(XhtmlWriter &x, WriteCtx &ctx, const Block &host, const QVector<T
                     ? QStringLiteral("#") + xmlIdFor(r.noteId, ctx.xmlIds)
                     : ctx.chapters->at(owner).href + QStringLiteral("#") + xmlIdFor(r.noteId, ctx.xmlIds);
                 const QString label = use.label;
-                x.start(QStringLiteral("a"),
-                        {{QStringLiteral("id"), use.refId},
-                         {QStringLiteral("href"), href},
-                         {QStringLiteral("epub:type"), QStringLiteral("noteref")},
-                         {QStringLiteral("role"), QStringLiteral("doc-noteref")},
-                         {QStringLiteral("class"), QStringLiteral("noteref")}});
+                Attrs refAttrs = {{QStringLiteral("id"), use.refId}, {QStringLiteral("href"), href}};
+                if (!ctx.html5)
+                    refAttrs.push_back({QStringLiteral("epub:type"), QStringLiteral("noteref")});
+                refAttrs.push_back({QStringLiteral("role"), QStringLiteral("doc-noteref")});
+                refAttrs.push_back({QStringLiteral("class"), QStringLiteral("noteref")});
+                x.start(QStringLiteral("a"), refAttrs);
                 x.text(label);
                 x.end(QStringLiteral("a"));
                 continue;
@@ -851,7 +856,10 @@ bool writeFigure(XhtmlWriter &x, WriteCtx &ctx, const Block &b, bool raster)
             return false;
     }
     QString href;
-    addAsset(ctx, b, bytes, mime, ext, &href);
+    if (ctx.dataUriImages)
+        href = QStringLiteral("data:") + mime + QStringLiteral(";base64,") + QString::fromLatin1(bytes.toBase64());
+    else
+        addAsset(ctx, b, bytes, mime, ext, &href);
     x.start(QStringLiteral("figure"), {{QStringLiteral("id"), xmlIdFor(b.id, ctx.xmlIds)}});
     x.nl();
     x.empty(QStringLiteral("img"), {{QStringLiteral("src"), href}, {QStringLiteral("alt"), altFor(b)}});
@@ -993,8 +1001,10 @@ void writeList(XhtmlWriter &x, WriteCtx &ctx, const QVector<const Block *> &item
 
 void writeTocBlock(XhtmlWriter &x, WriteCtx &ctx, const Block &b)
 {
-    x.start(QStringLiteral("nav"),
-            {{QStringLiteral("id"), xmlIdFor(b.id, ctx.xmlIds)}, {QStringLiteral("epub:type"), QStringLiteral("toc")}});
+    Attrs navAttrs = {{QStringLiteral("id"), xmlIdFor(b.id, ctx.xmlIds)}};
+    if (!ctx.html5)
+        navAttrs.push_back({QStringLiteral("epub:type"), QStringLiteral("toc")});
+    x.start(QStringLiteral("nav"), navAttrs);
     x.nl();
     x.start(QStringLiteral("ol"));
     x.nl();
@@ -1065,6 +1075,36 @@ bool writeBlock(XhtmlWriter &x, WriteCtx &ctx, const Block &b)
     return x.error().isEmpty();
 }
 
+// wave 27 D1/D2: U+2029 (PARAGRAPH SEPARATOR) inside a note's runs starts a new
+// paragraph. Each paragraph keeps its own run formatting and the separator itself
+// is dropped; an empty run list yields one empty paragraph, as before.
+QVector<QVector<TextRun>> noteParagraphRuns(const QVector<TextRun> &runs)
+{
+    const QChar sep(0x2029);
+    QVector<QVector<TextRun>> paras;
+    QVector<TextRun> cur;
+    for (const auto &r : runs) {
+        if (!r.text.contains(sep)) {
+            cur.push_back(r);
+            continue;
+        }
+        const QStringList parts = r.text.split(sep);
+        for (int i = 0; i < parts.size(); ++i) {
+            if (i > 0) {
+                paras.push_back(cur);
+                cur.clear();
+            }
+            if (!parts.at(i).isEmpty()) {
+                TextRun piece = r;
+                piece.text = parts.at(i);
+                cur.push_back(piece);
+            }
+        }
+    }
+    paras.push_back(cur);
+    return paras;
+}
+
 void writeNotes(XhtmlWriter &x, WriteCtx &ctx)
 {
     if (!ctx.noteOrder || !ctx.noteUses)
@@ -1112,30 +1152,66 @@ void writeNotes(XhtmlWriter &x, WriteCtx &ctx)
         if (orphan)
             warnOnce(ctx, QStringLiteral("EPUB export: note %1 has no reference").arg(id));
         const bool endnote = note->type == QLatin1String("endnote");
-        Attrs attrs = {{QStringLiteral("id"), xmlIdFor(note->id, ctx.xmlIds)},
-                       {QStringLiteral("epub:type"), endnote ? QStringLiteral("endnote") : QStringLiteral("footnote")},
-                       // doc-endnote is not in the EPUB 3.3 role set (epubcheck RSC-005/RSC-017).
-                       {QStringLiteral("role"), endnote ? QStringLiteral("note") : QStringLiteral("doc-footnote")},
-                       {QStringLiteral("class"), endnote ? QStringLiteral("endnote") : QStringLiteral("footnote")}};
+        Attrs attrs = {{QStringLiteral("id"), xmlIdFor(note->id, ctx.xmlIds)}};
+        if (!ctx.html5)
+            attrs.push_back({QStringLiteral("epub:type"), endnote ? QStringLiteral("endnote") : QStringLiteral("footnote")});
+        // doc-endnote is not in the EPUB 3.3 role set (epubcheck RSC-005/RSC-017).
+        attrs.push_back({QStringLiteral("role"), endnote ? QStringLiteral("note") : QStringLiteral("doc-footnote")});
+        attrs.push_back({QStringLiteral("class"), endnote ? QStringLiteral("endnote") : QStringLiteral("footnote")});
         addLangDir(attrs, blockLang(*note, ctx.docLang), resolvedDir(*ctx.doc, *note));
         x.start(QStringLiteral("aside"), attrs);
         x.nl();
-        x.start(QStringLiteral("p"));
-        if (!backId.isEmpty()) {
-            x.start(QStringLiteral("a"),
-                    {{QStringLiteral("href"), QStringLiteral("#") + backId},
-                     {QStringLiteral("epub:type"), QStringLiteral("backlink")},
-                     {QStringLiteral("role"), QStringLiteral("doc-backlink")}});
-            x.text(backLabel.isEmpty() ? QStringLiteral("1") : backLabel);
-            x.end(QStringLiteral("a"));
-            x.text(QStringLiteral(" "));
+        // wave 27 D1/D2: one <p> per U+2029-separated paragraph. The back link
+        // belongs to the first paragraph only.
+        const QVector<QVector<TextRun>> paras = noteParagraphRuns(note->runs);
+        for (int pi = 0; pi < paras.size(); ++pi) {
+            x.start(QStringLiteral("p"));
+            if (pi == 0 && !backId.isEmpty()) {
+                Attrs backAttrs = {{QStringLiteral("href"), QStringLiteral("#") + backId}};
+                if (!ctx.html5)
+                    backAttrs.push_back({QStringLiteral("epub:type"), QStringLiteral("backlink")});
+                backAttrs.push_back({QStringLiteral("role"), QStringLiteral("doc-backlink")});
+                x.start(QStringLiteral("a"), backAttrs);
+                x.text(backLabel.isEmpty() ? QStringLiteral("1") : backLabel);
+                x.end(QStringLiteral("a"));
+                x.text(QStringLiteral(" "));
+            }
+            writeRuns(x, ctx, *note, paras.at(pi));
+            x.end(QStringLiteral("p"));
+            x.nl();
         }
-        writeRuns(x, ctx, *note, note->runs);
-        x.end(QStringLiteral("p"));
-        x.nl();
         x.end(QStringLiteral("aside"));
         x.nl();
     }
+}
+
+// wave 27 D4: the shared block renderer used by the EPUB chapter writer and by
+// export_html. Renders the body blocks at `indexes` the way the chapter loop did
+// (consecutive list items are grouped) and, when `withNotes` is set, the note
+// bodies that belong to the current chapter.
+bool renderBlocksXhtml(XhtmlWriter &x, WriteCtx &ctx, const QVector<int> &indexes, bool withNotes)
+{
+    QVector<const Block *> listRun;
+    auto flushList = [&]() {
+        int i = 0;
+        while (i < listRun.size())
+            writeList(x, ctx, listRun, i, listLevel(*listRun.at(i)));
+        listRun.clear();
+    };
+    for (int idx : indexes) {
+        const Block &b = ctx.doc->body.at(idx);
+        if (b.type == QLatin1String("list-item")) {
+            listRun.push_back(&b);
+            continue;
+        }
+        flushList();
+        if (!writeBlock(x, ctx, b))
+            return false;
+    }
+    flushList();
+    if (withNotes)
+        writeNotes(x, ctx);
+    return x.error().isEmpty();
 }
 
 bool writeChapter(const Document &doc, const Chapter &chapter, int chapterIndex, WriteCtx ctx, QString *xhtml, QString *error)
@@ -1174,28 +1250,11 @@ bool writeChapter(const Document &doc, const Chapter &chapter, int chapterIndex,
     }
     ctx.chapterIndex = chapterIndex;
     ctx.chapterHref = chapter.href;
-    QVector<const Block *> listRun;
-    auto flushList = [&]() {
-        int i = 0;
-        while (i < listRun.size())
-            writeList(x, ctx, listRun, i, listLevel(*listRun.at(i)));
-        listRun.clear();
-    };
-    for (int idx : chapter.indexes) {
-        const Block &b = doc.body.at(idx);
-        if (b.type == QLatin1String("list-item")) {
-            listRun.push_back(&b);
-            continue;
-        }
-        flushList();
-        if (!writeBlock(x, ctx, b)) {
-            if (error)
-                *error = ctx.error && !ctx.error->isEmpty() ? *ctx.error : x.error();
-            return false;
-        }
+    if (!renderBlocksXhtml(x, ctx, chapter.indexes, true)) {
+        if (error)
+            *error = ctx.error && !ctx.error->isEmpty() ? *ctx.error : x.error();
+        return false;
     }
-    flushList();
-    writeNotes(x, ctx);
     x.end(QStringLiteral("body"));
     x.nl();
     x.end(QStringLiteral("html"));
@@ -1527,6 +1586,69 @@ void forEachRun(const Block &b, const std::function<void(const TextRun &)> &fn)
     }
 }
 
+// Shared by saveEpub and renderHtmlDocument: decides which chapter owns each note
+// (from its first visible reference), which notes are in flow, and which are
+// orphans (assigned to the last chapter). A reference that lives only in an
+// omitted block is in flow but hidden, so it is not an orphan.
+void assignNoteChapters(const Document &doc, const QVector<Chapter> &chapters, QHash<QString, int> *noteChapter,
+                        QSet<QString> *inFlowNotes, QVector<QString> *orphans)
+{
+    QSet<QString> visibleNotes;
+    for (int ci = 0; ci < chapters.size(); ++ci) {
+        for (int idx : chapters[ci].indexes) {
+            forEachRun(doc.body.at(idx), [&](const TextRun &r) {
+                if (r.noteId.isEmpty() || !noteUsable(doc, r.noteId, nullptr))
+                    return;
+                inFlowNotes->insert(r.noteId);
+                if (runIsSuppressed(doc, r) || visibleNotes.contains(r.noteId))
+                    return;
+                visibleNotes.insert(r.noteId);
+                noteChapter->insert(r.noteId, ci);
+            });
+        }
+    }
+    for (const Block &b : doc.body) {
+        if (!omittedBlock(doc, b))
+            continue;
+        forEachRun(b, [&](const TextRun &r) {
+            if (r.noteId.isEmpty() || !noteUsable(doc, r.noteId, nullptr))
+                return;
+            inFlowNotes->insert(r.noteId);
+        });
+    }
+    // A usable note cited only from another note inherits that note's chapter.
+    // An assignment that already exists is left alone.
+    bool nestedGrew = true;
+    while (nestedGrew) {
+        nestedGrew = false;
+        for (const Block &host : doc.body) {
+            if (!isNote(host) || host.id.isEmpty() || !noteUsable(doc, host.id, nullptr))
+                continue;
+            if (!noteChapter->contains(host.id))
+                continue;
+            const int hostChapter = noteChapter->value(host.id);
+            forEachRun(host, [&](const TextRun &r) {
+                if (r.noteId.isEmpty() || r.noteId == host.id || !noteUsable(doc, r.noteId, nullptr))
+                    return;
+                if (noteChapter->contains(r.noteId))
+                    return;
+                inFlowNotes->insert(r.noteId);
+                noteChapter->insert(r.noteId, hostChapter);
+                nestedGrew = true;
+            });
+        }
+    }
+    const int orphanChapter = qMax(0, chapters.size() - 1);
+    for (const Block &b : doc.body) {
+        if (!isNote(b) || b.id.isEmpty() || !noteUsable(doc, b.id, nullptr))
+            continue;
+        if (inFlowNotes->contains(b.id))
+            continue;
+        orphans->push_back(b.id);
+        noteChapter->insert(b.id, orphanChapter);
+    }
+}
+
 } // namespace
 
 bool saveEpub(const Document &doc, const QString &path, QString *error, QJsonObject *info)
@@ -1606,63 +1728,8 @@ bool saveEpub(const Document &doc, const QString &path, QString *error, QJsonObj
 
     QHash<QString, int> noteChapter;
     QSet<QString> inFlowNotes;
-    QSet<QString> visibleNotes;
-    for (int ci = 0; ci < chapters.size(); ++ci) {
-        for (int idx : chapters[ci].indexes) {
-            forEachRun(doc.body.at(idx), [&](const TextRun &r) {
-                if (r.noteId.isEmpty() || !noteUsable(doc, r.noteId, nullptr))
-                    return;
-                inFlowNotes.insert(r.noteId);
-                if (runIsSuppressed(doc, r) || visibleNotes.contains(r.noteId))
-                    return;
-                visibleNotes.insert(r.noteId);
-                noteChapter.insert(r.noteId, ci);
-            });
-        }
-    }
-    // A reference that lives only in an omitted block (section_hidden or a true
-    // hide_if) is a hidden reference. The note is left out, and it is not an orphan.
-    for (const Block &b : doc.body) {
-        if (!omittedBlock(doc, b))
-            continue;
-        forEachRun(b, [&](const TextRun &r) {
-            if (r.noteId.isEmpty() || !noteUsable(doc, r.noteId, nullptr))
-                return;
-            inFlowNotes.insert(r.noteId);
-        });
-    }
-    // A usable note cited only from another note inherits that note's chapter.
-    // An assignment that already exists is left alone.
-    bool nestedGrew = true;
-    while (nestedGrew) {
-        nestedGrew = false;
-        for (const Block &host : doc.body) {
-            if (!isNote(host) || host.id.isEmpty() || !noteUsable(doc, host.id, nullptr))
-                continue;
-            if (!noteChapter.contains(host.id))
-                continue;
-            const int hostChapter = noteChapter.value(host.id);
-            forEachRun(host, [&](const TextRun &r) {
-                if (r.noteId.isEmpty() || r.noteId == host.id || !noteUsable(doc, r.noteId, nullptr))
-                    return;
-                if (noteChapter.contains(r.noteId))
-                    return;
-                inFlowNotes.insert(r.noteId);
-                noteChapter.insert(r.noteId, hostChapter);
-                nestedGrew = true;
-            });
-        }
-    }
     QVector<QString> orphans;
-    const int orphanChapter = chapters.size() - 1;
-    for (const Block &b : doc.body) {
-        if (!isNote(b) || b.id.isEmpty() || !noteUsable(doc, b.id, nullptr))
-            continue;
-        if (inFlowNotes.contains(b.id))
-            continue;
-        orphans.push_back(b.id);
-        noteChapter.insert(b.id, orphanChapter);
-    }
+    assignNoteChapters(doc, chapters, &noteChapter, &inFlowNotes, &orphans);
 
     QHash<QString, QString> styleClass;
     const QString css = stylesheet(doc, &styleClass);
@@ -1758,6 +1825,125 @@ bool saveEpub(const Document &doc, const QString &path, QString *error, QJsonObj
             info->insert(QStringLiteral("warnings"), wa);
         }
     }
+    return true;
+}
+
+// wave 27 D5: the standalone HTML5 export, built with the same block renderer as
+// the EPUB chapters (D4). One synthetic chapter holds the whole selection, so
+// notes are local; images are embedded as data: URIs; the notes go into a
+// <section> at the end.
+bool renderHtmlDocument(const Document &doc, const QVector<int> &selection, QString *html, QStringList *warnings,
+                        QString *error)
+{
+    const QString docLang = usableLang(rawDocumentLanguage(doc), QStringLiteral("pt-PT"));
+
+    QVector<int> indexes;
+    if (selection.isEmpty()) {
+        for (int i = 0; i < doc.body.size(); ++i)
+            indexes.push_back(i);
+    } else {
+        indexes = selection;
+    }
+    QVector<int> flow;
+    for (int i : indexes) {
+        if (i < 0 || i >= doc.body.size())
+            continue;
+        const Block &b = doc.body.at(i);
+        if (omittedBlock(doc, b) || b.type == QLatin1String("break") || isNote(b))
+            continue;
+        flow.push_back(i);
+    }
+
+    Chapter only;
+    only.indexes = flow;
+    only.title = doc.title.trimmed().isEmpty() ? QStringLiteral("Sem título") : doc.title.trimmed();
+    QVector<Chapter> chapters{only};
+
+    QHash<QString, int> noteChapter;
+    QSet<QString> inFlowNotes;
+    QVector<QString> orphans;
+    assignNoteChapters(doc, chapters, &noteChapter, &inFlowNotes, &orphans);
+
+    QHash<QString, QString> xmlIds;
+    for (const Block &b : doc.body) {
+        if (!b.id.isEmpty())
+            xmlIdFor(b.id, &xmlIds);
+    }
+    QHash<QString, QString> blockHref;
+    for (int idx : flow) {
+        const QString id = doc.body.at(idx).id;
+        if (!id.isEmpty())
+            blockHref.insert(id, QStringLiteral("#") + xmlIdFor(id, &xmlIds));
+    }
+
+    QHash<QString, QString> styleClass;
+    const QString css = stylesheet(doc, &styleClass);
+
+    QString err;
+    QHash<QString, QVector<NoteUse>> noteUses;
+    QVector<QString> noteOrder;
+    WriteCtx ctx;
+    ctx.doc = &doc;
+    ctx.docLang = docLang;
+    ctx.chapterIndex = 0;
+    ctx.blockHref = &blockHref;
+    ctx.noteChapter = &noteChapter;
+    ctx.chapters = &chapters;
+    ctx.noteUses = &noteUses;
+    ctx.noteOrder = &noteOrder;
+    ctx.orphans = &orphans;
+    ctx.error = &err;
+    ctx.xmlIds = &xmlIds;
+    ctx.styleClass = &styleClass;
+    ctx.warnings = warnings;
+    ctx.dataUriImages = true;
+    ctx.html5 = true;
+
+    XhtmlWriter x;
+    x.startDocument();
+    x.doctypeHtml();
+    Attrs htmlAttrs = {{QStringLiteral("xmlns"), QStringLiteral("http://www.w3.org/1999/xhtml")}};
+    addLangDir(htmlAttrs, docLang, QString());
+    x.start(QStringLiteral("html"), htmlAttrs);
+    x.nl();
+    x.start(QStringLiteral("head"));
+    x.nl();
+    x.empty(QStringLiteral("meta"), {{QStringLiteral("charset"), QStringLiteral("utf-8")}});
+    x.nl();
+    x.start(QStringLiteral("title"));
+    x.text(only.title);
+    x.end(QStringLiteral("title"));
+    x.nl();
+    x.start(QStringLiteral("style"), {{QStringLiteral("type"), QStringLiteral("text/css")}});
+    x.nl();
+    x.text(css);
+    x.nl();
+    x.end(QStringLiteral("style"));
+    x.nl();
+    x.end(QStringLiteral("head"));
+    x.nl();
+    x.start(QStringLiteral("body"));
+    x.nl();
+    if (!renderBlocksXhtml(x, ctx, flow, false)) {
+        if (error)
+            *error = err.isEmpty() ? x.error() : err;
+        return false;
+    }
+    x.start(QStringLiteral("section"), {{QStringLiteral("class"), QStringLiteral("notes")}});
+    x.nl();
+    writeNotes(x, ctx);
+    x.end(QStringLiteral("section"));
+    x.nl();
+    x.end(QStringLiteral("body"));
+    x.nl();
+    x.end(QStringLiteral("html"));
+    x.nl();
+    if (!x.ok()) {
+        if (error)
+            *error = x.error().isEmpty() ? QStringLiteral("HTML export is not well-formed") : x.error();
+        return false;
+    }
+    *html = x.result();
     return true;
 }
 
