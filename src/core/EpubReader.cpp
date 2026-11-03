@@ -1386,6 +1386,9 @@ bool loadEpubFile(const QString &path, Document &doc, QString *error, QStringLis
     }
 
     builder.resolveAll();
+    // D1: a U+2029 in a non-note block is a hard line break, not a paragraph
+    // separator. The reader keeps U+2029 inside note bodies; normalize the rest.
+    loaded.normalizeExternalParaSeps();
     doc = std::move(loaded);
     return true;
 }

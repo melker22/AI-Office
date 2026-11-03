@@ -161,6 +161,7 @@ def third_party_html(port: int) -> bytes:
  sub<sub>2</sub> sup<sup>3</sup> <a href="https://example.org/x">ext</a></p>
 <p><span style="font-weight: bold; font-style: italic; text-decoration: underline">spanfmt</span></p>
 <p xml:lang="pt" dir="rtl">RTL text</p>
+<p>Break A&#x2029;Break B</p>
 <p>Back to <a href="#cap1">chapter</a></p>
 <ul>
   <li>Bullet one<ol><li>Numbered child</li></ol></li>
@@ -390,6 +391,16 @@ def check_foreign_book(doc: dict[str, Any]) -> list[str]:
             fail(errors, f"xml:lang not stored on the block: {rtl.get('lang')!r}")
         if rtl.get("dir") != "rtl":
             fail(errors, f"dir not stored on the block: {rtl.get('dir')!r}")
+
+    # wave 27 D1: U+2029 outside a note is a hard line break, not a paragraph
+    # separator. The EPUB reader must normalize it on import.
+    line_break = find_block(blocks, type_="paragraph", text="Break A\nBreak B")
+    if not line_break:
+        offenders = [block_text(b) for b in blocks if PARAGRAPH_SEPARATOR in block_text(b)]
+        fail(
+            errors,
+            f"a U+2029 in a plain EPUB paragraph did not become a line break: {offenders!r}",
+        )
 
     internal = find_block(blocks, type_="paragraph", text="Back to chapter")
     if not internal:
