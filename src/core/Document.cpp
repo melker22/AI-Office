@@ -718,6 +718,89 @@ QJsonObject Block::toJson() const
     return o;
 }
 
+static bool isNoteBlockType(const QString &type)
+{
+    return type == QLatin1String("footnote") || type == QLatin1String("endnote");
+}
+
+static void paraSepToLineBreak(QVector<TextRun> &runs)
+{
+    for (TextRun &r : runs) {
+        if (r.text.contains(QChar(0x2029)))
+            r.text.replace(QChar(0x2029), QLatin1Char('\n'));
+    }
+}
+
+// D1: outside a footnote/endnote, a U+2029 is a hard line break, not a paragraph
+// separator. Table cells, nested cells, and caption runs belong to non-note blocks too.
+static void normalizeParaSeps(Block &b)
+{
+    if (isNoteBlockType(b.type))
+        return;
+    paraSepToLineBreak(b.runs);
+    paraSepToLineBreak(b.captionRuns);
+    for (auto &row : b.table) {
+        for (TableCell &cell : row) {
+            paraSepToLineBreak(cell.runs);
+            for (auto &nrow : cell.nested) {
+                for (NestedCell &nc : nrow)
+                    paraSepToLineBreak(nc.runs);
+            }
+        }
+    }
+}
+
+void Document::normalizeExternalParaSeps()
+{
+    for (Block &b : body)
+        normalizeParaSeps(b);
+}
+
+QVector<QVector<TextRun>> splitNoteParagraphs(const QVector<TextRun> &runs)
+{
+    QVector<QVector<TextRun>> paragraphs;
+    paragraphs.push_back(QVector<TextRun>{});
+    for (const TextRun &r : runs) {
+        const QString &t = r.text;
+        if (t.isEmpty()) {
+            // D2: an empty run carries no separator but may be a nested note
+            // anchor or a field run the ODF and DOCX serializers still need.
+            paragraphs.last().push_back(r);
+            continue;
+        }
+        int start = 0;
+        for (int i = 0; i <= t.size(); ++i) {
+            if (i < t.size() && t.at(i) != QChar(0x2029))
+                continue;
+            if (i > start) {
+                TextRun frag = r;
+                frag.text = t.mid(start, i - start);
+                paragraphs.last().push_back(frag);
+            }
+            if (i < t.size()) {
+                paragraphs.push_back(QVector<TextRun>{});
+                start = i + 1;
+            }
+        }
+    }
+    return paragraphs;
+}
+
+QVector<TextRun> joinNoteParagraphs(const QVector<QVector<TextRun>> &paragraphs)
+{
+    QVector<TextRun> out;
+    for (int i = 0; i < paragraphs.size(); ++i) {
+        if (i > 0) {
+            TextRun sep;
+            sep.text = QString(QChar(0x2029));
+            out.push_back(sep);
+        }
+        for (const TextRun &r : paragraphs.at(i))
+            out.push_back(r);
+    }
+    return out;
+}
+
 Block Block::fromJson(const QJsonObject &o)
 {
     Block b;
@@ -862,6 +945,7 @@ Block Block::fromJson(const QJsonObject &o)
     b.hideIf = o.value(QStringLiteral("hide_if")).toString();
     b.numbered = o.value(QStringLiteral("numbered")).toBool();
     b.connectTo = o.value(QStringLiteral("connect_to")).toString();
+    normalizeParaSeps(b);
     return b;
 }
 
@@ -889,6 +973,10 @@ QString Block::plainText() const
         for (const auto &r : runs)
             t += r.text;
     }
+    // D1: U+2029 is a paragraph boundary inside a note, never a visible character.
+    // The canonical text and the word count treat it as a space.
+    if (t.contains(QChar(0x2029)))
+        t.replace(QChar(0x2029), QLatin1Char(' '));
     return t;
 }
 
@@ -1856,22 +1944,46 @@ QString runDisplayText(const Document &doc, const TextRun &r, int page, int page
         // "page" is resolved by the layout-aware caller (Preview.cpp); falls through to the
         // target-text lookup below as a placeholder when no layout is available (export, insert time).
         if (t.isEmpty()) {
-            const Block *tgt = doc.findBlock(r.fieldArg);
-            if (tgt) {
-                if (tgt->type == QLatin1String("image") || tgt->type == QLatin1String("table")
-                    || tgt->type == QLatin1String("equation") || tgt->type == QLatin1String("chart")) {
-                    const QString cap = captionDisplayText(doc, *tgt, page, pages);
-                    t = cap.isEmpty() ? tgt->id : cap;
+            // The target's text as the target itself shows it: an omitted block (section_hidden, a true
+            // hide_if) shows nothing, and hidden or false-show_if runs are left out. Nested cross-references
+            // in the target are skipped (no cycles). With nothing visible, the target id or bookmark name
+            // stands in, never hidden content.
+            auto shownText = [&](const Block &tb) -> QString {
+                if (tb.sectionHidden || blockHiddenByExpr(doc, tb, 1, 1))
+                    return {};
+                if (tb.type == QLatin1String("image") || tb.type == QLatin1String("table")
+                    || tb.type == QLatin1String("equation") || tb.type == QLatin1String("chart")) {
+                    // Caption runs, without following a cross-reference in them: a caption that names
+                    // its own table would otherwise re-enter this lookup forever.
+                    if (tb.captionRuns.isEmpty())
+                        return tb.caption;
+                    QString cap;
+                    for (const auto &rr : tb.captionRuns) {
+                        if (rr.field == QLatin1String("xref"))
+                            continue;
+                        cap += runDisplayText(doc, rr, page, pages, &rr);
+                    }
+                    return cap;
                 }
-                else if (tgt->type == QLatin1String("list-item"))
-                    t = tgt->plainText().left(48);
-                else
-                    t = tgt->plainText().left(48);
+                QString s;
+                for (const auto &rr : tb.runs) {
+                    if (rr.field == QLatin1String("xref"))
+                        continue;
+                    s += runDisplayText(doc, rr, page, pages, &rr);
+                }
+                return s.left(48);
+            };
+            if (const Block *tgt = doc.findBlock(r.fieldArg)) {
+                t = shownText(*tgt);
+                if (t.isEmpty())
+                    t = tgt->id;
             } else {
                 for (const auto &bm : doc.bookmarks) {
                     if (bm.id == r.fieldArg || bm.name == r.fieldArg) {
                         const Block *b = doc.findBlock(bm.blockId);
-                        t = b ? b->plainText().left(48) : bm.name;
+                        t = b ? shownText(*b) : QString();
+                        if (t.isEmpty())
+                            t = bm.name.isEmpty() ? r.fieldArg : bm.name;
                         break;
                     }
                 }

@@ -8,6 +8,24 @@
 
 ---
 
+## 2026-11-03 — Fleet wave27-formats — DeepSeek (OpenRouter)/Composer/Sonnet
+
+**Objective:** Close Fleet wave 27 (EPUB import, shared XHTML `export_html`, multi-paragraph footnotes/endnotes). Update the handoff, fix-plan, and feature catalog to match what actually shipped. No push.
+
+**Done:**
+- Executors: **DeepSeek V4.1 Flash (OpenRouter)** on T1 EPUB import (`EpubReader`), T2 shared XHTML + `export_html`, and T3 multi-paragraph notes (U+2029, DOCX/ODT/RTF/preview/PDF, MCP `paragraphs[]`); **Composer** on integration and this handoff; **Sonnet** on lessons (PR #18) and review. Re-review reported **0 findings** after fix-pass **`bdbedb5`**: zero-width note anchors stay at the in-run offset in DOCX/ODT export (`revisedRunsToWml` / `revisedSpansXml`), with `wave27_d2` checking text after the mark (`Ref[note]tail`).
+- D6/D7: `document_open` reads `.epub` (OPF spine → XHTML blocks, hostile zip/XML/DRM, warnings); D4/D5: `export_html` is a self-contained HTML5 document via the same block renderer as EPUB; D1–D3/D2: note bodies use U+2029 between paragraphs across formats; `insert_footnote`/`insert_endnote` accept `paragraphs[]`; `scripts/qa-interop.py` **`notes_roundtrip`** confirms LibreOffice keeps three paragraphs in our DOCX and ODT; `wave27-notes.py --self-test` runs `main()` with the real `--cli` (`wave27_notes_selftest`).
+- `scripts/qa-all.sh --gui --interop --pdf --formats` on this tree (`nix-shell --run`, LibreOffice on PATH): incremental build of existing `build/linux` (CLI + GUI before ctest). **208/208** ctest passed, **0** failed. Real ctest time **566.84 s**. Interop passed: `docx→odt`, `odt→docx`, fields (`odt` resave / `odt→docx` / `docx→odt`), `rtf our RTF→ODT / LO RTF→native`, `wave24 docx export`, and **`ok interop notes 3-paragraph DOCX/ODT`**. With `nix-shell --pure`, ctest also passes (**493.28 s**, 208/208) but prints `skip interop` when `soffice` is absent from the pure PATH.
+- `git log main..HEAD --oneline` (local `main` is `1d533f8`): bdbedb5 fix: preserve note anchor position on DOCX/ODT export · 93836fd Merge T3 multi-paragraph notes (f6d9d23) · a47973d Merge T2 export_html XHTML (0e0ab67) · f6d9d23 docs: note paragraphs (U+2029) and insert_footnote paragraphs[] · 31f7c69 test: wave27 note judges for D1, D2 and D3 · eaf506f feat: D3 insert_footnote/insert_endnote accept paragraphs[] · d0a2e26 feat: D2 multi-paragraph notes in DOCX/ODT/RTF and per-line preview/PDF · 2ac50de feat: D1 note paragraphs use U+2029 as separator (wave 27) · 0e0ab67 feat: export_html through the shared XHTML renderer with multi-paragraph notes · ce78624 test: add wave27 export_html and EPUB note-paragraph judge · b81765b docs: document EPUB import and the document_open warnings array · cc3f9dd feat: read .epub in document_open (EpubReader) · 931e486 test: wave 27 EPUB import judges fail before the reader · d06b32a docs: update lessons from PR #18 · b2a920a docs: wave 27 spec and fleet (EPUB import, HTML via the XHTML writer, multi-paragraph notes).
+
+**Decisions:** Wave 27 is fully delivered, nothing deferred (see `docs/audit/fix-plan.md`). Third-party EPUB CSS beyond basic inline styling is not interpreted (spec D6). GUI backlog (`src/app/`) untouched.
+
+**Next suggested step:** Notion sync, then open the PR. This node does not push.
+
+**Commits:** this entry documents the code state at `bdbedb5` (see `git log main..HEAD` above). The docs commit that adds this entry is not listed there.
+
+---
+
 ## 2026-10-29 — Fleet wave26 — Grok Build/Sonnet
 
 **Objective:** Close Fleet wave 26 (layout and preview fidelity). Update the handoff, fix-plan, and feature catalog to match what actually shipped. No push.

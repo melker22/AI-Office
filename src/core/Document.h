@@ -318,6 +318,11 @@ struct Document {
     const Block *findBlock(const QString &id) const;
     int indexOf(const QString &id) const;
     int wordCount() const;
+
+    // D1: a U+2029 that arrives from an external source (imported paragraph, JSON run)
+    // in a block that is not a footnote/endnote is a hard line break, not a paragraph
+    // separator, so it is rewritten to '\n'. Note blocks keep U+2029 (joinNoteParagraphs).
+    void normalizeExternalParaSeps();
 };
 
 // Smallest `<prefix><N>` not already in `ids` (case-sensitive, decimal suffix only).
@@ -346,6 +351,13 @@ QString formatPageNumber(int n, const QString &format);
 StyleDef defaultStyle(const QString &name);
 QVector<TextRun> splitRuns(const QVector<TextRun> &runs, int start, int end);
 QVector<TextRun> spliceRuns(QVector<TextRun> runs, int start, int end, const TextRun &insert);
+
+// D1 (wave 27): inside a footnote/endnote block, U+2029 (PARAGRAPH SEPARATOR) separates
+// paragraphs. splitNoteParagraphs cuts the block's runs at each U+2029 (the separator
+// itself is dropped); joinNoteParagraphs rebuilds them, inserting one standalone U+2029
+// run between paragraphs so the paragraph count (including empty paragraphs) survives.
+QVector<QVector<TextRun>> splitNoteParagraphs(const QVector<TextRun> &runs);
+QVector<TextRun> joinNoteParagraphs(const QVector<QVector<TextRun>> &paragraphs);
 void applyFormatToRun(TextRun &r, const QJsonObject &fmt);
 void clearRunFormat(TextRun &r);
 QJsonObject runFormatJson(const TextRun &r);

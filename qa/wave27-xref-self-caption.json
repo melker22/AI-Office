@@ -1,0 +1,10 @@
+[
+  {"tool": "document_new", "args": {"title": "Wave27 self-referencing caption", "force": true}},
+  {"tool": "insert_blocks", "args": {"after_id": "p1", "blocks": [
+    {"id": "tSelf", "type": "table", "header": false, "rows": [[{"runs": [{"text": "x"}]}]],
+     "caption_runs": [{"text": "Table "}, {"field": "xref", "field_arg": "tSelf"}]},
+    {"id": "pRef", "type": "paragraph", "runs": [{"text": "See "}, {"field": "xref", "field_arg": "tSelf"}]}
+  ]}},
+  {"tool": "document_get", "args": {}, "expect": {"ok": true, "document.body.2.runs.1.field": "xref"}},
+  {"tool": "export_html", "args": {}, "expect": {"ok": true}}
+]

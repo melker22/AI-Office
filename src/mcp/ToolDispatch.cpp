@@ -12,6 +12,25 @@ QJsonObject prop(const QString &type, const QString &desc = {})
     return o;
 }
 
+QJsonObject nonEmptyStringArrayProp()
+{
+    QJsonObject o;
+    o[QStringLiteral("type")] = QStringLiteral("array");
+    o[QStringLiteral("items")] = QJsonObject{{QStringLiteral("type"), QStringLiteral("string")}};
+    o[QStringLiteral("minItems")] = 1;
+    return o;
+}
+
+QJsonObject stringArrayProp(const QString &desc = {})
+{
+    QJsonObject o;
+    o[QStringLiteral("type")] = QStringLiteral("array");
+    o[QStringLiteral("items")] = QJsonObject{{QStringLiteral("type"), QStringLiteral("string")}};
+    if (!desc.isEmpty())
+        o[QStringLiteral("description")] = desc;
+    return o;
+}
+
 QJsonObject stringOrObject(const QString &desc)
 {
     QJsonObject o;
@@ -64,11 +83,11 @@ QJsonArray toolDefinitions()
                   QJsonObject{{QStringLiteral("title"), prop(QStringLiteral("string"))},
                               {QStringLiteral("force"), prop(QStringLiteral("boolean"), QStringLiteral("Discard unsaved document"))}}));
     a.append(tool(QStringLiteral("document_open"),
-                  QStringLiteral("Open ODT, DOCX, DOC (needs LibreOffice), RTF, or AIO JSON from a filesystem path."),
+                  QStringLiteral("Open ODT, DOCX, DOC (needs LibreOffice), RTF, EPUB, or AIO JSON from a filesystem path. EPUB import can return an optional `warnings` array of strings."),
                   QJsonObject{{QStringLiteral("path"), prop(QStringLiteral("string"), QStringLiteral("Absolute path"))}},
                   QJsonArray{QStringLiteral("path")}));
     a.append(tool(QStringLiteral("document_save"),
-                  QStringLiteral("Save the current document. Format is taken from the path extension. Native session JSON (.aio.json, .json, .aio), .odt, and .docx become the working file (path updated, dirty cleared). .epub, .pdf, .md, .txt, .html, .rtf, and .doc are exports: the file is written and the working path stays unchanged. The dirty flag stays unchanged unless title is a new value. .doc is export-only and is written by LibreOffice as Word 97. A .epub path writes EPUB 3 (stored mimetype), split at Heading 1 boundaries, with optional front matter before the first Heading 1; a document with no Heading 1 is one file. A successful EPUB save includes format, chapters, images, and identifier. warnings is an optional array of strings and is present only when the export produced warnings. EPUB import is not supported. RTF export warnings are returned in warnings. title, when set to a new value, updates the session title before the write; on an export path the document stays dirty until a working-file save."),
+                  QStringLiteral("Save the current document. Format is taken from the path extension. Native session JSON (.aio.json, .json, .aio), .odt, and .docx become the working file (path updated, dirty cleared). .epub, .pdf, .md, .txt, .html, .rtf, and .doc are exports: the file is written and the working path stays unchanged. The dirty flag stays unchanged unless title is a new value. .doc is export-only and is written by LibreOffice as Word 97. A .epub path writes EPUB 3 (stored mimetype), split at Heading 1 boundaries, with optional front matter before the first Heading 1; a document with no Heading 1 is one file. A successful EPUB save includes format, chapters, images, and identifier. warnings is an optional array of strings and is present only when the export produced warnings. RTF export warnings are returned in warnings. title, when set to a new value, updates the session title before the write; on an export path the document stays dirty until a working-file save."),
                   QJsonObject{{QStringLiteral("path"), prop(QStringLiteral("string"))},
                               {QStringLiteral("title"), prop(QStringLiteral("string"), QStringLiteral("Update the session title before saving. On an export path this leaves the document dirty."))}}));
     a.append(tool(QStringLiteral("document_export_pdf"),
@@ -452,13 +471,17 @@ QJsonArray toolDefinitions()
                   QJsonObject{{QStringLiteral("expr"), prop(QStringLiteral("string"))}},
                   QJsonArray{QStringLiteral("expr")}));
     a.append(tool(QStringLiteral("insert_footnote"),
-                  QStringLiteral("Insert a footnote marker at the caret and a footnote block."),
+                  QStringLiteral("Insert a footnote marker at the caret and a footnote block. `paragraphs` is a non-empty array of strings, one entry per paragraph (stored as runs separated by U+2029), and takes precedence over `text` (an empty array or a non-string item is an error); `text` is a single paragraph."),
                   QJsonObject{{QStringLiteral("text"), prop(QStringLiteral("string"))},
-                              {QStringLiteral("id"), prop(QStringLiteral("string"))}}));
+                              {QStringLiteral("paragraphs"), nonEmptyStringArrayProp()},
+                              {QStringLiteral("id"), prop(QStringLiteral("string"))},
+                              {QStringLiteral("offset"), prop(QStringLiteral("integer"))}}));
     a.append(tool(QStringLiteral("insert_endnote"),
-                  QStringLiteral("Insert an endnote marker at the caret."),
+                  QStringLiteral("Insert an endnote marker at the caret. `paragraphs` is a non-empty array of strings, one entry per paragraph (stored as runs separated by U+2029), and takes precedence over `text` (an empty array or a non-string item is an error); `text` is a single paragraph."),
                   QJsonObject{{QStringLiteral("text"), prop(QStringLiteral("string"))},
-                              {QStringLiteral("id"), prop(QStringLiteral("string"))}}));
+                              {QStringLiteral("paragraphs"), nonEmptyStringArrayProp()},
+                              {QStringLiteral("id"), prop(QStringLiteral("string"))},
+                              {QStringLiteral("offset"), prop(QStringLiteral("integer"))}}));
     a.append(tool(QStringLiteral("toc_update"),
                   QStringLiteral("Create or refresh a table of contents from headings. Applies named styles TOC 1…TOC 6. Optional min_level, max_level, styles[] extra paragraph styles."),
                   QJsonObject{{QStringLiteral("min_level"), prop(QStringLiteral("integer"))},

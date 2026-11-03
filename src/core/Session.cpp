@@ -3,6 +3,7 @@
 #include "core/Csl.h"
 #include "core/Docx.h"
 #include "core/Epub.h"
+#include "core/EpubReader.h"
 #include "core/FieldExpr.h"
 #include "core/Odf.h"
 #include "core/RtfWriter.h"
@@ -523,22 +524,28 @@ bool Session::saveTo(const QString &path, QString *error, bool embedJson, QJsonO
             return false;
         return true;
     }
-    if (ext == QLatin1String("md") || ext == QLatin1String("markdown") || ext == QLatin1String("txt")
-        || ext == QLatin1String("html") || ext == QLatin1String("htm")) {
+    if (ext == QLatin1String("html") || ext == QLatin1String("htm")) {
+        // wave 27 D5: the same self-contained HTML5 renderer as export_html (styles, notes, fields, images).
+        QString html;
+        QStringList htmlWarnings;
+        QString renderErr;
+        if (!renderHtmlDocument(doc_, {}, &html, &htmlWarnings, &renderErr)) {
+            if (error)
+                *error = renderErr.isEmpty() ? QStringLiteral("HTML export failed") : renderErr;
+            return false;
+        }
+        if (warnings)
+            *warnings += htmlWarnings;
+        return writeFileAtomic(path, html.toUtf8(), error);
+    }
+    if (ext == QLatin1String("md") || ext == QLatin1String("markdown") || ext == QLatin1String("txt")) {
         QString out;
         for (const auto &b : doc_.body) {
             if (b.type == QLatin1String("footnote") || b.type == QLatin1String("endnote")
                 || b.type == QLatin1String("break"))
                 continue;
             const QString plain = b.plainText();
-            if (ext == QLatin1String("html") || ext == QLatin1String("htm")) {
-                if (b.type == QLatin1String("heading"))
-                    out += QStringLiteral("<h%1>%2</h%1>\n").arg(qBound(1, b.level, 6)).arg(plain.toHtmlEscaped());
-                else if (b.type == QLatin1String("list-item"))
-                    out += QStringLiteral("<li>%1</li>\n").arg(plain.toHtmlEscaped());
-                else
-                    out += QStringLiteral("<p>%1</p>\n").arg(plain.toHtmlEscaped());
-            } else if (ext == QLatin1String("md") || ext == QLatin1String("markdown")) {
+            if (ext == QLatin1String("md") || ext == QLatin1String("markdown")) {
                 if (b.type == QLatin1String("heading"))
                     out += QStringLiteral("%1 %2\n\n").arg(QString(qBound(1, b.level, 6), QLatin1Char('#')), plain);
                 else if (b.type == QLatin1String("list-item"))
@@ -557,7 +564,7 @@ bool Session::saveTo(const QString &path, QString *error, bool embedJson, QJsonO
     return false;
 }
 
-bool Session::loadFrom(const QString &path, QString *error)
+bool Session::loadFrom(const QString &path, QString *error, QStringList *warnings)
 {
     const QString ext = QFileInfo(path).suffix().toLower();
     if (isNativeSessionJsonPath(path)) {
@@ -620,9 +627,15 @@ bool Session::loadFrom(const QString &path, QString *error)
         return true;
     }
     if (ext == QLatin1String("epub")) {
-        if (error)
-            *error = QStringLiteral("EPUB import is not supported");
-        return false;
+        Document loaded;
+        QStringList epubWarnings;
+        if (!loadEpubFile(path, loaded, error, &epubWarnings))
+            return false;
+        if (warnings)
+            *warnings = epubWarnings;
+        loaded.fileName = QFileInfo(path).fileName();
+        doc_ = loaded;
+        return true;
     }
     if (ext == QLatin1String("rtf")) {
         if (!loadRtfFile(path, doc_, error))
@@ -672,10 +685,11 @@ QJsonObject Session::openDocument(const QJsonObject &args)
     if (path.isEmpty())
         return fail(QStringLiteral("path is required"));
     QString err;
+    QStringList loadWarnings;
     const Document previous = doc_;
     const QString previousPath = path_;
     const bool previousDirty = dirty_;
-    if (!loadFrom(path, &err))
+    if (!loadFrom(path, &err, &loadWarnings))
         return fail(err);
     if (undoSuppress_ == 0) {
         undo_.push_back(HistoryFrame{previous, previousPath, previousDirty});
@@ -690,6 +704,12 @@ QJsonObject Session::openDocument(const QJsonObject &args)
     captureBaseline();
     auto r = ok();
     r[QStringLiteral("document")] = doc_.toJson();
+    if (!loadWarnings.isEmpty()) {
+        QJsonArray wa;
+        for (const QString &w : loadWarnings)
+            wa.append(w);
+        r[QStringLiteral("warnings")] = wa;
+    }
     return r;
 }
 
@@ -3205,9 +3225,34 @@ static QJsonObject insertNoteAtCaret(Document &doc, Selection &sel, const QJsonO
     Block note;
     note.type = type;
     note.style = QStringLiteral("Normal");
-    TextRun nr;
-    nr.text = text;
-    note.runs.push_back(nr);
+    // D3 (wave 27): `paragraphs` is one entry per note paragraph. Without it, `text`
+    // is the single paragraph. Paragraphs are stored as runs separated by U+2029 (D1).
+    QStringList paragraphs;
+    if (args.contains(QStringLiteral("paragraphs"))) {
+        // An explicit `paragraphs` must say something: an empty array or a non-string item is an error,
+        // never a silent fall-back to `text` or an empty paragraph.
+        const QJsonValue pv = args.value(QStringLiteral("paragraphs"));
+        if (!pv.isArray() || pv.toArray().isEmpty())
+            return toolResultErr(QStringLiteral("paragraphs must be a non-empty array of strings"));
+        for (const auto &v : pv.toArray()) {
+            if (!v.isString())
+                return toolResultErr(QStringLiteral("paragraphs must be a non-empty array of strings"));
+            paragraphs.push_back(v.toString());
+        }
+    }
+    if (paragraphs.isEmpty())
+        paragraphs.push_back(text);
+    QVector<QVector<TextRun>> noteParagraphs;
+    for (const QString &p : paragraphs) {
+        QVector<TextRun> pr;
+        if (!p.isEmpty()) {
+            TextRun nr;
+            nr.text = p;
+            pr.push_back(nr);
+        }
+        noteParagraphs.push_back(pr);
+    }
+    note.runs = joinNoteParagraphs(noteParagraphs);
     doc.assignId(note);
     const int n = int(std::count_if(doc.body.begin(), doc.body.end(), [&](const Block &b) {
         return b.type == type;
@@ -3229,10 +3274,16 @@ static QJsonObject insertNoteAtCaret(Document &doc, Selection &sel, const QJsonO
 
 QJsonObject Session::insertFootnote(const QJsonObject &args)
 {
+    // Inside a batch pushUndo() records nothing, so a failed call must not drop the frame before it.
+    const bool pushed = undoSuppress_ == 0;
+    const auto redoBefore = redo_;
     pushUndo();
     auto r = insertNoteAtCaret(doc_, sel_, args, QStringLiteral("footnote"));
     if (!r.value(QStringLiteral("ok")).toBool()) {
-        undo_.removeLast();
+        if (pushed) {
+            undo_.removeLast();
+            redo_ = redoBefore;
+        }
         return r;
     }
     markChanged();
@@ -3241,10 +3292,16 @@ QJsonObject Session::insertFootnote(const QJsonObject &args)
 
 QJsonObject Session::insertEndnote(const QJsonObject &args)
 {
+    // Inside a batch pushUndo() records nothing, so a failed call must not drop the frame before it.
+    const bool pushed = undoSuppress_ == 0;
+    const auto redoBefore = redo_;
     pushUndo();
     auto r = insertNoteAtCaret(doc_, sel_, args, QStringLiteral("endnote"));
     if (!r.value(QStringLiteral("ok")).toBool()) {
-        undo_.removeLast();
+        if (pushed) {
+            undo_.removeLast();
+            redo_ = redoBefore;
+        }
         return r;
     }
     markChanged();
@@ -4563,96 +4620,23 @@ QJsonObject Session::copyMarkdown(const QJsonObject &args)
     return r;
 }
 
-static QString runsToHtml(const QVector<TextRun> &runs)
-{
-    QString out;
-    for (const auto &r : runs) {
-        QString t = r.text.toHtmlEscaped();
-        t.replace(QLatin1Char('\n'), QStringLiteral("<br/>"));
-        if (r.bold)
-            t = QStringLiteral("<strong>%1</strong>").arg(t);
-        if (r.italic)
-            t = QStringLiteral("<em>%1</em>").arg(t);
-        if (r.underline)
-            t = QStringLiteral("<u>%1</u>").arg(t);
-        if (r.strike)
-            t = QStringLiteral("<s>%1</s>").arg(t);
-        if (!r.link.isEmpty())
-            t = QStringLiteral("<a href=\"%1\">%2</a>").arg(r.link.toHtmlEscaped(), t);
-        out += t;
-    }
-    return out;
-}
-
-static QString blockToHtml(const Block &b)
-{
-    if (b.type == QLatin1String("heading")) {
-        const int lv = qBound(1, b.level > 0 ? b.level : 1, 6);
-        return QStringLiteral("<h%1 id=\"%2\">%3</h%1>")
-            .arg(lv)
-            .arg(b.id.toHtmlEscaped(), runsToHtml(b.runs));
-    }
-    if (b.type == QLatin1String("list-item"))
-        return QStringLiteral("<li id=\"%1\">%2</li>").arg(b.id.toHtmlEscaped(), runsToHtml(b.runs));
-    if (b.type == QLatin1String("table")) {
-        QString html = QStringLiteral("<table id=\"%1\">").arg(b.id.toHtmlEscaped());
-        for (int r = 0; r < b.table.size(); ++r) {
-            html += QStringLiteral("<tr>");
-            const QString tag = (b.headerRow && r == 0) ? QStringLiteral("th") : QStringLiteral("td");
-            for (const auto &cell : b.table[r])
-                html += QStringLiteral("<%1>%2</%1>").arg(tag, runsToHtml(cell.runs));
-            html += QStringLiteral("</tr>");
-        }
-        html += QStringLiteral("</table>");
-        return html;
-    }
-    if (b.type == QLatin1String("image")) {
-        const QString alt = b.altText.isEmpty() ? QStringLiteral("image") : b.altText.toHtmlEscaped();
-        const QString src = b.imagePath.isEmpty() ? QStringLiteral("#") : b.imagePath.toHtmlEscaped();
-        QString html = QStringLiteral("<figure id=\"%1\"><img src=\"%2\" alt=\"%3\"/>").arg(b.id.toHtmlEscaped(), src, alt);
-        if (!b.caption.isEmpty())
-            html += QStringLiteral("<figcaption>%1</figcaption>").arg(b.caption.toHtmlEscaped());
-        html += QStringLiteral("</figure>");
-        return html;
-    }
-    if (b.type == QLatin1String("break"))
-        return QStringLiteral("<hr/>");
-    if (b.type == QLatin1String("frame"))
-        return QStringLiteral("<blockquote id=\"%1\">%2</blockquote>").arg(b.id.toHtmlEscaped(), runsToHtml(b.runs));
-    if (b.type == QLatin1String("toc"))
-        return QStringLiteral("<nav id=\"%1\" class=\"toc\">%2</nav>").arg(b.id.toHtmlEscaped(), runsToHtml(b.runs));
-    return QStringLiteral("<p id=\"%1\">%2</p>").arg(b.id.toHtmlEscaped(), runsToHtml(b.runs));
-}
-
 QJsonObject Session::exportHtml(const QJsonObject &args)
 {
-    auto idx = indexesFor(idList(args));
-    if (idx.isEmpty()) {
-        for (int i = 0; i < doc_.body.size(); ++i)
-            idx.push_back(i);
+    const QVector<int> idx = indexesFor(idList(args));
+    QString html;
+    QStringList warnings;
+    QString err;
+    // wave 27 D4/D5: one renderer for EPUB chapters and export_html.
+    if (!renderHtmlDocument(doc_, idx, &html, &warnings, &err))
+        return fail(err.isEmpty() ? QStringLiteral("HTML export failed") : err);
+    QJsonObject r = writeExport(args, html, QStringLiteral("html"));
+    if (r.value(QStringLiteral("ok")).toBool() && !warnings.isEmpty()) {
+        QJsonArray wa;
+        for (const QString &w : warnings)
+            wa.append(w);
+        r[QStringLiteral("warnings")] = wa;
     }
-    QStringList body;
-    bool inList = false;
-    for (int i : idx) {
-        if (i < 0 || i >= doc_.body.size())
-            continue;
-        const auto &b = doc_.body[i];
-        const bool li = b.type == QLatin1String("list-item");
-        if (li && !inList) {
-            body.push_back(QStringLiteral("<ul>"));
-            inList = true;
-        } else if (!li && inList) {
-            body.push_back(QStringLiteral("</ul>"));
-            inList = false;
-        }
-        body.push_back(blockToHtml(b));
-    }
-    if (inList)
-        body.push_back(QStringLiteral("</ul>"));
-    const QString html = QStringLiteral(
-                             "<!DOCTYPE html><html><head><meta charset=\"utf-8\"/><title>%1</title></head><body>%2</body></html>")
-                             .arg(doc_.title.toHtmlEscaped(), body.join(QLatin1Char('\n')));
-    return writeExport(args, html, QStringLiteral("html"));
+    return r;
 }
 
 QJsonObject Session::convertNote(const QJsonObject &args)

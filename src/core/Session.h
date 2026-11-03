@@ -197,7 +197,7 @@ private:
     QJsonObject writeExport(const QJsonObject &args, const QString &payload, const QString &key);
     bool saveTo(const QString &path, QString *error, bool embedJson = true, QJsonObject *exportInfo = nullptr,
                 QStringList *warnings = nullptr);
-    bool loadFrom(const QString &path, QString *error);
+    bool loadFrom(const QString &path, QString *error, QStringList *warnings = nullptr);
     Block *tableBlock(const QString &id);
     QVector<TextRun> *runsAt(Block &b, int row, int col);
     void shiftRevisionOffsets(const QString &blockId, int atOffset, int delta, const QString &excludeId = QString());

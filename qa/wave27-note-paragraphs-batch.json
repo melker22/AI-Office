@@ -1,0 +1,49 @@
+[
+ {
+  "tool": "document_new",
+  "args": {
+   "title": "Wave27 D3 batch undo",
+   "force": true
+  }
+ },
+ {
+  "tool": "insert_at_caret",
+  "args": {
+   "id": "p1",
+   "offset": 0,
+   "text": "Base"
+  }
+ },
+ {
+  "tool": "batch",
+  "args": {
+   "calls": [
+    {
+     "tool": "insert_footnote",
+     "args": {
+      "id": "p1",
+      "offset": 0,
+      "paragraphs": []
+     }
+    }
+   ]
+  },
+  "expect": {
+   "ok": false
+  }
+ },
+ {
+  "tool": "undo",
+  "args": {},
+  "expect": {
+   "ok": true
+  }
+ },
+ {
+  "tool": "document_stats",
+  "args": {},
+  "expect": {
+   "words": 0
+  }
+ }
+]

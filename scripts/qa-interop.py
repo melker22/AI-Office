@@ -1,10 +1,12 @@
 #!/usr/bin/env python3
-"""LibreOffice round-trip of revisions (wave 17) and dynamic fields (wave 18 D7).
+"""LibreOffice round-trip of revisions (wave 17) and dynamic fields (wave 18 D7),
+multi-paragraph notes (wave 27 D2).
 
 Exports a document through aioffice-cli, converts with soffice, strips embedded
 JSON, and reimports. Revisions compare kind, block, offsets, text, and author.
 Fields compare the ODT resave (D6 elements) plus odt→docx instructions and the
-text that survives docx→odt.
+text that survives docx→odt. Notes compare the three paragraphs of a footnote
+through docx→odt and odt→docx.
 """
 
 import json
@@ -545,6 +547,121 @@ def wave24_docx_export(cli):
     return 0
 
 
+def build_notes_doc(cli, work: Path):
+    """Wave 27 D2: a host paragraph with a footnote of three differently formatted
+    paragraphs, saved as our DOCX and our ODT."""
+    docx = work / "notes.docx"
+    odt = work / "notes.odt"
+    calls = [
+        {"tool": "document_new", "args": {"title": "Wave27 interop notes", "force": True}},
+        {
+            "tool": "insert_blocks",
+            "args": {
+                "after_id": "start",
+                "blocks": [
+                    {
+                        "id": "host",
+                        "type": "paragraph",
+                        "runs": [
+                            {"text": "Ref "},
+                            {"text": "", "note_id": "fn1"},
+                            {"text": "tail"},
+                        ],
+                    },
+                    {
+                        "id": "fn1",
+                        "type": "footnote",
+                        "runs": [
+                            {"text": "P1", "bold": True},
+                            {"text": "\u2029P2", "italic": True},
+                            {"text": "\u2029P3", "underline": True},
+                        ],
+                    },
+                ],
+            },
+        },
+        {"tool": "document_save", "args": {"path": str(docx)}},
+        {"tool": "document_save", "args": {"path": str(odt)}},
+    ]
+    play(cli, calls)
+    return docx, odt
+
+
+def assert_docx_note_paragraphs(path: Path):
+    with zipfile.ZipFile(path) as zf:
+        xml = zf.read("word/footnotes.xml").decode("utf-8")
+    start = xml.find("<w:footnote ")
+    end = xml.find("</w:footnote>", start)
+    body = xml[start:end] if start >= 0 and end > start else ""
+    count = body.count("<w:p")
+    return require(count == 3, "notes docx paragraphs", f"found {count} w:p, want 3")
+
+
+def assert_odt_note_paragraphs(path: Path):
+    with zipfile.ZipFile(path) as zf:
+        xml = zf.read("content.xml").decode("utf-8")
+    start = xml.find("<text:note-body>")
+    end = xml.find("</text:note-body>", start)
+    body = xml[start:end] if start >= 0 and end > start else ""
+    count = body.count("<text:p")
+    return require(count == 3, "notes odt paragraphs", f"found {count} text:p, want 3")
+
+
+def note_paragraph_texts(body):
+    """The note block's runs split on U+2029 (D1), or None when the note is gone."""
+    for block in body:
+        if (block.get("type") or "") not in ("footnote", "endnote"):
+            continue
+        text = "".join((run.get("text") or "") for run in (block.get("runs") or []))
+        return text.split("\u2029")
+    return None
+
+
+def assert_note_survives(cli, path: Path, label: str):
+    _revs, body = snapshot(cli, path)
+    texts = note_paragraph_texts(body)
+    if texts is None:
+        print(f"FAIL interop {label}: the note did not survive soffice")
+        return False
+    return require(texts == ["P1", "P2", "P3"], f"{label} note", f"paragraphs {texts!r}")
+
+
+def notes_roundtrip(cli):
+    """Wave 27 D2/D8: a three-paragraph note passes through LibreOffice both ways.
+
+    LibreOffice must open our DOCX and our ODT with the three paragraphs intact;
+    after conversion the note must reimport as three paragraphs.
+    """
+    work = Path(tempfile.mkdtemp(prefix="aioffice-interop-notes-"))
+    try:
+        docx, odt = build_notes_doc(cli, work)
+        if not docx.is_file() or not odt.is_file():
+            print("FAIL interop notes: native export did not write DOCX/ODT")
+            return 1
+        ok = assert_docx_note_paragraphs(docx)
+        ok = assert_odt_note_paragraphs(odt) and ok
+        to_odt = work / "docx-to-odt"
+        to_docx = work / "odt-to-docx"
+        to_odt.mkdir()
+        to_docx.mkdir()
+        convert(docx, to_odt, "odt")
+        convert(odt, to_docx, "docx")
+        converted_odt = to_odt / docx.with_suffix(".odt").name
+        converted_docx = to_docx / odt.with_suffix(".docx").name
+        if not converted_odt.is_file() or not converted_docx.is_file():
+            print("FAIL interop notes: soffice did not write the converted file")
+            return 1
+        strip_native_json(converted_odt)
+        strip_native_json(converted_docx)
+        ok = assert_note_survives(cli, converted_odt, "our DOCX→ODT") and ok
+        ok = assert_note_survives(cli, converted_docx, "our ODT→DOCX") and ok
+        if ok:
+            print("ok   interop notes 3-paragraph DOCX/ODT")
+        return 0 if ok else 1
+    finally:
+        shutil.rmtree(work, ignore_errors=True)
+
+
 def snapshot(cli, path):
     data = play(
         cli,
@@ -618,6 +735,7 @@ def main():
         status = fields_roundtrip(cli) or status
         status = rtf_interop_roundtrip(cli) or status
         status = wave24_docx_export(cli) or status
+        status = notes_roundtrip(cli) or status
         return status
     finally:
         shutil.rmtree(work, ignore_errors=True)

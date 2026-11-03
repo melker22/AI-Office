@@ -9,12 +9,14 @@ uma task real de um agente, com dependências, gates de QA e aprovação humana 
 |---|---|---|---|
 | Estratégica | `claude` / `claude-opus-5-5` | Arquitetura, decisões críticas, spec da onda, auditoria final opcional | Escrever código, docs longas, testes |
 | Tech Lead | `claude` / `claude-sonnet-5` | Plano de tarefa, revisão, QA, adjudicação, PR | Implementação que um executor faz |
-| Executor principal | `cursor` / `grok-4.7-high` | Implementação, refatoração, debugging no core | Tarefas triviais (desperdício) |
-| Executor secundário | `grok` / `grok-4.7` | Correções pós-revisão, continuidade quando o Cursor acabar | — |
-| Executor barato | `cursor` / `composer-2.5` | Campos/tools MCP, round-trip de atributos, playbooks, merges, docs | Refatoração central, decisões |
+| Executor principal | `grok` / `grok-4.7` (Grok Build; o Grok da Cursor não é usado) | Implementação, refatoração, debugging no core | Tarefas triviais (desperdício) |
+| Executor por token | `cockpit` / `openrouter/deepseek/deepseek-v4.1-flash` (reserva: `openrouter/xiaomi/mimo-v2.6-flash`) | Correções pós-revisão, integração, e implementação quando o Grok Build está sem cota | Nós que dependem de MCP (Notion, GitHub) |
+| Executor barato | `cursor` / `composer-2.5` (o único modelo da Cursor em uso) | Campos/tools MCP, round-trip de atributos, playbooks, merges, docs | Refatoração central, decisões |
 
 Ordem de decisão: arquitetura? → Opus · análise/revisão? → Sonnet · implementação simples? → Composer ·
-implementação não trivial? → Cursor Grok · Cursor sem limite? → Grok Build.
+implementação não trivial? → Grok Build · Grok Build sem cota? → DeepSeek V4.1 Flash (OpenRouter). Os modelos do
+OpenRouter são pagos por token: avaliação, preços e o piloto (2 tarefas, US$ 0,06) estão no agent-ops-kit,
+`docs/openrouter-models.md`.
 
 Gates de comando (`scripts/qa-all.sh`, o espelho local da CircleCI) custam **zero tokens** — sempre
 preferir um gate a pedir "verifique se compila" num prompt.
@@ -146,40 +148,28 @@ fora de Fleet (correções avulsas, merges) também termina com uma sincronizaç
 
 ## Fallback quando o limite do Claude acaba (autorizado pelo utilizador)
 
-Regra do utilizador: o Sonnet da Cursor é **só reserva** — cota mensal e pequena (menor que a do Grok e
-a do Composer). Use-o **apenas enquanto o Claude estiver esgotado** e devolva os nós ao Claude assim que
-a janela renovar (inclusive interrompendo um nó que esteja rodando na Cursor: o gasto dali em diante é o
-que importa). Com o Claude disponível, nenhum nó roda no Sonnet da Cursor.
-
-Quando a janela do Claude (5 h ou semanal) esgota, os nós `agent: claude` **não esperam o reset**:
-são movidos para outro provedor até o limite voltar, sem editar o YAML:
+Regra do utilizador (2026-11): da Cursor só se usa o Composer, e o Grok só pelo Grok Build. O antigo fallback para o
+Sonnet da Cursor está aposentado. Quando a janela do Claude (5 h ou semanal) esgota, os nós `agent: claude` não esperam
+o reset; os que não dependem de MCP vão para um modelo pago por token do OpenRouter, sem editar o YAML:
 
 | Nó (Claude) | Fallback | Motivo |
 |---|---|---|
-| revisão, adjudicação, plano, `open-pr`, `lessons` | `cursor` / `claude-sonnet-5-thinking-high` | Mesmo Sonnet 5, cota da Cursor; Cursor tem o MCP do GitHub |
-| `notion-sync` | `grok` / `grok-4.7` (effort low) | A Cursor não tem o MCP do Notion; o Grok tem a credencial |
-| auditoria Opus | `cursor` / `claude-opus-5-5-high` | Mesmo Opus via Cursor |
+| revisão, adjudicação, plano | `cockpit` / `openrouter/openai/gpt-5.6-luna` (revisão pesada: `openrouter/google/gemini-3.8-flash`) | Outra família de modelos, barata; ainda sem piloto no projeto |
+| `notion-sync`, `lessons`, `open-pr` | esperam o Claude (`fleet resume` depois do reset) | Dependem do MCP do Notion/GitHub, ainda não confirmado no agente `cockpit` |
+| auditoria Opus | espera o Claude | Decisão de arquitetura |
 
-Como aplicar numa Run em andamento (o nó ativo continua; só os próximos mudam). Inclua **todo** nó
-`agent: claude` que ainda não rodou — o exemplo abaixo cobre os nós das Fleets de onda:
+Como aplicar numa Run em andamento (o nó ativo continua; só os próximos mudam):
 
 ```bash
 cockpit fleet pause <runId>
-S=claude-sonnet-5-thinking-high
+M=openrouter/openai/gpt-5.6-luna
 cockpit fleet resume <runId> \
-  --set "lessons.agent=cursor" --set "lessons.model=$S" \
-  --set "review.review-pass.agent=cursor" --set "review.review-pass.model=$S" \
-  --set "review-adjudication.agent=cursor" --set "review-adjudication.model=$S" \
-  --set "open-pr.agent=cursor" --set "open-pr.model=$S" \
-  --set "opus-audit.agent=cursor" --set "opus-audit.model=claude-opus-5-5-high" \
-  --set "notion-sync.agent=grok" --set "notion-sync.model=grok-4.7" --set "notion-sync.effort=low"
-# Fleet genérica `task`: troque/adicione `plan` e `adjudicate` no lugar de review-adjudication.
+  --set "review.review-pass.agent=cockpit" --set "review.review-pass.model=$M" \
+  --set "review-adjudication.agent=cockpit" --set "review-adjudication.model=$M"
 ```
 
-Mudar o agente de um nó `session: continue` cria uma task nova na próxima iteração (o prompt inicial
-revisa o diff inteiro, então nada se perde). Quando o Claude voltar: `cockpit fleet pause`, `cockpit task
-cancel` no nó que estiver na Cursor, e `cockpit fleet resume --unset '<nó>.agent' --unset '<nó>.model'`
-para todos os nós movidos — eles voltam ao YAML (Claude).
+Quando o Claude voltar: `cockpit fleet pause <runId>`, e `cockpit fleet resume <runId> --unset '<nó>.agent' --unset '<nó>.model'` para
+os nós movidos; eles voltam ao YAML (Claude).
 
 ## Limites de uso
 
