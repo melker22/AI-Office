@@ -371,6 +371,97 @@ def check_epub(epub: Path) -> list[str]:
     return errors
 
 
+# A selection export must not drag in orphan notes that are outside the
+# selection: only an orphan whose own block is selected may be written (and
+# warned about). An orphan kept that way still needs the note its body
+# references, even when that target block is not itself selected. Before the
+# wave-27 fix every orphan was exported.
+SELECTION_ORPHAN_TEXT = "ORPHAN-BODY"
+SELECTION_NESTED_TEXT = "NESTED-BODY"
+
+
+def build_selection_playbook(plain_path: Path, selected_path: Path, kept_path: Path) -> list:
+    return [
+        {"tool": "document_new", "args": {"title": "Wave27 sel", "force": True}},
+        {
+            "tool": "insert_blocks",
+            "args": {
+                "after_id": "start",
+                "blocks": [
+                    {"id": "selP1", "type": "paragraph", "runs": [{"text": "one"}, {"text": "", "note_id": "selFn1"}]},
+                    {"id": "selFn1", "type": "footnote", "runs": [{"text": "NOTE-ONE"}]},
+                    {"id": "selP2", "type": "paragraph", "runs": [{"text": "two"}]},
+                    {
+                        "id": "selFnOrphan",
+                        "type": "footnote",
+                        "runs": [
+                            {"text": SELECTION_ORPHAN_TEXT},
+                            {"text": "", "note_id": "selFnNested"},
+                        ],
+                    },
+                    {"id": "selFnNested", "type": "footnote", "runs": [{"text": SELECTION_NESTED_TEXT}]},
+                ],
+            },
+        },
+        {"tool": "export_html", "args": {"path": str(plain_path)}},
+        {"tool": "export_html", "args": {"path": str(selected_path), "ids": ["selP1"]}},
+        {"tool": "export_html", "args": {"path": str(kept_path), "ids": ["selP1", "selFnOrphan"]}},
+    ]
+
+
+def _aside_ids(text: str) -> set[str]:
+    root = ET.fromstring(text)
+    return {a.get("id") for a in root.iter() if _local(a.tag) == "aside"}
+
+
+def _warnings_text(result: dict) -> str:
+    return " | ".join(str(w) for w in (result.get("warnings") or []))
+
+
+def check_selection_orphans(
+    results: list[dict], plain_path: Path, selected_path: Path, kept_path: Path
+) -> list[str]:
+    errors: list[str] = []
+    if len(results) < 3:
+        return ["the selection playbook returned fewer than three results"]
+    plain, selected, kept = results[-3], results[-2], results[-1]
+    for label, res in (("plain", plain), ("selected", selected), ("kept", kept)):
+        if not res.get("ok"):
+            errors.append(f"export_html ({label}) failed: {res.get('error')}")
+    try:
+        plain_html = plain_path.read_text(encoding="utf-8")
+        selected_html = selected_path.read_text(encoding="utf-8")
+        kept_html = kept_path.read_text(encoding="utf-8")
+    except OSError as exc:
+        return errors + [f"cannot read a selection export: {exc}"]
+
+    if "selFnOrphan" not in _aside_ids(plain_html):
+        errors.append("a full export must keep the orphan note (no selection)")
+    if "selFn1" not in _aside_ids(selected_html):
+        errors.append("the selection export dropped the note referenced from the selected block")
+    if "selFnOrphan" in _aside_ids(selected_html):
+        errors.append("the selection export kept an orphan note whose block is not selected")
+    if SELECTION_ORPHAN_TEXT in selected_html:
+        errors.append("the selection export wrote the unselected orphan note body")
+    if "selFnNested" in _aside_ids(selected_html) or SELECTION_NESTED_TEXT in selected_html:
+        errors.append("the selection export wrote a note reachable only from an unselected orphan")
+    if "selFnOrphan" in _warnings_text(selected):
+        errors.append("the selection export warned about an unselected orphan note")
+    if "selFnOrphan" not in _aside_ids(kept_html):
+        errors.append("an explicitly selected orphan note must be exported")
+    if "selFnOrphan" not in _warnings_text(kept):
+        errors.append("an explicitly selected orphan note must still be warned as unreferenced")
+    # The kept orphan references selFnNested, whose block is not selected: the
+    # target body must be written so the reference resolves.
+    if "selFnNested" not in _aside_ids(kept_html):
+        errors.append("a note referenced from a kept orphan note was dropped")
+    if SELECTION_NESTED_TEXT not in kept_html:
+        errors.append("the body of a note referenced from a kept orphan note was dropped")
+    if "selFnNested" in _warnings_text(kept):
+        errors.append("a note referenced from a kept orphan note was warned as unreferenced")
+    return errors
+
+
 def run_epubcheck(epub: Path) -> list[str]:
     resolved = shutil.which("epubcheck")
     if resolved is None:
@@ -410,9 +501,23 @@ def run_suite(cli: Path) -> bool:
         epub_errors = check_epub(epub_path)
         epubcheck_errors = run_epubcheck(epub_path)
 
+        plain_sel = Path(tmp) / "sel-plain.html"
+        selected_sel = Path(tmp) / "sel-only.html"
+        kept_sel = Path(tmp) / "sel-orphan.html"
+        sel_script = Path(tmp) / "sel.json"
+        sel_script.write_text(
+            json.dumps(build_selection_playbook(plain_sel, selected_sel, kept_sel), ensure_ascii=False),
+            encoding="utf-8",
+        )
+        sel_out = play(cli, sel_script)
+        selection_errors = check_selection_orphans(
+            sel_out.get("results") or [], plain_sel, selected_sel, kept_sel
+        )
+
     ok = True
     for label, errs in (
         ("D5 export_html", html_errors),
+        ("D5 export_html selection orphans", selection_errors),
         ("D2 EPUB note paragraphs", epub_errors),
         ("EPUB epubcheck", epubcheck_errors),
     ):

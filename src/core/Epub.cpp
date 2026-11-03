@@ -1863,6 +1863,46 @@ bool renderHtmlDocument(const Document &doc, const QVector<int> &selection, QStr
     QSet<QString> inFlowNotes;
     QVector<QString> orphans;
     assignNoteChapters(doc, chapters, &noteChapter, &inFlowNotes, &orphans);
+    // D5: a selection export must not drag in orphan notes outside the selection.
+    // Keep an orphan only when its own block is selected, plus the transitive
+    // targets its body references (so the kept note's noterefs still resolve and
+    // their target bodies are written). Everything else leaves noteChapter, and
+    // only the directly selected orphans stay in the warning list. With no
+    // selection every orphan is exported, as before.
+    if (!selection.isEmpty()) {
+        QSet<int> selected;
+        for (int i : indexes)
+            selected.insert(i);
+        QSet<QString> keep;
+        QVector<QString> work;
+        for (const QString &id : orphans) {
+            if (selected.contains(doc.indexOf(id))) {
+                keep.insert(id);
+                work.push_back(id);
+            }
+        }
+        while (!work.isEmpty()) {
+            const QString id = work.takeLast();
+            const Block *note = doc.findBlock(id);
+            if (!note)
+                continue;
+            forEachRun(*note, [&](const TextRun &r) {
+                if (r.noteId.isEmpty() || keep.contains(r.noteId)
+                    || !noteUsable(doc, r.noteId, nullptr))
+                    return;
+                keep.insert(r.noteId);
+                work.push_back(r.noteId);
+            });
+        }
+        QVector<QString> keptOrphans;
+        for (const QString &id : orphans) {
+            if (!keep.contains(id))
+                noteChapter.remove(id);
+            else if (selected.contains(doc.indexOf(id)))
+                keptOrphans.push_back(id);
+        }
+        orphans = keptOrphans;
+    }
 
     QHash<QString, QString> xmlIds;
     for (const Block &b : doc.body) {
