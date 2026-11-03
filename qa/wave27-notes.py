@@ -35,6 +35,7 @@ REPO = Path(__file__).resolve().parent.parent
 TIMEOUT = 180
 SEP = "\u2029"
 LINE = "\n"
+FIELD_TITLE = "WAVE27-EMPTY-FIELD"
 
 
 def child_env() -> dict[str, str]:
@@ -263,6 +264,64 @@ def roundtrip_note(cli: Path, folder: Path, ext: str, errors: list[str]) -> None
             )
 
 
+def roundtrip_note_empty_field(cli: Path, folder: Path, ext: str, errors: list[str]) -> None:
+    """D2: an empty-text field run between two note paragraphs must survive.
+
+    The run carries no text of its own when it is inserted; only the field's
+    evaluated value fills it. splitNoteParagraphs must hand it to the ODF/DOCX
+    serializer instead of dropping it with the empty fragment.
+    """
+    path = folder / f"notefield.{ext}"
+    out = play(
+        cli,
+        [
+            {"tool": "document_new", "args": {"title": FIELD_TITLE, "force": True}},
+            {
+                "tool": "insert_blocks",
+                "args": {
+                    "after_id": "start",
+                    "blocks": [
+                        {
+                            "id": "host",
+                            "type": "paragraph",
+                            "runs": [{"text": "Ref "}, {"text": "", "note_id": "fn1"}],
+                        },
+                        {
+                            "id": "fn1",
+                            "type": "footnote",
+                            "runs": [
+                                {"text": "P1"},
+                                {"text": "", "field": "title"},
+                                {"text": SEP + "P2"},
+                            ],
+                        },
+                    ],
+                },
+            },
+            {"tool": "document_save", "args": {"path": str(path)}},
+            {"tool": "document_open", "args": {"path": str(path)}},
+            {"tool": "document_get", "args": {}},
+        ],
+        folder,
+        f"d2-field-{ext}.json",
+    )
+    if not path.is_file() or path.stat().st_size == 0:
+        errors.append(f"D2/{ext}: the field-note file was not written ({path})")
+        return
+    doc = last_doc(out)
+    note = next((b for b in blocks(doc) if b.get("type") == "footnote"), None)
+    if note is None:
+        errors.append(f"D2/{ext}: the field-note footnote did not come back")
+        return
+    paras = note_paragraphs(note)
+    texts = [para_text(p) for p in paras]
+    if texts != ["P1" + FIELD_TITLE, "P2"]:
+        errors.append(
+            f"D2/{ext}: the empty field run between the note paragraphs was lost: {texts!r} "
+            f"(want {['P1' + FIELD_TITLE, 'P2']!r})"
+        )
+
+
 def check_pdf_preview(cli: Path, folder: Path, errors: list[str]) -> None:
     pdf = folder / "preview.pdf"
     out = play(
@@ -345,6 +404,11 @@ def check_d2(cli: Path, folder: Path) -> list[str]:
             roundtrip_note(cli, folder, ext, errors)
         except SystemExit as exc:
             errors.append(f"D2/{ext}: {exc}")
+    for ext in ("docx", "odt"):
+        try:
+            roundtrip_note_empty_field(cli, folder, ext, errors)
+        except SystemExit as exc:
+            errors.append(f"D2/{ext}-field: {exc}")
     try:
         check_pdf_preview(cli, folder, errors)
     except SystemExit as exc:

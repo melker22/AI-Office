@@ -762,6 +762,12 @@ QVector<QVector<TextRun>> splitNoteParagraphs(const QVector<TextRun> &runs)
     paragraphs.push_back(QVector<TextRun>{});
     for (const TextRun &r : runs) {
         const QString &t = r.text;
+        if (t.isEmpty()) {
+            // D2: an empty run carries no separator but may be a nested note
+            // anchor or a field run the ODF and DOCX serializers still need.
+            paragraphs.last().push_back(r);
+            continue;
+        }
         int start = 0;
         for (int i = 0; i <= t.size(); ++i) {
             if (i < t.size() && t.at(i) != QChar(0x2029))
