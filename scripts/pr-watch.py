@@ -234,7 +234,8 @@ def summary_wait(body: str) -> str:
     return f" (wait {(m.group(1) or m.group(2)).strip()})" if m else ""
 
 
-def cr_state(head: str, since: datetime, reviews: list[dict], comments: list[dict]) -> tuple[str, str]:
+def cr_state(head: str, since: datetime, reviews: list[dict], comments: list[dict],
+             pause_ok: bool = True) -> tuple[str, str]:
     for r in reviews:
         if not (is_bot(r.get("user")) and r.get("commit_id") == head):
             continue
@@ -259,9 +260,10 @@ def cr_state(head: str, since: datetime, reviews: list[dict], comments: list[dic
         edited = c.get("updated_at") or c.get("created_at")
         if edited and iso(edited) > since and summary_rate_limited(body):
             events.append((iso(edited), "rate_limited", f"summary {c.get('html_url')}{summary_wait(body)}"))
-        # Auto-review paused after many commits: the summary names this head as not reviewed. Nothing
-        # will come until someone asks. A notice older than `since` is stale once a review was requested.
-        if (edited and iso(edited) > since and _PAUSED_RE.search(body)
+        # Auto-review paused after many commits: the summary names this head as not reviewed. It only
+        # matters while nobody asked for a review (pause_ok: no --since). After a request the bot keeps
+        # editing the summary while it reviews, and the old notice would read as a fresh pause.
+        if (pause_ok and edited and iso(edited) > since and _PAUSED_RE.search(body)
                 and re.search(r"Latest commit, not reviewed:\s*" + re.escape(head), body)):
             events.append((iso(edited), "paused", f"summary {c.get('html_url')} (ask @coderabbitai review)"))
         created = c.get("created_at")
@@ -381,7 +383,10 @@ class Watcher:
                 continue
             ci = ci_state(statuses, check_runs)
             try:
-                cr, detail = cr_state(head, since, reviews, comments)
+                # A pause notice counts while no review was requested for this head: no --since, or the head was
+                # pushed after the request (a new head the request did not cover).
+                pause_ok = self.since is None or committed > self.since
+                cr, detail = cr_state(head, since, reviews, comments, pause_ok=pause_ok)
             except (AttributeError, KeyError, TypeError, ValueError):
                 return None  # a malformed review/comment item or timestamp: fetch_failed
             return Snapshot(head, ci, cr, detail)
@@ -654,6 +659,8 @@ def self_test() -> int:
     check("paused summary for another head", cr_state(head, since, [], [other_head])[0] == "pending")
     no_marker = dict(paused, body=paused_body.replace("review paused by coderabbit.ai", "something else"))
     check("pause text without the marker", cr_state(head, since, [], [no_marker])[0] == "pending")
+    check("after a review request (--since) a summary edit is not a pause",
+          cr_state(head, since, [], [paused], pause_ok=False)[0] == "pending")
     check("a pause notice from before the request is stale",
           cr_state(head, since, [], [dict(paused, updated_at="2026-10-29T09:30:00Z")])[0] == "pending")
     later_reply = {"user": BOT_USER, "created_at": "2026-10-29T10:30:00Z", "html_url": "r",
@@ -718,6 +725,20 @@ def self_test() -> int:
 
     code, lines, _, _ = scenario([reply_finished], [])
     check("exit on reply-only", code == 0 and lines[-1]["cr"] == "no_review", lines)
+    def pause_notice(gh: _FakeGitHub) -> None:
+        gh.comments.append({"user": BOT_USER, "created_at": "2026-10-28T00:00:00Z", "updated_at": "2026-10-29T12:00:00Z",
+                            "html_url": "s", "body": "<!-- This is an auto-generated comment: review paused by coderabbit.ai -->\n"
+                            "> - Latest commit, not reviewed: " + gh.HEAD + "\n"})
+
+    code, lines, _, _ = scenario([pause_notice], [])
+    check("push wait: a pause notice ends the watch as paused", code == 0 and lines[-1].get("cr") == "paused", lines)
+    code, lines, _, _ = scenario([pause_notice], ["--since", "2026-10-29T11:00:00Z", "--timeout", "500",
+                                                  "--interval", "100"])
+    check("request wait (--since): a pause notice does not end the watch",
+          code == 2 and lines[-1].get("event") == "timeout", lines)
+    code, lines, _, _ = scenario([pause_notice], ["--since", "2026-10-29T09:00:00Z"])
+    check("a head pushed after the request (--since) reports its pause",
+          code == 0 and lines[-1].get("cr") == "paused", lines)
     code, lines, _, _ = scenario([reply_finished], ["--since", "2026-10-29T11:00:00Z", "--timeout", "500",
                                                     "--interval", "100"])
     check("--since ignores older reply", code == 2 and lines[-1].get("event") == "timeout", lines)
