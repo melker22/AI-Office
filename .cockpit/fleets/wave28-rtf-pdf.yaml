@@ -1,0 +1,317 @@
+version: 1
+name: wave28-rtf-pdf
+description: >
+  Onda 28 — RTF fiel (revisões, comentários e formas) e subconjunto de fontes no PDF. Spec: docs/waves/wave28-rtf-pdf.md.
+  Executores: Grok da Cursor nas tarefas e correções; Composer na integração e no handoff; Sonnet na revisão. Bloco REGRAS em todo prompt. Push/PR pré-aprovados;
+  o orquestrador roda o gate de merge.
+args:
+  opus_audit:
+    default: "false"
+    description: "true = auditoria final do Opus antes do PR"
+defaults:
+  agent: cursor
+  model: grok-4.7-high
+  approval: full-access
+max_parallel: 1
+nodes:
+  lessons:
+    title: Lições dos PRs anteriores (Sonnet)
+    agent: claude
+    model: claude-sonnet-5
+    effort: medium
+    prompt: |
+      REGRAS: faça tudo você mesmo, neste turno; NÃO use skills nem subagentes nem tarefas em
+      segundo plano; nunca submeta saída provisória; NÃO use `git stash` (é compartilhado entre worktrees);
+      a CI pode rodar como root e com outra glibc (teste não depende de privilégio nem de LD_PRELOAD herdado).
+      Projeto AI Office Writer (C++20/Qt 6). Mantenha docs/LESSONS.md e .cursor/rules/lessons.mdc. Não altere código.
+      Faça tudo neste turno, sem subagentes em segundo plano.
+      1. Veja em docs/LESSONS.md a linha "Última PR processada". Liste os PRs mergeados depois dela em
+         melker22/AI-Office (tool MCP do GitHub; `gh` não existe). Nenhum novo → não mude nada.
+      2. Para cada PR novo, leia as threads do CodeRabbit (pull_request_read get_review_comments), o CORPO
+         das revisões (outside-diff, "<Severity> comments: N") e as entradas em docs/AI_HANDOFF.md e
+         docs/AI_HANDOFF_ARCHIVE.md.
+      3. Defeito real que chegou ao CodeRabbit ou exigiu intervenção: instância de lição existente →
+         acrescente evidência e incremente; padrão novo → lição nova com regra VERIFICÁVEL. Sem evidência
+         (link de thread/commit) não entra.
+      4. Reescreva o checklist de .cursor/rules/lessons.mdc (máx. 15 itens) e atualize "Última PR processada".
+      5. Commit `docs: update lessons from PR #N` em inglês, sem push. Submeta commit =
+         `git rev-parse HEAD` (mesmo sem mudanças), qa_green = true, summary.
+    success_output: qa_green
+    output_contract: &executor_contract
+      type: object
+      required: [commit, qa_green, summary]
+      properties:
+        commit: { type: string, pattern: "^[0-9a-f]{40}$" }
+        qa_green: { type: boolean }
+        blocker: { type: string }
+        summary: { type: string }
+
+  t1:
+    title: T1 RTF saída (Grok da Cursor)
+    needs: [lessons]
+    workspace: isolated
+    prompt: |
+      Projeto AI Office Writer (C++20/Qt 6). PRIMEIRO: `git merge {{needs.lessons.output.commit}}`.
+      Leia docs/waves/wave28-rtf-pdf.md (decisões FECHADAS), docs/ORCHESTRATION.md e o checklist de .cursor/rules/lessons.mdc.
+      REGRAS: faça tudo você mesmo, neste turno; NÃO use skills nem subagentes nem tarefas em
+      segundo plano; nunca submeta saída provisória; NÃO use `git stash` (é compartilhado entre worktrees);
+      a CI pode rodar como root e com outra glibc (teste não depende de privilégio nem de LD_PRELOAD herdado).
+      Só src/core/RtfWriter.{h,cpp} e os arquivos comuns CMakeLists.txt, docs/mcp-tools.md e arquivos novos em qa/. NÃO mexa no código das outras tarefas: src/core/RtfReader.{h,cpp} (T2), src/core/PdfPostProcess.{h,cpp}, src/core/Preview.cpp e qa/check_pdf.py (T3).
+      Decisões: D1, D2, D3, D4 e a parte de escrita da D9.
+      Valide a marcação pelo LibreOffice (RTF → ODT, em nix-shell): text:insertion, text:deletion, office:annotation e as três formas. A leitura de volta é da T2.
+      Confirme cada defeito no código ATUAL antes de corrigir; já corrigido → escreva o teste que o prova e
+      registre "já corrigido" no summary.
+      Para cada decisão: primeiro um teste que FALHA hoje, depois a correção. Compile só o alvo do CLI:
+      `nix-shell --run 'cmake --preset linux && cmake --build --preset linux --target aioffice-cli -j2'` (no worktree isolado o primeiro build desse alvo é inevitável, nunca o projeto inteiro).
+      Rode só os testes da onda e os juízes do formato: `nix-shell --run "ctest --test-dir build/linux -R 'wave28|wave20|wave25|wave19|rtf|pdf|roundtrip|interop'"`. O QA completo é do gate `build-1`.
+      Um teste que depende da decisão de outra tarefa pode falhar antes da integração: liste-o no summary,
+      sem contorná-lo. Qualquer outra falha bloqueia qa_green.
+      Commits em inglês (feat:/fix:/test:), sem push. Submeta commit = `git rev-parse HEAD`, qa_green, summary
+      (decisão → teste → commit).
+    success_output: qa_green
+    output_contract: *executor_contract
+
+  t2:
+    title: T2 RTF entrada (Grok da Cursor)
+    needs: [lessons]
+    workspace: isolated
+    prompt: |
+      Projeto AI Office Writer (C++20/Qt 6). PRIMEIRO: `git merge {{needs.lessons.output.commit}}`.
+      Leia docs/waves/wave28-rtf-pdf.md (decisões FECHADAS), docs/ORCHESTRATION.md e o checklist de .cursor/rules/lessons.mdc.
+      REGRAS: faça tudo você mesmo, neste turno; NÃO use skills nem subagentes nem tarefas em
+      segundo plano; nunca submeta saída provisória; NÃO use `git stash` (é compartilhado entre worktrees);
+      a CI pode rodar como root e com outra glibc (teste não depende de privilégio nem de LD_PRELOAD herdado).
+      Só src/core/RtfReader.{h,cpp} e os arquivos comuns CMakeLists.txt, docs/mcp-tools.md e arquivos novos em qa/. NÃO mexa no código das outras tarefas: src/core/RtfWriter.{h,cpp} (T1), src/core/PdfPostProcess.{h,cpp}, src/core/Preview.cpp e qa/check_pdf.py (T3).
+      Decisões: D5, D6, D7, D8 e a parte de leitura da D9.
+      Teste com RTF escrito à mão dentro do próprio teste, sem binário opaco. A ida e volta com o escritor novo fecha na regressão.
+      Confirme cada defeito no código ATUAL antes de corrigir; já corrigido → escreva o teste que o prova e
+      registre "já corrigido" no summary.
+      Para cada decisão: primeiro um teste que FALHA hoje, depois a correção. Compile só o alvo do CLI:
+      `nix-shell --run 'cmake --preset linux && cmake --build --preset linux --target aioffice-cli -j2'` (no worktree isolado o primeiro build desse alvo é inevitável, nunca o projeto inteiro).
+      Rode só os testes da onda e os juízes do formato: `nix-shell --run "ctest --test-dir build/linux -R 'wave28|wave20|wave25|wave19|rtf|pdf|roundtrip|interop'"`. O QA completo é do gate `build-1`.
+      Um teste que depende da decisão de outra tarefa pode falhar antes da integração: liste-o no summary,
+      sem contorná-lo. Qualquer outra falha bloqueia qa_green.
+      Commits em inglês (feat:/fix:/test:), sem push. Submeta commit = `git rev-parse HEAD`, qa_green, summary
+      (decisão → teste → commit).
+    success_output: qa_green
+    output_contract: *executor_contract
+
+  t3:
+    title: T3 PDF subconjunto (Grok da Cursor)
+    needs: [lessons]
+    workspace: isolated
+    prompt: |
+      Projeto AI Office Writer (C++20/Qt 6). PRIMEIRO: `git merge {{needs.lessons.output.commit}}`.
+      Leia docs/waves/wave28-rtf-pdf.md (decisões FECHADAS), docs/ORCHESTRATION.md e o checklist de .cursor/rules/lessons.mdc.
+      REGRAS: faça tudo você mesmo, neste turno; NÃO use skills nem subagentes nem tarefas em
+      segundo plano; nunca submeta saída provisória; NÃO use `git stash` (é compartilhado entre worktrees);
+      a CI pode rodar como root e com outra glibc (teste não depende de privilégio nem de LD_PRELOAD herdado).
+      Só src/core/PdfPostProcess.{h,cpp}, a chamada em src/core/Preview.cpp e qa/check_pdf.py e os arquivos comuns CMakeLists.txt, docs/mcp-tools.md e arquivos novos em qa/. NÃO mexa no código das outras tarefas: src/core/RtfWriter.{h,cpp} (T1) e src/core/RtfReader.{h,cpp} (T2).
+      Decisões: D10, D11, D12 e D13.
+      A marcação roda depois de pdfPostProcessFixToUnicode, que casa pelo nome da face. Se o veraPDF recusar depois do /CIDSet, PARE e reporte PRECISA OPUS com a saída do veraPDF.
+      Confirme cada defeito no código ATUAL antes de corrigir; já corrigido → escreva o teste que o prova e
+      registre "já corrigido" no summary.
+      Para cada decisão: primeiro um teste que FALHA hoje, depois a correção. Compile só o alvo do CLI:
+      `nix-shell --run 'cmake --preset linux && cmake --build --preset linux --target aioffice-cli -j2'` (no worktree isolado o primeiro build desse alvo é inevitável, nunca o projeto inteiro).
+      Rode só os testes da onda e os juízes do formato: `nix-shell --run "ctest --test-dir build/linux -R 'wave28|wave20|wave25|wave19|rtf|pdf|roundtrip|interop'"`. O QA completo é do gate `build-1`.
+      Um teste que depende da decisão de outra tarefa pode falhar antes da integração: liste-o no summary,
+      sem contorná-lo. Qualquer outra falha bloqueia qa_green.
+      Commits em inglês (feat:/fix:/test:), sem push. Submeta commit = `git rev-parse HEAD`, qa_green, summary
+      (decisão → teste → commit).
+    success_output: qa_green
+    output_contract: *executor_contract
+
+  integrate-1:
+    title: Integrar T1–T3 (Composer)
+    needs: [t1, t2, t3]
+    agent: cursor
+    model: composer-2.5
+    prompt: |
+      REGRAS: faça tudo você mesmo, neste turno; NÃO use skills nem subagentes nem tarefas em
+      segundo plano; nunca submeta saída provisória; NÃO use `git stash` (é compartilhado entre worktrees);
+      a CI pode rodar como root e com outra glibc (teste não depende de privilégio nem de LD_PRELOAD herdado).
+      Neste worktree, faça `git merge` dos commits EXATOS, nesta ordem:
+      {{needs.t1.output.commit}}, {{needs.t2.output.commit}}, {{needs.t3.output.commit}}.
+      Conflitos esperados: CMakeLists.txt, docs/mcp-tools.md e os juízes novos em qa/ — mantenha TODAS as adições das três tarefas. Compile só o
+      alvo necessário e rode `nix-shell --run "ctest --test-dir build/linux -R 'wave28|wave20|wave25|wave19|rtf|pdf|roundtrip|interop'"`; o QA completo é do gate seguinte. Corrija só quebras de
+      merge, commit. Submeta commit = HEAD após os merges, qa_green (true se compila e os testes da onda
+      passam), summary.
+    success_output: qa_green
+    output_contract: *executor_contract
+
+  build-1:
+    type: gate
+    gate: command
+    needs: [integrate-1, lessons, t1, t2, t3]
+    run: scripts/fleet-verify-merged.sh 5 && scripts/qa-all.sh --gui --interop --pdf --formats
+
+  t4-regress:
+    title: T4 regressão completa (Grok da Cursor)
+    needs: [build-1]
+    prompt: |
+      REGRAS: faça tudo você mesmo, neste turno; NÃO use skills nem subagentes nem tarefas em
+      segundo plano; nunca submeta saída provisória; NÃO use `git stash` (é compartilhado entre worktrees);
+      a CI pode rodar como root e com outra glibc (teste não depende de privilégio nem de LD_PRELOAD herdado).
+      Projeto AI Office Writer (C++20/Qt 6), worktree integrado da onda. Leia docs/waves/wave28-rtf-pdf.md
+      (critério de pronto) e o checklist de lições. Faça tudo neste turno, sem subagentes em segundo plano.
+      Rode `scripts/qa-all.sh --gui --interop --pdf --formats`. Corrija o CÓDIGO (não testes nem
+      expectativas) até passar. A ida e volta RTF completa (D14) depende de T1 e T2 juntas: feche-a aqui. Confirme: cada decisão tem um expect que falharia sem ela (liste no summary
+      decisão → arquivo de teste); qa/check_mcp_stdio.py passa. Decisão que pareça impossível → PARE e
+      reporte "PRECISA OPUS: ..." com evidência. Commit em inglês, sem push. Submeta commit/qa_green/summary.
+    success_output: qa_green
+    output_contract: *executor_contract
+
+  qa-full:
+    type: gate
+    gate: command
+    needs: [t4-regress]
+    run: scripts/fleet-verify-merged.sh 1 && scripts/qa-all.sh --gui --interop --pdf --formats
+
+  review:
+    type: loop
+    needs: [qa-full]
+    max_iterations: 3
+    on_exhausted: review-adjudication
+    until:
+      run: scripts/fleet-verify-merged.sh 1 && test "{{needs.review-pass.output.issues}}" -eq 0
+    nodes:
+      review-pass:
+        agent: claude
+        model: claude-sonnet-5
+        effort: high
+        session: continue
+        prompt: |
+          REGRAS: faça tudo você mesmo, neste turno; NÃO use skills nem subagentes nem tarefas em
+          segundo plano; nunca submeta saída provisória; NÃO use `git stash` (é compartilhado entre worktrees);
+          a CI pode rodar como root e com outra glibc (teste não depende de privilégio nem de LD_PRELOAD herdado).
+          Você é o Tech Lead. PRIMEIRO verifique no diff cada item de .cursor/rules/lessons.mdc. Depois
+          revise `git diff main...HEAD` contra docs/waves/wave28-rtf-pdf.md (todas as decisões e o critério de pronto).
+          Para cada decisão, confirme que o comportamento existe E que um teste falharia sem ele. Procure:
+          revisão perdida, duplicada ou com offset errado na ida e volta RTF; invariante delete = ponto quebrado (texto de \deleted dentro de runs); autor com `;` ou não ASCII corrompendo \revtbl; comentário no corpo, sem resposta/resolvido ou perdido em tabela/quebra/imagem; forma com cor BGR invertida ou tamanho errado; RTF hostil derrubando o import ou deixando o documento inválido; conteúdo oculto ou redigido vazando em deletedRuns, priorRuns, aiorevfmt ou comentário; prefixo diferente entre BaseFont e FontName; prefixo não determinístico; ToUnicode quebrado porque a marcação rodou antes do FixToUnicode; /CIDSet ausente em PDF/A ou com bits errados; teste que depende de root/glibc ou de LD_PRELOAD herdado; regressões de ondas
+          anteriores. Rode `scripts/qa-all.sh --gui --interop --pdf --formats`. Não corrija
+          nada. Só defeitos reais. Faça tudo neste turno. Submeta issues e findings ("arquivo:linha —
+          defeito — correção sugerida").
+        followup_prompt: |
+          REGRAS: faça tudo você mesmo, neste turno; NÃO use skills nem subagentes nem tarefas em
+          segundo plano; nunca submeta saída provisória; NÃO use `git stash` (é compartilhado entre worktrees);
+          a CI pode rodar como root e com outra glibc (teste não depende de privilégio nem de LD_PRELOAD herdado).
+          Houve correção. Verifique de novo o checklist de lições e `git diff main...HEAD`, rode
+          `scripts/qa-all.sh --gui --interop --pdf --formats` e submeta só os findings que continuam ou surgiram.
+        output_contract:
+          type: object
+          required: [issues, findings]
+          properties:
+            issues: { type: integer, minimum: 0 }
+            findings: { type: array, items: { type: string } }
+      fix-pass:
+        needs: [review-pass]
+        prompt: |
+          REGRAS: faça tudo você mesmo, neste turno; NÃO use skills nem subagentes nem tarefas em
+          segundo plano; nunca submeta saída provisória; NÃO use `git stash` (é compartilhado entre worktrees);
+          a CI pode rodar como root e com outra glibc (teste não depende de privilégio nem de LD_PRELOAD herdado).
+          Projeto AI Office Writer (C++20/Qt 6) (spec: docs/waves/wave28-rtf-pdf.md; checklist .cursor/rules/lessons.mdc).
+          Findings: {{needs.review-pass.output.findings}}
+          Lista vazia → não altere nada. Senão corrija (com teste que falha antes), rode
+          `scripts/qa-all.sh --gui --interop --pdf --formats` e commit `fix: ...` em inglês, sem push.
+          Submeta commit = `git rev-parse HEAD`, qa_green, summary.
+        success_output: qa_green
+        output_contract: *executor_contract
+
+  review-adjudication:
+    title: Adjudicação final (Sonnet)
+    needs: [review]
+    agent: claude
+    model: claude-sonnet-5
+    effort: high
+    prompt: |
+      REGRAS: faça tudo você mesmo, neste turno; NÃO use skills nem subagentes nem tarefas em
+      segundo plano; nunca submeta saída provisória; NÃO use `git stash` (é compartilhado entre worktrees);
+      a CI pode rodar como root e com outra glibc (teste não depende de privilégio nem de LD_PRELOAD herdado).
+      Três passadas não zeraram os findings. Descarte os que não são defeitos (com motivo), faça UMA
+      correção direta dos reais (com teste e commit), rode `scripts/qa-all.sh --gui --interop --pdf
+      --formats` e pare. Nunca pergunte a um humano. Submeta commit = `git rev-parse HEAD` e resolved =
+      true só se nenhum defeito real ficou aberto.
+    success_output: resolved
+    output_contract:
+      type: object
+      required: [verdict, resolved, accepted, dismissed, commit]
+      properties:
+        verdict: { type: string, enum: [resolved, failed] }
+        resolved: { type: boolean }
+        accepted: { type: array, items: { type: string } }
+        dismissed: { type: array, items: { type: string } }
+        commit: { type: string, pattern: "^[0-9a-f]{40}$" }
+
+  opus-audit:
+    title: Auditoria Opus (opcional)
+    needs: [review-adjudication]
+    enabled: "{{args.opus_audit}}"
+    agent: claude
+    model: claude-opus-5-5
+    effort: high
+    prompt: |
+      REGRAS: faça tudo você mesmo, neste turno; NÃO use skills nem subagentes nem tarefas em
+      segundo plano; nunca submeta saída provisória; NÃO use `git stash` (é compartilhado entre worktrees);
+      a CI pode rodar como root e com outra glibc (teste não depende de privilégio nem de LD_PRELOAD herdado).
+      Auditoria final de `git diff main...HEAD` contra docs/waves/wave28-rtf-pdf.md (foco: D2 e D5 no invariante de revisão, D9 de privacidade e D10–D12 no PDF). Corrija só o crítico, commit.
+      Submeta commit/qa_green/summary.
+    success_output: qa_green
+    output_contract: *executor_contract
+
+  qa-final:
+    type: gate
+    gate: command
+    needs: [opus-audit, review-adjudication, t4-regress]
+    run: scripts/fleet-verify-merged.sh 1 && scripts/qa-all.sh --gui --interop --pdf --formats
+
+  handoff:
+    title: Handoff + catálogo (Composer)
+    needs: [qa-final]
+    agent: cursor
+    model: composer-2.5
+    prompt: |
+      REGRAS: faça tudo você mesmo, neste turno; NÃO use skills nem subagentes nem tarefas em
+      segundo plano; nunca submeta saída provisória; NÃO use `git stash` (é compartilhado entre worktrees);
+      a CI pode rodar como root e com outra glibc (teste não depende de privilégio nem de LD_PRELOAD herdado).
+      Atualize só estes arquivos e commit `docs: ...` em inglês, sem push:
+      - docs/AI_HANDOFF.md: entrada nova no topo ("Fleet wave28-rtf-pdf — Grok da Cursor/Composer/Sonnet"), com o
+        resultado REAL de `scripts/qa-all.sh --gui --interop --pdf --formats` (rode-o) e
+        `git log main..HEAD --oneline` (hashes reais; não cite o hash do próprio commit).
+      - docs/audit/fix-plan.md: marque a onda como entregue, item por item (corrigido / adiado com motivo).
+      - docs/WRITER_FEATURE_CATALOG.md (RTF nativo, Incorporar fontes no PDF e o item do Todo IA Writer): as linhas afetadas pela onda, conforme o entregue.
+      Submeta commit/qa_green/summary. Resumo da revisão: {{needs.review.report}}
+    success_output: qa_green
+    output_contract: *executor_contract
+
+  notion-sync:
+    title: Sincronizar Notion (Sonnet)
+    needs: [handoff]
+    agent: claude
+    model: claude-sonnet-5
+    effort: low
+    prompt: |
+      REGRAS: faça tudo você mesmo, neste turno; NÃO use skills nem subagentes nem tarefas em
+      segundo plano; nunca submeta saída provisória; NÃO use `git stash` (é compartilhado entre worktrees);
+      a CI pode rodar como root e com outra glibc (teste não depende de privilégio nem de LD_PRELOAD herdado).
+      Sincronize o Notion com o repositório (regra: documentação sempre atualizada). Tools MCP do
+      Notion; NÃO altere código; NÃO apague nem arquive páginas; nunca cole segredos. Fontes:
+      docs/audit/fix-plan.md, topo de docs/AI_HANDOFF.md, docs/waves/wave28-rtf-pdf.md, docs/LESSONS.md.
+      Notion: hub 3cb46a79156b819daef5ea9d7c41385a; board collection://f3cc11ed-9e5e-4389-b49a-ca98f98dda62;
+      snapshot 3cb46a79156b8117a87fc72cd190f8c6. Atualize o hub (onda entregue: o que foi corrigido), "Última sync" e o snapshot. Reporte as mudanças.
+
+  open-pr:
+    title: Push + PR (Sonnet)
+    needs: [notion-sync]
+    agent: claude
+    model: claude-sonnet-5
+    effort: medium
+    prompt: |
+      REGRAS: faça tudo você mesmo, neste turno; NÃO use skills nem subagentes nem tarefas em
+      segundo plano; nunca submeta saída provisória; NÃO use `git stash` (é compartilhado entre worktrees);
+      a CI pode rodar como root e com outra glibc (teste não depende de privilégio nem de LD_PRELOAD herdado).
+      Push deste branch para origin (nunca main) e PR para `main` em melker22/AI-Office via tool MCP do
+      GitHub (push/PR pré-aprovados pelo utilizador). Título em inglês
+      `feat: wave 28 — native RTF revisions, comments and shapes; PDF font subset marking`. Corpo: resumo de
+      docs/waves/wave28-rtf-pdf.md (diagnóstico + decisões), a lista de ids da auditoria corrigidos, test
+      plan e o handoff: {{needs.handoff.report}}. NÃO faça merge (o orquestrador roda o gate). Não
+      reescreva commits. Reporte a URL e o número do PR.
