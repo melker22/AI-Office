@@ -3457,6 +3457,13 @@ bool exportNativePdf(const Document &doc, const QString &path, QString *error, b
             *error = unicodeErr;
         return false;
     }
+    // After FixToUnicode: that pass still sees the unmarked face name.
+    QString subsetErr;
+    if (!pdfPostProcessMarkFontSubsets(staged, pdfa, &subsetErr)) {
+        if (error)
+            *error = subsetErr;
+        return false;
+    }
     QFile produced(staged);
     if (!produced.open(QIODevice::ReadOnly)) {
         if (error)
