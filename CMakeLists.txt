@@ -685,3 +685,30 @@ set_tests_properties(wave27_notes_selftest PROPERTIES
     TIMEOUT 240
     WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}"
 )
+# Wave 28 T1: native RTF revisions, comments, and shapes (D1–D4, D9 write).
+# Interop asks LibreOffice to keep insertion, deletion, annotation, and the three shapes.
+foreach(_w28_check d1 d2 d3 d4 d9)
+    add_test(NAME "wave28_rtf_${_w28_check}" COMMAND "${CMAKE_COMMAND}" -E env AIOFFICE_HEADLESS=1 QT_QPA_PLATFORM=offscreen
+        "${Python3_EXECUTABLE}" "${CMAKE_SOURCE_DIR}/qa/wave28-rtf-out.py"
+        --check "${_w28_check}" --cli "${AIOFFICE_CLI}")
+    set_tests_properties("wave28_rtf_${_w28_check}" PROPERTIES
+        LABELS "playbook;wave28;rtf"
+        TIMEOUT 120
+        WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}"
+    )
+endforeach()
+add_test(NAME wave28_rtf_interop COMMAND "${CMAKE_COMMAND}" -E env AIOFFICE_HEADLESS=1 QT_QPA_PLATFORM=offscreen
+    "${Python3_EXECUTABLE}" "${CMAKE_SOURCE_DIR}/qa/wave28-rtf-out.py"
+    --check interop --cli "${AIOFFICE_CLI}")
+set_tests_properties(wave28_rtf_interop PROPERTIES
+    LABELS "playbook;wave28;rtf"
+    TIMEOUT 180
+    WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}"
+)
+add_test(NAME wave28_rtf_selftest COMMAND "${Python3_EXECUTABLE}"
+    "${CMAKE_SOURCE_DIR}/qa/wave28-rtf-out.py" --self-test --cli "${AIOFFICE_CLI}")
+set_tests_properties(wave28_rtf_selftest PROPERTIES
+    LABELS "playbook;wave28;rtf"
+    TIMEOUT 180
+    WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}"
+)

@@ -8,14 +8,17 @@
 #include <algorithm>
 
 #include <QBuffer>
+#include <QDateTime>
 #include <QFile>
 #include <QFileInfo>
 #include <QImage>
+#include <QJsonArray>
 #include <QJsonDocument>
 #include <QJsonObject>
 #include <QMap>
 #include <QRegularExpression>
 #include <QSet>
+#include <QTimeZone>
 
 namespace aioffice {
 
@@ -39,6 +42,12 @@ struct RtfOut {
     QMap<QString, QStringList> cellPlaceholders;
     int defaultFont = 0;
     int defaultSizeHalfPt = 24;
+    QStringList authorNames;
+    QMap<QString, int> authorIndex;
+    QSet<QString> revisionHosts;
+    int nextAtn = 1;
+    QMap<QString, int> atnIds;
+    int nextShpLid = 1;
 
     void warnOnce(const QString &msg)
     {
@@ -346,15 +355,22 @@ struct RtfOut {
             const Block *nb = doc->findBlock(r.noteId);
             if (nb) {
                 // D2: the note's U+2029-separated paragraphs become \par inside the
-                // note group; each paragraph keeps its run formatting.
+                // note group; each paragraph keeps its run formatting. A note that
+                // carries revisions uses the same walker as body text (wave 28 D2).
                 QString body;
-                const QVector<QVector<TextRun>> paras = splitNoteParagraphs(nb->runs);
-                for (int i = 0; i < paras.size(); ++i) {
-                    if (i > 0)
-                        body += QStringLiteral("\\par ");
-                    for (const auto &nr : paras.at(i))
-                        body += emitRun(nr, defFont, defSizeHalfPt, true);
+                if (blockHasRevision(nb->id))
+                    body = emitRevisedRuns(nb->id, nb->runs, defFont, defSizeHalfPt, true);
+                else {
+                    const QVector<QVector<TextRun>> paras = splitNoteParagraphs(nb->runs);
+                    for (int i = 0; i < paras.size(); ++i) {
+                        if (i > 0)
+                            body += QStringLiteral("\\par ");
+                        for (const auto &nr : paras.at(i))
+                            body += emitRun(nr, defFont, defSizeHalfPt, true);
+                    }
                 }
+                if (!nb->comments.isEmpty())
+                    body = commentStarts(*nb) + body + commentEnds(*nb);
                 out += QStringLiteral("{\\footnote");
                 if (nb->type == QLatin1String("endnote"))
                     out += QStringLiteral("\\ftnalt");
@@ -517,10 +533,222 @@ struct RtfOut {
         return !r.noteId.isEmpty() || !r.field.isEmpty() || !r.link.isEmpty();
     }
 
+    bool blockHasRevision(const QString &blockId) const
+    {
+        for (const auto &rv : doc->revisions) {
+            if (rv.blockId == blockId)
+                return true;
+        }
+        return false;
+    }
+
+    void buildAuthors()
+    {
+        authorNames.clear();
+        authorIndex.clear();
+        QSet<QString> seen;
+        auto take = [&](const QString &author) {
+            if (author.isEmpty() || seen.contains(author))
+                return;
+            seen.insert(author);
+            authorIndex.insert(author, authorNames.size() + 1);
+            authorNames.append(author);
+        };
+        QSet<QString> inBody;
+        for (const Block &b : doc->body) {
+            if (!b.id.isEmpty())
+                inBody.insert(b.id);
+            for (const Revision &rv : doc->revisions) {
+                if (rv.blockId == b.id)
+                    take(rv.author);
+            }
+        }
+        for (const Revision &rv : doc->revisions) {
+            if (!inBody.contains(rv.blockId))
+                take(rv.author);
+        }
+    }
+
+    static QString escapeRevAuthor(const QString &name)
+    {
+        QString s = escapeText(name);
+        s.replace(QStringLiteral(";"), QStringLiteral("\\'3b"));
+        return s;
+    }
+
+    QString revTbl() const
+    {
+        if (doc->revisions.isEmpty())
+            return {};
+        QString t = QStringLiteral("{\\*\\revtbl{Unknown;}");
+        for (const QString &name : authorNames)
+            t += QLatin1Char('{') + escapeRevAuthor(name) + QStringLiteral(";}");
+        t += QStringLiteral("}\n");
+        return t;
+    }
+
+    int authorIndexOf(const QString &author) const
+    {
+        if (author.isEmpty())
+            return 0;
+        return authorIndex.value(author, 0);
+    }
+
+    // RTF DTTM is a signed 32-bit word. Minute precision, UTC. Weekday lives in
+    // the top bits, so a Friday can be negative; LibreOffice reads that form.
+    static QString dttmNumber(qint64 timestamp)
+    {
+        if (timestamp == 0)
+            return {};
+        const QDateTime dt = QDateTime::fromMSecsSinceEpoch(timestamp, QTimeZone::utc());
+        const QDate date = dt.date();
+        const QTime time = dt.time();
+        const int dow = date.dayOfWeek() % 7;
+        const int year = date.year() - 1900;
+        const quint32 n = quint32(time.minute() & 0x3F)
+            | (quint32(time.hour() & 0x1F) << 6)
+            | (quint32(date.day() & 0x1F) << 11)
+            | (quint32(date.month() & 0xF) << 16)
+            | (quint32(year & 0x1FF) << 20)
+            | (quint32(dow & 7) << 29);
+        return QString::number(qint32(n));
+    }
+
+    QString openRevised(const Revision *rv) const
+    {
+        QString s = QStringLiteral("{\\revised\\revauth%1").arg(authorIndexOf(rv->author));
+        const QString d = dttmNumber(rv->timestamp);
+        if (!d.isEmpty())
+            s += QStringLiteral("\\revdttm") + d;
+        s += QLatin1Char(' ');
+        return s;
+    }
+
+    QString crauthProps(const Revision *rv) const
+    {
+        QString s = QStringLiteral("\\crauth%1").arg(authorIndexOf(rv->author));
+        const QString d = dttmNumber(rv->timestamp);
+        if (!d.isEmpty())
+            s += QStringLiteral("\\crdate") + d;
+        s += QLatin1Char(' ');
+        return s;
+    }
+
+    bool offsetRedacted(const QVector<TextRun> &live, int offset) const
+    {
+        int pos = 0;
+        for (const TextRun &r : live) {
+            const int n = r.text.size();
+            if (offset >= pos && offset < pos + n)
+                return r.redact;
+            pos += n;
+        }
+        return false;
+    }
+
+    QStringList secretsForBlock(const QString &blockId) const
+    {
+        QStringList secrets;
+        auto take = [&](const TextRun &r) {
+            if (r.redact && !r.text.isEmpty())
+                secrets.append(r.text);
+        };
+        if (const Block *b = doc->findBlock(blockId)) {
+            for (const TextRun &r : b->runs)
+                take(r);
+            for (const auto &row : b->table)
+                for (const TableCell &cell : row)
+                    for (const TextRun &r : cell.runs)
+                        take(r);
+        }
+        for (const Revision &rv : doc->revisions) {
+            if (rv.blockId != blockId)
+                continue;
+            for (const TextRun &r : rv.deletedRuns)
+                take(r);
+            for (const TextRun &r : rv.priorRuns)
+                take(r);
+        }
+        std::sort(secrets.begin(), secrets.end(), [](const QString &a, const QString &b) {
+            return a.size() > b.size();
+        });
+        return secrets;
+    }
+
+    static QString scrubSecrets(QString text, const QStringList &secrets)
+    {
+        for (const QString &secret : secrets) {
+            if (!secret.isEmpty())
+                text.replace(secret, QString());
+        }
+        return text;
+    }
+
+    QString aiorevfmtGroup(const Revision *rv, const QVector<TextRun> &live) const
+    {
+        const QStringList secrets = secretsForBlock(rv->blockId);
+        QJsonArray prior;
+        int local = 0;
+        for (const TextRun &pr : rv->priorRuns) {
+            TextRun copy = pr;
+            if (copy.redact) {
+                copy.text.clear();
+            } else {
+                QString kept;
+                kept.reserve(copy.text.size());
+                for (int i = 0; i < copy.text.size(); ++i) {
+                    if (!offsetRedacted(live, rv->start + local + i))
+                        kept += copy.text.at(i);
+                }
+                copy.text = scrubSecrets(kept, secrets);
+            }
+            local += pr.text.size();
+            prior.append(copy.toJson());
+        }
+        QJsonObject o;
+        o.insert(QStringLiteral("payload"), rv->payload);
+        o.insert(QStringLiteral("priorRuns"), prior);
+        const QString json = QString::fromUtf8(QJsonDocument(o).toJson(QJsonDocument::Compact));
+        return QStringLiteral("{\\*\\aiorevfmt ") + escapeText(json) + QLatin1Char('}');
+    }
+
+    QString emitDeleteGroup(const Revision *rv, int defFont, int defSizeHalfPt, bool inNote)
+    {
+        QString s = QStringLiteral("{\\deleted\\revauthdel%1").arg(authorIndexOf(rv->author));
+        const QString d = dttmNumber(rv->timestamp);
+        if (!d.isEmpty())
+            s += QStringLiteral("\\revdttmdel") + d;
+        s += QLatin1Char(' ');
+        QVector<TextRun> gone = rv->deletedRuns;
+        if (gone.isEmpty() && !rv->text.isEmpty()) {
+            TextRun fallback;
+            fallback.text = rv->text;
+            gone.push_back(fallback);
+        }
+        const QStringList secrets = secretsForBlock(rv->blockId);
+        for (TextRun slice : gone) {
+            if (slice.redact)
+                slice.text.clear();
+            else
+                slice.text = scrubSecrets(slice.text, secrets);
+            s += emitRun(slice, defFont, defSizeHalfPt, inNote);
+        }
+        s += QLatin1Char('}');
+        return s;
+    }
+
     // Bookmarks are a point. Start and end sit together at Bookmark::offset,
     // measured in plain text. A mark that lands inside a field stays on the
     // field boundary so the field group is not split.
     QString emitMarkedRuns(const QString &blockId, const QVector<TextRun> &runs, int defFont, int defSizeHalfPt)
+    {
+        revisionHosts.insert(blockId);
+        if (blockHasRevision(blockId))
+            return emitRevisedRuns(blockId, runs, defFont, defSizeHalfPt, false);
+        return emitBookmarkedRuns(blockId, runs, defFont, defSizeHalfPt);
+    }
+
+    QString emitBookmarkedRuns(const QString &blockId, const QVector<TextRun> &runs, int defFont, int defSizeHalfPt)
     {
         const QVector<BmMark> marks = marksFor(blockId);
         QString out;
@@ -568,16 +796,323 @@ struct RtfOut {
         return out;
     }
 
-    QString commentSuffix(const Block &b)
+    struct RevEv {
+        int pos = 0;
+        int ord = 0;
+        int seq = 0;
+        const Revision *rv = nullptr;
+        bool open = false;
+        bool point = false;
+    };
+
+    // Same offset order as the DOCX exporter: close, then a delete point, then open.
+    QVector<RevEv> revisionEvents(const QString &blockId, int total) const
+    {
+        QVector<RevEv> evs;
+        int seq = 0;
+        for (const Revision &rv : doc->revisions) {
+            if (rv.blockId != blockId)
+                continue;
+            if (rv.kind == QLatin1String("insert") || rv.kind == QLatin1String("format")) {
+                const int s = qBound(0, rv.start, total);
+                const int e = qBound(s, rv.end, total);
+                evs.push_back(RevEv{s, 2, seq++, &rv, true, false});
+                evs.push_back(RevEv{e, 0, seq++, &rv, false, false});
+            } else if (rv.kind == QLatin1String("delete")) {
+                const int s = qBound(0, rv.start, total);
+                evs.push_back(RevEv{s, 1, seq++, &rv, false, true});
+            }
+        }
+        std::sort(evs.begin(), evs.end(), [](const RevEv &a, const RevEv &b) {
+            if (a.pos != b.pos)
+                return a.pos < b.pos;
+            if (a.ord != b.ord)
+                return a.ord < b.ord;
+            return a.seq < b.seq;
+        });
+        return evs;
+    }
+
+    QString emitRevisedRuns(const QString &blockId, const QVector<TextRun> &runs, int defFont, int defSizeHalfPt,
+                            bool inNote)
+    {
+        revisionHosts.insert(blockId);
+        int total = 0;
+        for (const TextRun &r : runs)
+            total += r.text.size();
+        const QVector<BmMark> marks = marksFor(blockId);
+        const QVector<RevEv> evs = revisionEvents(blockId, total);
+        int mi = 0;
+        int ei = 0;
+        const Revision *insert = nullptr;
+        bool insertOpen = false;
+        QVector<const Revision *> formats;
+        QSet<const Revision *> aiorevDone;
+        QString out;
+
+        auto syncInsert = [&]() {
+            if (insert && !insertOpen) {
+                out += openRevised(insert);
+                insertOpen = true;
+            } else if (!insert && insertOpen) {
+                out += QLatin1Char('}');
+                insertOpen = false;
+            }
+        };
+        auto flushEvents = [&](int limit, bool inclusive) {
+            while (ei < evs.size()) {
+                const RevEv &ev = evs.at(ei);
+                if (inclusive ? ev.pos > limit : ev.pos >= limit)
+                    break;
+                ++ei;
+                if (ev.point) {
+                    syncInsert();
+                    out += emitDeleteGroup(ev.rv, defFont, defSizeHalfPt, inNote);
+                } else if (ev.open) {
+                    if (ev.rv->kind == QLatin1String("insert")) {
+                        if (insert && insert != ev.rv) {
+                            insert = nullptr;
+                            syncInsert();
+                        }
+                        insert = ev.rv;
+                        syncInsert();
+                    } else {
+                        formats.push_back(ev.rv);
+                    }
+                } else if (ev.rv->kind == QLatin1String("insert")) {
+                    if (insert == ev.rv)
+                        insert = nullptr;
+                    syncInsert();
+                } else {
+                    if (!aiorevDone.contains(ev.rv)) {
+                        syncInsert();
+                        out += aiorevfmtGroup(ev.rv, runs);
+                        aiorevDone.insert(ev.rv);
+                    }
+                    formats.erase(std::remove(formats.begin(), formats.end(), ev.rv), formats.end());
+                }
+            }
+        };
+        auto emitBookmarksUpTo = [&](int upto) {
+            while (mi < marks.size() && marks.at(mi).offset <= upto) {
+                syncInsert();
+                out += emitBookmark(marks.at(mi).name);
+                ++mi;
+            }
+        };
+        auto emitSlice = [&](const TextRun &slice) {
+            if (slice.text.isEmpty() && !atomicRun(slice))
+                return;
+            syncInsert();
+            const Revision *fmt = formats.isEmpty() ? nullptr : formats.back();
+            QString before;
+            if (fmt) {
+                for (const Revision *f : formats) {
+                    if (!aiorevDone.contains(f)) {
+                        before += aiorevfmtGroup(f, runs);
+                        aiorevDone.insert(f);
+                    }
+                }
+            }
+            const QString inner = emitRun(slice, defFont, defSizeHalfPt, inNote);
+            if (fmt)
+                out += QLatin1Char('{') + crauthProps(fmt) + before + inner + QLatin1Char('}');
+            else
+                out += before + inner;
+        };
+
+        int cursor = 0;
+        for (const TextRun &r : runs) {
+            if (atomicRun(r)) {
+                const int len = r.text.size();
+                flushEvents(cursor, true);
+                if (len > 0)
+                    flushEvents(cursor + len, false);
+                emitBookmarksUpTo(cursor + qMax(0, len) - 1);
+                emitSlice(r);
+                cursor += len;
+                continue;
+            }
+            const QString text = r.text;
+            int local = 0;
+            while (local <= text.size()) {
+                flushEvents(cursor, true);
+                emitBookmarksUpTo(cursor);
+                if (local >= text.size())
+                    break;
+                if (inNote && text.at(local) == QChar(0x2029)) {
+                    syncInsert();
+                    out += QStringLiteral("\\par ");
+                    ++cursor;
+                    ++local;
+                    continue;
+                }
+                int next = text.size();
+                if (mi < marks.size() && marks.at(mi).offset > cursor) {
+                    const int rel = marks.at(mi).offset - cursor;
+                    if (rel < text.size() - local)
+                        next = local + rel;
+                }
+                if (ei < evs.size() && evs.at(ei).pos > cursor) {
+                    const int rel = evs.at(ei).pos - cursor;
+                    if (local + rel < next)
+                        next = local + rel;
+                }
+                if (inNote) {
+                    const int sep = text.indexOf(QChar(0x2029), local);
+                    if (sep >= 0 && sep < next)
+                        next = sep;
+                }
+                if (next <= local)
+                    break;
+                TextRun slice = r;
+                slice.text = text.mid(local, next - local);
+                emitSlice(slice);
+                cursor += next - local;
+                local = next;
+            }
+        }
+        flushEvents(total, true);
+        while (mi < marks.size()) {
+            syncInsert();
+            out += emitBookmark(marks.at(mi).name);
+            ++mi;
+        }
+        if (insertOpen)
+            out += QLatin1Char('}');
+        return out;
+    }
+
+    static QString initialsOf(const QString &author)
+    {
+        const QString trimmed = author.trimmed();
+        if (trimmed.isEmpty())
+            return {};
+        const QStringList parts = trimmed.split(QRegularExpression(QStringLiteral("\\s+")), Qt::SkipEmptyParts);
+        if (parts.size() <= 1)
+            return QString(trimmed.at(0).toUpper());
+        QString out;
+        for (const QString &p : parts) {
+            if (!p.isEmpty())
+                out += p.at(0).toUpper();
+        }
+        return out;
+    }
+
+    static QString escapeCommentBody(const QString &text)
+    {
+        QString t = text;
+        t.replace(QStringLiteral("\r\n"), QStringLiteral("\n"));
+        t.replace(QLatin1Char('\r'), QLatin1Char('\n'));
+        const QStringList lines = t.split(QLatin1Char('\n'), Qt::KeepEmptyParts);
+        QString out;
+        for (int i = 0; i < lines.size(); ++i) {
+            if (i > 0)
+                out += QStringLiteral("\\par ");
+            out += escapeText(lines.at(i));
+        }
+        return out;
+    }
+
+    int atnId(const QString &blockId, int index, const Comment &c)
+    {
+        const QString key = c.id.isEmpty() ? blockId + QLatin1Char('#') + QString::number(index) : c.id;
+        if (!atnIds.contains(key))
+            atnIds.insert(key, nextAtn++);
+        return atnIds.value(key);
+    }
+
+    QString commentStarts(const Block &b)
+    {
+        QString s;
+        for (int i = 0; i < b.comments.size(); ++i)
+            s += QStringLiteral("{\\*\\atrfstart %1}").arg(atnId(b.id, i, b.comments.at(i)));
+        return s;
+    }
+
+    QString commentEnds(const Block &b)
+    {
+        const QStringList secrets = secretsForBlock(b.id);
+        QString s;
+        for (int i = 0; i < b.comments.size(); ++i) {
+            const Comment &c = b.comments.at(i);
+            const int n = atnId(b.id, i, c);
+            s += QStringLiteral("{\\*\\atrfend %1}").arg(n);
+            s += QStringLiteral("{\\*\\atnid %1}").arg(escapeText(initialsOf(c.author)));
+            s += QStringLiteral("{\\*\\atnauthor %1}").arg(escapeText(c.author));
+            s += QStringLiteral("\\chatn{\\*\\annotation{\\*\\atnref %1}").arg(n);
+            s += QStringLiteral("{\\*\\aiocid %1}").arg(escapeText(c.id));
+            if (!c.parentId.isEmpty())
+                s += QStringLiteral("{\\*\\aiocparent %1}").arg(escapeText(c.parentId));
+            if (c.resolved)
+                s += QStringLiteral("{\\*\\aiocresolved 1}");
+            s += QStringLiteral("\\pard\\plain ");
+            s += escapeCommentBody(scrubSecrets(c.text, secrets));
+            s += QLatin1Char('}');
+        }
+        return s;
+    }
+
+    QString carrierParagraph(const Block &b)
     {
         if (b.comments.isEmpty())
             return {};
-        warnOnce(QStringLiteral("RTF export: block comments exported as plain text"));
-        QString s;
-        for (const auto &c : b.comments) {
-            s += QStringLiteral(" [") + c.author + QStringLiteral(": ") + c.text + QLatin1Char(']');
+        return QStringLiteral("\\pard\\plain {\\*\\aiocarrier}") + commentStarts(b) + commentEnds(b)
+            + QStringLiteral("\\par\n");
+    }
+
+    static int colorRef(const QString &hex)
+    {
+        int r = 0;
+        int g = 0;
+        int b = 0;
+        if (!parseRgb(hex, r, g, b))
+            return 0;
+        return r | (g << 8) | (b << 16);
+    }
+
+    static bool nativeShapeKind(const QString &kind)
+    {
+        return kind == QLatin1String("rect") || kind == QLatin1String("ellipse") || kind == QLatin1String("line");
+    }
+
+    QString emitShape(const Block &b)
+    {
+        int shapeType = 1;
+        if (b.shapeKind == QLatin1String("ellipse"))
+            shapeType = 3;
+        else if (b.shapeKind == QLatin1String("line"))
+            shapeType = 20;
+        const double wmm = b.imageWidthMm > 0 ? double(b.imageWidthMm) : 80.0;
+        const double hmm = b.heightMm > 0 ? b.heightMm : 40.0;
+        const int w = qRound(wmm * kTwipsPerMm / 10.0);
+        const int h = qRound(hmm * kTwipsPerMm / 10.0);
+        const int lid = nextShpLid++;
+        QString sp = QStringLiteral("{\\sp{\\sn shapeType}{\\sv %1}}").arg(shapeType);
+        if (b.fill.isEmpty()) {
+            sp += QStringLiteral("{\\sp{\\sn fFilled}{\\sv 0}}");
+        } else {
+            sp += QStringLiteral("{\\sp{\\sn fFilled}{\\sv 1}}");
+            sp += QStringLiteral("{\\sp{\\sn fillColor}{\\sv %1}}").arg(colorRef(b.fill));
         }
-        return escapeText(s);
+        if (b.stroke.isEmpty()) {
+            sp += QStringLiteral("{\\sp{\\sn fLine}{\\sv 0}}");
+        } else {
+            sp += QStringLiteral("{\\sp{\\sn fLine}{\\sv 1}}");
+            sp += QStringLiteral("{\\sp{\\sn lineColor}{\\sv %1}}").arg(colorRef(b.stroke));
+        }
+        QString text;
+        if (!b.plainText().isEmpty())
+            text = QStringLiteral("{\\shptxt ") + paraProps(b) + emitRuns(b.runs, defaultFont, defaultSizeHalfPt)
+                + QStringLiteral("\\par}");
+        return QStringLiteral(
+                   "{\\shp{\\*\\shpinst\\shpleft0\\shptop0\\shpright%1\\shpbottom%2\\shpfhdr0\\shpbxcolumn\\shpbypara"
+                   "\\shpwr1\\shpfblwtxt0\\shpz%3\\shplid%4")
+                   .arg(w)
+                   .arg(h)
+                   .arg(b.zIndex)
+                   .arg(lid)
+            + sp + text + QStringLiteral("}}");
     }
 
     int listIdForKind(const QString &kind)
@@ -677,6 +1212,10 @@ struct RtfOut {
             for (const auto &row : b.table)
                 for (const auto &cell : row)
                     scanRuns(cell.runs);
+        }
+        for (const Revision &rv : doc.revisions) {
+            scanRuns(rv.deletedRuns);
+            scanRuns(rv.priorRuns);
         }
         defaultFont = fontId(QStringLiteral("Liberation Serif"));
     }
@@ -921,9 +1460,21 @@ struct RtfOut {
             const Block &b = blocks[i];
             if (b.type == QLatin1String("footnote") || b.type == QLatin1String("endnote"))
                 continue;
+            if (nativeShapeKind(b.shapeKind)) {
+                if (!b.groupId.isEmpty() || !b.connectTo.isEmpty())
+                    warnOnce(QStringLiteral("RTF export: shape %1 group or connector is not written").arg(b.id));
+                body += paraProps(b) + commentStarts(b) + emitShape(b) + commentEnds(b) + QStringLiteral("\\par\n");
+                continue;
+            }
             if (!b.shapeKind.isEmpty() || !b.qrText.isEmpty() || b.formKind == QLatin1String("dropdown")) {
-                warnOnce(QStringLiteral("RTF export: shapes/forms exported as plain text"));
-                body += paraProps(b) + escapeText(b.plainText()) + commentSuffix(b) + QStringLiteral("\\par\n");
+                if (!b.qrText.isEmpty())
+                    warnOnce(QStringLiteral("RTF export: QR exported as plain text"));
+                else if (b.formKind == QLatin1String("dropdown"))
+                    warnOnce(QStringLiteral("RTF export: dropdown exported as plain text"));
+                else
+                    warnOnce(QStringLiteral("RTF export: shape %1 exported as plain text").arg(b.id));
+                body += paraProps(b) + commentStarts(b) + escapeText(b.plainText()) + commentEnds(b)
+                    + QStringLiteral("\\par\n");
                 continue;
             }
             if (b.type == QLatin1String("break")) {
@@ -931,10 +1482,8 @@ struct RtfOut {
                     body += QStringLiteral("\\column");
                 else
                     body += QStringLiteral("\\page");
-                const QString note = commentSuffix(b);
-                if (!note.isEmpty())
-                    body += QStringLiteral("\\pard\\plain ") + note;
                 body += QStringLiteral("\\par\n");
+                body += carrierParagraph(b);
                 continue;
             }
             if (b.type == QLatin1String("list-item")) {
@@ -956,8 +1505,9 @@ struct RtfOut {
                     // inside the \\v group, and a hidden paragraph mark (\\v\\par)
                     // makes Word drop the list number or bullet.
                     const bool hidden = textVanished(li);
+                    inner += commentStarts(li);
                     inner += vanishWrap(li, marker + emitMarkedRuns(li.id, li.runs, defaultFont, defaultSizeHalfPt));
-                    inner += commentSuffix(li)
+                    inner += commentEnds(li)
                         + (hidden ? QStringLiteral("\\v\\par\\v0\n") : QStringLiteral("\\par\n"));
                     body += inner;
                     ++i;
@@ -969,17 +1519,15 @@ struct RtfOut {
                 // \\pard resets \\intbl. A closing \\par here becomes an empty
                 // paragraph on import, and each round trip adds another one.
                 body += emitTable(b);
-                const QString note = commentSuffix(b);
-                if (!note.isEmpty())
-                    body += QStringLiteral("\\pard\\plain ") + note + QStringLiteral("\\par\n");
-                else
-                    body += QStringLiteral("\\pard\n");
+                body += QStringLiteral("\\pard\n");
+                body += carrierParagraph(b);
                 continue;
             }
             if (b.type == QLatin1String("image")) {
                 if (consumedImages.contains(b.id))
                     continue;
-                body += paraProps(b) + pictPng(b) + commentSuffix(b) + QStringLiteral("\\par\n");
+                body += paraProps(b) + pictPng(b) + QStringLiteral("\\par\n");
+                body += carrierParagraph(b);
                 continue;
             }
             QString inner = paraProps(b);
@@ -998,12 +1546,15 @@ struct RtfOut {
                 if (b.spaceAfterPt < 0)
                     inner += QStringLiteral("\\sa120 ");
             }
+            inner += commentStarts(b);
             inner += vanishWrap(b, emitMarkedRuns(b.id, b.runs, defaultFont, defaultSizeHalfPt));
-            inner += commentSuffix(b) + QStringLiteral("\\par\n");
+            inner += commentEnds(b) + QStringLiteral("\\par\n");
             body += inner;
         }
-        if (!doc->revisions.isEmpty())
-            warnOnce(QStringLiteral("RTF export: tracked revisions exported as plain text"));
+        for (const Revision &rv : doc->revisions) {
+            if (!revisionHosts.contains(rv.blockId))
+                warnOnce(QStringLiteral("RTF export: revision %1 is not written").arg(rv.id));
+        }
         return body;
     }
 };
@@ -1021,6 +1572,7 @@ bool saveRtf(const Document &doc, const QString &path, QString *error, QStringLi
     o.doc = &doc;
     o.warnings = warnings;
     o.collectFontsColors(doc);
+    o.buildAuthors();
     for (const auto &b : doc.body) {
         if (b.type == QLatin1String("list-item"))
             o.listIdForKind(b.listKind);
@@ -1032,6 +1584,7 @@ bool saveRtf(const Document &doc, const QString &path, QString *error, QStringLi
     rtf += o.fontTbl() + QLatin1Char('\n');
     rtf += o.colorTbl() + QLatin1Char('\n');
     rtf += o.styleSheet() + QLatin1Char('\n');
+    rtf += o.revTbl();
     rtf += o.listTable();
     rtf += QStringLiteral("\\viewkind4\n");
     rtf += o.bodyText();
