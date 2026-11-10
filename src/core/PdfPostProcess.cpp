@@ -2091,6 +2091,52 @@ void insertCidSetRef(QByteArray *body, int objNum)
         body->insert(close, token);
 }
 
+// Dictionary prefix of the object body that starts at `start` (the byte after
+// "N 0 obj"). The stream boundary is pdfDictPortion's. `bodyEnd` is the first
+// "endobj" when that keyword lands before any stream; otherwise it stays -1 so
+// the caller can skip the stream bytes unless the dict is a font candidate.
+struct DictPrefix {
+    bool ok = false;
+    int dictEnd = 0;
+    int bodyEnd = -1;
+};
+
+DictPrefix pdfDictPrefix(const QByteArray &data, int start)
+{
+    DictPrefix out;
+    int p = start;
+    while (p < data.size()) {
+        const int streamAt = data.indexOf("stream", p);
+        if (streamAt < 0) {
+            const int endAt = data.indexOf("endobj", p);
+            if (endAt < 0)
+                return out;
+            out.ok = true;
+            out.dictEnd = endAt;
+            out.bodyEnd = endAt;
+            return out;
+        }
+        const int window = streamAt - p;
+        const int rel = window > 0 ? data.mid(p, window).indexOf("endobj") : -1;
+        if (rel >= 0) {
+            out.ok = true;
+            out.dictEnd = p + rel;
+            out.bodyEnd = p + rel;
+            return out;
+        }
+        const bool boundary = streamAt == start
+            || pdfSpace(static_cast<unsigned char>(data.at(streamAt - 1)));
+        if (boundary) {
+            out.ok = true;
+            out.dictEnd = streamAt;
+            out.bodyEnd = -1;
+            return out;
+        }
+        p = streamAt + 6;
+    }
+    return out;
+}
+
 } // namespace
 
 bool pdfPostProcessMarkFontSubsets(const QString &path, bool pdfa, QString *error)
@@ -2112,20 +2158,64 @@ bool pdfPostProcessMarkFontSubsets(const QString &path, bool pdfa, QString *erro
     QVector<Obj> descriptors;
     QVector<Obj> cidFonts;
     QVector<Obj> type0Fonts;
-    for (int num = 1; num < u.trailerSize; ++num) {
-        bool found = false;
-        const QByteArray body = findObjBody(u.data, num, &found);
-        if (!found || body.isEmpty())
-            continue;
-        const QByteArray dict = pdfDictPortion(body);
-        if (findPdfKey(dict, "/FontFile2") >= 0) {
-            descriptors.push_back(Obj{num, body});
-            continue;
+    // One pass records the last "\nN 0 obj" for each number. The header is
+    // findObjBody's: a leading newline, a canonical decimal (no leading zero),
+    // then " 0 obj". A later header replaces an earlier one. Only font
+    // candidates are copied, so content streams stay in the file bytes.
+    QVector<int> lastBody(u.trailerSize, -1);
+    {
+        const QByteArray &data = u.data;
+        const int n = data.size();
+        int i = 0;
+        while (i < n) {
+            const int nl = data.indexOf('\n', i);
+            if (nl < 0)
+                break;
+            i = nl + 1;
+            if (i >= n || data.at(i) < '0' || data.at(i) > '9')
+                continue;
+            int q = i;
+            while (q < n && data.at(q) >= '0' && data.at(q) <= '9')
+                ++q;
+            const int digits = q - i;
+            if (digits <= 0 || digits > 10 || (data.at(i) == '0' && digits != 1))
+                continue;
+            if (q + 6 > n || data.mid(q, 6) != " 0 obj")
+                continue;
+            bool okNum = false;
+            const int num = data.mid(i, digits).toInt(&okNum);
+            if (!okNum || num < 1 || num >= u.trailerSize)
+                continue;
+            lastBody[num] = q + 6;
         }
-        const QByteArray subtype = pdfNameAfterKey(dict, "/Subtype");
-        if (subtype == "CIDFontType2" || subtype == "CIDFontType0")
+    }
+    for (int num = 1; num < u.trailerSize; ++num) {
+        const int bodyStart = lastBody.at(num);
+        if (bodyStart < 0)
+            continue;
+        const DictPrefix prefix = pdfDictPrefix(u.data, bodyStart);
+        if (!prefix.ok || prefix.bodyEnd == bodyStart)
+            continue;
+        const QByteArray dict = u.data.mid(bodyStart, prefix.dictEnd - bodyStart);
+        const bool fontFile = findPdfKey(dict, "/FontFile2") >= 0;
+        QByteArray subtype;
+        if (!fontFile)
+            subtype = pdfNameAfterKey(dict, "/Subtype");
+        const bool cid = subtype == "CIDFontType2" || subtype == "CIDFontType0";
+        const bool type0 = subtype == "Type0";
+        if (!fontFile && !cid && !type0)
+            continue;
+        const int bodyEnd = prefix.bodyEnd >= 0 ? prefix.bodyEnd : u.data.indexOf("endobj", prefix.dictEnd);
+        if (bodyEnd < bodyStart)
+            continue;
+        const QByteArray body = u.data.mid(bodyStart, bodyEnd - bodyStart);
+        if (body.isEmpty())
+            continue;
+        if (fontFile)
+            descriptors.push_back(Obj{num, body});
+        else if (cid)
             cidFonts.push_back(Obj{num, body});
-        else if (subtype == "Type0")
+        else
             type0Fonts.push_back(Obj{num, body});
     }
     if (descriptors.isEmpty())
