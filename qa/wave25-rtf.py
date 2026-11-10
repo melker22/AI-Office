@@ -719,14 +719,30 @@ def test_d9(cli: Path, folder: Path) -> list[str]:
     ]
     save, rtf, doc = roundtrip(cli, steps, folder, "d9.rtf")
     check_balanced(rtf, "D9", errors)
-    msg = "RTF export: block comments exported as plain text"
-    if msg not in warnings_of(save):
-        errors.append(f"D9: missing comment warning in {warnings_of(save)!r}")
+    if any("exported as plain text" in w for w in warnings_of(save)):
+        errors.append(f"D9: stale plain-text comment warning: {warnings_of(save)!r}")
     blob = "\n".join(plain_of(b) for b in blocks(doc))
-    if "na tabela" not in blob:
-        errors.append(f"D9: table comment text missing from import: {blob!r}")
-    if "na quebra" not in blob:
-        errors.append(f"D9: break comment text missing from import: {blob!r}")
+    if "na tabela" in blob or "na quebra" in blob:
+        errors.append(f"D9: comment text leaked into body: {blob!r}")
+    tables = [b for b in blocks(doc) if b.get("type") == "table"]
+    breaks = [b for b in blocks(doc) if b.get("type") == "break"]
+    if not tables or not breaks:
+        errors.append(f"D9: missing table/break blocks: {len(tables)} tables {len(breaks)} breaks")
+    else:
+        t_comments = tables[0].get("comments") or []
+        b_comments = breaks[0].get("comments") or []
+        t_texts = [c.get("text") for c in t_comments]
+        b_texts = [c.get("text") for c in b_comments]
+        if "na tabela" not in t_texts:
+            errors.append(f"D9: table comment not on block: {t_texts!r}")
+        if "na quebra" not in b_texts:
+            errors.append(f"D9: break comment not on block: {b_texts!r}")
+    err = need(rtf, "{\\*\\aiocarrier}", "D9 carrier")
+    if err:
+        errors.append(err)
+    err = need(rtf, "{\\*\\annotation", "D9 annotation")
+    if err:
+        errors.append(err)
     err = need(rtf, "na tabela", "D9 raw table")
     if err:
         errors.append(err)
