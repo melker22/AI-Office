@@ -1,6 +1,6 @@
 # Catálogo Writer — ideias do Guide, código nosso
 
-Espelho git do board **Roadmap para Produção** no Notion ([hub](https://app.notion.com/p/3cb46a79156b819daef5ea9d7c41385a)). Sync: **2026-11-03** (Fase IA **onda 27** entregue: importar EPUB, `export_html` pelo escritor XHTML partilhado com o EPUB, notas de rodapé/fim com vários parágrafos e round-trip DOCX/ODT/RTF/EPUB + interop LibreOffice). Totais: **201 Done**, **10 Partial**, **37 Todo** (contagens Notion podem estar desatualizadas até `notion-sync`). Coluna **Fase** = `IA` | `Humano` | `Infra` | `Fora`.
+Espelho git do board **Roadmap para Produção** no Notion ([hub](https://app.notion.com/p/3cb46a79156b819daef5ea9d7c41385a)). Sync: **2026-11-10** (Fase IA **onda 28** entregue: marcação RTF nativa de revisões, comentários e formas; subconjunto de fontes no PDF com `/CIDSet` em PDF/A; juízes `qa/wave28-*` e interop LibreOffice para `text:insertion` / `text:deletion` / `office:annotation` e as três formas). Totais: **201 Done**, **10 Partial**, **37 Todo** (contagens Notion podem estar desatualizadas até `notion-sync`). Coluna **Fase** = `IA` | `Humano` | `Infra` | `Fora`.
 
 Fonte citável: The Document Foundation — [LibreOffice Writer Guide 26.2](https://books.libreoffice.org/en/WG262/WG262.html). Atribuição e limites: [`ATTRIBUTION.md`](ATTRIBUTION.md).
 
@@ -208,6 +208,8 @@ Fase IA Writer **não** está encerrada: o board ainda tem Todos de chrome, pack
 **Onda 26 (layout e preview):** ver **page_preview estável**, **page_preview por intervalo**, **Notas de rodapé e de fim**, **Notas: reinício por página**, **Numeração de capítulos e linhas**, **Hifenação real (Knuth-Liang)**, **Tabelas: inserir, linhas, colunas, cabeçalho**, **Tabelas aninhadas**, **Margem de encadernação (gutter)**, **Campo ficheiro** e **Campos dinâmicos**. Juízes `qa/wave26-*`. O PDF continua a passar pelo mesmo pintor (veraPDF PDF/UA-1 e PDF/A-1b conformes). A GUI (`src/app/`) não mudou.
 
 **Onda 27 (formatos):** ver **Importação EPUB**, **Exportar HTML**, **Exportação EPUB** (notas multi-parágrafo), **Notas de rodapé e de fim** e **Round-trip ODT/DOCX** (notas). Juízes `qa/wave27-*`; gate `--interop` inclui notas de 3 parágrafos DOCX/ODT. Primeira onda com executor DeepSeek V4.1 Flash via OpenRouter (custo registado no handoff).
+
+**Onda 28 (RTF nativo + PDF):** ver **RTF nativo** (revisões `insert`/`delete`/`format`, comentários com resposta/resolvido, formas `rect`/`ellipse`/`line`, interop LibreOffice `text:insertion`/`text:deletion`/`office:annotation`) e **Incorporar fontes no PDF** (prefixo `ABCDEF+` determinístico em Type0/CIDFont/descriptor, `/CIDSet` com `pdfa: true`, `pdffonts sub yes`). Juízes `qa/wave28-*` (**14** testes); gate **225/225**. Executor principal **Grok da Cursor** (`grok-4.7-high`). Revisão Sonnet: **0 findings** em `741e01b`.
 
 - **Humano (chrome Tinta & Papel):** régua; stats GUI; zoom GUI; print preview; Navigator; paleta; atalhos; recents; status bar; modo leitura; split; foco/typewriter; inspector; balloons; DnD reorder; teclado só no canvas; Autocorrect lista GUI; underline ao escrever; impressão.
 - **Infra:** backup `~`; layout lazy; watch file; Hunspell Nix; Flatpak; CRDT; **DOC nativo (via soffice)**; assinatura; senha; crash recovery; autosave.
