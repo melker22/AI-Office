@@ -734,3 +734,18 @@ set_tests_properties(wave28_rtf_selftest PROPERTIES
     TIMEOUT 180
     WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}"
 )
+# Wave 28 D14. Writer and reader together: revisions, comments, notes, shapes.
+add_test(NAME wave28_rtf_roundtrip COMMAND "${CMAKE_COMMAND}" -E env AIOFFICE_HEADLESS=1 QT_QPA_PLATFORM=offscreen
+    "${Python3_EXECUTABLE}" "${CMAKE_SOURCE_DIR}/qa/wave28-rtf-roundtrip.py" --cli "${AIOFFICE_CLI}")
+set_tests_properties(wave28_rtf_roundtrip PROPERTIES
+    LABELS "playbook;wave28;rtf"
+    TIMEOUT 120
+    WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}"
+)
+add_test(NAME wave28_rtf_roundtrip_selftest COMMAND "${Python3_EXECUTABLE}"
+    "${CMAKE_SOURCE_DIR}/qa/wave28-rtf-roundtrip.py" --self-test --cli "${AIOFFICE_CLI}")
+set_tests_properties(wave28_rtf_roundtrip_selftest PROPERTIES
+    LABELS "playbook;wave28;rtf"
+    TIMEOUT 120
+    WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}"
+)

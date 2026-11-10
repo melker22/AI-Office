@@ -248,6 +248,7 @@ struct PendingNote {
     QString tempId;
     QVector<TextRun> runs;
     bool endnote = false;
+    QVector<Revision> revs;
 };
 
 struct UprState {
@@ -732,11 +733,20 @@ private:
     };
 
     QStringList revAuthors_;
-    OpenRev openRev_;
-    QVector<Revision> paraRevs_;
-    bool pendingFmtSet_ = false;
-    QString pendingFmtPayload_;
-    QVector<TextRun> pendingFmtPrior_;
+    // One buffer for the host paragraph and one per open footnote. `side` tracks
+    // a format change that covers the same live characters as an insert: markOf
+    // can return only one kind, and a delete point between two slices of the
+    // same change must not split it (the slices abut in the live text).
+    struct RevBuf {
+        OpenRev open;
+        OpenRev side;
+        QVector<Revision> revs;
+        bool pendingFmtSet = false;
+        QString pendingPayload;
+        QVector<TextRun> pendingPrior;
+    };
+    RevBuf paraRev_;
+    QVector<RevBuf> noteRevStack_;
 
     QVector<Comment> paraComments_;
     QVector<Comment> tableComments_;
@@ -975,8 +985,14 @@ private:
                 appendRun(shapeStack_.last().runs, QString(ch), fmt);
             break;
         case Sink::Note:
-            if (!noteStack_.isEmpty())
-                appendRun(noteStack_.last(), QString(ch), fmt);
+            if (!noteStack_.isEmpty() && !noteRevStack_.isEmpty()) {
+                TextRun piece;
+                fmt.apply(piece);
+                piece.text = QString(ch);
+                // Note text is not the host paragraph. A true flag here would
+                // let the note body cancel an empty-paragraph suppression.
+                appendRevised(noteRevStack_.last(), noteStack_.last(), piece, f.ch, false, false);
+            }
             break;
         case Sink::Inst:
             if (!fields_.isEmpty())
@@ -1722,6 +1738,7 @@ private:
             stack_.last().sink = Sink::Note;
             noteStack_.push_back({});
             noteEnd_.push_back(false);
+            noteRevStack_.push_back(RevBuf{});
             return true;
         }
         if (word == QLatin1String("bkmkstart")) {
@@ -2047,8 +2064,12 @@ private:
             return;
         }
         if (f.sink == Sink::Note) {
-            if (!noteStack_.isEmpty())
-                appendRun(noteStack_.last(), QString(QChar(0x2029)), fmtOf(f.ch));
+            if (!noteStack_.isEmpty() && !noteRevStack_.isEmpty()) {
+                TextRun piece;
+                fmtOf(f.ch).apply(piece);
+                piece.text = QString(QChar(0x2029));
+                appendRevised(noteRevStack_.last(), noteStack_.last(), piece, f.ch, false, false);
+            }
             return;
         }
         if (f.sink == Sink::Result) {
@@ -2106,8 +2127,11 @@ private:
     {
         if (stack_.isEmpty() || stack_.last().skipAll)
             return;
-        if (stack_.last().para.inTable)
-            openRev_ = OpenRev{};
+        if (stack_.last().para.inTable) {
+            // Cell text keeps no revision (D5). Drop the open mark; do not commit it.
+            paraRev_.open = OpenRev{};
+            paraRev_.side = OpenRev{};
+        }
         if (rowCells_.size() >= kMaxCells) {
             fail(QStringLiteral("RTF table exceeds 256 columns"));
             return;
@@ -2181,7 +2205,7 @@ private:
     {
         if (tableOpen_ && !para.inTable)
             pushTable();
-        closeOpenRev();
+        closeBuf(paraRev_, bodyRuns_);
         if (paraCarrier_) {
             if (!doc_.body.isEmpty()) {
                 for (Comment &c : paraComments_)
@@ -2193,13 +2217,13 @@ private:
             }
             paraCarrier_ = false;
             paraComments_.clear();
-            paraRevs_.clear();
+            paraRev_ = RevBuf{};
             bodyRuns_.clear();
             pendingBms_.clear();
             suppressEmptyPar_ = false;
             return;
         }
-        if (bodyRuns_.isEmpty() && pendingBms_.isEmpty() && paraRevs_.isEmpty() && paraComments_.isEmpty()) {
+        if (bodyRuns_.isEmpty() && pendingBms_.isEmpty() && paraRev_.revs.isEmpty() && paraComments_.isEmpty()) {
             if (!allowEmpty || suppressEmptyPar_) {
                 suppressEmptyPar_ = false;
                 return;
@@ -2216,7 +2240,7 @@ private:
         if (!addBlock(b)) {
             bodyRuns_.clear();
             paraComments_.clear();
-            paraRevs_.clear();
+            paraRev_ = RevBuf{};
             pendingBms_.clear();
             return;
         }
@@ -2463,6 +2487,7 @@ private:
                 return;
             }
             idMap.insert(note.tempId, doc_.body.last().id);
+            attachRevisions(note.revs, doc_.body.last().id);
         }
         replaceNoteIds(idMap, start);
         if (pendingNotes_.isEmpty())
@@ -2525,6 +2550,12 @@ private:
         if (!noteEnd_.isEmpty())
             endnote = noteEnd_.takeLast();
         QVector<TextRun> runs;
+        QVector<Revision> revs;
+        if (!noteRevStack_.isEmpty()) {
+            if (!noteStack_.isEmpty())
+                closeBuf(noteRevStack_.last(), noteStack_.last());
+            revs = noteRevStack_.takeLast().revs;
+        }
         if (!noteStack_.isEmpty())
             runs = noteStack_.takeLast();
         const QString temp = QStringLiteral("rtf-note-%1").arg(++noteSerial_);
@@ -2533,6 +2564,7 @@ private:
         pn.tempId = temp;
         pn.runs = runs;
         pn.endnote = endnote;
+        pn.revs = revs;
         pendingNotes_.push_back(pn);
         TextRun mark;
         mark.text = QString::number(number);
@@ -2867,7 +2899,7 @@ private:
     bool paragraphPending() const
     {
         return !bodyRuns_.isEmpty() || !pendingBms_.isEmpty() || !paraComments_.isEmpty() || paraCarrier_
-            || openRev_.open || !paraRevs_.isEmpty();
+            || paraRev_.open.open || paraRev_.side.open || !paraRev_.revs.isEmpty();
     }
 
     RevMark markOf(const CharState &ch) const
@@ -2983,12 +3015,92 @@ private:
         return all.mid(start, end - start);
     }
 
-    void closeOpenRev()
+    RevMark formatMarkOf(const CharState &ch) const
     {
-        if (!openRev_.open)
+        RevMark m;
+        if (ch.deleted)
+            return m;
+        if (ch.crauth >= 0 || ch.crdateSet) {
+            m.kind = RevKind::Format;
+            m.author = ch.crauth >= 0 ? ch.crauth : 0;
+            if (ch.crdateSet) {
+                m.dateSet = true;
+                m.dateRaw = ch.crdate;
+                m.dateBad = ch.crdateBad;
+            }
+        }
+        return m;
+    }
+
+    RevBuf &revBufForStack()
+    {
+        for (int i = stack_.size() - 1; i >= 0; --i) {
+            if (stack_.at(i).kind == Kind::Footnote && !noteRevStack_.isEmpty())
+                return noteRevStack_.last();
+        }
+        return paraRev_;
+    }
+
+    QVector<TextRun> &runsForStack()
+    {
+        for (int i = stack_.size() - 1; i >= 0; --i) {
+            if (stack_.at(i).kind == Kind::Footnote && !noteStack_.isEmpty())
+                return noteStack_.last();
+        }
+        return bodyRuns_;
+    }
+
+    bool continuesEarlierFormat(const RevBuf &buf, const OpenRev &slot, const QVector<TextRun> &runs)
+    {
+        if (!slot.open || slot.kind != RevKind::Format || slot.start >= runChars(runs))
+            return false;
+        const QString author = authorAt(slot.author);
+        const qint64 stamp = stampOf(slot.dateSet, slot.dateRaw, slot.dateBad);
+        for (int i = buf.revs.size() - 1; i >= 0; --i) {
+            const Revision &prev = buf.revs.at(i);
+            if (prev.kind == QLatin1String("format") && prev.end == slot.start && prev.author == author
+                && prev.timestamp == stamp)
+                return true;
+        }
+        return false;
+    }
+
+    // A delete point does not consume live characters, so two slices of the same
+    // insert or format change still abut and stay one revision (D5).
+    bool absorbAbutting(QVector<Revision> &revs, Revision &rv) const
+    {
+        if (rv.kind != QLatin1String("insert") && rv.kind != QLatin1String("format"))
+            return false;
+        for (int i = revs.size() - 1; i >= 0; --i) {
+            Revision &prev = revs[i];
+            if (prev.kind != rv.kind || prev.author != rv.author || prev.timestamp != rv.timestamp)
+                continue;
+            if (prev.end != rv.start)
+                continue;
+            // A second {\*\aiorevfmt} is a different format change that happens to
+            // start where the previous one ended. A continuation slice has none.
+            if (rv.kind == QLatin1String("format") && (!rv.payload.isEmpty() || !rv.priorRuns.isEmpty()))
+                continue;
+            prev.end = rv.end;
+            if (rv.kind == QLatin1String("insert"))
+                prev.text += rv.text;
+            else {
+                if (prev.payload.isEmpty())
+                    prev.payload = rv.payload;
+                if (prev.priorRuns.isEmpty() && !rv.priorRuns.isEmpty())
+                    prev.priorRuns = rv.priorRuns;
+            }
+            return true;
+        }
+        return false;
+    }
+
+    void commitSlot(RevBuf &buf, OpenRev &slot, const QVector<TextRun> &runs)
+    {
+        if (!slot.open)
             return;
-        const OpenRev o = openRev_;
-        openRev_ = OpenRev{};
+        const OpenRev o = slot;
+        slot = OpenRev{};
         Revision rv;
         rv.author = authorAt(o.author);
         rv.timestamp = stampOf(o.dateSet, o.dateRaw, o.dateBad);
@@ -3003,15 +3115,15 @@ private:
                 return;
         } else if (o.kind == RevKind::Insert) {
             rv.kind = QStringLiteral("insert");
-            rv.end = runChars(bodyRuns_);
+            rv.end = runChars(runs);
             if (rv.end < rv.start)
                 rv.end = rv.start;
-            rv.text = sliceText(bodyRuns_, rv.start, rv.end);
+            rv.text = sliceText(runs, rv.start, rv.end);
             if (rv.end == rv.start)
                 return;
         } else {
             rv.kind = QStringLiteral("format");
-            rv.end = runChars(bodyRuns_);
+            rv.end = runChars(runs);
             if (rv.end < rv.start)
                 rv.end = rv.start;
             rv.payload = o.payload;
@@ -3019,33 +3131,54 @@ private:
             if (rv.end == rv.start && rv.payload.isEmpty() && rv.priorRuns.isEmpty())
                 return;
         }
-        paraRevs_.push_back(rv);
+        if (!absorbAbutting(buf.revs, rv))
+            buf.revs.push_back(rv);
     }
 
-    void syncRevision(const RevMark &mark)
+    void closeBuf(RevBuf &buf, const QVector<TextRun> &runs)
+    {
+        commitSlot(buf, buf.side, runs);
+        commitSlot(buf, buf.open, runs);
+    }
+
+    void takePendingFmt(RevBuf &buf, OpenRev &slot)
+    {
+        if (slot.kind != RevKind::Format || slot.tookFmt || !buf.pendingFmtSet)
+            return;
+        slot.payload = buf.pendingPayload;
+        slot.priorRuns = buf.pendingPrior;
+        slot.tookFmt = true;
+        buf.pendingFmtSet = false;
+        buf.pendingPayload.clear();
+        buf.pendingPrior.clear();
+    }
+
+    void syncSlot(RevBuf &buf, OpenRev &slot, const RevMark &mark, const QVector<TextRun> &runs)
     {
         if (mark.kind == RevKind::None) {
-            closeOpenRev();
+            commitSlot(buf, slot, runs);
             return;
         }
-        if (sameMark(openRev_, mark))
+        if (sameMark(slot, mark))
             return;
-        closeOpenRev();
-        openRev_.open = true;
-        openRev_.kind = mark.kind;
-        openRev_.author = mark.author;
-        openRev_.dateSet = mark.dateSet;
-        openRev_.dateRaw = mark.dateRaw;
-        openRev_.dateBad = mark.dateBad;
-        openRev_.start = runChars(bodyRuns_);
-        if (mark.kind == RevKind::Format && pendingFmtSet_) {
-            openRev_.payload = pendingFmtPayload_;
-            openRev_.priorRuns = pendingFmtPrior_;
-            openRev_.tookFmt = true;
-            pendingFmtSet_ = false;
-            pendingFmtPayload_.clear();
-            pendingFmtPrior_.clear();
-        }
+        commitSlot(buf, slot, runs);
+        slot.open = true;
+        slot.kind = mark.kind;
+        slot.author = mark.author;
+        slot.dateSet = mark.dateSet;
+        slot.dateRaw = mark.dateRaw;
+        slot.dateBad = mark.dateBad;
+        slot.start = runChars(runs);
+        takePendingFmt(buf, slot);
+    }
+
+    void syncPair(RevBuf &buf, const RevMark &mark, const RevMark &fmt, const QVector<TextRun> &runs)
+    {
+        syncSlot(buf, buf.open, mark, runs);
+        if (mark.kind == RevKind::Insert && fmt.kind == RevKind::Format)
+            syncSlot(buf, buf.side, fmt, runs);
+        else
+            commitSlot(buf, buf.side, runs);
     }
 
     void warnCellRev()
@@ -3056,37 +3189,47 @@ private:
         warnings_ << QStringLiteral("RTF import: revision markup in a table cell was discarded");
     }
 
-    void appendBodyRun(const TextRun &incoming)
+    void appendRevised(RevBuf &buf, QVector<TextRun> &runs, const TextRun &incoming, const CharState &ch,
+                       bool inTable, bool bodyText)
     {
-        const bool inTable = !stack_.isEmpty() && stack_.last().para.inTable;
-        const RevMark mark = stack_.isEmpty() ? RevMark{} : markOf(stack_.last().ch);
-        if (inTable && mark.kind != RevKind::None) {
+        const RevMark mark = markOf(ch);
+        const RevMark fmt = formatMarkOf(ch);
+        if (inTable && (mark.kind != RevKind::None || fmt.kind != RevKind::None)) {
             warnCellRev();
             if (mark.kind == RevKind::Delete)
                 return;
-            if (!incoming.text.isEmpty())
+            if (bodyText && !incoming.text.isEmpty())
                 suppressEmptyPar_ = false;
-            appendExisting(bodyRuns_, incoming);
+            appendExisting(runs, incoming);
             return;
         }
-        syncRevision(mark);
+        syncPair(buf, mark, fmt, runs);
         if (mark.kind == RevKind::Delete) {
             TextRun copy = incoming;
             if (copy.redact)
                 copy.text.clear();
-            appendExisting(openRev_.deletedRuns, copy);
+            appendExisting(buf.open.deletedRuns, copy);
             return;
         }
-        if (!incoming.text.isEmpty())
+        if (bodyText && !incoming.text.isEmpty())
             suppressEmptyPar_ = false;
-        appendExisting(bodyRuns_, incoming);
+        appendExisting(runs, incoming);
+    }
+
+    void appendBodyRun(const TextRun &incoming)
+    {
+        const bool inTable = !stack_.isEmpty() && stack_.last().para.inTable;
+        const CharState ch = stack_.isEmpty() ? CharState{} : stack_.last().ch;
+        appendRevised(paraRev_, bodyRuns_, incoming, ch, inTable, true);
     }
 
     void deliverFieldRun(const TextRun &incoming)
     {
         const bool inTable = !stack_.isEmpty() && stack_.last().para.inTable;
-        const RevMark mark = stack_.isEmpty() ? RevMark{} : markOf(stack_.last().ch);
-        if (inTable && mark.kind != RevKind::None) {
+        const CharState ch = stack_.isEmpty() ? CharState{} : stack_.last().ch;
+        const RevMark mark = markOf(ch);
+        const RevMark fmt = formatMarkOf(ch);
+        if (inTable && (mark.kind != RevKind::None || fmt.kind != RevKind::None)) {
             warnCellRev();
             if (mark.kind == RevKind::Delete)
                 return;
@@ -3095,20 +3238,13 @@ private:
             bodyRuns_.push_back(incoming);
             return;
         }
-        if (mark.kind == RevKind::None) {
-            closeOpenRev();
-            if (!incoming.text.isEmpty())
-                suppressEmptyPar_ = false;
-            bodyRuns_.push_back(incoming);
-            return;
-        }
-        syncRevision(mark);
+        syncPair(paraRev_, mark, fmt, bodyRuns_);
         if (mark.kind == RevKind::Delete) {
             TextRun copy = incoming;
             if (copy.redact)
                 copy.text.clear();
             if (!copy.text.isEmpty() || !copy.field.isEmpty())
-                openRev_.deletedRuns.push_back(copy);
+                paraRev_.open.deletedRuns.push_back(copy);
             return;
         }
         if (!incoming.text.isEmpty())
@@ -3126,15 +3262,20 @@ private:
             dest->push_back(run);
     }
 
-    void attachParaRevs(const QString &blockId)
+    void attachRevisions(const QVector<Revision> &revs, const QString &blockId)
     {
-        for (Revision &rv : paraRevs_) {
+        for (Revision rv : revs) {
             rv.blockId = blockId;
             rv.id = nextRevisionId(doc_.revisions);
             doc_.revisions.push_back(rv);
             doc_.trackChanges = true;
         }
-        paraRevs_.clear();
+    }
+
+    void attachParaRevs(const QString &blockId)
+    {
+        attachRevisions(paraRev_.revs, blockId);
+        paraRev_ = RevBuf{};
     }
 
     QStringList commentIds() const
@@ -3334,17 +3475,35 @@ private:
                 run.text.clear();
             prior.push_back(run);
         }
-        if (openRev_.open && openRev_.kind == RevKind::Format && !openRev_.tookFmt) {
-            openRev_.payload = payload;
-            openRev_.priorRuns = prior;
-            openRev_.tookFmt = true;
+        RevBuf &buf = revBufForStack();
+        QVector<TextRun> &runs = runsForStack();
+        bool gave = false;
+        bool closed = false;
+        auto hand = [&](OpenRev &slot) {
+            if (!slot.open || slot.kind != RevKind::Format)
+                return;
+            // The JSON belongs to this still-empty or not-yet-marked slice.
+            // A slice that already continues an earlier format must be closed
+            // first, or it would swallow the next change's {\*\aiorevfmt}.
+            if (!slot.tookFmt && !continuesEarlierFormat(buf, slot, runs)) {
+                slot.payload = payload;
+                slot.priorRuns = prior;
+                slot.tookFmt = true;
+                gave = true;
+                return;
+            }
+            commitSlot(buf, slot, runs);
+            closed = true;
+        };
+        hand(buf.open);
+        hand(buf.side);
+        if (gave)
             return;
-        }
-        if (pendingFmtSet_)
+        if (buf.pendingFmtSet && !closed)
             return;
-        pendingFmtSet_ = true;
-        pendingFmtPayload_ = payload;
-        pendingFmtPrior_ = prior;
+        buf.pendingFmtSet = true;
+        buf.pendingPayload = payload;
+        buf.pendingPrior = prior;
     }
 
     bool acceptedShape(const ShapeBuild &s) const
@@ -3495,6 +3654,13 @@ private:
         if (lineOn && s.lineColorSet)
             b.stroke = colorRefHex(s.lineColor);
         b.runs = s.runs;
+        // {\shptxt ...\par} uses \par as the paragraph mark. The model text does
+        // not include that terminator; a newline inside the text is \line.
+        if (!b.runs.isEmpty() && b.runs.last().text.endsWith(QLatin1Char('\n'))) {
+            b.runs.last().text.chop(1);
+            if (b.runs.last().text.isEmpty() && b.runs.last().field.isEmpty())
+                b.runs.removeLast();
+        }
         if (b.runs.isEmpty())
             b.runs.push_back(TextRun{});
         addBlock(b);
