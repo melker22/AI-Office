@@ -501,6 +501,18 @@ endforeach()
 add_test(NAME pdf_check_selftest COMMAND "${Python3_EXECUTABLE}" "${CMAKE_SOURCE_DIR}/qa/check_pdf.py" --self-test --cli "${AIOFFICE_CLI}")
 set_tests_properties(pdf_check_selftest PROPERTIES LABELS "playbook" WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}")
 
+# Wave 28 D10–D13. The script exports into a private temp directory.
+foreach(_w28_check d10 d11 d12 d13)
+    add_test(NAME "wave28_pdf_${_w28_check}" COMMAND "${CMAKE_COMMAND}" -E env AIOFFICE_HEADLESS=1 QT_QPA_PLATFORM=offscreen
+        "${Python3_EXECUTABLE}" "${CMAKE_SOURCE_DIR}/qa/wave28-pdf.py"
+        --check "${_w28_check}" --cli "${AIOFFICE_CLI}")
+    set_tests_properties("wave28_pdf_${_w28_check}" PROPERTIES
+        LABELS "pdf;wave28"
+        WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}"
+        TIMEOUT 300
+    )
+endforeach()
+
 # Wave 26 paint judges. png_probe.py is stdlib-only and does not need the CLI.
 add_test(NAME wave26_png_probe COMMAND "${Python3_EXECUTABLE}" "${CMAKE_SOURCE_DIR}/qa/png_probe.py" --self-test)
 # playbook so scripts/qa-all.sh and CircleCI (-L playbook|…) run these judges.
@@ -615,6 +627,16 @@ set_tests_properties(rtf_footnote_flush PROPERTIES
     WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}"
 )
 
+# Wave 28 RTF import (D5–D8 and the read half of D9). Hand-written RTF in the
+# judge. The 100000-block and 32 MiB cases need the longer budget.
+add_test(NAME wave28_rtf_in COMMAND "${CMAKE_COMMAND}" -E env AIOFFICE_HEADLESS=1 QT_QPA_PLATFORM=offscreen
+    "${Python3_EXECUTABLE}" "${CMAKE_SOURCE_DIR}/qa/wave28-rtf-in.py" --cli "${AIOFFICE_CLI}")
+set_tests_properties(wave28_rtf_in PROPERTIES
+    LABELS "playbook;wave28;rtf"
+    TIMEOUT 300
+    WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}"
+)
+
 # Wave 26 D1–D3. The PNG helper is qa/png_probe.py (stdlib only). D3's own
 # limit is 10s; the ctest budget covers the other judges plus that timeout.
 add_test(NAME wave26_text COMMAND "${CMAKE_COMMAND}" -E env AIOFFICE_HEADLESS=1 QT_QPA_PLATFORM=offscreen
@@ -683,5 +705,40 @@ add_test(NAME wave27_notes_selftest COMMAND "${Python3_EXECUTABLE}"
 set_tests_properties(wave27_notes_selftest PROPERTIES
     LABELS "playbook;wave27"
     TIMEOUT 240
+    WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}"
+)
+# Wave 28 T1: native RTF revisions, comments, and shapes (D1–D4, D9 write).
+# LibreOffice interop is not a CTest. CI has no soffice. scripts/qa-interop.py
+# runs qa/wave28-rtf-out.py --check interop when --interop finds soffice.
+foreach(_w28_check d1 d2 d3 d4 d9)
+    add_test(NAME "wave28_rtf_${_w28_check}" COMMAND "${CMAKE_COMMAND}" -E env AIOFFICE_HEADLESS=1 QT_QPA_PLATFORM=offscreen
+        "${Python3_EXECUTABLE}" "${CMAKE_SOURCE_DIR}/qa/wave28-rtf-out.py"
+        --check "${_w28_check}" --cli "${AIOFFICE_CLI}")
+    set_tests_properties("wave28_rtf_${_w28_check}" PROPERTIES
+        LABELS "playbook;wave28;rtf"
+        TIMEOUT 120
+        WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}"
+    )
+endforeach()
+add_test(NAME wave28_rtf_selftest COMMAND "${Python3_EXECUTABLE}"
+    "${CMAKE_SOURCE_DIR}/qa/wave28-rtf-out.py" --self-test --cli "${AIOFFICE_CLI}")
+set_tests_properties(wave28_rtf_selftest PROPERTIES
+    LABELS "playbook;wave28;rtf"
+    TIMEOUT 180
+    WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}"
+)
+# Wave 28 D14. Writer and reader together: revisions, comments, notes, shapes.
+add_test(NAME wave28_rtf_roundtrip COMMAND "${CMAKE_COMMAND}" -E env AIOFFICE_HEADLESS=1 QT_QPA_PLATFORM=offscreen
+    "${Python3_EXECUTABLE}" "${CMAKE_SOURCE_DIR}/qa/wave28-rtf-roundtrip.py" --cli "${AIOFFICE_CLI}")
+set_tests_properties(wave28_rtf_roundtrip PROPERTIES
+    LABELS "playbook;wave28;rtf"
+    TIMEOUT 120
+    WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}"
+)
+add_test(NAME wave28_rtf_roundtrip_selftest COMMAND "${Python3_EXECUTABLE}"
+    "${CMAKE_SOURCE_DIR}/qa/wave28-rtf-roundtrip.py" --self-test --cli "${AIOFFICE_CLI}")
+set_tests_properties(wave28_rtf_roundtrip_selftest PROPERTIES
+    LABELS "playbook;wave28;rtf"
+    TIMEOUT 120
     WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}"
 )

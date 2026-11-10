@@ -2,6 +2,7 @@
 
 #include "core/Zip.h"
 
+#include <QCryptographicHash>
 #include <QFile>
 #include <QHash>
 #include <QMap>
@@ -1836,6 +1837,507 @@ bool pdfPostProcessFixToUnicode(const QString &path, const QVector<PdfSubsetUnic
         u.redefineObj(toUnicodeObj, body);
     }
 
+    return u.finish(path, error);
+}
+
+namespace {
+
+bool pdfSpace(unsigned char c)
+{
+    return c == 0 || c == '\t' || c == '\n' || c == '\f' || c == '\r' || c == ' ';
+}
+
+// PDF name characters stop at whitespace and the delimiter set in ISO 32000-1 7.2.2.
+bool pdfNameChar(unsigned char c)
+{
+    if (pdfSpace(c))
+        return false;
+    switch (c) {
+    case '(':
+    case ')':
+    case '<':
+    case '>':
+    case '[':
+    case ']':
+    case '{':
+    case '}':
+    case '/':
+    case '%':
+        return false;
+    default:
+        return true;
+    }
+}
+
+int findPdfKey(const QByteArray &body, const QByteArray &key, int from = 0)
+{
+    int i = from;
+    while (i < body.size()) {
+        i = body.indexOf(key, i);
+        if (i < 0)
+            return -1;
+        const int after = i + key.size();
+        if (after < body.size() && pdfNameChar(static_cast<unsigned char>(body.at(after)))) {
+            i = after;
+            continue;
+        }
+        return i;
+    }
+    return -1;
+}
+
+QByteArray pdfNameAfterKey(const QByteArray &body, const QByteArray &key)
+{
+    const int at = findPdfKey(body, key);
+    if (at < 0)
+        return {};
+    int p = at + key.size();
+    while (p < body.size() && pdfSpace(static_cast<unsigned char>(body.at(p))))
+        ++p;
+    if (p >= body.size() || body.at(p) != '/')
+        return {};
+    const int start = p + 1;
+    int q = start;
+    while (q < body.size() && pdfNameChar(static_cast<unsigned char>(body.at(q))))
+        ++q;
+    return body.mid(start, q - start);
+}
+
+int pdfRefAfterKey(const QByteArray &body, const QByteArray &key)
+{
+    const int at = findPdfKey(body, key);
+    if (at < 0)
+        return -1;
+    int p = at + key.size();
+    while (p < body.size() && pdfSpace(static_cast<unsigned char>(body.at(p))))
+        ++p;
+    int q = p;
+    while (q < body.size() && body.at(q) >= '0' && body.at(q) <= '9')
+        ++q;
+    if (q == p)
+        return -1;
+    return body.mid(p, q - p).toInt();
+}
+
+bool replacePdfNameAfterKey(QByteArray *body, const QByteArray &key, const QByteArray &newName)
+{
+    const int at = findPdfKey(*body, key);
+    if (at < 0)
+        return false;
+    int p = at + key.size();
+    while (p < body->size() && pdfSpace(static_cast<unsigned char>(body->at(p))))
+        ++p;
+    if (p >= body->size() || body->at(p) != '/')
+        return false;
+    const int start = p + 1;
+    int q = start;
+    while (q < body->size() && pdfNameChar(static_cast<unsigned char>(body->at(q))))
+        ++q;
+    if (q == start)
+        return false;
+    body->replace(start, q - start, newName);
+    return true;
+}
+
+QByteArray stripSubsetTag(QByteArray name)
+{
+    if (name.size() > 7 && name.at(6) == '+') {
+        bool tag = true;
+        for (int i = 0; i < 6; ++i) {
+            const unsigned char c = static_cast<unsigned char>(name.at(i));
+            if (c < 'A' || c > 'Z') {
+                tag = false;
+                break;
+            }
+        }
+        if (tag)
+            name = name.mid(7);
+    }
+    return name;
+}
+
+// Dictionary keys only. Compressed font bytes can contain the same ASCII by coincidence.
+QByteArray pdfDictPortion(const QByteArray &body)
+{
+    int i = 0;
+    while (i < body.size()) {
+        i = body.indexOf("stream", i);
+        if (i < 0)
+            return body;
+        const bool boundary = i == 0 || pdfSpace(static_cast<unsigned char>(body.at(i - 1)));
+        if (boundary)
+            return body.left(i);
+        i += 6;
+    }
+    return body;
+}
+
+int u16be(const QByteArray &data, int offset)
+{
+    if (offset < 0 || offset + 2 > data.size())
+        return -1;
+    return (static_cast<unsigned char>(data.at(offset)) << 8)
+        | static_cast<unsigned char>(data.at(offset + 1));
+}
+
+int u32be(const QByteArray &data, int offset)
+{
+    if (offset < 0 || offset + 4 > data.size())
+        return -1;
+    const unsigned value = (static_cast<unsigned char>(data.at(offset)) << 24)
+        | (static_cast<unsigned char>(data.at(offset + 1)) << 16)
+        | (static_cast<unsigned char>(data.at(offset + 2)) << 8)
+        | static_cast<unsigned char>(data.at(offset + 3));
+    if (value > 0x7fffffffu)
+        return -1;
+    return int(value);
+}
+
+// numGlyphs from a single-font TrueType/OpenType maxp, or -1 when the table is absent.
+int ttfNumGlyphs(const QByteArray &data)
+{
+    if (data.size() < 12)
+        return -1;
+    const int numTables = u16be(data, 4);
+    if (numTables <= 0 || numTables > 64)
+        return -1;
+    for (int index = 0; index < numTables; ++index) {
+        const int rec = 12 + index * 16;
+        if (rec + 16 > data.size())
+            return -1;
+        if (data.mid(rec, 4) != "maxp")
+            continue;
+        const int offset = u32be(data, rec + 8);
+        if (offset < 0 || offset + 6 > data.size())
+            return -1;
+        return u16be(data, offset + 4);
+    }
+    return -1;
+}
+
+// First eight SHA-256 bytes, big-endian, written as six A–Z letters (26^6).
+QByteArray subsetPrefix(const QByteArray &face, const QByteArray &program, int salt)
+{
+    QByteArray payload;
+    payload += face;
+    payload.append('\0');
+    payload += program;
+    if (salt > 0) {
+        payload.append('\0');
+        payload.append(char(salt));
+    }
+    const QByteArray dig = QCryptographicHash::hash(payload, QCryptographicHash::Sha256);
+    quint64 n = 0;
+    for (int i = 0; i < 8 && i < dig.size(); ++i)
+        n = (n << 8) | quint64(static_cast<unsigned char>(dig.at(i)));
+    QByteArray tag(6, 'A');
+    for (int i = 5; i >= 0; --i) {
+        tag[i] = char('A' + int(n % 26));
+        n /= 26;
+    }
+    return tag;
+}
+
+QByteArray cidSetBits(int numGlyphs)
+{
+    const int n = (numGlyphs + 7) / 8;
+    QByteArray out(n, '\0');
+    for (int cid = 0; cid < numGlyphs; ++cid) {
+        const unsigned char bit = static_cast<unsigned char>(1u << (7 - (cid % 8)));
+        out[cid / 8] = char(static_cast<unsigned char>(out.at(cid / 8)) | bit);
+    }
+    return out;
+}
+
+QByteArray pdfStreamObject(const QByteArray &data)
+{
+    return "<< /Length " + QByteArray::number(data.size()) + " >>\nstream\n" + data + "\nendstream";
+}
+
+// Removes `/CIDSet N 0 R`. Returns the object number, 0 when the key is absent, -1 when malformed.
+int removeCidSetRef(QByteArray *body)
+{
+    const QByteArray key("/CIDSet");
+    const int at = findPdfKey(*body, key);
+    if (at < 0)
+        return 0;
+    int p = at + key.size();
+    while (p < body->size() && pdfSpace(static_cast<unsigned char>(body->at(p))))
+        ++p;
+    int q = p;
+    while (q < body->size() && body->at(q) >= '0' && body->at(q) <= '9')
+        ++q;
+    if (q == p)
+        return -1;
+    const int num = body->mid(p, q - p).toInt();
+    while (q < body->size() && pdfSpace(static_cast<unsigned char>(body->at(q))))
+        ++q;
+    if (q + 3 > body->size() || body->mid(q, 3) != "0 R")
+        return -1;
+    q += 3;
+    if (q < body->size() && body->at(q) == ' ')
+        ++q;
+    body->remove(at, q - at);
+    return num;
+}
+
+void insertCidSetRef(QByteArray *body, int objNum)
+{
+    const QByteArray token = " /CIDSet " + QByteArray::number(objNum) + " 0 R";
+    const int close = body->lastIndexOf(">>");
+    if (close < 0)
+        body->append(token);
+    else
+        body->insert(close, token);
+}
+
+// Dictionary prefix of the object body that starts at `start` (the byte after
+// "N 0 obj"). The stream boundary is pdfDictPortion's. `bodyEnd` is the first
+// "endobj" when that keyword lands before any stream; otherwise it stays -1 so
+// the caller can skip the stream bytes unless the dict is a font candidate.
+struct DictPrefix {
+    bool ok = false;
+    int dictEnd = 0;
+    int bodyEnd = -1;
+};
+
+DictPrefix pdfDictPrefix(const QByteArray &data, int start)
+{
+    DictPrefix out;
+    int p = start;
+    while (p < data.size()) {
+        const int streamAt = data.indexOf("stream", p);
+        if (streamAt < 0) {
+            const int endAt = data.indexOf("endobj", p);
+            if (endAt < 0)
+                return out;
+            out.ok = true;
+            out.dictEnd = endAt;
+            out.bodyEnd = endAt;
+            return out;
+        }
+        const int window = streamAt - p;
+        const int rel = window > 0 ? data.mid(p, window).indexOf("endobj") : -1;
+        if (rel >= 0) {
+            out.ok = true;
+            out.dictEnd = p + rel;
+            out.bodyEnd = p + rel;
+            return out;
+        }
+        const bool boundary = streamAt == start
+            || pdfSpace(static_cast<unsigned char>(data.at(streamAt - 1)));
+        if (boundary) {
+            out.ok = true;
+            out.dictEnd = streamAt;
+            out.bodyEnd = -1;
+            return out;
+        }
+        p = streamAt + 6;
+    }
+    return out;
+}
+
+} // namespace
+
+bool pdfPostProcessMarkFontSubsets(const QString &path, bool pdfa, QString *error)
+{
+    const auto fail = [error](const QString &message) {
+        if (error)
+            *error = message;
+        return false;
+    };
+
+    IncrementalUpdate u = IncrementalUpdate::open(path);
+    if (!u.ok)
+        return fail(u.error);
+
+    struct Obj {
+        int num = 0;
+        QByteArray body;
+    };
+    QVector<Obj> descriptors;
+    QVector<Obj> cidFonts;
+    QVector<Obj> type0Fonts;
+    // One pass records the last "\nN 0 obj" for each number. The header is
+    // findObjBody's: a leading newline, a canonical decimal (no leading zero),
+    // then " 0 obj". A later header replaces an earlier one. Only font
+    // candidates are copied, so content streams stay in the file bytes.
+    QVector<int> lastBody(u.trailerSize, -1);
+    {
+        const QByteArray &data = u.data;
+        const int n = data.size();
+        int i = 0;
+        while (i < n) {
+            const int nl = data.indexOf('\n', i);
+            if (nl < 0)
+                break;
+            i = nl + 1;
+            if (i >= n || data.at(i) < '0' || data.at(i) > '9')
+                continue;
+            int q = i;
+            while (q < n && data.at(q) >= '0' && data.at(q) <= '9')
+                ++q;
+            const int digits = q - i;
+            if (digits <= 0 || digits > 10 || (data.at(i) == '0' && digits != 1))
+                continue;
+            if (q + 6 > n || data.mid(q, 6) != " 0 obj")
+                continue;
+            bool okNum = false;
+            const int num = data.mid(i, digits).toInt(&okNum);
+            if (!okNum || num < 1 || num >= u.trailerSize)
+                continue;
+            lastBody[num] = q + 6;
+        }
+    }
+    for (int num = 1; num < u.trailerSize; ++num) {
+        const int bodyStart = lastBody.at(num);
+        if (bodyStart < 0)
+            continue;
+        const DictPrefix prefix = pdfDictPrefix(u.data, bodyStart);
+        if (!prefix.ok || prefix.bodyEnd == bodyStart)
+            continue;
+        const QByteArray dict = u.data.mid(bodyStart, prefix.dictEnd - bodyStart);
+        const bool fontFile = findPdfKey(dict, "/FontFile2") >= 0;
+        QByteArray subtype;
+        if (!fontFile)
+            subtype = pdfNameAfterKey(dict, "/Subtype");
+        const bool cid = subtype == "CIDFontType2" || subtype == "CIDFontType0";
+        const bool type0 = subtype == "Type0";
+        if (!fontFile && !cid && !type0)
+            continue;
+        const int bodyEnd = prefix.bodyEnd >= 0 ? prefix.bodyEnd : u.data.indexOf("endobj", prefix.dictEnd);
+        if (bodyEnd < bodyStart)
+            continue;
+        const QByteArray body = u.data.mid(bodyStart, bodyEnd - bodyStart);
+        if (body.isEmpty())
+            continue;
+        if (fontFile)
+            descriptors.push_back(Obj{num, body});
+        else if (cid)
+            cidFonts.push_back(Obj{num, body});
+        else
+            type0Fonts.push_back(Obj{num, body});
+    }
+    if (descriptors.isEmpty())
+        return true;
+
+    struct Face {
+        int descriptor = 0;
+        QByteArray descriptorBody;
+        int cidSet = 0;
+        QByteArray program;
+        int numGlyphs = -1;
+        QByteArray face;
+        QVector<QPair<int, QByteArray>> cidBodies;
+        QVector<QPair<int, QByteArray>> type0Bodies;
+    };
+    QVector<Face> faces;
+    QSet<int> usedCid;
+    QSet<int> usedType0;
+    for (const Obj &desc : descriptors) {
+        Face face;
+        face.descriptor = desc.num;
+        face.descriptorBody = desc.body;
+        const int fileNum = pdfRefAfterKey(pdfDictPortion(desc.body), "/FontFile2");
+        if (fileNum <= 0)
+            return fail(QStringLiteral("Embedded font %1 has no readable program").arg(desc.num));
+        if (!inflateObjStream(u.data, fileNum, &face.program)) {
+            bool flate = false;
+            if (!readObjStream(u.data, fileNum, &face.program, &flate))
+                return fail(QStringLiteral("Embedded font %1 has no readable program").arg(desc.num));
+        }
+        if (face.program.isEmpty())
+            return fail(QStringLiteral("Embedded font %1 has no readable program").arg(desc.num));
+        face.numGlyphs = ttfNumGlyphs(face.program);
+        const int cidSet = pdfRefAfterKey(desc.body, "/CIDSet");
+        face.cidSet = cidSet > 0 ? cidSet : 0;
+
+        for (const Obj &cid : cidFonts) {
+            if (usedCid.contains(cid.num))
+                continue;
+            if (pdfRefAfterKey(cid.body, "/FontDescriptor") != desc.num)
+                continue;
+            face.cidBodies.push_back(QPair<int, QByteArray>(cid.num, cid.body));
+            usedCid.insert(cid.num);
+        }
+        if (face.cidBodies.isEmpty())
+            return fail(QStringLiteral("Embedded font %1 has no CIDFont").arg(desc.num));
+
+        for (const Obj &type0 : type0Fonts) {
+            if (usedType0.contains(type0.num))
+                continue;
+            const QVector<int> kids = extractRefArray(type0.body, "/DescendantFonts");
+            bool linked = false;
+            for (const auto &cid : face.cidBodies) {
+                if (kids.contains(cid.first)) {
+                    linked = true;
+                    break;
+                }
+            }
+            if (!linked)
+                continue;
+            face.type0Bodies.push_back(QPair<int, QByteArray>(type0.num, type0.body));
+            usedType0.insert(type0.num);
+        }
+        if (face.type0Bodies.isEmpty())
+            return fail(QStringLiteral("Embedded font %1 has no Type0 font").arg(desc.num));
+
+        std::sort(face.type0Bodies.begin(), face.type0Bodies.end(),
+                  [](const QPair<int, QByteArray> &a, const QPair<int, QByteArray> &b) { return a.first < b.first; });
+        face.face = stripSubsetTag(pdfNameAfterKey(face.type0Bodies.first().second, "/BaseFont"));
+        if (face.face.isEmpty())
+            face.face = stripSubsetTag(pdfNameAfterKey(desc.body, "/FontName"));
+        if (face.face.isEmpty())
+            return fail(QStringLiteral("Embedded font %1 has an empty name").arg(desc.num));
+        faces.push_back(face);
+    }
+
+    std::sort(faces.begin(), faces.end(), [](const Face &a, const Face &b) { return a.descriptor < b.descriptor; });
+
+    QSet<QByteArray> usedTags;
+    for (Face &face : faces) {
+        QByteArray tag;
+        bool assigned = false;
+        for (int salt = 0; salt <= 63; ++salt) {
+            tag = subsetPrefix(face.face, face.program, salt);
+            if (usedTags.contains(tag))
+                continue;
+            usedTags.insert(tag);
+            assigned = true;
+            break;
+        }
+        if (!assigned)
+            return fail(QStringLiteral("Cannot assign a unique subset prefix"));
+        const QByteArray full = tag + "+" + face.face;
+        if (!replacePdfNameAfterKey(&face.descriptorBody, "/FontName", full))
+            return fail(QStringLiteral("Embedded font %1 is missing /FontName").arg(face.descriptor));
+        for (auto &cid : face.cidBodies) {
+            if (!replacePdfNameAfterKey(&cid.second, "/BaseFont", full))
+                return fail(QStringLiteral("Embedded font %1 is missing a CIDFont /BaseFont").arg(face.descriptor));
+        }
+        for (auto &type0 : face.type0Bodies) {
+            if (!replacePdfNameAfterKey(&type0.second, "/BaseFont", full))
+                return fail(QStringLiteral("Embedded font %1 is missing a Type0 /BaseFont").arg(face.descriptor));
+        }
+        if (pdfa) {
+            if (face.numGlyphs <= 0)
+                return fail(QStringLiteral("Embedded font %1 has no maxp numGlyphs").arg(face.descriptor));
+            const QByteArray stream = pdfStreamObject(cidSetBits(face.numGlyphs));
+            if (face.cidSet > 0)
+                u.redefineObj(face.cidSet, stream);
+            else
+                insertCidSetRef(&face.descriptorBody, u.appendObj(stream));
+        } else if (face.cidSet > 0) {
+            const int removed = removeCidSetRef(&face.descriptorBody);
+            if (removed != face.cidSet)
+                return fail(QStringLiteral("Embedded font %1 has a malformed /CIDSet").arg(face.descriptor));
+        }
+        u.redefineObj(face.descriptor, face.descriptorBody);
+        for (const auto &cid : face.cidBodies)
+            u.redefineObj(cid.first, cid.second);
+        for (const auto &type0 : face.type0Bodies)
+            u.redefineObj(type0.first, type0.second);
+    }
     return u.finish(path, error);
 }
 

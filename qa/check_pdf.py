@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+import base64
 import inspect
 import json
 import os
@@ -13,6 +14,7 @@ import subprocess
 import sys
 import tempfile
 import xml.etree.ElementTree as ET
+import zlib
 from pathlib import Path
 from typing import Any
 
@@ -39,13 +41,16 @@ def run_cmd(
     env: dict[str, str] | None = None,
 ) -> subprocess.CompletedProcess[str]:
     try:
+        child = dict(env or os.environ)
+        # CI may inject an interposer built for another glibc. Judges must not inherit it.
+        child.pop("LD_PRELOAD", None)
         return subprocess.run(
             argv,
             capture_output=True,
             text=True,
             timeout=timeout,
             cwd=cwd or REPO,
-            env=env or os.environ.copy(),
+            env=child,
             check=False,
         )
     except subprocess.TimeoutExpired as exc:
@@ -203,6 +208,7 @@ def uncompressed_pdf(pdf: Path) -> str:
             capture_output=True,
             timeout=TOOL_TIMEOUT,
             cwd=REPO,
+            env=headless_env(),
             check=False,
         )
     except subprocess.TimeoutExpired as exc:
@@ -226,6 +232,430 @@ def stream_has_rgb(data: str, rgb: tuple[float, float, float], tol: float = 0.02
 
 def font_names(pdf: Path) -> list[str]:
     return sorted({row["name"] for row in pdffonts_report(pdf)})
+
+
+def subset_prefix(name: str) -> str | None:
+    """Six uppercase letters before '+', or None when the name is not a subset tag."""
+    if len(name) < 8 or name[6] != "+":
+        return None
+    tag = name[:6]
+    if len(tag) == 6 and tag.isascii() and tag.isalpha() and tag.isupper():
+        return tag
+    return None
+
+
+def cidset_errors(data: bytes, num_glyphs: int) -> list[str]:
+    """Bits 0..num_glyphs-1 set, MSB first. No later bit set.
+
+    One trailing zero byte is accepted: Qt's writer uses n/8+1.
+    """
+    if num_glyphs <= 0:
+        return [f"CIDSet numGlyphs {num_glyphs} is not positive"]
+    need = (num_glyphs + 7) // 8
+    if len(data) < need:
+        return [f"CIDSet length {len(data)} < {need} for {num_glyphs} glyphs"]
+    if len(data) > need + 1:
+        return [f"CIDSet length {len(data)} is longer than {need}+1"]
+    if len(data) == need + 1 and data[-1] != 0:
+        return ["CIDSet extra byte is not zero"]
+    for cid in range(num_glyphs):
+        bit = (data[cid // 8] >> (7 - (cid % 8))) & 1
+        if bit != 1:
+            return [f"CIDSet bit for CID {cid} is off"]
+    for cid in range(num_glyphs, len(data) * 8):
+        bit = (data[cid // 8] >> (7 - (cid % 8))) & 1
+        if bit != 0:
+            return [f"CIDSet bit for CID {cid} is on past numGlyphs {num_glyphs}"]
+    return []
+
+
+def ttf_num_glyphs(data: bytes) -> int | None:
+    """numGlyphs from a single-font TrueType maxp table, or None if it is not there."""
+    if len(data) < 12:
+        return None
+    num_tables = int.from_bytes(data[4:6], "big")
+    if num_tables <= 0 or num_tables > 64:
+        return None
+    for index in range(num_tables):
+        rec = 12 + index * 16
+        if rec + 16 > len(data):
+            return None
+        if data[rec : rec + 4] != b"maxp":
+            continue
+        offset = int.from_bytes(data[rec + 8 : rec + 12], "big")
+        if offset < 0 or offset + 6 > len(data):
+            return None
+        return int.from_bytes(data[offset + 4 : offset + 6], "big")
+    return None
+
+
+def _fake_ttf(num_glyphs: int) -> bytes:
+    maxp = (0x00010000).to_bytes(4, "big") + int(num_glyphs).to_bytes(2, "big")
+    offset = 12 + 16
+    header = b"\x00\x01\x00\x00" + (1).to_bytes(2, "big") + b"\x00\x00\x00\x00\x00\x00"
+    record = b"maxp" + b"\x00\x00\x00\x00" + offset.to_bytes(4, "big") + len(maxp).to_bytes(4, "big")
+    return header + record + maxp
+
+
+def qpdf_object_map(data: dict[str, Any]) -> dict[str, Any]:
+    found = qpdf_objects(data)
+    if found:
+        return found
+    qpdf = data.get("qpdf")
+    if isinstance(qpdf, list):
+        for item in qpdf:
+            if isinstance(item, dict) and any(str(key).startswith("obj:") for key in item):
+                return item
+    return {}
+
+
+def _dict_of_pdf_obj(obj: Any) -> dict[str, Any]:
+    if not isinstance(obj, dict):
+        return {}
+    value = obj.get("value")
+    if isinstance(value, dict):
+        return value
+    stream = obj.get("stream")
+    if isinstance(stream, dict) and isinstance(stream.get("dict"), dict):
+        return stream["dict"]
+    return obj
+
+
+def _stream_bytes(obj: Any) -> bytes | None:
+    if not isinstance(obj, dict):
+        return None
+    stream = obj.get("stream")
+    if not isinstance(stream, dict):
+        return None
+    data = stream.get("data")
+    if not isinstance(data, str) or data == "":
+        return None
+    try:
+        raw = base64.b64decode(data, validate=False)
+    except (ValueError, TypeError):
+        return None
+    dict_part = stream.get("dict") if isinstance(stream.get("dict"), dict) else {}
+    filt = dict_part.get("/Filter")
+    names: list[str] = []
+    if isinstance(filt, str):
+        names = [filt]
+    elif isinstance(filt, list):
+        names = [str(item) for item in filt]
+    if any("FlateDecode" in name for name in names):
+        try:
+            return zlib.decompress(raw)
+        except zlib.error:
+            return raw
+    return raw
+
+
+def _pdf_name(value: Any) -> str:
+    name = _name_of(value)
+    if name.startswith("/"):
+        return name[1:]
+    return name
+
+
+def _normalized_objects(raw: dict[str, Any]) -> dict[str, Any]:
+    out: dict[str, Any] = {}
+    for key, obj in raw.items():
+        if str(key) == "trailer":
+            continue
+        out[_norm_ref(str(key))] = obj
+    return out
+
+
+def _descendant_refs(value: Any) -> list[str]:
+    refs: list[str] = []
+    items = value if isinstance(value, list) else [value]
+    for item in items:
+        ref = _ref_of(item)
+        if ref:
+            refs.append(ref)
+    return refs
+
+
+def font_records(pdf: Path) -> tuple[list[dict[str, Any]], list[str]]:
+    """Embedded and unembedded faces.
+
+    A missing or unreadable FontFile2/CIDSet stream is an error, not an empty face.
+    """
+    proc = run_cmd(
+        [
+            "qpdf",
+            "--json",
+            "--json-stream-data=inline",
+            "--decode-level=generalized",
+            str(pdf),
+        ],
+        timeout=TOOL_TIMEOUT,
+    )
+    if proc.returncode != 0:
+        detail = (proc.stderr or proc.stdout or "")[:500]
+        return [], [f"qpdf --json failed ({proc.returncode}): {detail}"]
+    try:
+        payload = json.loads(proc.stdout)
+    except json.JSONDecodeError as exc:
+        return [], [f"qpdf JSON parse error: {exc}"]
+    objects = _normalized_objects(qpdf_object_map(payload))
+    if not objects:
+        return [], ["qpdf JSON has no objects"]
+
+    descriptors: list[tuple[str, dict[str, Any]]] = []
+    cid_fonts: list[tuple[str, dict[str, Any]]] = []
+    type0s: list[tuple[str, dict[str, Any]]] = []
+    plain_fonts: list[tuple[str, dict[str, Any]]] = []
+    for ref, obj in objects.items():
+        body = _dict_of_pdf_obj(obj)
+        if not body:
+            continue
+        subtype = _name_of(body.get("/Subtype"))
+        kind = _name_of(body.get("/Type"))
+        if kind == "/FontDescriptor" or "/FontFile2" in body or (
+            "/FontName" in body and "/FontBBox" in body
+        ):
+            descriptors.append((ref, body))
+        elif subtype in ("/CIDFontType2", "/CIDFontType0"):
+            cid_fonts.append((ref, body))
+        elif subtype == "/Type0":
+            type0s.append((ref, body))
+        elif kind == "/Font" or "/BaseFont" in body:
+            plain_fonts.append((ref, body))
+
+    errors: list[str] = []
+    records: list[dict[str, Any]] = []
+    used_type0: set[str] = set()
+    used_cid: set[str] = set()
+    for desc_ref, desc in descriptors:
+        font_file = _ref_of(desc.get("/FontFile2"))
+        embedded = font_file is not None
+        program = b""
+        num_glyphs: int | None = None
+        if embedded:
+            program_obj = objects.get(font_file)
+            program_bytes = _stream_bytes(program_obj) if program_obj is not None else None
+            if program_bytes is None:
+                errors.append(f"FontFile2 {font_file} is unreadable")
+                continue
+            program = program_bytes
+            num_glyphs = ttf_num_glyphs(program)
+            if num_glyphs is None:
+                errors.append(f"FontFile2 {font_file} has no maxp numGlyphs")
+        cidset: bytes | None = None
+        if "/CIDSet" in desc:
+            cid_ref = _ref_of(desc.get("/CIDSet"))
+            if not cid_ref:
+                errors.append(f"descriptor {desc_ref} /CIDSet is not a reference")
+                continue
+            cid_obj = objects.get(cid_ref)
+            cid_bytes = _stream_bytes(cid_obj) if cid_obj is not None else None
+            if cid_bytes is None:
+                errors.append(f"CIDSet {cid_ref} is unreadable")
+                continue
+            cidset = cid_bytes
+        cid_ref = ""
+        cid_name = ""
+        for ref, body in cid_fonts:
+            if _ref_of(body.get("/FontDescriptor")) == desc_ref:
+                cid_ref = ref
+                cid_name = _pdf_name(body.get("/BaseFont"))
+                used_cid.add(ref)
+                break
+        type0_name = ""
+        for ref, body in type0s:
+            if cid_ref and cid_ref in _descendant_refs(body.get("/DescendantFonts")):
+                type0_name = _pdf_name(body.get("/BaseFont"))
+                used_type0.add(ref)
+                break
+        records.append(
+            {
+                "embedded": embedded,
+                "type0": type0_name,
+                "cid": cid_name,
+                "font_name": _pdf_name(desc.get("/FontName")),
+                "program": program,
+                "cidset": cidset,
+                "num_glyphs": num_glyphs,
+            }
+        )
+
+    for ref, body in type0s:
+        if ref in used_type0:
+            continue
+        records.append(
+            {
+                "embedded": False,
+                "type0": _pdf_name(body.get("/BaseFont")),
+                "cid": "",
+                "font_name": "",
+                "program": b"",
+                "cidset": None,
+                "num_glyphs": None,
+            }
+        )
+    for ref, body in plain_fonts:
+        if ref in used_cid or ref in used_type0:
+            continue
+        if _ref_of(body.get("/FontDescriptor")):
+            continue
+        records.append(
+            {
+                "embedded": False,
+                "type0": _pdf_name(body.get("/BaseFont")),
+                "cid": "",
+                "font_name": _pdf_name(body.get("/FontName")),
+                "program": b"",
+                "cidset": None,
+                "num_glyphs": None,
+            }
+        )
+    return records, errors
+
+
+def font_mark_errors(
+    records: list[dict[str, Any]],
+    *,
+    same_name: bool = False,
+    max_bytes: int | None = None,
+    cidset: str | None = None,
+) -> list[str]:
+    """D10/D14 checks over font_records. Unknown cidset mode is an error."""
+    errors: list[str] = []
+    if cidset not in (None, "present", "absent"):
+        errors.append(f"fonts.cidset: unknown mode {cidset!r}")
+        return errors
+    embedded = [row for row in records if row.get("embedded")]
+    if same_name:
+        if not embedded:
+            errors.append("fonts.same_name_everywhere: no embedded font")
+        for row in embedded:
+            names = [str(row.get("type0") or ""), str(row.get("cid") or ""), str(row.get("font_name") or "")]
+            if any(not name for name in names):
+                errors.append(f"fonts.same_name_everywhere: missing name in {names!r}")
+                continue
+            if len(set(names)) != 1:
+                errors.append(f"fonts.same_name_everywhere: {names!r} differ")
+                continue
+            if subset_prefix(names[0]) is None:
+                errors.append(f"fonts.same_name_everywhere: {names[0]!r} has no subset prefix")
+            elif not names[0][7:]:
+                errors.append(f"fonts.same_name_everywhere: {names[0]!r} has an empty face name")
+        for row in records:
+            if row.get("embedded"):
+                continue
+            for name in (row.get("type0"), row.get("cid"), row.get("font_name")):
+                text = str(name or "")
+                if text and subset_prefix(text) is not None:
+                    errors.append(f"fonts.same_name_everywhere: unembedded font has prefix {text!r}")
+    if max_bytes is not None:
+        try:
+            limit = int(max_bytes)
+        except (TypeError, ValueError):
+            errors.append(f"fonts.max_program_bytes: bad limit {max_bytes!r}")
+            limit = -1
+        if limit >= 0:
+            if not embedded:
+                errors.append("fonts.max_program_bytes: no embedded font")
+            for row in embedded:
+                size = len(row.get("program") or b"")
+                if size > limit:
+                    errors.append(f"fonts.max_program_bytes: program {size} > {limit}")
+                elif size <= 0:
+                    errors.append("fonts.max_program_bytes: empty font program")
+    if cidset == "absent":
+        for row in records:
+            if row.get("cidset") is not None:
+                errors.append("fonts.cidset: /CIDSet is present without pdfa")
+    elif cidset == "present":
+        if not embedded:
+            errors.append("fonts.cidset: no embedded font")
+        for row in embedded:
+            data = row.get("cidset")
+            glyphs = row.get("num_glyphs")
+            if not isinstance(data, (bytes, bytearray)):
+                errors.append("fonts.cidset: marked font has no /CIDSet")
+                continue
+            if not isinstance(glyphs, int):
+                errors.append("fonts.cidset: marked font has no maxp numGlyphs")
+                continue
+            errors.extend(cidset_errors(bytes(data), glyphs))
+    return errors
+
+
+def qpdf_check(pdf: Path) -> str | None:
+    proc = run_cmd(["qpdf", "--check", str(pdf)], timeout=TOOL_TIMEOUT)
+    if proc.returncode != 0:
+        detail = (proc.stdout or "") + (proc.stderr or "")
+        return f"qpdf --check failed ({proc.returncode}): {detail[:800]}"
+    return None
+
+
+def font_mark_self_test() -> list[str]:
+    errors: list[str] = []
+    if ttf_num_glyphs(_fake_ttf(9)) != 9:
+        errors.append("ttf_num_glyphs did not read maxp")
+    if ttf_num_glyphs(b"not a font") is not None:
+        errors.append("ttf_num_glyphs accepted a non-font")
+    nine = bytes([0xFF, 0x80])
+    if cidset_errors(nine, 9):
+        errors.append(f"cidset_errors rejected a valid 9-glyph set: {cidset_errors(nine, 9)}")
+    if not cidset_errors(bytes([0xFF]), 9):
+        errors.append("cidset_errors accepted a short stream")
+    if not cidset_errors(bytes([0x7F, 0x80]), 9):
+        errors.append("cidset_errors accepted CID 0 off")
+    if not cidset_errors(bytes([0xFF, 0xC0]), 9):
+        errors.append("cidset_errors accepted a bit past numGlyphs")
+    if cidset_errors(bytes([0xFF, 0x00]), 8):
+        errors.append("cidset_errors rejected Qt's extra zero byte")
+    marked = {
+        "embedded": True,
+        "type0": "ABCDEF+Sans",
+        "cid": "ABCDEF+Sans",
+        "font_name": "ABCDEF+Sans",
+        "program": b"abc",
+        "cidset": None,
+        "num_glyphs": 1,
+    }
+    if font_mark_errors([marked], same_name=True):
+        errors.append(f"same name rejected a consistent prefix: {font_mark_errors([marked], same_name=True)}")
+    split = dict(marked)
+    split["cid"] = "Sans"
+    if not font_mark_errors([split], same_name=True):
+        errors.append("same name accepted three different face names")
+    bare = {
+        "embedded": False,
+        "type0": "Helvetica",
+        "cid": "",
+        "font_name": "",
+        "program": b"",
+        "cidset": None,
+        "num_glyphs": None,
+    }
+    if font_mark_errors([marked, bare], same_name=True):
+        errors.append(
+            "same name rejected an unembedded font without a prefix: "
+            + "; ".join(font_mark_errors([marked, bare], same_name=True))
+        )
+    tagged = dict(bare)
+    tagged["type0"] = "ABCDEF+Helvetica"
+    if not font_mark_errors([marked, tagged], same_name=True):
+        errors.append("same name accepted a prefix on an unembedded font")
+    if not font_mark_errors([marked], max_bytes=2):
+        errors.append("max_program_bytes accepted an oversized program")
+    if font_mark_errors([marked], max_bytes=3):
+        errors.append("max_program_bytes rejected a program at the limit")
+    if not font_mark_errors([marked], cidset="present"):
+        errors.append("cidset present accepted a missing stream")
+    present = dict(marked)
+    present["cidset"] = bytes([0x80])
+    present["num_glyphs"] = 1
+    if font_mark_errors([present], cidset="present"):
+        errors.append(f"cidset present rejected one set bit: {font_mark_errors([present], cidset='present')}")
+    if not font_mark_errors([present], cidset="absent"):
+        errors.append("cidset absent accepted a stream")
+    if not font_mark_errors([marked], cidset="maybe"):
+        errors.append("unknown cidset mode was not an error")
+    return errors
 
 
 def strip_lang(value: Any) -> None:
@@ -408,7 +838,13 @@ def check_expectations(
 
     fonts_exp = exp.get("pdffonts") or {}
     if isinstance(fonts_exp, dict) and fonts_exp:
-        if fonts_exp.get("all_embedded") is True or fonts_exp.get("name_contains") or fonts_exp.get("same_as_cleared_lang"):
+        want_rows = (
+            fonts_exp.get("all_embedded") is True
+            or fonts_exp.get("all_subset") is True
+            or fonts_exp.get("name_contains")
+            or fonts_exp.get("same_as_cleared_lang")
+        )
+        if want_rows:
             rows = pdffonts_report(pdf)
             if not rows:
                 errors.append("pdffonts: no fonts listed")
@@ -417,6 +853,16 @@ def check_expectations(
                     bad = [r["name"] for r in rows if r.get("emb", "").lower() != "yes"]
                     if bad:
                         errors.append(f"pdffonts: not embedded: {', '.join(bad)}")
+                if fonts_exp.get("all_subset") is True:
+                    bad = [
+                        r["name"]
+                        for r in rows
+                        if r.get("emb", "").lower() == "yes" and r.get("sub", "").lower() != "yes"
+                    ]
+                    if bad:
+                        errors.append(f"pdffonts: not a subset: {', '.join(bad)}")
+                    elif not any(r.get("emb", "").lower() == "yes" for r in rows):
+                        errors.append("pdffonts: no embedded font to mark as a subset")
                 needles = fonts_exp.get("name_contains")
                 if isinstance(needles, list):
                     names = [r["name"] for r in rows]
@@ -444,6 +890,27 @@ def check_expectations(
                                 errors.append(
                                     f"pdffonts: bilingual fonts {got} != same document without foreign lang {want}"
                                 )
+
+    fonts_mark = exp.get("fonts") or {}
+    if isinstance(fonts_mark, dict) and fonts_mark:
+        records, load_errors = font_records(pdf)
+        errors.extend(load_errors)
+        if not load_errors:
+            max_bytes = fonts_mark.get("max_program_bytes")
+            cidset = fonts_mark.get("cidset")
+            if cidset is not None and not isinstance(cidset, str):
+                errors.append(f"fonts.cidset: expected a string, got {cidset!r}")
+                cidset = None
+            errors.extend(
+                font_mark_errors(
+                    records,
+                    same_name=fonts_mark.get("same_name_everywhere") is True,
+                    max_bytes=max_bytes if isinstance(max_bytes, int) else None,
+                    cidset=cidset if isinstance(cidset, str) else None,
+                )
+            )
+            if "max_program_bytes" in fonts_mark and not isinstance(max_bytes, int):
+                errors.append(f"fonts.max_program_bytes: expected an int, got {max_bytes!r}")
 
     text_needles = exp.get("text_contains")
     if isinstance(text_needles, list):
@@ -1323,6 +1790,13 @@ def self_test(cli: Path) -> int:
         ok = False
     else:
         print("ok   copy_reading_order rejects a split copy")
+
+    mark_errors = font_mark_self_test()
+    if mark_errors:
+        print("FAIL self-test font subset judge: " + "; ".join(mark_errors))
+        ok = False
+    else:
+        print("ok   font subset prefix, CIDSet bits, and program size")
 
     if run_wave25_suite(cli) != 0:
         ok = False

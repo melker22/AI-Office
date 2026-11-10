@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """LibreOffice round-trip of revisions (wave 17) and dynamic fields (wave 18 D7),
-multi-paragraph notes (wave 27 D2).
+multi-paragraph notes (wave 27 D2), and wave 28 native RTF markup.
 
 Exports a document through aioffice-cli, converts with soffice, strips embedded
 JSON, and reimports. Revisions compare kind, block, offsets, text, and author.
@@ -524,6 +524,34 @@ def fields_roundtrip(cli):
         shutil.rmtree(work, ignore_errors=True)
 
 
+def wave28_rtf_interop(cli):
+    """LibreOffice must keep wave 28 insertions, deletions, annotations, and shapes.
+
+    The checker owns that document and the ODT assertions. This gate only runs
+    it, and only after soffice was found. It does not repeat the wave 20 text
+    round-trip above.
+    """
+    script = ROOT / "qa" / "wave28-rtf-out.py"
+    try:
+        proc = subprocess.run(
+            [sys.executable, str(script), "--check", "interop", "--cli", cli],
+            cwd=ROOT,
+            capture_output=True,
+            text=True,
+            timeout=300,
+            check=False,
+        )
+    except subprocess.TimeoutExpired:
+        print("FAIL interop wave28 rtf: checker timed out")
+        return 1
+    sys.stdout.write(proc.stdout)
+    sys.stderr.write(proc.stderr)
+    if proc.returncode != 0:
+        print("FAIL interop wave28 rtf")
+        return 1
+    return 0
+
+
 def wave24_docx_export(cli):
     """LibreOffice must keep nested tables and merged cells from our DOCX export."""
     script = ROOT / "qa" / "check_wave24_docx_export.py"
@@ -736,6 +764,7 @@ def main():
         status = rtf_interop_roundtrip(cli) or status
         status = wave24_docx_export(cli) or status
         status = notes_roundtrip(cli) or status
+        status = wave28_rtf_interop(cli) or status
         return status
     finally:
         shutil.rmtree(work, ignore_errors=True)

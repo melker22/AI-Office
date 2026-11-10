@@ -5,7 +5,73 @@
 > verificável para a onda N+1. **Só entra lição com evidência** (thread de review, commit ou incidente).
 > O checklist curto que executores e revisores aplicam está em `.cursor/rules/lessons.mdc`.
 
-Última PR processada: **#18** (tools: `pr-watch.py` espera CI/CodeRabbit com ETag). 11 threads inline em
+Última PR processada: **#21** (fix: `pr-watch.py` reporta um auto-review do CodeRabbit pausado). 3
+threads inline em 3 rodadas, todas corrigidas no mesmo commit `21a028a`. Reforçou L18 (gate/watcher só
+decide com evidência completa e corrente): `cr_state` escolhia o evento mais novo entre respostas e
+avisos de rate-limit por timestamp, mas checava o aviso de "auto-review pausado" só depois, num scan de
+retorno antecipado separado — um aviso de pausa mais antigo que uma resposta/rate-limit mais nova podia
+sobrepor essa resposta mais nova, ou o inverso, dependendo de qual checagem corria primeiro, violando a
+própria regra "o evento mais novo decide" que o código já aplicava aos outros tipos de evento
+(https://github.com/melker22/AI-Office/pull/21#discussion_r4461085755, corrigido tornando o aviso de
+pausa um evento com timestamp na MESMA coleção, removido o scan separado; self-test cobre as duas
+ordens). E o aviso de pausa usava `updated_at` do comentário inteiro como prova de "aviso novo", mas
+esse campo também muda quando só um checkbox ou outro trecho do resumo é editado sem tocar no marcador
+de pausa — um editor que resolvesse o checkbox depois de uma revisão já pedida reativava `paused` mesmo
+sem pausa nova, podendo disparar outro pedido de revisão desnecessário
+(https://github.com/melker22/AI-Office/pull/21#discussion_r4461214432, corrigido restringindo a detecção
+de pausa a quando nenhuma revisão foi pedida para o head atual — `pause_ok=False` durante uma janela de
+`--since` que já cobre o head). Regra: o "evento mais novo decide" vale para TODO tipo de sinal, inclusive
+casos especiais tratados em código separado, e o timestamp de um objeto composto (comentário/resumo) não
+prova que o campo específico que importa mudou — restrinja a janela em que esse sinal é válido em vez de
+confiar no timestamp do contêiner.
+
+Antes dela, **PR #20** (feat: onda 27 — import EPUB, HTML pelo writer XHTML, notas multi-parágrafo). 5
+threads inline em 1 rodada (todas corrigidas) mais 2 achados fora do diff na mesma revisão (ambos
+corrigidos) — e, só durante esta PR (não na revisão dela, no fluxo que a processa), o CodeRabbit mudou o
+formato do corpo de revisão e quebrou o parser do nosso próprio gate/watcher. Reforçou L18: o corpo da
+revisão da PR #20 trocou as seções antigas por blocos `<details>` com selo de imagem (`alt="Outside
+diff"`/`"Nitpick"`/...) e severidade em negrito, abrindo com uma lista de status de 31 marcadores
+`cr-comment`; o parser antigo só conhecia títulos de seção, então não achava NENHUM achado de corpo —
+um achado de corpo real (outside-diff) teria sido mergeado sem `cr-ack` (identificado e corrigido antes
+do merge desta mesma PR, commit `69ba6fae`, com self-test sobre o corpo real da PR #20: exatamente o
+achado outside-diff conta, o nitpick trivial não, e a revisão conta como revisão do head). Logo depois,
+um achado que cita um marcador `cr-comment` dentro de um bloco de código no próprio texto do achado podia
+fazer o parser extrair esse marcador citado (dentro do fence) como o id real do achado, em vez do
+marcador verdadeiro no fim do bloco — um achado forjado dentro de um trecho de código citado por outro
+achado escondia o marcador real e podia colidir com um `cr-ack` de outro achado
+(corrigido no commit `48b3ae7`, lendo o id do fim do próprio bloco do selo, com o conteúdo de blocos de
+código apagado antes; self-test com um marcador forjado dentro de um fence). Reforçou L7 (schema MCP,
+docs e código concordam em prosa, inclusive listas enumeradas completas): a descrição MCP de
+`document_open`/`document_save` ainda não citava o import EPUB novo nem o array opcional `warnings`, e
+`document_save` ainda dizia "EPUB import is not supported" (achado fora do diff,
+pullrequestreview-5747575553, corrigido em `a01e538`); o schema de `paragraphs` em
+`insert_footnote`/`insert_endnote` declarava só `type: array`, sem `items`, então um item não-string virava
+parágrafo vazio em silêncio (mesmo achado fora do diff, corrigido em `a072074`, tipando `items` como
+string e documentando precedência sobre `text`); `docs/mcp-tools.md` listava só 6 dos 10 contêineres que
+`EpubReader::isSkippedContainer` descarta, faltando `style`/`embed`/`noscript`/`template`
+(https://github.com/melker22/AI-Office/pull/20#discussion_r4454510119, corrigido em `714f100`); e
+`docs/ORCHESTRATION.md` ainda descrevia os comandos `cockpit fleet pause`/`resume` sem o `<runId>`
+obrigatório (https://github.com/melker22/AI-Office/pull/20#discussion_r4451178316, corrigido em
+`5a843cb`). Reforçou L3 (um contrato, todos os caminhos): `loadRtfFile` chama
+`Document::normalizeExternalParaSeps()` antes de aceitar o documento carregado (U+2029 externo a um
+bloco de nota vira `\n`), mas o novo `loadEpubFile` não chamava — um XHTML de terceiros com U+2029 legítimo
+dentro de um `<p>`/`<li>`/`<td>` entrava sem normalizar, e o resto do pipeline (export, preview,
+`plainText()`) trata U+2029 como separador de parágrafo só válido em nota
+(https://github.com/melker22/AI-Office/pull/20#discussion_r4451178351, corrigido em `7cbbdb4`, chamando a
+mesma normalização após `resolveAll()` e antes do `std::move`). Reforçou L4 (correção completa, não
+pontual — aqui, escopo de seleção aplicado só em parte do cálculo): `export_html` com `ids` restringia
+`inFlowNotes` à seleção, mas o laço de notas órfãs ainda percorria `doc.body` inteiro, então uma nota só
+referenciada por um bloco fora da seleção virava órfã e era exportada/avisada mesmo sem pertencer ao
+recorte pedido (https://github.com/melker22/AI-Office/pull/20#discussion_r4451178344, corrigido em
+`8d4e85a`, mantendo só as órfãs cujo bloco está na seleção, ou alcançáveis a partir delas). Reforçou L23
+(classifique por metadado canônico, nunca por heurística de superfície — aqui, texto vazio como proxy de
+"sem conteúdo"): `splitNoteParagraphs` descartava todo run com texto vazio ao quebrar por U+2029, mas um
+run vazio pode carregar uma âncora de nota aninhada ou metadado de campo que o serializador ODF/DOCX
+precisa; o texto vazio não significa run sem conteúdo
+(https://github.com/melker22/AI-Office/pull/20#discussion_r4451178322, corrigido em `fedd273`, preservando
+runs de texto vazio no parágrafo atual).
+
+Antes dela, **PR #18** (tools: `pr-watch.py` espera CI/CodeRabbit com ETag). 11 threads inline em
 seis rodadas de CodeRabbit, todos corrigidos, mais 8 achados fora do diff em três revisões — 6
 corrigidos/reconhecidos com `cr-ack` (commits `cdf1b5a`/`f13df51`), mas os **2 últimos** (paginação de
 CI e uma corrida de arquivo) ficaram sem correção nem `cr-ack` quando o autor mergeou 1 minuto após a
@@ -228,7 +294,13 @@ Formato: `L<n> — regra` · onde falhou (evidência) · ocorrências.
   atômica" (https://github.com/melker22/AI-Office/pull/13#discussion_r4370398863, corrigido em `53f2369`); e
   `export_text`/`export_markdown`/`export_html` com `path` ainda usavam `QFile::open(WriteOnly|Truncate)` sem
   checar o retorno de `write()`, só `saveTo` usava o helper atômico compartilhado
-  (https://github.com/melker22/AI-Office/pull/13#pullrequestreview-5642604443, corrigido em `83f0b12`). · 9
+  (https://github.com/melker22/AI-Office/pull/13#pullrequestreview-5642604443, corrigido em `83f0b12`).
+  PR #20 (onda 27): `loadRtfFile` chama `Document::normalizeExternalParaSeps()` antes de aceitar o
+  documento carregado, mas o novo `loadEpubFile` não chamava — um `<p>`/`<li>`/`<td>` de terceiros com
+  U+2029 legítimo entrava sem normalizar, e o resto do pipeline trata esse caractere como separador só
+  válido dentro de nota
+  (https://github.com/melker22/AI-Office/pull/20#discussion_r4451178351, corrigido em `7cbbdb4`, chamando
+  a mesma normalização após `resolveAll()` e antes do `std::move`). · 10
 - **L4 — Correção completa, não pontual.** Valor derivado (stat, seq, xref) é recalculado num ponto
   único (leitura/salvamento), não em gatilhos por ferramenta; e uma correção que só estreita o caso comum
   ainda precisa cobrir o caso em lote. · Onda 18 review: `stat` só atualizava com `hide_if`/vars; `seq`
@@ -246,7 +318,12 @@ Formato: `L<n> — regra` · onde falhou (evidência) · ocorrências.
   numerando na ordem contrária à do export DOCX (que escreve a tabela antes da legenda), então um
   `category_number` cross-reference citava o número do campo aninhado em vez do da tabela
   (https://github.com/melker22/AI-Office/pull/19#discussion_r4413566282, corrigido em `fe8d5d6`,
-  visitando células e `cell.nested` antes de `captionRuns`). · 5
+  visitando células e `cell.nested` antes de `captionRuns`). PR #20 (onda 27): `export_html` com `ids`
+  restringia `inFlowNotes` à seleção, mas o laço de notas órfãs ainda percorria `doc.body` inteiro —
+  escopo de seleção aplicado só numa parte do cálculo, não na correção completa — então uma nota só
+  referenciada por um bloco fora da seleção virava órfã e era exportada/avisada mesmo fora do recorte
+  pedido (https://github.com/melker22/AI-Office/pull/20#discussion_r4451178344, corrigido em `8d4e85a`,
+  mantendo só as órfãs cujo bloco está na seleção, ou alcançáveis a partir delas). · 6
 - **L5 — Operações em vários blocos geram dados por bloco.** · PR #4 `priorRuns` só do primeiro bloco. · 1
 - **L20 — Não mute uma coleção enquanto itera sobre ela; ordem de saída que importa é construída
   explicitamente, nunca herdada da ordem de iteração de um hash.** `QHash`/`QMap` não garantem ordem
@@ -322,7 +399,21 @@ Formato: `L<n> — regra` · onde falhou (evidência) · ocorrências.
   decisão D8 prometia travessia de `forEachFieldRun` "em qualquer profundidade", quando o modelo entregue
   (`NestedCell` guarda runs, não outra tabela) só suporta um nível de tabela aninhada
   (https://github.com/melker22/AI-Office/pull/19#discussion_r4413566258, corrigido em `e54ee6b`,
-  restringindo a prosa ao nível entregue). · 7
+  restringindo a prosa ao nível entregue). PR #20 (onda 27, achado fora do diff): a descrição MCP de
+  `document_open`/`document_save` ainda não citava o import EPUB novo nem o array opcional `warnings`, e
+  `document_save` ainda dizia que o import EPUB não é suportado (pullrequestreview-5747575553, corrigido
+  em `a01e538`); o schema de `paragraphs` em `insert_footnote`/`insert_endnote` declarava só
+  `type: array`, sem `items`, então um item não-string de `paragraphs` virava parágrafo vazio em silêncio
+  (mesmo achado, corrigido em `a072074`, tipando `items` como string e documentando a precedência sobre
+  `text`); `docs/mcp-tools.md` listava só 6 dos 10 contêineres que `EpubReader::isSkippedContainer`
+  descarta, faltando `style`/`embed`/`noscript`/`template`
+  (https://github.com/melker22/AI-Office/pull/20#discussion_r4454510119, corrigido em `714f100`); e
+  `docs/ORCHESTRATION.md` descrevia os comandos `cockpit fleet pause`/`resume` sem o `<runId>`
+  obrigatório (https://github.com/melker22/AI-Office/pull/20#discussion_r4451178316, corrigido em
+  `5a843cb`). PR #21: a mesma `docs/ORCHESTRATION.md` dizia que o DeepSeek entra quando o Grok Build está
+  sem cota, mas a regra nova da mesma linha intercala o Grok da Cursor (`grok-4.7-high`) antes do
+  DeepSeek — duas instruções conflitantes na mesma tabela
+  (https://github.com/melker22/AI-Office/pull/21#discussion_r4461119963, corrigido em `21a028a`). · 9
 - **L8 — Portabilidade de compilador.** Forward declaration com a mesma tag (`struct`/`class`) da
   definição. · PR #6 (MSVC C4099). · 1
 - **L24 — Id novo nunca vem do tamanho atual de uma coleção; aloque acima do maior sufixo numérico
@@ -429,7 +520,8 @@ Formato: `L<n> — regra` · onde falhou (evidência) · ocorrências.
   permissão errada (https://github.com/melker22/AI-Office/pull/13#discussion_r4370637431, corrigido com
   `needs_mode` em `95f66fa`). · 3
 - **L23 — Classifique pelo metadado canônico, nunca por heurística de nome/substring sobre texto
-  concatenado; metadado ilegível falha a checagem, não passa por omissão.** Um checker de papel de
+  concatenado, nem por "texto vazio" como proxy de "sem conteúdo"; metadado ilegível falha a checagem,
+  não passa por omissão.** Um checker de papel de
   documento (navegação vs. conteúdo num EPUB, cabeçalho vs. corpo) que decide por regex solto sobre um bundle
   de vários XML concatenados, ou por substring no nome do arquivo ("contém `nav`"), aceita qualquer entrada
   real porque o fallback nunca é exercitado (self-test só usa fragmentos de raiz única) ou produz falso
@@ -452,7 +544,11 @@ Formato: `L<n> — regra` · onde falhou (evidência) · ocorrências.
   quando o OPF é malformado, `_nav_document_names` pulava seu manifesto e tratava a ausência de metadado como
   "nenhum documento de navegação", deixando `toc.xhtml` contar como conteúdo
   (https://github.com/melker22/AI-Office/pull/13#pullrequestreview-5643779721, corrigido falhando a checagem
-  quando o OPF não parseia, em `c545057`). · 5
+  quando o OPF não parseia, em `c545057`). PR #20 (onda 27): `splitNoteParagraphs` descartava todo run
+  com texto vazio ao quebrar por U+2029, mas um run vazio pode carregar uma âncora de nota aninhada ou
+  metadado de campo que o serializador ODF/DOCX precisa — texto vazio não significa run sem conteúdo
+  (https://github.com/melker22/AI-Office/pull/20#discussion_r4451178322, corrigido em `fedd273`,
+  preservando runs de texto vazio no parágrafo atual). · 6
 
 ## Processo (Fleets)
 
@@ -533,7 +629,35 @@ Formato: `L<n> — regra` · onde falhou (evidência) · ocorrências.
   além do item 100 escaparia de `--until all` — mesmo padrão do PR #10 (pt. 2 abaixo), agora no watcher
   em vez do gate (https://github.com/melker22/AI-Office/pull/18#pullrequestreview-5705791800, **achado
   da revisão final, sem correção nem `cr-ack` antes do merge** — o autor mergeou 1 minuto depois, sem
-  rodar o gate contra esse achado). · 14
+  rodar o gate contra esse achado). PR #20: o próprio CodeRabbit trocou o formato do corpo de revisão
+  (blocos `<details>` com selo de imagem `alt="Outside diff"`/`"Nitpick"`/... e severidade em negrito,
+  abrindo com uma lista de status de marcadores `cr-comment`, em vez das seções antigas por título) e o
+  parser do gate/watcher, que só conhecia títulos de seção, não achava NENHUM achado de corpo no novo
+  formato — um achado de corpo real (outside-diff) teria sido mergeado sem `cr-ack` (identificado e
+  corrigido dentro da própria PR #20, commit `69ba6fae`, com self-test sobre o corpo real da PR: o achado
+  outside-diff conta, o nitpick trivial não, e a revisão conta como revisão do head); e, no mesmo novo
+  formato, um achado que cita um marcador `cr-comment` dentro de um bloco de código no próprio texto do
+  achado podia fazer o parser extrair esse marcador citado (dentro do fence) como o id real do achado em
+  vez do marcador verdadeiro no fim do bloco — um achado forjado dentro de um trecho de código citado por
+  outro achado escondia o marcador real e podia colidir com o `cr-ack` de outro achado (corrigido no
+  commit `48b3ae7`, lendo o id do fim do próprio bloco do selo com o conteúdo de blocos de código apagado
+  antes; self-test com marcador forjado dentro de um fence). PR #21 (`scripts/pr-watch.py`, mesma classe
+  de defeito): `cr_state` escolhia o evento mais novo entre respostas e avisos de rate-limit por
+  timestamp, mas só checava o aviso de "auto-review pausado" depois, num scan de retorno antecipado
+  separado — um aviso de pausa mais antigo podia sobrepor uma resposta/rate-limit mais nova, ou o
+  inverso, violando a própria regra "o evento mais novo decide" que o código já aplicava aos outros tipos
+  (https://github.com/melker22/AI-Office/pull/21#discussion_r4461085755, corrigido em `21a028a`, tornando
+  o aviso de pausa um evento com timestamp na MESMA coleção, scan separado removido; self-test cobre as
+  duas ordens); e esse aviso de pausa usava `updated_at` do comentário inteiro como prova de "aviso
+  novo", mas esse campo também muda quando só um checkbox ou outro trecho do resumo é editado sem tocar
+  no marcador de pausa — um editor que resolvesse o checkbox depois de uma revisão já pedida reativava
+  `paused` mesmo sem pausa nova
+  (https://github.com/melker22/AI-Office/pull/21#discussion_r4461214432, corrigido no mesmo commit
+  `21a028a`, restringindo a detecção de pausa a quando nenhuma revisão foi pedida para o head atual). O
+  "evento mais novo decide" vale para TODO tipo de sinal, inclusive casos especiais tratados em código
+  separado; e o timestamp de um objeto composto (comentário/resumo) não prova que o campo específico que
+  importa mudou — restrinja a janela em que esse sinal é válido em vez de confiar no timestamp do
+  contêiner. · 18
 - **L17 — O nó `lessons` lê handoff atual E arquivo antes de avançar o marcador.** Se a entrada de
   handoff de um PR ainda não processado já foi movida para `AI_HANDOFF_ARCHIVE.md`, ler só
   `AI_HANDOFF.md` perde o registro de intervenção e o Passo 4 marca esse PR como processado sem revisitar

@@ -130,7 +130,7 @@ Executores: Grok Build 4.7 (T1 RTF writer, T2 RTF reader, T3 EPUB, T4 PDF) e Son
 | A-rtf-8 | **Corrigido** | `REF`, `PAGEREF`, `SEQ`, `MERGEFIELD`, `DOCVARIABLE`, `FILLIN` e `NUMWORDS` (`word_count`) são escritos e lidos como campos. |
 | A-rtf-9 | **Corrigido** | `hide_if` / `section_hidden` saem com `\v` e o export avisa o id. Não é redação. |
 | A-rtf-10 | **Corrigido** | O corpo da nota mantém a formatação de carácter. Endnote sai com `\ftnalt` e o reader mapeia de volta para `endnote`. |
-| A-rtf-11 | **Corrigido** | Comentário em tabela ou quebra gera o mesmo warning dos outros tipos de bloco. |
+| A-rtf-11 | **Corrigido** | Na onda 25, comentário em tabela ou quebra gerava o mesmo warning dos outros tipos de bloco. A onda 28 escreve esse comentário num parágrafo portador. |
 | A-rtf-12 | **Corrigido** | `\column` vira quebra de coluna, sem parágrafo vazio extra. |
 | A-rtf-13 | **Corrigido** | `\bkmkstart` / `\bkmkend` ficam no `Bookmark::offset` do parágrafo. |
 | A-rtf-14 | **Corrigido** | Larguras vêm de `colWidthsMm` em twips. Colunas iguais só quando não há larguras. |
@@ -239,6 +239,54 @@ Executores: **DeepSeek V4.1 Flash (OpenRouter)** em T1 (EPUB import), T2 (`expor
 | Regressão ondas 12–26 | **Corrigido** | 208/208 no gate completo; epubcheck 0/0; veraPDF PDF/UA-1 e PDF/A-1b conformes na mesma corrida. |
 
 **Decisões:** nenhum item da onda 27 foi adiado. CSS arbitrário de EPUB de terceiros não é interpretado além de estilo inline básico (spec D6). O backlog de GUI (`src/app/`) não foi tocado.
+
+**Próximo passo sugerido:** `notion-sync`, abrir PR, merge gate.
+
+## Onda 28 — RTF nativo (revisões, comentários, formas) e subconjunto de fontes no PDF — **entregue** (2026-11-10, branch `fleet/wave28-rtf-pdf-ce3b1942`, código em `741e01b`)
+
+Gate: `scripts/qa-all.sh --gui --interop --pdf --formats` (`nix-shell --run`, LibreOffice no PATH), depois da ronda de correção — **224/224** ctest pass, **0** falhas. Tempo real do ctest **324.14 s**. Build incremental do `build/linux` existente; alvo GUI `aioffice` compilou antes do ctest. Interop passou: `docx→odt`, `odt→docx`, campos (`odt` resave / `odt→docx` / `docx→odt`), `rtf our RTF→ODT / LO RTF→native`, export DOCX da onda 24, notas de 3 parágrafos DOCX/ODT e `ok wave28 rtf writer` (`qa/wave28-rtf-out.py --check interop` via `scripts/qa-interop.py`; não é CTest). veraPDF PDF/UA-1 e PDF/A-1b conformes na mesma corrida; `pdffonts` com `sub yes` nos juízes wave 28. O fecho, enquanto `wave28_rtf_interop` ainda era CTest, foi **225/225** em **398.13 s**.
+
+Executores: **Grok da Cursor** (`grok-4.7-high`) em T1 RTF writer, T2 RTF reader, T3 PDF e T4 regressão; **Composer** na integração e neste handoff; **Sonnet** nas lições (PR #21) e na revisão. A revisão fechou com **0 findings**; o fix-pass **`741e01b`** alinha revisões sobrepostas, notas e texto de forma no round-trip RTF.
+
+### RTF writer (D1–D4, D9 escrita)
+
+| Id | Estado | Notas |
+|---|---|---|
+| D1 — tabela `\revtbl` | **Corrigido** | Autores em ordem de primeira aparição; `;` literal como `\'3b`; não-ASCII como `\uN`. Juiz `wave28_rtf_d1`. |
+| D2 — revisões nativas | **Corrigido** | `insert`/`delete`/`format` com `deletedRuns`, `priorRuns`, `{\*\aiorevfmt …}`; invariante delete=ponto; aviso global de texto plano removido. Juízes `wave28_rtf_d2`, `wave28_rtf_roundtrip*`. |
+| D3 — comentários nativos | **Corrigido** | `atrfstart`/`atrfend`/`annotation` com `aiocid`/`aiocparent`/`aiocresolved`; parágrafo portador `{\*\aiocarrier}` em tabela/quebra/imagem. Juiz `wave28_rtf_d3`. |
+| D4 — formas nativas | **Corrigido** | `rect`/`ellipse`/`line` com `shapeType` 1/3/20, COLORREF BGR, fallback de tamanho como o preview; QR/dropdown continuam texto plano com aviso citando só esses dois. Juiz `wave28_rtf_d4`. |
+| D9 — redact (escrita) | **Corrigido** | Texto com `redact` não entra em marcação nova; `\v` preservado em revisões. Juiz `wave28_rtf_d9`. |
+
+### RTF reader (D5–D8, D9 leitura)
+
+| Id | Estado | Notas |
+|---|---|---|
+| D5 — revisões | **Corrigido** | `\deleted` em `deletedRuns`, nunca em `runs`; `\revtbl` não parte em `\'3b`; `aiorevfmt` restaura `priorRuns`. Juízes `wave28_rtf_in`, round-trip. |
+| D6 — comentários | **Corrigido** | `\annotation` não entra no corpo; `aiocarrier` devolve comentários ao bloco anterior. Integração `1971af4` alinha juiz wave 25 D9. |
+| D7 — formas | **Corrigido** | `shapeType` 1/3/20 → bloco `shape`; outros tipos e `\shpgrp` ignorados com aviso. |
+| D8 — entrada hostil | **Corrigido** | Autor fora da tabela → Unknown; DTTM inválido → 0; JSON `aiorevfmt` inválido ignorado; forma negativa ou >10 000 mm limitada. Juízes em `wave28_rtf_in` / self-tests. |
+| D9 — redact (leitura) | **Corrigido** | `redact` limpa texto em `deletedRuns`/`priorRuns`/comentário, inclusive revisão sobreposta insert+redact (`741e01b`). Juiz `wave28_rtf_d9`. |
+
+### PDF (`PdfPostProcess`, D10–D13)
+
+| Id | Estado | Notas |
+|---|---|---|
+| D10 — prefixo de subconjunto | **Corrigido** | Mesmo prefixo em `/BaseFont` Type0, `/BaseFont` CIDFont e `/FontName`; depois de `pdfPostProcessFixToUnicode`. Juiz `wave28_pdf_d10`. |
+| D11 — prefixo determinístico | **Corrigido** | Hash nome+programa; colisão no mesmo PDF com salt. Juiz `wave28_pdf_d11`. |
+| D12 — `/CIDSet` PDF/A | **Corrigido** | Só com `pdfa: true`; bits MSB-first; removido quando não é PDF/A. Juiz `wave28_pdf_d12`. |
+| D13 — sem regressão de texto | **Corrigido** | `pdffonts` `emb yes`/`sub yes`/`uni yes`; `pdftotext` latim/árabe/CJK; `qpdf --check`. Juiz `wave28_pdf_d13`. |
+
+### QA e documentação (D14–D16)
+
+| Id | Estado | Notas |
+|---|---|---|
+| D14 — juízes `qa/wave28-*` | **Corrigido** | 13 testes CTest com rótulo wave28 no gate; interop RTF em `scripts/qa-interop.py` (não é CTest); `check_pdf.py` subset/CIDSet; sem dependência de root/glibc/`LD_PRELOAD`. |
+| D15 — catálogo e `mcp-tools.md` | **Corrigido** | Limites honestos: QR/dropdown, revisão fora do corpo de texto, grupos de formas e o `connectTo` (conector de forma), `text:format-change` no LibreOffice. Comentário em tabela, quebra ou imagem sai num parágrafo portador. |
+| D16 — regressão ondas 12–27 | **Corrigido** | **224/224** no gate completo (o fecho anterior foi 225/225 enquanto a interop era CTest; a onda 27 era 208/208). |
+| Integração pós-review | **Corrigido** | `79e89f7` mantém aviso wave 21 válido; `1971af4` juiz wave 25 alinhado a comentários nativos. |
+
+**Decisões:** nenhum item da spec D1–D16 foi adiado. **Limites documentados (não são falha da onda):** QR e dropdown em texto plano; revisão em tabela/quebra/imagem/forma/QR/dropdown só com aviso (sem escrita); grupos de formas e o `connectTo` (conector de forma); LibreOffice não materializa `text:format-change` a partir de `\crauth`. Comentário em tabela, quebra ou imagem sai num parágrafo portador. O backlog de GUI (`src/app/`) não foi tocado.
 
 **Próximo passo sugerido:** `notion-sync`, abrir PR, merge gate.
 

@@ -109,6 +109,16 @@ struct PdfSubsetUnicode {
 // presentation forms and ligatures). Existing bfchar/bfrange entries are kept.
 bool pdfPostProcessFixToUnicode(const QString &path, const QVector<PdfSubsetUnicode> &maps, QString *error);
 
+// Marks every embedded /FontFile2 face as a subset. The same six-letter prefix
+// is written on the Type0 /BaseFont, the CIDFont /BaseFont, and the descriptor
+// /FontName. It is a hash of the original face name and the embedded program,
+// so a repeat export keeps it and two faces in one file never share it. A face
+// with no embedded program is left unchanged. Call this after
+// pdfPostProcessFixToUnicode, which matches fonts by that face name. When
+// `pdfa` is set, each marked descriptor gets a /CIDSet stream with bits
+// 0..maxp.numGlyphs-1 set, MSB first. Otherwise an existing /CIDSet is removed.
+bool pdfPostProcessMarkFontSubsets(const QString &path, bool pdfa, QString *error);
+
 // PDF/UA DisplayDocTitle is applied in post-processing (wave 19 T1). T2 sets the flag before calling
 // pdfPostProcessAddExtras when `ua` is requested on export.
 void pdfPostProcessSetDisplayDocTitle(bool enable);
