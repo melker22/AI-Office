@@ -5,8 +5,10 @@ Opens a JSON document, saves RTF, and opens that RTF. The judge checks the
 three revision kinds (including a format change split by a delete and a second
 format change on the inserted text), a comment reply that is resolved, a
 comment that stays on the table, a footnote insert, and rect/ellipse/line.
-Revision ids are regenerated. The timestamp is already on a UTC minute so the
-DTTM grid does not move it. 12 mm is not an integer twip, so the ellipse
+Revision ids are regenerated. The timestamp is a Friday, already on a UTC
+minute, so the DTTM grid does not move it. Weekday bits set bit 31 and the
+writer spells that DTTM as a negative signed 32-bit integer; import must keep
+the timestamp. 12 mm is not an integer twip, so the ellipse
 height is accepted within 0.02 mm. Shape text does not keep the \\par mark.
 
 The CLI child does not inherit LD_PRELOAD. Files stay in a private temp dir.
@@ -18,6 +20,7 @@ Run:  wave28-rtf-roundtrip.py --cli <aioffice-cli>
 from __future__ import annotations
 
 import argparse
+import datetime
 import json
 import os
 import subprocess
@@ -27,8 +30,10 @@ from typing import Any, Callable
 
 REPO = Path(__file__).resolve().parent.parent
 TIMEOUT = 90
-# 2024-01-15 00:00 UTC. Already on a minute, so import must keep this value.
-STAMP = 1705276800000
+# 2024-01-19 00:00 UTC, a Friday. Minute-aligned. The signed spelling is the
+# 32-bit pattern with weekday 5 in bits 29–31.
+STAMP = 1705622400000
+FRIDAY_DTTM = -1480484864
 
 
 def child_env() -> dict[str, str]:
@@ -446,7 +451,28 @@ def expected_document() -> dict[str, Any]:
     return doc
 
 
+def signed_dttm(ms: int) -> int:
+    """Same bitfield as RtfWriter::dttmNumber, as a signed 32-bit decimal."""
+    dt = datetime.datetime.fromtimestamp(ms / 1000.0, datetime.timezone.utc)
+    dow = dt.isoweekday() % 7
+    year = dt.year - 1900
+    n = (
+        (dt.minute & 0x3F)
+        | ((dt.hour & 0x1F) << 6)
+        | ((dt.day & 0x1F) << 11)
+        | ((dt.month & 0xF) << 16)
+        | ((year & 0x1FF) << 20)
+        | ((dow & 7) << 29)
+    )
+    if n >= 2**31:
+        n -= 2**32
+    return n
+
+
 def judge_fail_case() -> str | None:
+    spelled = signed_dttm(STAMP)
+    if spelled != FRIDAY_DTTM or FRIDAY_DTTM >= 0:
+        return "Friday DTTM drifted: %s" % spelled
     good = check_document(expected_document())
     if good:
         return "judge rejected a complete round-trip: " + good[0]
@@ -508,6 +534,10 @@ def rtf_needles(rtf: str) -> list[str]:
     ):
         if needle not in rtf:
             errors.append("D14 RTF missing %s" % needle)
+    for word in ("\\revdttm", "\\revdttmdel", "\\crdate"):
+        needle = word + str(FRIDAY_DTTM)
+        if needle not in rtf:
+            errors.append("D14 RTF missing signed %s" % needle)
     if "[Mary Jane:" in rtf or "[IA:" in rtf:
         errors.append("D14 RTF wrote a comment as plain text")
     return errors

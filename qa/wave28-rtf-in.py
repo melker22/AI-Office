@@ -29,6 +29,10 @@ BULK_TIMEOUT = 180
 DTTM_JAN15 = 130119680
 DTTM_FEB31 = 130217984
 DTTM_JAN20_WDAY6 = (20 << 11) | (1 << 16) | (124 << 20) | (6 << 29)
+# 2024-01-19 00:00 UTC, Friday. Weekday 5 sets bit 31, so the file spells it
+# as a signed 32-bit integer. The positive bit pattern is 2814482432.
+FRIDAY_MS = 1705622400000
+FRIDAY_DTTM = -1480484864
 
 
 def child_env() -> dict[str, str]:
@@ -171,6 +175,9 @@ def self_test() -> None:
     expect(DTTM_JAN15 == (15 << 11) | (1 << 16) | (124 << 20), "jan15 dttm drifted")
     expect(DTTM_JAN20_WDAY6 > 2**31 - 1, "weekday DTTM must exceed signed 32-bit")
     expect(utc_ms(2024, 1, 15) == 1705276800000, "utc ms drifted: %s" % utc_ms(2024, 1, 15))
+    expect(utc_ms(2024, 1, 19) == FRIDAY_MS, "friday ms drifted: %s" % utc_ms(2024, 1, 19))
+    friday_bits = (19 << 11) | (1 << 16) | (124 << 20) | (5 << 29)
+    expect(friday_bits - 2**32 == FRIDAY_DTTM and FRIDAY_DTTM < 0, "friday spelling drifted")
     escaped = rtf_escape('{"a":1}')
     expect(escaped == '\\{"a":1\\}', "rtf escape drifted: %r" % escaped)
     failed = False
@@ -539,6 +546,37 @@ def check_d8_author_date(cli: Path, folder: Path) -> None:
     expect(len(alone) == 1 and alone[0].get("author") == "Unknown", alone)
 
 
+def check_d8_signed_dttm(cli: Path, folder: Path) -> None:
+    """Thursday–Saturday set bit 31. The writer emits that as a negative decimal.
+
+    The reader must treat a qint32-range negative as the unsigned bit pattern
+    before validating. A negative outside that range, and a negative whose
+    bits are not a date, stay timestamp 0.
+    """
+    body = (
+        "{\\rtf1\\ansi\\ansicpg1252\\pard"
+        "{\\*\\revtbl{Unknown;}{Ann;}}"
+        "{\\revised\\revauth1\\revdttm%d Fri}\\par"
+        "{\\deleted\\revauthdel1\\revdttmdel%d gone}\\par"
+        "{\\crauth1\\crdate%d fmt}\\par"
+        "{\\revised\\revauth1\\revdttm-1 Bad}\\par"
+        "{\\revised\\revauth1\\revdttm-2147483649 Wide}\\par}"
+    ) % (FRIDAY_DTTM, FRIDAY_DTTM, FRIDAY_DTTM)
+    expect(str(FRIDAY_DTTM) in body and FRIDAY_DTTM < 0, "fixture lost the negative spelling")
+    doc = open_validated(cli, folder, "d8-signed-dttm.rtf", body)
+    revs = revisions(doc)
+    expect(len(revs) == 5, revs)
+    kinds = [r.get("kind") for r in revs]
+    expect(kinds == ["insert", "delete", "format", "insert", "insert"], kinds)
+    expect(revs[0].get("text") == "Fri", revs[0].get("text"))
+    expect(revs[1].get("text") == "gone", revs[1].get("text"))
+    for rev in revs[:3]:
+        expect(rev.get("author") == "Ann", rev.get("author"))
+        expect(rev.get("timestamp") == FRIDAY_MS, "%s timestamp %s" % (rev.get("kind"), rev.get("timestamp")))
+    expect(revs[3].get("timestamp") == 0, "invalid signed dttm %s" % revs[3].get("timestamp"))
+    expect(revs[4].get("timestamp") == 0, "below qint32 dttm %s" % revs[4].get("timestamp"))
+
+
 def check_d8_bad_json_and_clamp(cli: Path, folder: Path) -> None:
     bare = (
         "{\\rtf1\\ansi\\ansicpg1252\\pard"
@@ -670,6 +708,7 @@ CHECKS: list[tuple[str, Callable[[Path, Path], None]]] = [
     ("D7 shapes", check_d7_shapes),
     ("D8 caps", check_d8_caps),
     ("D8 author and DTTM", check_d8_author_date),
+    ("D8 signed DTTM", check_d8_signed_dttm),
     ("D8 json and clamp", check_d8_bad_json_and_clamp),
     ("D9 hidden", check_d9_hidden),
     ("D9 redact overlap", check_d9_redact_overlap),

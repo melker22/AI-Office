@@ -412,12 +412,29 @@ double twipsToMm(int twips)
 }
 
 // MS-DOC DTTM. The value is a 32-bit bitfield written as a decimal integer.
-// Weekday bits 29–31 can push it above INT_MAX, so callers must not use fitsInt.
+// Weekday bits 29–31 can set bit 31. A writer then emits a negative signed
+// 32-bit integer (Thursday, Friday, Saturday). That spelling is the same bits.
+// Callers must not use fitsInt: the positive spelling is above INT_MAX.
+bool dttmBits(qint64 raw, quint32 *bits)
+{
+    if (raw >= 0) {
+        if (raw > 0xFFFFFFFFLL)
+            return false;
+        *bits = static_cast<quint32>(raw);
+        return true;
+    }
+    // Only a qint32-range negative is a signed spelling of those bits.
+    if (raw < static_cast<qint64>(std::numeric_limits<qint32>::min()))
+        return false;
+    *bits = static_cast<quint32>(static_cast<qint32>(raw));
+    return true;
+}
+
 bool dttmToUnixMs(qint64 raw, qint64 *outMs)
 {
-    if (raw < 0 || raw > 0xFFFFFFFFLL)
+    quint32 bits = 0;
+    if (!dttmBits(raw, &bits))
         return false;
-    const quint32 bits = static_cast<quint32>(raw);
     const int minute = static_cast<int>(bits & 0x3Fu);
     const int hour = static_cast<int>((bits >> 6) & 0x1Fu);
     const int day = static_cast<int>((bits >> 11) & 0x1Fu);
@@ -2955,14 +2972,15 @@ private:
     void storeDttm(bool &setFlag, qint64 &raw, bool &bad, qint64 v, bool has, bool overflow) const
     {
         setFlag = true;
-        if (!has || overflow || v < 0 || v > 0xFFFFFFFFLL) {
+        quint32 bits = 0;
+        if (!has || overflow || !dttmBits(v, &bits)) {
             bad = true;
             raw = 0;
             return;
         }
-        raw = v;
+        raw = bits;
         qint64 unused = 0;
-        bad = !dttmToUnixMs(v, &unused);
+        bad = !dttmToUnixMs(static_cast<qint64>(bits), &unused);
     }
 
     bool sameMark(const OpenRev &o, const RevMark &m) const
