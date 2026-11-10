@@ -52,7 +52,7 @@ Os itens abaixo estão provados em `docs/audit/module-sweep.md` (ids A-rtf-*, A-
 | D6 | **Campos RTF de ida e volta**: `REF`, `SEQ`, `MERGEFIELD`, `DOCVARIABLE`, `FILLIN` e `NUMWORDS` (para `word_count`) são escritos e lidos como campos. Os argumentos do `\fldinst` vão entre aspas, com `\`, `{`, `}` e `"` escapados. Caracteres de controle são removidos (A-rtf-8, PR #11). |
 | D7 | **`hide_if`/`section_hidden` em RTF**: o texto sai com `\v` (oculto), como o `w:vanish` do DOCX, e o export gera um warning com o id. Isso não é redação (A-rtf-9). |
 | D8 | **Notas RTF**: o corpo da nota mantém a formatação de caractere. Endnotes saem com `\ftnalt`, e o reader mapeia `\ftnalt` para `endnote` (A-rtf-10, PR #11). |
-| D9 | **Comentários em blocos de tabela ou quebra** geram o mesmo warning dos outros tipos (A-rtf-11). |
+| D9 | **Comentários em blocos de tabela ou quebra** geram o mesmo warning dos outros tipos (A-rtf-11). A onda 28 substitui este aviso: esses comentários saem num parágrafo portador. |
 | D10 | **`\column`**: o reader cria uma quebra de coluna, sem parágrafo vazio extra (A-rtf-12). |
 | D11 | **Bookmark RTF no offset**: `\bkmkstart`/`\bkmkend` ficam na posição `Bookmark::offset` do parágrafo (A-rtf-13). |
 | D12 | **Larguras de coluna RTF** vêm de `colWidthsMm` (convertidas em twips). Ficam iguais só quando não há larguras (A-rtf-14). |

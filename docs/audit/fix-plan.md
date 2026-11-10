@@ -130,7 +130,7 @@ Executores: Grok Build 4.7 (T1 RTF writer, T2 RTF reader, T3 EPUB, T4 PDF) e Son
 | A-rtf-8 | **Corrigido** | `REF`, `PAGEREF`, `SEQ`, `MERGEFIELD`, `DOCVARIABLE`, `FILLIN` e `NUMWORDS` (`word_count`) são escritos e lidos como campos. |
 | A-rtf-9 | **Corrigido** | `hide_if` / `section_hidden` saem com `\v` e o export avisa o id. Não é redação. |
 | A-rtf-10 | **Corrigido** | O corpo da nota mantém a formatação de carácter. Endnote sai com `\ftnalt` e o reader mapeia de volta para `endnote`. |
-| A-rtf-11 | **Corrigido** | Comentário em tabela ou quebra gera o mesmo warning dos outros tipos de bloco. |
+| A-rtf-11 | **Corrigido** | Na onda 25, comentário em tabela ou quebra gerava o mesmo warning dos outros tipos de bloco. A onda 28 escreve esse comentário num parágrafo portador. |
 | A-rtf-12 | **Corrigido** | `\column` vira quebra de coluna, sem parágrafo vazio extra. |
 | A-rtf-13 | **Corrigido** | `\bkmkstart` / `\bkmkend` ficam no `Bookmark::offset` do parágrafo. |
 | A-rtf-14 | **Corrigido** | Larguras vêm de `colWidthsMm` em twips. Colunas iguais só quando não há larguras. |
@@ -244,7 +244,7 @@ Executores: **DeepSeek V4.1 Flash (OpenRouter)** em T1 (EPUB import), T2 (`expor
 
 ## Onda 28 — RTF nativo (revisões, comentários, formas) e subconjunto de fontes no PDF — **entregue** (2026-11-10, branch `fleet/wave28-rtf-pdf-ce3b1942`, código em `741e01b`)
 
-Gate: `scripts/qa-all.sh --gui --interop --pdf --formats` (`nix-shell --run`, LibreOffice no PATH) — **225/225** ctest pass, **0** falhas. Tempo real do ctest **398.13 s**. Build incremental do `build/linux` existente; alvo GUI `aioffice` compilou antes do ctest. Interop passou: `docx→odt`, `odt→docx`, campos (`odt` resave / `odt→docx` / `docx→odt`), `rtf our RTF→ODT / LO RTF→native`, export DOCX da onda 24, notas de 3 parágrafos DOCX/ODT e **`wave28_rtf_interop`** (`text:insertion`, `text:deletion`, `office:annotation`, formas retângulo/elipse/linha). veraPDF PDF/UA-1 e PDF/A-1b conformes na mesma corrida; `pdffonts` com `sub yes` nos juízes wave 28.
+Gate: `scripts/qa-all.sh --gui --interop --pdf --formats` (`nix-shell --run`, LibreOffice no PATH), depois da ronda de correção — **224/224** ctest pass, **0** falhas. Tempo real do ctest **324.14 s**. Build incremental do `build/linux` existente; alvo GUI `aioffice` compilou antes do ctest. Interop passou: `docx→odt`, `odt→docx`, campos (`odt` resave / `odt→docx` / `docx→odt`), `rtf our RTF→ODT / LO RTF→native`, export DOCX da onda 24, notas de 3 parágrafos DOCX/ODT e `ok wave28 rtf writer` (`qa/wave28-rtf-out.py --check interop` via `scripts/qa-interop.py`; não é CTest). veraPDF PDF/UA-1 e PDF/A-1b conformes na mesma corrida; `pdffonts` com `sub yes` nos juízes wave 28. O fecho, enquanto `wave28_rtf_interop` ainda era CTest, foi **225/225** em **398.13 s**.
 
 Executores: **Grok da Cursor** (`grok-4.7-high`) em T1 RTF writer, T2 RTF reader, T3 PDF e T4 regressão; **Composer** na integração e neste handoff; **Sonnet** nas lições (PR #21) e na revisão. A revisão fechou com **0 findings**; o fix-pass **`741e01b`** alinha revisões sobrepostas, notas e texto de forma no round-trip RTF.
 
@@ -281,12 +281,12 @@ Executores: **Grok da Cursor** (`grok-4.7-high`) em T1 RTF writer, T2 RTF reader
 
 | Id | Estado | Notas |
 |---|---|---|
-| D14 — juízes `qa/wave28-*` | **Corrigido** | 14 testes wave28 no gate; interop RTF; `check_pdf.py` subset/CIDSet; sem dependência de root/glibc/`LD_PRELOAD`. |
-| D15 — catálogo e `mcp-tools.md` | **Corrigido** | Limites honestos: QR/dropdown, revisão fora do corpo de texto, grupos de formas, `text:format-change` no LibreOffice. |
-| D16 — regressão ondas 12–27 | **Corrigido** | **225/225** no gate completo (antes 208/208 na onda 27). |
+| D14 — juízes `qa/wave28-*` | **Corrigido** | 13 testes CTest com rótulo wave28 no gate; interop RTF em `scripts/qa-interop.py` (não é CTest); `check_pdf.py` subset/CIDSet; sem dependência de root/glibc/`LD_PRELOAD`. |
+| D15 — catálogo e `mcp-tools.md` | **Corrigido** | Limites honestos: QR/dropdown, revisão fora do corpo de texto, grupos de formas e o `connectTo` (conector de forma), `text:format-change` no LibreOffice. Comentário em tabela, quebra ou imagem sai num parágrafo portador. |
+| D16 — regressão ondas 12–27 | **Corrigido** | **224/224** no gate completo (o fecho anterior foi 225/225 enquanto a interop era CTest; a onda 27 era 208/208). |
 | Integração pós-review | **Corrigido** | `79e89f7` mantém aviso wave 21 válido; `1971af4` juiz wave 25 alinhado a comentários nativos. |
 
-**Decisões:** nenhum item da spec D1–D16 foi adiado. **Limites documentados (não são falha da onda):** QR e dropdown em texto plano; revisão em tabela/quebra/imagem/forma/QR/dropdown só com aviso (sem escrita); grupos de formas; LibreOffice não materializa `text:format-change` a partir de `\crauth`. O backlog de GUI (`src/app/`) não foi tocado.
+**Decisões:** nenhum item da spec D1–D16 foi adiado. **Limites documentados (não são falha da onda):** QR e dropdown em texto plano; revisão em tabela/quebra/imagem/forma/QR/dropdown só com aviso (sem escrita); grupos de formas e o `connectTo` (conector de forma); LibreOffice não materializa `text:format-change` a partir de `\crauth`. Comentário em tabela, quebra ou imagem sai num parágrafo portador. O backlog de GUI (`src/app/`) não foi tocado.
 
 **Próximo passo sugerido:** `notion-sync`, abrir PR, merge gate.
 
